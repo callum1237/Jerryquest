@@ -191,11 +191,11 @@ const storyStep = () => Object.keys(QUESTS).filter((k) => QUESTS[k].story && sto
 // ---------- saved state ----------
 const SAVE_KEY = 'jerryquest_save_v1';
 const fresh = () => ({
-  started: false, bank: 0, xp: Object.fromEntries(SKILLS.map(([k]) => [k, 0])), inv: {}, coins: 0,
+  started: false, name: '', bank: 0, xp: Object.fromEntries(SKILLS.map(([k]) => [k, 0])), inv: {}, coins: 0,
   hero: { xp: 0, alloc: { atk: 0, def: 0, hp: 0 } },
   quests: Object.fromEntries(Object.keys(QUESTS).map((k) => [k, { state: 'todo', kills: 0 }])),
   hp: 56, pos: [0, 6], preset: 'day',
-  look: { outfit: 'none', trim: 'none', hat: false, cape: true, hair: 'hero', hairLen: 'short', hairCol: 'chestnut', skin: 'peach', eyes: 'brown', eyeStyle: 'round', head: 'normal', ears: 'human' },
+  look: { outfit: 'none', trim: 'none', hat: false, cape: true, hair: 'hero', hairLen: 'short', hairCol: 'chestnut', skin: 'peach', eyes: 'brown', eyeStyle: 'round', head: 'normal', ears: 'human', sex: 'm', mouth: 'smile', mark: 'none' },
   owned: ['k_sword', 'sh_badge', 'ar_cloth'], equip: { weapon: 'k_sword', shield: 'sh_badge', armour: 'ar_cloth' },
 });
 let S = fresh();
@@ -310,7 +310,7 @@ const nodes = [];
 let tool = null, rod = null, pick = null;
 
 // ---------- boot ----------
-const FILES = ['world', 'gear', 'interior', 'dragon', 'knight', 'mage', 'archer', 'barbarian', 'skel_warrior', 'skel_minion', 'skel_mage'];
+const FILES = ['world', 'gear', 'interior', 'dragon', 'knight', 'heroine', 'mage', 'archer', 'barbarian', 'skel_warrior', 'skel_minion', 'skel_mage'];
 async function main() {
   let n = 0;
   const loaded = await Promise.all(FILES.map((f) => loadModel(f).then((g) => { $('loadmsg').textContent = `${++n} of ${FILES.length} models`; return g; })));
@@ -334,7 +334,7 @@ async function main() {
   applyPreset(S.preset || 'day');
   $('loading').style.opacity = '0';
   setTimeout(() => $('loading').remove(), 700);
-  if (had && S.started) startHero(); else showPick();
+  if (had && S.started) { startHero(); if (!S.name) openCreator('new'); } else showPick();
   renderer.setAnimationLoop(tick);
 }
 
@@ -349,17 +349,18 @@ function showPick() {
     $('pick').hidden = true;
     if (!S.started) { S.started = true; S.hp = maxHp(); }
     startHero(); save();
-    if (!S.welcomed) { S.welcomed = true; toast('Welcome to Jerry Village! Look for villagers with a ! above their heads.', null, true); }
+    openCreator('new');
   });
   cards.appendChild(b);
   $('pick').hidden = false;
 }
 
 function startHero() {
-  player = new Actor(G.knight);
+  player = new Actor(heroModel());
   player.root.position.set(S.pos[0], 0, S.pos[1]);
   player.base = {};
   player.root.traverse((o) => { if (o.name === '1H_Sword') player.base.weapon = o; if (o.name === 'Badge_Shield') player.base.shield = o; });
+  borrowKnightGear();
   player.weapons = [];
   addSilhouette(player.root, '#ffe9a0');
   equipGear();
@@ -381,7 +382,7 @@ const HAIR_COLOURS = {
   chestnut: ['Chestnut', '#8a4f2a'], black: ['Black', '#2e2630'], blonde: ['Blonde', '#f2c75c'], ginger: ['Ginger', '#e0742f'],
   snow: ['Snow', '#f1ece4'], pink: ['Pink', '#ff8fc8'], blue: ['Blue', '#5f9ef0'], green: ['Green', '#66c46a'],
 };
-const HAIR_STYLES = { none: 'Bald', short: 'Neat', spiky: 'Spiky', hero: 'Hero spikes', swept: 'Swept fringe', bun: 'Top bun', mohawk: 'Mohawk', long: 'Ponytail' };
+const HAIR_STYLES = { short: 'Neat', hero: 'Hero spikes', spiky: 'Spiky', swept: 'Swept fringe', bob: 'Bob', hime: 'Straight bangs', long: 'Ponytail', twin: 'Pigtails', bun: 'Top bun', curls: 'Curls', mohawk: 'Mohawk', none: 'Bald' };
 const HAIR_LENGTHS = { short: 'Short', shoulder: 'Shoulder', long: 'Long', vlong: 'Very long' };
 const SKIN_TONES = {
   porcelain: ['Porcelain', '#ffe9dc'], peach: ['Peach', '#f9cfb0'], honey: ['Honey', '#e7b085'], tan: ['Tan', '#c98d5e'],
@@ -404,175 +405,310 @@ function hairGroup(style, len = 'short') {
     const m = new THREE.Mesh(geo); m.position.set(x, y, z); m.rotation.set(rx, ry, rz); m.scale.set(sx, sy, sz);
     m.castShadow = true; registerMesh(m, hairMats); g.add(m); return m;
   };
-  const cap = () => add(new THREE.SphereGeometry(1, 20, 12, 0, Math.PI * 2, 0, Math.PI * 0.52), 0, HAIR_Y, -0.03, -0.25, 0, 0, HAIR_R * 1.07, HAIR_R * 0.72, HAIR_R * 1.05);
-  if (style === 'short') cap();
-  if (style === 'spiky') {
-    cap();
-    for (let i = 0; i < 9; i++) {
-      const a = (i / 9) * Math.PI * 2, r = i % 2 ? 0.28 : 0.12;
-      add(new THREE.ConeGeometry(0.16, 0.42, 6), Math.cos(a) * r, HAIR_Y + HAIR_R * 0.62, Math.sin(a) * r - 0.05, Math.sin(a) * 0.7, 0, -Math.cos(a) * 0.7);
+  // A lock of hair: a flattened cone hanging from a point on the head, leaning out to follow the skull.
+  // az: 0 is the front of the face, +/- toward the sides, PI the back. el: height on the head in radians.
+  const lock = (az, el, h, r = 0.12, lean = 0, twist = 0, flat = 0.5, out = 1.07) => {
+    const k = `${r}|${h}`; if (!lockGeos[k]) lockGeos[k] = new THREE.ConeGeometry(r, h, 8).rotateX(Math.PI).translate(0, -h / 2, 0);
+    const holder = new THREE.Group();
+    holder.position.set(HC.x + Math.sin(az) * Math.cos(el) * HR.x * out, HC.y + Math.sin(el) * HR.y * out, HC.z + Math.cos(az) * Math.cos(el) * HR.z * out);
+    holder.rotation.set(-(Math.max(0, el) + 0.1 + lean), az, twist, 'YXZ');
+    const m = new THREE.Mesh(lockGeos[k]); m.scale.z = flat; m.castShadow = true; registerMesh(m, hairMats);
+    holder.add(m); g.add(holder); return holder;
+  };
+  // The hair "shell": a sphere a little bigger than the head, cut along a hairline.
+  // front is how low it comes over the forehead, side over the ears, back at the nape.
+  const shell = (front = 0.42, side = 0.05, back = -0.5) => {
+    const k = `${front}|${side}|${back}`;
+    if (!shellGeos[k]) {
+      const src = new THREE.SphereGeometry(1, 40, 28), p = src.attributes.position, idx = src.index.array, keep = [];
+      const ok = (i) => {
+        const x = p.getX(i), y = p.getY(i), z = p.getZ(i);
+        const hl = z > 0 ? THREE.MathUtils.lerp(side, front, Math.min(1, z / Math.max(0.35, Math.hypot(x, z)) * 1.15)) : THREE.MathUtils.lerp(side, back, Math.min(1, -z / Math.max(0.35, Math.hypot(x, z))));
+        return y > hl;
+      };
+      for (let i = 0; i < idx.length; i += 3) if (ok(idx[i]) && ok(idx[i + 1]) && ok(idx[i + 2])) keep.push(idx[i], idx[i + 1], idx[i + 2]);
+      src.setIndex(keep); shellGeos[k] = src;
     }
+    return add(shellGeos[k], HC.x, HC.y + 0.01, HC.z - 0.01, 0, 0, 0, HR.x * 1.07, HR.y * 1.08, HR.z * 1.07);
+  };
+  const bangs = (kind) => {
+    if (kind === 'blunt') { for (let i = -3; i <= 3; i++) lock(i * 0.2, 0.78, 0.32, 0.16, 0.02, 0, 0.45); return; }
+    if (kind === 'side') { for (let i = -3; i <= 3; i++) lock(i * 0.2, 0.8, 0.3 - Math.abs(i + 1) * 0.02, 0.16, 0.04, -0.35, 0.45); return; }
+    if (kind === 'centre') { for (const i of [-3, -2, -1, 1, 2, 3]) lock(i * 0.2, 0.8, 0.3, 0.16, 0.04, Math.sign(i) * 0.3, 0.45); return; }
+    if (kind === 'spiky') { for (let i = -3; i <= 3; i++) lock(i * 0.19, 0.82, 0.34 - (i % 2 ? 0.08 : 0), 0.15, 0.08, i * 0.12, 0.5); return; }
+    if (kind === 'swept') { for (let i = -3; i <= 3; i++) lock(i * 0.2 - 0.1, 0.84, 0.32 + (i > 0 ? 0.08 : 0), 0.17, 0.05, -0.7, 0.45); return; }
+  };
+  const sidelocks = (h = 0.6) => { for (const s of [-1, 1]) lock(s * 0.98, 0.25, h, 0.11, 0.06, 0, 0.5, 1.04); };
+  const LEN = { short: 0, shoulder: 0.55, long: 0.95, vlong: 1.4 }[len] || 0;
+  const backHair = (L) => {
+    if (!L) return;
+    for (let i = 0; i < 9; i++) { const az = Math.PI * (0.52 + i * 0.12); lock(az, 0.15, 0.55 + L * 0.65, 0.2, 0.02, 0, 0.55, 1.0); }
+    sidelocks(0.45 + L * 0.35);
+  };
+  const spikes = (n = 9, big = 1) => {
+    for (let i = 0; i < n; i++) { const a = (i / n) * Math.PI * 2; lock(a, 0.95, 0.42 * big, 0.15, 1.4, 0, 0.8, 0.95); }
+  };
+  if (style === 'short') { shell(); bangs('side'); }
+  if (style === 'spiky') { shell(); bangs('spiky'); spikes(10); }
+  if (style === 'hero') {
+    shell(); bangs('spiky');
+    const sp = [[0, 1.0, 0.7], [0.5, 0.95, 0.6], [-0.5, 0.95, 0.6], [1.1, 0.75, 0.55], [-1.1, 0.75, 0.55], [2.2, 0.6, 0.6], [-2.2, 0.6, 0.6], [Math.PI, 0.6, 0.65], [1.6, 0.4, 0.45], [-1.6, 0.4, 0.45]];
+    for (const [az, el, h] of sp) lock(az, el, h, 0.17, 2.45 - el, 0, 0.7, 0.92);
   }
+  if (style === 'swept') { shell(0.38); bangs('swept'); lock(-0.55, 0.45, 0.62, 0.12, 0.05, -0.2, 0.5); }
+  if (style === 'bun') { shell(0.48, 0.15, -0.2); bangs('centre'); add(new THREE.SphereGeometry(0.25, 16, 12), HC.x, HC.y + HR.y * 0.95, HC.z - HR.z * 0.55); }
   if (style === 'long') {
-    cap();
-    add(new THREE.CapsuleGeometry(0.3, 0.55, 4, 10), 0, HAIR_Y - 0.25, -HAIR_R * 0.62, 0.15, 0, 0, 1.9, 1, 0.75);
+    shell(0.45, 0.1, -0.15); bangs('centre');
+    add(new THREE.TorusGeometry(0.1, 0.04, 6, 12), HC.x, HC.y + HR.y * 0.62, HC.z - HR.z * 1.0, 0.6);
+    const t = lock(Math.PI, 0.55, 0.9 + LEN * 0.55, 0.2, -0.15, 0, 0.75, 1.12);
+    t.position.y += 0.05;
   }
-  if (style === 'bun') {
-    cap();
-    add(new THREE.SphereGeometry(0.24, 14, 10), 0, HAIR_Y + HAIR_R * 0.72, -HAIR_R * 0.55);
+  if (style === 'bob') { shell(0.42, -0.45, -0.55); bangs('blunt'); for (const s of [-1, 1]) lock(s * 1.1, 0.1, 0.5, 0.17, 0.08, 0, 0.6, 1.03); }
+  if (style === 'hime') { shell(0.42, 0.05, -0.4); bangs('blunt'); sidelocks(0.75); backHair(Math.max(LEN, 0.95)); }
+  if (style === 'twin') {
+    shell(0.45, 0.15, -0.25); bangs('centre');
+    for (const s of [-1, 1]) { add(new THREE.SphereGeometry(0.09, 10, 8), HC.x + s * HR.x * 0.82, HC.y + HR.y * 0.55, HC.z - HR.z * 0.45); const t = lock(s * 2.0, 0.55, 0.7 + LEN * 0.5, 0.18, 0.7, 0, 0.75, 1.15); t.rotation.z = s * 0.25; }
+  }
+  if (style === 'curls') {
+    shell(0.4, 0.0, -0.45);
+    for (let i = 0; i < 26; i++) { const az = (i * 2.399) % (Math.PI * 2), el = 0.15 + (i % 5) * 0.2; if (Math.cos(az) > 0.55 && el < 0.7) continue; add(curlGeo, HC.x + Math.sin(az) * Math.cos(el) * HR.x * 1.1, HC.y + Math.sin(el) * HR.y * 1.1, HC.z + Math.cos(az) * Math.cos(el) * HR.z * 1.1); }
+    for (let i = -2; i <= 2; i++) add(curlGeo, HC.x + Math.sin(i * 0.3) * HR.x * 0.95, HC.y + HR.y * 0.72, HC.z + Math.cos(i * 0.3) * HR.z * 0.8, 0, 0, 0, 0.8, 0.8, 0.8);
   }
   if (style === 'mohawk') {
-    for (let i = 0; i < 5; i++) add(new THREE.ConeGeometry(0.13, 0.5, 5), 0, HAIR_Y + HAIR_R * 0.82 - Math.abs(i - 1.5) * 0.06, 0.32 - i * 0.2, -0.35 + i * 0.18, 0, 0, 1, 1, 1.6);
+    for (let i = 0; i < 6; i++) { const el = 1.15 - Math.abs(i - 2) * 0.08; lock(Math.PI * (i / 5) * 0.9 - 0.15, el, 0.5, 0.13, 2.85 - el, 0, 0.5, 0.92); }
   }
-  if (style === 'hero') {
-    // big anime spikes sweeping up and back, with a fringe over the forehead
-    cap();
-    const spikes = [[0, 0.95, 0.15, -0.5, 0, 0.62], [0.32, 0.85, 0.05, -0.7, 0, -0.6], [-0.32, 0.85, 0.05, -0.7, 0, 0.6], [0.18, 0.9, -0.3, -1.2, 0, -0.35], [-0.18, 0.9, -0.3, -1.2, 0, 0.35],
-      [0.45, 0.6, -0.15, -0.5, 0, -1.1], [-0.45, 0.6, -0.15, -0.5, 0, 1.1], [0, 0.75, -0.48, -1.7, 0, 0]];
-    for (const [x, y, z, rx, ry, rz] of spikes) add(new THREE.ConeGeometry(0.2, 0.62, 5), x * HAIR_R * 1.6, HAIR_Y + y * HAIR_R * 0.85, z * HAIR_R * 1.6, rx, ry, rz);
-    for (let i = 0; i < 4; i++) add(new THREE.ConeGeometry(0.11, 0.36, 4), (i - 1.5) * 0.17, HAIR_Y + HAIR_R * 0.42, HAIR_R * 0.98, 2.3, 0, (i - 1.5) * 0.25);
-  }
-  if (style === 'swept') {
-    cap();
-    add(new THREE.SphereGeometry(0.3, 14, 10), HAIR_R * 0.35, HAIR_Y + HAIR_R * 0.5, HAIR_R * 0.62, 0.3, 0, -0.5, 1.5, 0.55, 0.8);
-    add(new THREE.ConeGeometry(0.14, 0.5, 5), HAIR_R * 0.72, HAIR_Y + HAIR_R * 0.05, HAIR_R * 0.72, 2.7, 0, 0.4);
-  }
-  // hair length: a fall of hair down the back, from collar-length to very long
-  const LEN = { short: 0, shoulder: 0.55, long: 1.0, vlong: 1.5 }[len] || 0;
-  if (LEN && style !== 'none' && style !== 'mohawk' && style !== 'long') {
-    add(new THREE.CapsuleGeometry(0.34, 0.3 + LEN * 0.5, 4, 12), 0, HAIR_Y - 0.15 - LEN * 0.3, -HAIR_R * 0.72, 0.12, 0, 0, 1.85, 1, 0.7);
-    for (const sx of [-1, 1]) add(new THREE.CapsuleGeometry(0.075, 0.18 + LEN * 0.3, 4, 8), sx * HAIR_R * 1.0, HAIR_Y - 0.14 - LEN * 0.16, HAIR_R * 0.05, 0, 0, sx * 0.06, 1, 1, 0.8);
-  }
+  if (!['none', 'mohawk', 'long', 'bob', 'hime', 'twin'].includes(style)) backHair(LEN);
   hairCache.set(key, g);
   return g;
 }
-const HAIR_Y = 0.62, HAIR_R = 0.56;
+const lockGeos = {}, shellGeos = {}, curlGeo = new THREE.SphereGeometry(0.15, 10, 8);
+// centre and radii of the code-built head in head-bone space (matches buildFace)
+const HC = new THREE.Vector3(0, 0.546, 0.024), HR = new THREE.Vector3(0.543, 0.516, 0.508);
 
 // ---------- face, skin, head size, ears ----------
-// The hero's head texture is painted on a canvas per hero: skin is recoloured to the chosen tone,
-// and the original dot eyes are painted over so new anime eyes (with iris colour) can sit on top.
+// Every hero gets a soft round chibi head built in code, with an anime face painted on a canvas:
+// big glossy eyes, brows in the hair colour, a mouth, cheeks and optional face marks.
+// The face blinks every few seconds and winces when you are hit.
+const MOUTHS = { smile: 'Smile', grin: 'Big grin', calm: 'Calm', cat: 'Cat smile', fang: 'Little fang', pout: 'Pout' };
+const MARKS = { none: 'None', freckles: 'Freckles', rosy: 'Rosy cheeks', scar: 'Hero scar', paint: 'War paint', star: 'Star mark' };
+const SEXES = { m: 'Male', f: 'Female' };
+// Where the original model's head sat, measured once on the knight so both bodies get the same head.
+let headRef = null;
+function measureHead(root) {
+  let head = null, bone = null;
+  root.traverse((o) => { if (o.isSkinnedMesh && /_Head(_Hooded)?$/.test(o.name)) head = o; if (o.isBone && o.name === 'head') bone = o; });
+  if (!head || !bone) return null;
+  root.updateMatrixWorld(true);
+  const inv = bone.matrixWorld.clone().invert(), v = new THREE.Vector3(), box = new THREE.Box3();
+  const pos = head.geometry.attributes.position;
+  for (let i = 0; i < pos.count; i++) { v.fromBufferAttribute(pos, i); head.applyBoneTransform(i, v); v.applyMatrix4(head.matrixWorld).applyMatrix4(inv); box.expandByPoint(v); }
+  return box;
+}
 function headParts() {
   if (player.headInfo) return player.headInfo;
   let head = null, bone = null;
-  player.root.traverse((o) => { if (o.isSkinnedMesh && /_Head$/.test(o.name)) head = o; if (o.isBone && o.name === 'head') bone = o; });
-  if (!head || !bone) return null;
-  player.root.updateMatrixWorld(true);
-  const inv = bone.matrixWorld.clone().invert(), v = new THREE.Vector3();
-  const pos = head.geometry.attributes.position, uv = head.geometry.attributes.uv;
-  const box = new THREE.Box3(), eyes = { L: new THREE.Box3(), R: new THREE.Box3() };
-  for (let i = 0; i < pos.count; i++) {
-    v.fromBufferAttribute(pos, i); head.applyBoneTransform(i, v); v.applyMatrix4(head.matrixWorld).applyMatrix4(inv);
-    box.expandByPoint(v);
-    if (uv.getX(i) > 0.29) eyes[v.x < 0 ? 'L' : 'R'].expandByPoint(v);
+  player.root.traverse((o) => { if (o.isSkinnedMesh && /_Head(_Hooded)?$/.test(o.name)) head = o; if (o.isBone && o.name === 'head') bone = o; });
+  if (!bone) return null;
+  if (!headRef) {
+    const tmp = SkeletonUtils.clone(G.knight.scene); tmp.scale.setScalar(1.3);
+    headRef = measureHead(tmp) || new THREE.Box3(new THREE.Vector3(-0.5, 0, -0.45), new THREE.Vector3(0.5, 1.1, 0.5));
   }
-  player.headInfo = { head, bone, box, eyes };
+  player.headInfo = { head, bone, box: headRef };
   return player.headInfo;
 }
-let skinTex = null, skinKey = '';
-function paintSkin(head, skin, blankEyes) {
-  const key = `${skin}|${blankEyes}`;
-  const m = head.userData.mats, src = (m.std.userData.origMap || m.std.map);
-  if (!src || !src.image || !src.image.width) { later(0.5, () => applyLook()); return; }
-  m.std.userData.origMap = src;
-  if (key !== skinKey) {
-    const img = src.image, cv = document.createElement('canvas'); cv.width = img.width; cv.height = img.height;
-    const g = cv.getContext('2d'); g.drawImage(img, 0, 0);
-    const W = img.width, H = img.height, x1 = Math.round(W * 0.25), x2 = Math.round(W * 0.36), y2 = Math.round(H * 0.22);
-    const d = g.getImageData(0, 0, x2, y2), px = d.data;
-    // average colour of the main skin swatch, so each pixel keeps its shading but takes the new tone
-    let ar = 0, ag = 0, ab = 0, an = 0;
-    for (let y = 0; y < y2; y++) for (let x = 0; x < W * 0.12; x++) { const i = (y * x2 + x) * 4; ar += px[i]; ag += px[i + 1]; ab += px[i + 2]; an++; }
-    ar /= an; ag /= an; ab /= an;
-    const c = new THREE.Color(SKIN_TONES[skin][1]), tr = c.r * 255, tg = c.g * 255, tb = c.b * 255;
-    for (let y = 0; y < y2; y++) for (let x = 0; x < x2; x++) {
-      const i = (y * x2 + x) * 4;
-      if (x >= x1 && !blankEyes) continue;
-      if (x >= x1) { px[i] = tr; px[i + 1] = tg; px[i + 2] = tb; continue; }
-      px[i] = Math.min(255, px[i] * tr / ar); px[i + 1] = Math.min(255, px[i + 1] * tg / ag); px[i + 2] = Math.min(255, px[i + 2] * tb / ab);
-    }
-    g.putImageData(d, 0, 0);
-    if (skinTex) skinTex.dispose();
-    skinTex = new THREE.CanvasTexture(cv); skinTex.flipY = src.flipY; skinTex.colorSpace = src.colorSpace; skinTex.wrapS = src.wrapS; skinTex.wrapT = src.wrapT;
-    skinKey = key;
+const headGeo = (() => {
+  const g = new THREE.SphereGeometry(1, 56, 40), p = g.attributes.position, v = new THREE.Vector3();
+  for (let i = 0; i < p.count; i++) {
+    v.fromBufferAttribute(p, i);
+    // soft jaw: narrower and a little forward toward the chin, flatter at the back
+    if (v.y < 0) { const k = -v.y; v.x *= 1 - 0.2 * k * k; v.z *= 1 - 0.06 * k * k; if (v.z > 0) v.z += 0.07 * k * v.z; v.y *= 0.94; }
+    if (v.z < 0) v.z *= 0.93;
+    // round cheeks just below eye level
+    const ch = Math.max(0, 1 - Math.abs(v.y + 0.3) * 3.2) * Math.max(0, v.z) * 0.05; v.x *= 1 + ch;
+    p.setXYZ(i, v.x, v.y, v.z);
   }
-  for (const mat of [m.std, m.toon]) { mat.map = skinTex; mat.needsUpdate = true; }
-}
-const eyeTexCache = new Map();
-function eyeTexture(style, eyeCol, browCol, flip) {
-  const key = [style, eyeCol, browCol, flip, S.look.skin].join('|');
-  if (eyeTexCache.has(key)) return eyeTexCache.get(key);
-  const cv = document.createElement('canvas'); cv.width = 128; cv.height = 176;
-  const g = cv.getContext('2d');
-  if (flip) { g.translate(128, 0); g.scale(-1, 1); }
-  const ink = '#2a1810';
-  // eyebrow, in the hair colour (outer end is on the right of this canvas)
-  g.lineCap = 'round'; g.strokeStyle = browCol; g.lineWidth = 13;
+  g.computeVertexNormals();
+  return g;
+})();
+const earGeo = new THREE.ConeGeometry(0.16, 0.62, 4);
+const humanEarGeo = new THREE.SphereGeometry(1, 12, 10);
+const FW = 1024, FH = 512, FX = 256, EY = 268, ESEP = 80;
+function shade(hex, k) { return `#${new THREE.Color(hex).multiplyScalar(k).getHexString()}`; }
+function mixHex(a, b, t) { return `#${new THREE.Color(a).lerp(new THREE.Color(b), t).getHexString()}`; }
+// One eye, centred at (x, y). side is -1 for the eye on the viewer's left, +1 for the right.
+function drawEye(g, x, y, side, L, state) {
+  const ink = '#2b160c', female = L.sex === 'f', col = (EYE_COLOURS[L.eyes] || EYE_COLOURS.brown)[1];
+  const lidCol = shade((SKIN_TONES[L.skin] || SKIN_TONES.peach)[1], 0.86);
+  g.save(); g.translate(x, y); g.scale(side, 1); // draw as the right eye; the outer corner is +x
+  g.lineCap = 'round'; g.lineJoin = 'round';
+  const lashFlicks = () => {
+    if (!female) return;
+    g.lineWidth = 5; g.beginPath(); g.moveTo(30, -26); g.quadraticCurveTo(42, -32, 48, -42); g.moveTo(35, -16); g.quadraticCurveTo(48, -18, 54, -26); g.stroke();
+  };
+  if (state === 'blink' || L.eyeStyle === 'happy') {
+    g.strokeStyle = ink; g.lineWidth = 8; g.beginPath();
+    if (state === 'blink') { g.moveTo(-32, 2); g.quadraticCurveTo(0, 18, 34, 0); g.stroke(); g.lineWidth = 5; g.beginPath(); g.moveTo(34, 0); g.lineTo(42, -6); g.stroke(); }
+    else { g.moveTo(-32, 10); g.quadraticCurveTo(0, -30, 34, 8); g.stroke(); }
+    if (female) { g.lineWidth = 4.5; g.beginPath(); g.moveTo(30, state === 'blink' ? 2 : 0); g.lineTo(44, -10); g.stroke(); }
+    g.restore(); return;
+  }
+  if (state === 'hurt') {
+    g.strokeStyle = ink; g.lineWidth = 8; g.beginPath(); g.moveTo(26, -20); g.lineTo(-18, 0); g.lineTo(26, 18); g.stroke();
+    g.restore(); return;
+  }
+  if (L.eyeStyle === 'classic') {
+    g.fillStyle = ink; g.beginPath(); g.ellipse(0, 4, 15, 22, 0, 0, Math.PI * 2); g.fill();
+    g.fillStyle = '#fff'; g.beginPath(); g.arc(-4, -6, 6, 0, Math.PI * 2); g.fill();
+    if (female) { g.strokeStyle = ink; g.lineWidth = 4.5; g.beginPath(); g.moveTo(12, -14); g.lineTo(24, -24); g.stroke(); }
+    g.restore(); return;
+  }
+  const rx = 33, ry = L.eyeStyle === 'sleepy' ? 38 : 44;
+  // white of the eye
+  g.save();
+  g.beginPath(); g.ellipse(0, 0, rx, ry, 0, 0, Math.PI * 2); g.clip();
+  g.fillStyle = '#ffffff'; g.fillRect(-60, -60, 120, 120);
+  // iris: dark at the top, the chosen colour in the middle, a bright glow at the bottom
+  const ix = -3, iy = 6, irx = 25, iry = 34;
+  const gr = g.createLinearGradient(0, iy - iry, 0, iy + iry);
+  gr.addColorStop(0, shade(col, 0.35)); gr.addColorStop(0.45, col); gr.addColorStop(1, mixHex(col, '#ffffff', 0.55));
+  g.fillStyle = gr; g.beginPath(); g.ellipse(ix, iy, irx, iry, 0, 0, Math.PI * 2); g.fill();
+  g.strokeStyle = shade(col, 0.3); g.lineWidth = 3; g.stroke();
+  // pupil and a soft ring
+  g.fillStyle = shade(col, 0.22); g.beginPath(); g.ellipse(ix, iy - 2, 12, 17, 0, 0, Math.PI * 2); g.fill();
+  // sparkles
+  g.fillStyle = '#ffffff';
+  g.beginPath(); g.ellipse(ix - 9, iy - 14, 9, 11, -0.3, 0, Math.PI * 2); g.fill();
+  g.beginPath(); g.arc(ix + 10, iy + 16, 4.5, 0, Math.PI * 2); g.fill();
+  g.globalAlpha = 0.55; g.beginPath(); g.arc(ix + 12, iy - 6, 3, 0, Math.PI * 2); g.fill(); g.globalAlpha = 1;
+  // shadow from the upper lid
+  g.fillStyle = 'rgba(60,30,20,0.18)'; g.beginPath(); g.ellipse(0, -ry + 6, rx + 4, 14, 0, 0, Math.PI * 2); g.fill();
+  // lids: determined eyes are cut by a slanted lid, sleepy ones are half closed
+  g.fillStyle = lidCol;
+  if (L.eyeStyle === 'sharp') { g.beginPath(); g.moveTo(-60, -60); g.lineTo(60, -60); g.lineTo(60, -34); g.lineTo(-60, -12); g.closePath(); g.fill(); }
+  if (L.eyeStyle === 'sleepy') g.fillRect(-60, -60, 120, 52);
+  g.restore();
+  // upper lash line: thick, with a flick at the outer corner
+  g.strokeStyle = ink; g.fillStyle = ink; g.lineWidth = female ? 9 : 8;
   g.beginPath();
-  if (style === 'sharp') { g.moveTo(18, 52); g.lineTo(112, 26); } else if (style === 'sleepy') { g.moveTo(18, 40); g.quadraticCurveTo(64, 30, 110, 42); } else { g.moveTo(18, 38); g.quadraticCurveTo(64, 14, 112, 34); }
+  if (L.eyeStyle === 'sharp') { g.moveTo(-32, -10); g.lineTo(34, -34); g.lineTo(44, -38); }
+  else if (L.eyeStyle === 'sleepy') { g.moveTo(-32, -8); g.quadraticCurveTo(0, -12, 34, -8); g.lineTo(42, -12); }
+  else { g.ellipse(0, 0, rx, ry, 0, Math.PI * 1.06, Math.PI * 1.93); g.lineTo(43, -26); }
   g.stroke();
-  if (style === 'happy') {
-    g.strokeStyle = ink; g.lineWidth = 15; g.beginPath(); g.moveTo(18, 120); g.quadraticCurveTo(64, 64, 110, 120); g.stroke();
-  } else {
-    const cy = 116, rx = 44, ry = style === 'sleepy' ? 40 : 52;
-    g.save();
-    g.beginPath(); g.ellipse(64, cy, rx, ry, 0, 0, Math.PI * 2);
-    if (style === 'sharp') { g.rect(0, 0, 0, 0); }
-    g.clip();
-    g.fillStyle = '#ffffff'; g.fillRect(0, 0, 128, 176);
-    const grad = g.createLinearGradient(0, cy - 40, 0, cy + 40);
-    const col = new THREE.Color(eyeCol);
-    grad.addColorStop(0, `#${col.clone().multiplyScalar(0.45).getHexString()}`); grad.addColorStop(0.55, eyeCol); grad.addColorStop(1, `#${col.clone().lerp(new THREE.Color('#ffffff'), 0.45).getHexString()}`);
-    g.fillStyle = grad; g.beginPath(); g.arc(64, cy + 6, 38, 0, Math.PI * 2); g.fill();
-    g.fillStyle = ink; g.beginPath(); g.arc(64, cy + 6, 15, 0, Math.PI * 2); g.fill();
-    g.fillStyle = '#ffffff'; g.beginPath(); g.arc(48, cy - 12, 11, 0, Math.PI * 2); g.fill(); g.beginPath(); g.arc(80, cy + 22, 5.5, 0, Math.PI * 2); g.fill();
-    // lids: determined eyes are cut by a slanted lid, sleepy ones are half closed
-    g.fillStyle = `#${new THREE.Color((SKIN_TONES[S.look.skin] || SKIN_TONES.peach)[1]).multiplyScalar(0.82).getHexString()}`;
-    if (style === 'sharp') { g.beginPath(); g.moveTo(0, 0); g.lineTo(128, 0); g.lineTo(128, 62); g.lineTo(0, 98); g.closePath(); g.fill(); }
-    if (style === 'sleepy') { g.fillRect(0, 0, 128, cy - 6); }
-    g.restore();
-    // thick upper lash line with a little flick at the outer corner
-    g.strokeStyle = ink; g.lineWidth = 11; g.beginPath();
-    if (style === 'sharp') { g.moveTo(18, 98); g.lineTo(112, 64); g.lineTo(122, 56); }
-    else if (style === 'sleepy') { g.moveTo(20, cy - 6); g.lineTo(108, cy - 6); g.lineTo(118, cy - 12); }
-    else { g.ellipse(64, cy, rx, ry, 0, Math.PI * 1.08, Math.PI * 1.95); g.lineTo(122, cy - 30); }
-    g.stroke();
-    g.lineWidth = 4; g.beginPath(); g.ellipse(64, cy, rx, ry, 0, Math.PI * 0.2, Math.PI * 0.8); g.stroke();
+  lashFlicks();
+  // a short lower lash
+  g.lineWidth = 3.5; g.beginPath(); g.ellipse(0, 0, rx, ry, 0, Math.PI * 0.22, Math.PI * 0.62); g.stroke();
+  g.restore();
+}
+function drawBrow(g, x, y, side, L) {
+  const hc = (HAIR_COLOURS[L.hairCol] || HAIR_COLOURS.chestnut)[1], female = L.sex === 'f';
+  g.save(); g.translate(x, y); g.scale(side, 1);
+  g.strokeStyle = shade(hc, 0.7); g.lineCap = 'round'; g.lineWidth = female ? 7 : 11;
+  g.beginPath();
+  if (L.eyeStyle === 'sharp') { g.moveTo(-28, 10); g.lineTo(34, -8); }
+  else if (L.eyeStyle === 'sleepy') { g.moveTo(-28, 2); g.quadraticCurveTo(4, -6, 34, 4); }
+  else if (female) { g.moveTo(-26, 4); g.quadraticCurveTo(6, -16, 36, 0); }
+  else { g.moveTo(-28, 2); g.quadraticCurveTo(4, -10, 34, -2); }
+  g.stroke(); g.restore();
+}
+function drawMouth(g, x, y, L, state) {
+  const ink = '#4a1c12', skin = (SKIN_TONES[L.skin] || SKIN_TONES.peach)[1];
+  g.save(); g.translate(x, y); g.lineCap = 'round'; g.lineJoin = 'round'; g.strokeStyle = ink; g.lineWidth = 5;
+  const m = state === 'hurt' ? 'hurt' : L.mouth;
+  if (m === 'hurt') { g.beginPath(); g.moveTo(-14, 4); g.lineTo(-7, -2); g.lineTo(0, 4); g.lineTo(7, -2); g.lineTo(14, 4); g.stroke(); }
+  else if (m === 'grin') {
+    g.fillStyle = '#7a2a22'; g.beginPath(); g.moveTo(-16, -4); g.quadraticCurveTo(0, -1, 16, -4); g.quadraticCurveTo(14, 18, 0, 19); g.quadraticCurveTo(-14, 18, -16, -4); g.closePath(); g.fill();
+    g.fillStyle = '#ff8f8f'; g.beginPath(); g.ellipse(0, 13, 8, 5, 0, 0, Math.PI * 2); g.fill();
+    g.fillStyle = '#fff'; g.fillRect(-12, -3, 24, 5);
+    g.beginPath(); g.moveTo(-16, -4); g.quadraticCurveTo(0, -1, 16, -4); g.quadraticCurveTo(14, 18, 0, 19); g.quadraticCurveTo(-14, 18, -16, -4); g.stroke();
+  } else if (m === 'calm') { g.beginPath(); g.moveTo(-9, 2); g.quadraticCurveTo(0, 4, 9, 2); g.stroke(); }
+  else if (m === 'cat') { g.beginPath(); g.moveTo(-16, -2); g.quadraticCurveTo(-8, 10, 0, 0); g.quadraticCurveTo(8, 10, 16, -2); g.stroke(); }
+  else if (m === 'pout') { g.fillStyle = shade(skin, 0.7); g.beginPath(); g.ellipse(0, 3, 6, 5, 0, 0, Math.PI * 2); g.fill(); g.stroke(); }
+  else {
+    g.beginPath(); g.moveTo(-14, -2); g.quadraticCurveTo(0, 12, 14, -2); g.stroke();
+    if (m === 'fang') { g.fillStyle = '#fff'; g.lineWidth = 2.5; g.beginPath(); g.moveTo(4, 3.5); g.lineTo(10, 2); g.lineTo(8, 11); g.closePath(); g.fill(); g.stroke(); }
   }
-  const t = new THREE.CanvasTexture(cv); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 4;
-  eyeTexCache.set(key, t);
+  g.restore();
+}
+function paintFace(g, L, state) {
+  const skin = (SKIN_TONES[L.skin] || SKIN_TONES.peach)[1];
+  g.fillStyle = skin; g.fillRect(0, 0, FW, FH);
+  // a gentle darker band low on the back of the head so the toon light reads as roundness
+  // cheeks
+  const blush = L.mark === 'rosy' ? 0.55 : 0.28;
+  for (const s of [-1, 1]) {
+    const cx = FX + s * 112, cy = EY + 56, rg = g.createRadialGradient(cx, cy, 2, cx, cy, 40);
+    rg.addColorStop(0, `rgba(255,110,120,${blush})`); rg.addColorStop(1, 'rgba(255,110,120,0)');
+    g.fillStyle = rg; g.fillRect(cx - 44, cy - 44, 88, 88);
+    if (L.mark === 'rosy') { g.strokeStyle = 'rgba(220,70,90,0.6)'; g.lineWidth = 3; g.lineCap = 'round'; for (let i = -1; i <= 1; i++) { g.beginPath(); g.moveTo(cx + i * 11 - 4, cy + 5); g.lineTo(cx + i * 11 + 4, cy - 5); g.stroke(); } }
+  }
+  // little nose
+  g.fillStyle = shade(skin, 0.78); g.beginPath(); g.ellipse(FX + 2, EY + 46, 5, 3.5, 0, 0, Math.PI * 2); g.fill();
+  for (const s of [-1, 1]) { drawEye(g, FX + s * ESEP, EY, s, L, state); drawBrow(g, FX + s * (ESEP - 4), EY - 62, s, L); }
+  drawMouth(g, FX, EY + 82, L, state);
+  if (L.mark === 'freckles') { g.fillStyle = shade(skin, 0.68); for (const [dx, dy] of [[-120, 44], [-104, 56], [-92, 42], [-112, 66], [92, 42], [104, 56], [120, 44], [112, 66], [-12, 40], [14, 40]]) { g.beginPath(); g.arc(FX + dx, EY + dy, 3.5, 0, Math.PI * 2); g.fill(); } }
+  if (L.mark === 'scar') { g.strokeStyle = shade(skin, 0.62); g.lineWidth = 6; g.lineCap = 'round'; g.beginPath(); g.moveTo(FX - 44, EY + 18); g.lineTo(FX + 36, EY + 58); g.stroke(); g.strokeStyle = '#ffd9cc'; g.lineWidth = 2; g.stroke(); }
+  if (L.mark === 'paint') { g.fillStyle = '#d9483b'; for (const s of [-1, 1]) for (let i = 0; i < 2; i++) { g.beginPath(); g.moveTo(FX + s * 54, EY + 44 + i * 14); g.lineTo(FX + s * 112, EY + 36 + i * 14); g.lineTo(FX + s * 110, EY + 44 + i * 14); g.lineTo(FX + s * 56, EY + 52 + i * 14); g.closePath(); g.fill(); } }
+  if (L.mark === 'star') { g.fillStyle = '#ffd34a'; g.strokeStyle = '#b8742a'; g.lineWidth = 2.5; const cx = FX + 118, cy = EY + 40; g.beginPath(); for (let i = 0; i < 10; i++) { const r = i % 2 ? 6 : 14, a = -Math.PI / 2 + i * Math.PI / 5; g.lineTo(cx + Math.cos(a) * r, cy + Math.sin(a) * r); } g.closePath(); g.fill(); g.stroke(); }
+}
+const faceTexCache = new Map();
+function faceTexture(L, state) {
+  const key = [L.sex, L.skin, L.eyes, L.eyeStyle, L.mouth, L.mark, L.hairCol, state].join('|');
+  if (faceTexCache.has(key)) return faceTexCache.get(key);
+  if (faceTexCache.size > 24) { for (const t of faceTexCache.values()) t.dispose(); faceTexCache.clear(); }
+  const cv = document.createElement('canvas'); cv.width = FW; cv.height = FH;
+  paintFace(cv.getContext('2d'), L, state);
+  const t = new THREE.CanvasTexture(cv); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 8;
+  faceTexCache.set(key, t);
   return t;
 }
-const earGeo = new THREE.ConeGeometry(0.16, 0.62, 4);
+// A small picture of part of a face, for the buttons in the hero creator.
+let previewCv = null;
+function facePreview(L, part) {
+  if (!previewCv) { previewCv = document.createElement('canvas'); previewCv.width = FW; previewCv.height = FH; }
+  paintFace(previewCv.getContext('2d'), L, 'open');
+  const crop = part === 'mouth' ? [FX - 60, EY + 50, 120, 70] : part === 'mark' ? [FX - 150, EY - 30, 300, 140] : [FX - 130, EY - 90, 260, 150];
+  const out = document.createElement('canvas'); out.width = 160; out.height = Math.round(160 * crop[3] / crop[2]);
+  out.getContext('2d').drawImage(previewCv, crop[0], crop[1], crop[2], crop[3], 0, 0, out.width, out.height);
+  return out.toDataURL();
+}
 function buildFace() {
   const H = headParts();
   if (!H) return;
   const L = S.look;
-  if (player.faceGroup) { player.faceGroup.removeFromParent(); player.faceGroup.traverse((o) => { if (o.material && o.material.dispose) o.material.dispose(); }); }
+  if (H.head) { H.head.visible = false; }
+  if (player.faceGroup) { player.faceGroup.removeFromParent(); player.faceGroup.traverse((o) => { if (o.material && o.material.dispose && !o.userData.keepMat) o.material.dispose(); }); }
   const fg = new THREE.Group(); player.faceGroup = fg; H.bone.add(fg);
-  paintSkin(H.head, L.skin, L.eyeStyle !== 'classic');
-  const hc = (HAIR_COLOURS[L.hairCol] || HAIR_COLOURS.chestnut)[1];
-  if (L.eyeStyle !== 'classic' && !L.hat) {
-    for (const side of ['L', 'R']) {
-      const b = H.eyes[side]; if (b.isEmpty()) continue;
-      const c = b.getCenter(new THREE.Vector3()), sz = b.getSize(new THREE.Vector3());
-      const w = Math.max(sz.x, sz.y) * 2.5;
-      const m = new THREE.Mesh(new THREE.PlaneGeometry(w, w * 1.375), new THREE.MeshBasicMaterial({ map: eyeTexture(L.eyeStyle, EYE_COLOURS[L.eyes][1], hc, side === 'L'), transparent: true, alphaTest: 0.3, depthWrite: false, fog: false, polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -4 }));
-      m.position.set(c.x + (side === 'L' ? -1 : 1) * w * 0.06, c.y + w * 0.12, b.max.z + 0.012);
-      m.rotation.y = (side === 'L' ? -1 : 1) * 0.22;
-      m.renderOrder = 2; m.layers.set(1);
-      fg.add(m);
-    }
-  }
-  if (L.ears === 'elf') {
-    const skinMat = toon(SKIN_TONES[L.skin][1]);
-    const cy = (H.box.min.y + H.box.max.y) / 2, cz = (H.box.min.z + H.box.max.z) / 2;
-    for (const sx of [-1, 1]) {
-      const e = new THREE.Mesh(earGeo); registerMesh(e, skinMat); e.castShadow = true;
-      e.position.set(sx * (H.box.max.x + 0.12), cy + 0.05, cz - 0.05); e.rotation.set(-0.35, 0, -sx * 1.05); e.scale.set(1, 1, 0.45);
-      fg.add(e);
-    }
+  const box = H.box, c = box.getCenter(new THREE.Vector3()), sz = box.getSize(new THREE.Vector3());
+  const rx = sz.x * 0.5, ry = sz.y * 0.47, rz = sz.z * 0.5;
+  const mats = toon('#ffffff');
+  mats.std.map = faceTexture(L, 'open'); mats.toon.map = mats.std.map;
+  for (const mat of [mats.std, mats.toon]) { mat.stencilWrite = true; mat.stencilRef = 1; mat.stencilFunc = THREE.AlwaysStencilFunc; mat.stencilZPass = THREE.ReplaceStencilOp; }
+  const head = new THREE.Mesh(headGeo); registerMesh(head, mats); head.castShadow = true;
+  head.scale.set(rx, ry, rz); head.position.set(c.x, c.y + sz.y * 0.02, c.z);
+  // the sphere's u = 0.25 column, where the face is painted, already points forward (+z)
+  fg.add(head);
+  player.faceMats = mats; player.faceState = 'open';
+  const skinMat = toon(SKIN_TONES[L.skin][1]);
+  for (const sx of [-1, 1]) {
+    const e = new THREE.Mesh(L.ears === 'elf' ? earGeo : humanEarGeo); registerMesh(e, skinMat); e.castShadow = true;
+    if (L.ears === 'elf') { e.position.set(sx * (rx + 0.1), c.y - ry * 0.02, c.z - rz * 0.08); e.rotation.set(-0.3, 0, -sx * 1.12); e.scale.set(1, 1, 0.45); }
+    else { e.position.set(sx * rx * 0.97, c.y - ry * 0.08, c.z - rz * 0.06); e.scale.set(rx * 0.13, ry * 0.2, rz * 0.15); }
+    fg.add(e);
   }
   player.headScale = HEAD_SIZES[L.head] ? HEAD_SIZES[L.head][1] : 1;
+}
+// Blink every few seconds; wince for a moment when hurt.
+function faceTick() {
+  if (!player || !player.faceMats) return;
+  let st = 'open';
+  if (player.dead || now < (player.hurtFace || 0)) st = 'hurt';
+  else if (now < (player.blinkUntil || 0)) st = 'blink';
+  else if (now > (player.blinkAt || 0)) { player.blinkUntil = now + 0.14; player.blinkAt = now + 2.2 + Math.random() * 3.5; st = 'blink'; }
+  if (st !== player.faceState) {
+    player.faceState = st;
+    const t = faceTexture(S.look, st);
+    player.faceMats.std.map = t; player.faceMats.toon.map = t;
+  }
 }
 function applyLook() {
   if (!player) return;
@@ -645,7 +781,7 @@ function buildGearBar() {
   if (free > 0) $('spendpts').onclick = () => openSheet('skills');
 }
 function updateTitle() {
-  $('pname').textContent = 'Hero';
+  $('pname').textContent = heroName();
   $('pclass').textContent = `Level ${heroLvl()} · ${stat('atk')} atk · ${totalDef()} def`;
   $('badgeicon').src = ICONS[W().type];
   $('badgelvl').textContent = heroLvl();
@@ -1209,7 +1345,7 @@ function openSheet(mode) {
   for (const m of ['skills', 'bag', 'quests', 'look', 'opts']) $(`b-${m}`).setAttribute('aria-pressed', String(m === mode));
 }
 function closeSheet() { document.body.classList.remove('sheet-open'); $('sheet').hidden = true; sheetMode = null; for (const m of ['skills', 'bag', 'quests', 'look', 'opts']) $(`b-${m}`).setAttribute('aria-pressed', 'false'); }
-for (const m of ['skills', 'bag', 'quests', 'look', 'opts']) $(`b-${m}`).addEventListener('click', () => openSheet(m));
+for (const m of ['skills', 'bag', 'quests', 'look', 'opts']) $(`b-${m}`).addEventListener('click', () => (m === 'look' ? openCreator('edit') : openSheet(m)));
 
 // dialogue
 let talking = null;
@@ -1435,7 +1571,7 @@ function closeDialog() { $('dialog').hidden = true; talking = null; }
 const keys = new Set();
 const KEYMAP = { ShiftLeft: 'sprint', ShiftRight: 'sprint', KeyW: 'u', ArrowUp: 'u', KeyS: 'd', ArrowDown: 'd', KeyA: 'l', ArrowLeft: 'l', KeyD: 'r', ArrowRight: 'r' };
 addEventListener('keydown', (e) => {
-  if (!player || !$('pick').hidden) return;
+  if (!player || uiLock()) return;
   if (KEYMAP[e.code]) {
     const k = KEYMAP[e.code];
     // tap left or right twice quickly to dash that way
@@ -1553,7 +1689,7 @@ function describe(t) {
   return { label: d.verb, icon: ICONS[d.skill], hint: l >= d.req ? `${d.name} · ${SKILL_NAME[d.skill]} ${d.req}+` : `${d.name} needs ${SKILL_NAME[d.skill]} level ${d.req}`, ok: l >= d.req };
 }
 function doAction() {
-  if (!player || player.dead || !$('pick').hidden) return;
+  if (!player || player.dead || uiLock()) return;
   if (talking) { closeDialog(); return; }
   swing();
 }
@@ -1562,7 +1698,7 @@ const GRAV = 34;
 let dashUntil = 0, dashReady = 0, dashDir = 0, dashLeft = 0, lastTap = { l: -9, r: -9 };
 const dodging = () => player.pos.y > 0.7 || now < dashUntil + 0.08 || dashLeft > 0;
 function dash(side) {
-  if (!player || player.dead || !$('pick').hidden || now < dashReady || stamina < 12) return;
+  if (!player || player.dead || uiLock() || now < dashReady || stamina < 12) return;
   if (talking) closeDialog();
   if (player.task) cancelTask();
   dashDir = side; dashUntil = now + 0.2; dashReady = now + 0.75; dashLeft = 3.6;
@@ -1570,7 +1706,7 @@ function dash(side) {
   burst(player.pos.clone().setY(0.4), '#f3e2bd', 12, 3);
 }
 function jump() {
-  if (!player || player.dead || !$('pick').hidden || player.air) return;
+  if (!player || player.dead || uiLock() || player.air) return;
   if (talking) closeDialog();
   if (player.task) cancelTask();
   player.air = true; player.vy = 11;
@@ -1634,7 +1770,7 @@ function swing() {
 }
 let specialReady = 0;
 function special() {
-  if (!player || player.dead || !$('pick').hidden || where === 'castle' || where === 'tavern') return;
+  if (!player || player.dead || uiLock() || where === 'castle' || where === 'tavern') return;
   if (now < specialReady) { toast(`${SPECIALS[specialOf(W())].name} is recharging...`, ICONS.star); return; }
   if (talking) closeDialog();
   if (player.task) cancelTask();
@@ -1827,14 +1963,14 @@ function hurtEnemy(e, dmg) {
 }
 let lastHurt = -10;
 function hurtPlayer(dmg) {
-  if (player.dead) return;
+  if (player.dead || creator.open) return;
   const head = player.pos.clone().setY(3.6);
   if (dmg === 0) { floatText(head, 'Miss', 'miss'); return; }
   // Defense divides the hit; the leftover fraction rounds up or down by chance
   const d = dmg / defDiv();
   dmg = Math.floor(d) + (rng() < d - Math.floor(d) ? 1 : 0);
   if (dmg === 0) { floatText(head, 'Blocked', 'miss'); burst(player.pos.clone().setY(1.5), '#bfe0ff', 8, 3); return; }
-  S.hp -= dmg; lastHurt = now;
+  S.hp -= dmg; lastHurt = now; player.hurtFace = now + 0.45;
   floatText(head, String(dmg), 'hurt');
   burst(player.pos.clone().setY(1.5), '#ff8a7a', 10, 4);
   if (S.hp <= 0) {
@@ -1964,7 +2100,7 @@ function enemyTick(e, dt) {
   const big = e.T.boss, reach = e.T.ranged ? (big ? 10 : 8) : big ? 3.6 : 2.4;
   if (player.dead && (e.state === 'chase')) e.state = 'return';
   if (where !== e.inside && e.state === 'chase') e.state = 'return';
-  if ((e.state === 'idle' || e.state === 'walk') && toP < (big ? 11 : 6.5) && !player.dead && $('pick').hidden && where === e.inside
+  if ((e.state === 'idle' || e.state === 'walk') && toP < (big ? 11 : 6.5) && !player.dead && !uiLock() && where === e.inside
     && (big || enemies.filter((o) => o.state === 'chase' && !o.T.boss).length < 3)) e.state = 'chase';
   if (e.state === 'slam') return;
   if (e.state === 'chase') {
@@ -2133,7 +2269,7 @@ function tick() {
   now = clock.elapsedTime;
   for (let i = timers.length - 1; i >= 0; i--) { timers[i].t -= dt; if (timers[i].t <= 0) { const f = timers[i].f; timers.splice(i, 1); f(); } }
 
-  if (player && !player.dead && $('pick').hidden) {
+  if (player && !player.dead && !uiLock()) {
     const busy = now < player.busyUntil;
     let mx = 0, mz = 0;
     if (keys.has('u')) mz -= 1; if (keys.has('d')) mz += 1; if (keys.has('l')) mx -= 1; if (keys.has('r')) mx += 1;
@@ -2198,7 +2334,7 @@ function tick() {
   bossUi();
   zoneBanner();
   for (const [i, c] of dynamic.crystals.entries()) { c.position.y = 2.4 + Math.sin(now * 1.6 + i) * 0.4; c.rotation.y = now * 0.8 + i; }
-  if (player) { player.mixer.update(dt); if (player.headScale && player.headInfo) player.headInfo.bone.scale.setScalar(player.headScale); }
+  if (player) { player.mixer.update(dt); if (player.headScale && player.headInfo) player.headInfo.bone.scale.setScalar(player.headScale); faceTick(); }
   for (const n of npcs) { n.actor.mixer.update(dt); n.marker.position.y = 4.6 + Math.sin(now * 3 + n.x) * 0.15; }
 
   for (let i = lootPops.length - 1; i >= 0; i--) {
@@ -2251,7 +2387,7 @@ function tick() {
   }
   if (player) {
     arcHolder.position.set(player.pos.x, 0, player.pos.z); arcHolder.rotation.y = player.root.rotation.y;
-    arcHolder.visible = !player.dead && $('pick').hidden;
+    arcHolder.visible = !player.dead && !uiLock();
     arcFlash = Math.max(0, arcFlash - dt * 4);
     arcMat.opacity = 0.12 + arcFlash * 0.3;
   }
@@ -2295,11 +2431,14 @@ function tick() {
   const focus = player ? tmpF.copy(player.pos).setY(0) : tmpF.set(0, 0, 4);
   updateParticles(dt, now, focus);
   const off = new THREE.Vector3(0, 23, 27).multiplyScalar(zoom * (camera.aspect < 1 ? 1.3 : 1));
-  camPos.lerp(tmpV.copy(focus).add(off), 1 - Math.pow(0.002, dt));
-  camera.position.copy(camPos);
-  if (shake > 0) { shake = Math.max(0, shake - dt); camera.position.x += (rng() - 0.5) * shake * 1.2; camera.position.y += (rng() - 0.5) * shake; }
+  if (creator.open && player) creatorCam(dt);
+  else {
+    camPos.lerp(tmpV.copy(focus).add(off), 1 - Math.pow(0.002, dt));
+    camera.position.copy(camPos);
+    if (shake > 0) { shake = Math.max(0, shake - dt); camera.position.x += (rng() - 0.5) * shake * 1.2; camera.position.y += (rng() - 0.5) * shake; }
+    camera.lookAt(focus.x, 1.2, focus.z - 1);
+  }
   sky.position.copy(camera.position);
-  camera.lookAt(focus.x, 1.2, focus.z - 1);
   const sd = P.sunDir;
   sun.position.set(focus.x + sd[0], sd[1], focus.z + sd[2]);
   sun.target.position.set(focus.x, 0, focus.z);
@@ -2307,7 +2446,170 @@ function tick() {
 }
 addEventListener('pagehide', () => { if (!resetting) save(); });
 
-window.__jq = { setZoom: (z) => { zoom = z; }, hurtEnemy, goThrough, get where() { return where; }, INTERIORS, equipGear, spendPoint, giveHeroXp, heroLvl, stat, maxHp, defDiv, openWeaponShop, openKing, jump, eat, eatBest, openShop, swing, swingTarget, hitNode, projectiles, timers, get S() { return S; }, get player() { return player; }, enemies, nodes, npcs, startTask, doAction, giveXp, save, openSheet, openDialog };
+// ---------- hero creator ----------
+// A full-screen character screen: the hero turns on the left (drag to spin), choices on the right.
+const NAME_IDEAS = ['Pip', 'Rowan', 'Elara', 'Bram', 'Juniper', 'Tamsin', 'Fen', 'Wren', 'Corin', 'Maeve', 'Odo', 'Lyra', 'Hollis', 'Briar', 'Cass', 'Nell', 'Alden', 'Isolde', 'Thorne', 'Mira', 'Toby', 'Saffron', 'Gideon', 'Posy'];
+const creator = { open: false, mode: 'new', tab: 'body', yaw: 0, drag: null, close: false, before: null, light: null };
+const uiLock = () => !$('pick').hidden || creator.open;
+const heroName = () => (S.name || '').trim() || 'Hero';
+function cleanName(v) { return v.replace(/[^\p{L}\p{N} '\-]/gu, '').replace(/\s+/g, ' ').slice(0, 16); }
+function randomLook() {
+  const pickKey = (o, skip = []) => { const k = Object.keys(o).filter((x) => !skip.includes(x)); return k[Math.floor(Math.random() * k.length)]; };
+  const L = S.look;
+  L.skin = pickKey(SKIN_TONES, Math.random() < 0.85 ? ['green', 'blue'] : []);
+  L.hair = pickKey(HAIR_STYLES, ['none']); L.hairLen = L.sex === 'f' ? pickKey(HAIR_LENGTHS, ['short']) : pickKey(HAIR_LENGTHS);
+  L.hairCol = pickKey(HAIR_COLOURS); L.eyes = pickKey(EYE_COLOURS); L.eyeStyle = pickKey(EYE_STYLES, ['classic']);
+  L.mouth = pickKey(MOUTHS); L.mark = Math.random() < 0.5 ? 'none' : pickKey(MARKS);
+  L.outfit = pickKey(LOOK_COLOURS); L.trim = pickKey(LOOK_COLOURS); L.ears = Math.random() < 0.25 ? 'elf' : 'human';
+  L.head = pickKey(HEAD_SIZES); L.hat = false;
+}
+// Swap the hero's body (male knight or female rogue) without losing where they stand.
+function rebuildHero() {
+  if (!player) return;
+  const pos = player.root.position.clone(), rot = player.root.rotation.y;
+  for (const g of hairCache.values()) g.removeFromParent();
+  for (const t of [tool, rod, pick]) if (t) t.removeFromParent();
+  scene.remove(player.root);
+  const hp = S.hp;
+  startHero();
+  S.hp = hp; player.root.position.copy(pos); player.root.rotation.y = rot;
+}
+function heroModel() { return S.look.sex === 'f' ? G.heroine : G.knight; }
+// The female body has no sword, shield or helmet of its own, so it borrows the knight's.
+function borrowKnightGear() {
+  if (S.look.sex !== 'f') return;
+  const src = {}; G.knight.scene.traverse((o) => { if (['1H_Sword', 'Badge_Shield', 'Knight_Helmet'].includes(o.name)) src[o.name] = o; });
+  const bones = {}; player.root.traverse((o) => { if (o.isBone) bones[o.name] = o; });
+  for (const [nm, o] of Object.entries(src)) {
+    const parent = o.parent && bones[o.parent.name];
+    if (!parent) continue;
+    const m = o.clone(true); stylize(m); parent.add(m);
+    if (nm === '1H_Sword') player.base.weapon = m;
+    if (nm === 'Badge_Shield') player.base.shield = m;
+  }
+}
+const swatchRow = (part, set) => `<div class="cc-swatches">${Object.entries(set).map(([k, [nm, c]]) => `<button class="cc-sw" data-part="${part}" data-val="${k}" title="${nm}" aria-label="${nm}" aria-pressed="${S.look[part] === k}" style="--c:${c}"></button>`).join('')}</div>`;
+const chipRow = (part, set) => `<div class="cc-chips">${Object.entries(set).map(([k, nm]) => `<button class="cc-chip" data-part="${part}" data-val="${k}" aria-pressed="${S.look[part] === k}">${Array.isArray(nm) ? nm[0] : nm}</button>`).join('')}</div>`;
+const picRow = (part, set, crop) => `<div class="cc-pics">${Object.entries(set).map(([k, nm]) => `<button class="cc-pic" data-part="${part}" data-val="${k}" aria-pressed="${S.look[part] === k}"><img alt="" src="${facePreview({ ...S.look, [part]: k }, crop)}"><span>${nm}</span></button>`).join('')}</div>`;
+const field = (label, body, note = '') => `<section class="cc-field"><h4>${label}${note ? `<small>${note}</small>` : ''}</h4>${body}</section>`;
+function renderCreator() {
+  const L = S.look, el = $('creator');
+  const tabs = { body: 'Body', face: 'Face', hair: 'Hair', outfit: 'Outfit' };
+  let body = '';
+  if (creator.tab === 'body') {
+    body = field('Body', `<div class="cc-sex">${Object.entries(SEXES).map(([k, nm]) => `<button class="cc-sexbtn" data-part="sex" data-val="${k}" aria-pressed="${L.sex === k}"><b>${k === 'm' ? '&#9794;' : '&#9792;'}</b>${nm}</button>`).join('')}</div>`)
+      + field('Skin tone', swatchRow('skin', SKIN_TONES))
+      + field('Head size', chipRow('head', HEAD_SIZES))
+      + field('Ears', chipRow('ears', { human: 'Round', elf: 'Pointy elf' }));
+  } else if (creator.tab === 'face') {
+    body = field('Eyes', picRow('eyeStyle', EYE_STYLES, 'eyes'))
+      + field('Eye colour', swatchRow('eyes', EYE_COLOURS))
+      + field('Mouth', picRow('mouth', MOUTHS, 'mouth'))
+      + field('Face marks', picRow('mark', MARKS, 'mark'));
+  } else if (creator.tab === 'hair') {
+    body = field('Hair style', chipRow('hair', HAIR_STYLES))
+      + field('Length', chipRow('hairLen', HAIR_LENGTHS), 'how far it falls down your back')
+      + field('Hair colour', swatchRow('hairCol', HAIR_COLOURS), 'eyebrows match');
+  } else {
+    body = field('Outfit colour', swatchRow('outfit', LOOK_COLOURS))
+      + field('Cape colour', swatchRow('trim', LOOK_COLOURS))
+      + field('Wear', `<div class="cc-chips"><button class="cc-chip" id="cc-cape" aria-pressed="${L.cape}">Cape</button><button class="cc-chip" id="cc-hat" aria-pressed="${L.hat}">Helmet</button></div>`, 'a helmet hides your hair')
+      + '<p class="cc-note">Armour you find changes the colour of your arms and legs.</p>';
+  }
+  const isNew = creator.mode === 'new';
+  el.innerHTML = `<div class="cc-stage" id="cc-stage" aria-hidden="true"><div class="cc-zoom"><button id="cc-zface" aria-pressed="${creator.close}">Face</button><button id="cc-zbody" aria-pressed="${!creator.close}">Full body</button></div><p class="cc-spin">Drag to turn your hero</p></div>
+    <div class="cc-panel panel">
+      <h2 class="cc-title">${isNew ? 'Create your hero' : 'Change your look'}</h2>
+      <label class="cc-name"><span>Name</span><input id="cc-name" maxlength="16" autocomplete="off" spellcheck="false" value="${(S.name || '').replace(/"/g, '&quot;')}" placeholder="Name your hero"><button id="cc-rname" title="Pick a name for me" aria-label="Pick a name for me">&#127922;</button></label>
+      <div class="cc-tabs" role="tablist">${Object.entries(tabs).map(([k, nm]) => `<button role="tab" data-tab="${k}" aria-selected="${creator.tab === k}">${nm}</button>`).join('')}</div>
+      <div class="cc-body">${body}</div>
+      <div class="cc-foot"><button id="cc-random">&#127922; Surprise me</button>${isNew ? '' : '<button id="cc-cancel">Cancel</button>'}<button id="cc-done" class="primary">${isNew ? 'Begin adventure' : 'Done'}</button></div>
+    </div>`;
+  const scroll = creator.scroll || 0; el.querySelector('.cc-body').scrollTop = scroll;
+  el.querySelector('.cc-body').addEventListener('scroll', (e) => { creator.scroll = e.target.scrollTop; });
+  el.querySelectorAll('[data-tab]').forEach((b) => { b.onclick = () => { creator.tab = b.dataset.tab; creator.scroll = 0; creator.close = creator.tab === 'face' || creator.tab === 'hair'; renderCreator(); }; });
+  el.querySelectorAll('[data-part]').forEach((b) => {
+    b.onclick = () => {
+      const part = b.dataset.part, val = b.dataset.val, was = L[part];
+      L[part] = val;
+      if (['hair', 'hairLen', 'hairCol', 'eyeStyle', 'eyes', 'mouth', 'mark', 'skin', 'ears'].includes(part)) L.hat = false;
+      if (part === 'sex' && was !== val) { if (val === 'f' && L.hairLen === 'short') L.hairLen = 'long'; rebuildHero(); }
+      else applyLook();
+      player.blinkAt = now + 1.5;
+      renderCreator();
+    };
+  });
+  const nm = $('cc-name');
+  nm.oninput = () => { const v = cleanName(nm.value); if (v !== nm.value) nm.value = v; S.name = v; updateTitle(); };
+  nm.onkeydown = (e) => { if (e.key === 'Enter') { nm.blur(); } e.stopPropagation(); };
+  $('cc-rname').onclick = () => { S.name = NAME_IDEAS[Math.floor(Math.random() * NAME_IDEAS.length)]; nm.value = S.name; updateTitle(); };
+  $('cc-random').onclick = () => { const sex = S.look.sex; randomLook(); S.look.sex = sex; applyLook(); renderCreator(); };
+  $('cc-done').onclick = () => closeCreator(true);
+  if ($('cc-cancel')) $('cc-cancel').onclick = () => closeCreator(false);
+  if ($('cc-cape')) $('cc-cape').onclick = () => { L.cape = !L.cape; applyLook(); renderCreator(); };
+  if ($('cc-hat')) $('cc-hat').onclick = () => { L.hat = !L.hat; applyLook(); renderCreator(); };
+  $('cc-zface').onclick = () => { creator.close = true; renderCreator(); };
+  $('cc-zbody').onclick = () => { creator.close = false; renderCreator(); };
+  const st = $('cc-stage');
+  st.onpointerdown = (e) => { creator.drag = { x: e.clientX, yaw: creator.yaw }; st.setPointerCapture(e.pointerId); };
+  st.onpointermove = (e) => { if (creator.drag) creator.yaw = creator.drag.yaw + (e.clientX - creator.drag.x) * 0.012; };
+  st.onpointerup = st.onpointercancel = () => { creator.drag = null; creator.idleAt = now + 2.5; };
+}
+function openCreator(mode = 'edit') {
+  if (!player) return;
+  closeSheet(); if (talking) closeDialog(); cancelTask(); moveTarget = null; keys.clear();
+  creator.open = true; creator.mode = mode; creator.yaw = 0.35; creator.idleAt = now + 1; creator.scroll = 0;
+  creator.before = { look: { ...S.look }, name: S.name };
+  if (mode === 'new' && !S.name) S.name = NAME_IDEAS[Math.floor(Math.random() * NAME_IDEAS.length)];
+  creator.tab = 'body'; creator.close = false;
+  creator.facing = player.root.rotation.y; if (!creator.near0) creator.near0 = camera.near;
+  if (!creator.light) { creator.light = new THREE.PointLight('#fff1dc', 9, 12, 1.6); scene.add(creator.light); }
+  creator.light.visible = true;
+  document.body.classList.add('creating');
+  $('creator').hidden = false;
+  player.play('Idle');
+  renderCreator();
+}
+function closeCreator(keep) {
+  if (!keep && creator.before) {
+    const sexWas = S.look.sex;
+    S.look = { ...creator.before.look }; S.name = creator.before.name;
+    if (S.look.sex !== sexWas) rebuildHero(); else applyLook();
+  }
+  S.name = cleanName(S.name || '').trim();
+  if (!S.name) S.name = 'Hero';
+  creator.open = false; $('creator').hidden = true; document.body.classList.remove('creating');
+  if (creator.light) creator.light.visible = false;
+  camera.clearViewOffset(); camera.near = creator.near0 || 0.1; camera.updateProjectionMatrix();
+  player.root.rotation.y = creator.facing;
+  updateTitle(); save();
+  if (creator.mode === 'new') {
+    if (!S.welcomed) { S.welcomed = true; toast(`Welcome to Jerry Village, ${heroName()}! Look for villagers with a ! above their heads.`, null, true); }
+    else toast(`Looking good, ${heroName()}!`, ICONS.star);
+  }
+}
+// While the creator is open the camera frames the hero up close, shifted left of the panel.
+function creatorCam(dt) {
+  const p = player.pos, phone = innerWidth < 760;
+  if (!creator.drag && now > creator.idleAt) creator.yaw += (Math.sin(now * 0.5) * 0.45 - creator.yaw) * Math.min(1, dt * 1.2);
+  player.root.rotation.y = creator.yaw;
+  const headY = 2.5 * (player.headScale || 1) ** 0.3;
+  const ty = creator.close ? headY : 1.45, dist = (creator.close ? 4.2 : 8.2) * (phone ? 1.6 : 1);
+  const want = tmpV.set(p.x, ty + (creator.close ? 0.5 : 1.6), p.z + dist);
+  // clip away anything standing between the camera and the hero (bushes, fences)
+  const near = Math.max(0.1, dist - 2.2);
+  if (camera.near !== near) { camera.near = near; camera.updateProjectionMatrix(); }
+  camPos.lerp(want, 1 - Math.pow(0.0005, dt));
+  camera.position.copy(camPos);
+  camera.lookAt(p.x, ty, p.z);
+  const w = innerWidth, h = innerHeight;
+  // shift the picture so the hero sits in the open space: above the panel on phones, left of it on wider screens
+  if (phone) camera.setViewOffset(w, h, 0, h * 0.2, w, h);
+  else camera.setViewOffset(w, h, (Math.min(460, w * 0.42) + 24) / 2, 0, w, h);
+  creator.light.position.set(p.x + 1.5, ty + 1.2, p.z + 3.5);
+}
+
+window.__jq = { openCreator, closeCreator, creator, rebuildHero, setZoom: (z) => { zoom = z; }, hurtEnemy, goThrough, get where() { return where; }, INTERIORS, equipGear, spendPoint, giveHeroXp, heroLvl, stat, maxHp, defDiv, openWeaponShop, openKing, jump, eat, eatBest, openShop, swing, swingTarget, hitNode, projectiles, timers, get S() { return S; }, get player() { return player; }, enemies, nodes, npcs, startTask, doAction, giveXp, save, openSheet, openDialog };
 window.addEventListener('error', (e) => { const m = $('loadmsg'); if (m) m.textContent = `Something went wrong: ${e.message}`; });
 main().catch((err) => {
   console.error(err);
