@@ -40,6 +40,7 @@ const CLASSES = {
 const ITEMS = {
   logs: 'Logs', oak_logs: 'Oak logs', copper_ore: 'Copper ore', iron_ore: 'Iron ore', shrimp: 'Raw shrimp', trout: 'Raw trout', bones: 'Bones',
   bread: 'Bread', pie: 'Apple pie', stew: 'Hearty stew',
+  bone_dust: 'Bone dust', dark_essence: 'Dark essence',
   lucky_sock: "Bonecrusher's lucky sock", gloom_hat: "Gloomcaster's droopy hat", rattle_tooth: "Rattlebones' gold tooth",
 };
 // Food heals; bought from Marta's stall in the market.
@@ -61,9 +62,16 @@ const WEAPONS = {
   a_heavy: { cls: 'archer', name: 'Heavy crossbow', bonus: 3, price: 140, model: 'crossbow_2handed' },
   a_gold: { cls: 'archer', name: 'Golden crossbow', bonus: 5, price: 320, model: 'crossbow_1handed', tint: '#ffd84a' },
   a_shadow: { cls: 'archer', name: 'Shadow repeater', bonus: 7, price: 600, model: 'crossbow_2handed', tint: '#b896ff' },
+  // unique boss weapons: only from boss drops, never sold
+  k_cleaver: { cls: 'knight', name: "Bonecrusher's Cleaver", bonus: 9, price: 0, unique: true, model: 'axe_2handed', tint: '#ff9a7a' },
+  m_gloom: { cls: 'mage', name: 'Gloomstaff', bonus: 9, price: 0, unique: true, model: 'staff', tint: '#b07aff' },
+  a_rattle: { cls: 'archer', name: "Rattlebones' Repeater", bonus: 9, price: 0, unique: true, model: 'crossbow_2handed', tint: '#9effa8' },
 };
+// Who drops what. Regular monsters roll this table; bosses always drop their trophy and may drop their weapon.
+const BOSS_WEAPON = { boss_crusher: 'k_cleaver', boss_gloom: 'm_gloom', boss_rattle: 'a_rattle' };
+const DARK_KING = 'Morgoth the Menacing'; // working name, change it here
 const BASIC_WEAPON = { knight: 'k_sword', mage: 'm_staff', archer: 'a_xbow' };
-const SELL = { lucky_sock: 60, gloom_hat: 60, rattle_tooth: 60, logs: 3, oak_logs: 6, copper_ore: 4, iron_ore: 8, shrimp: 3, trout: 8, bones: 2 };
+const SELL = { bone_dust: 3, dark_essence: 15, lucky_sock: 60, gloom_hat: 60, rattle_tooth: 60, logs: 3, oak_logs: 6, copper_ore: 4, iron_ore: 8, shrimp: 3, trout: 8, bones: 2 };
 const NODES = {
   tree: { skill: 'woodcutting', req: 1, xp: 25, item: 'logs', name: 'Tree', verb: 'Chop', doing: 'Chopping', deplete: 0.3, respawn: 14 },
   oak: { skill: 'woodcutting', req: 5, xp: 40, item: 'oak_logs', name: 'Oak tree', verb: 'Chop', doing: 'Chopping', deplete: 0.22, respawn: 20 },
@@ -109,6 +117,38 @@ const QUESTS = {
     need: { boss: 1 }, reward: { coins: 300, xp: { $class: 600 } }, desc: 'Defeat Bonecrusher in the Grumble Crags (west).',
   },
 };
+
+// ---------- main story (optional: never locks you in, but it's the main path) ----------
+// Chapter 1, "The Seal Breaks". More chapters and, far in the future, the Dark King himself.
+Object.assign(QUESTS, {
+  st_1: {
+    story: true, chapter: 'Chapter 1', name: 'Darkness Stirs', giver: 'king', after: [],
+    intro: `For a hundred years the Heartstone kept the dark magic sealed away, and the kingdom knew only peace. Last night the Heartstone cracked. The seal is broken, and ${DARK_KING}'s servants are waking. The skeletons south-west of the village are the first of them. Show me you can stand against them: defeat 3.`,
+    ready: 'You stood firm. Good. The kingdom will need that courage, for this is only the beginning.',
+    done: 'The Heartstone shattered into shards when the seal broke. Find them, hero.',
+    need: { kills: 3 }, reward: { coins: 60, xp: { $class: 200 } }, desc: 'Defeat 3 skeletons, then return to King Jerrold.',
+  },
+  st_crags: {
+    story: true, chapter: 'Chapter 1', name: 'The Shard of the Crags', giver: 'king', after: ['st_1'], bossType: 'boss_crusher',
+    intro: `A shard of the Heartstone fell in the Grumble Crags, to the west. ${DARK_KING}'s brute, Bonecrusher, has claimed it. Defeat him and bring the shard home.`,
+    ready: 'The Crags shard! It still glows. One piece of the seal, restored.', done: 'The Crags shard rests in the throne room, humming softly.',
+    need: { boss: 1 }, reward: { coins: 150, xp: { $class: 500 } }, desc: 'Defeat Bonecrusher in the Grumble Crags (west).',
+  },
+  st_glimmer: {
+    story: true, chapter: 'Chapter 1', name: 'The Shard of Glimmerwood', giver: 'king', after: ['st_1'], bossType: 'boss_gloom',
+    intro: `Another shard lies in Glimmerwood, to the east. The Gloomcaster, ${DARK_KING}'s sorcerer, drinks its light. Stop him before the whole forest goes grey.`,
+    ready: 'The Glimmerwood shard! Feel how it sparkles. The seal grows stronger.', done: 'The Glimmerwood shard glitters beside its brother.',
+    need: { boss: 1 }, reward: { coins: 150, xp: { $class: 500 } }, desc: 'Defeat the Gloomcaster in Glimmerwood (east).',
+  },
+  st_hollow: {
+    story: true, chapter: 'Chapter 1', name: 'The Shard of the Hollow', giver: 'king', after: ['st_1'], bossType: 'boss_rattle',
+    intro: `The third shard sank into Haunted Hollow, north of the castle. Captain Rattlebones leads ${DARK_KING}'s restless dead there. Put him to rest, if only for a while.`,
+    ready: 'The Hollow shard, cold as moonlight. Three of the pieces are home.', done: 'Three shards, safe. But the Heartstone is not whole...',
+    need: { boss: 1 }, reward: { coins: 150, xp: { $class: 500 } }, desc: 'Defeat Captain Rattlebones in Haunted Hollow (north).',
+  },
+});
+const storyOpen = (k) => (QUESTS[k].after || []).every((a) => S.quests[a] && S.quests[a].state === 'done');
+const storyStep = () => Object.keys(QUESTS).filter((k) => QUESTS[k].story && storyOpen(k) && S.quests[k].state !== 'done');
 
 // ---------- saved state ----------
 const SAVE_KEY = 'jerryquest_save_v1';
@@ -598,6 +638,38 @@ function zoneBanner() {
   }
   if (name) zoneNow = name;
 }
+// ---------- loot ----------
+const lootPops = [];
+const iconTex = {};
+// A little item picture pops out of a beaten monster and floats up, so you can see what dropped.
+function popLoot(pos, item, delay = 0) {
+  later(delay, () => {
+    if (!iconTex[item]) { const t = new THREE.TextureLoader().load(ICONS[item]); t.colorSpace = THREE.SRGBColorSpace; iconTex[item] = t; }
+    const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: iconTex[item], depthTest: false, fog: false, transparent: true }));
+    sp.scale.setScalar(1.3); sp.layers.set(1); sp.renderOrder = 6;
+    sp.position.copy(pos).add(new THREE.Vector3((rng() - 0.5) * 1.5, 1.6, (rng() - 0.5) * 1.5));
+    scene.add(sp); lootPops.push({ sp, t: 0 });
+  });
+}
+function rollLoot(e) {
+  const at = e.pos.clone(), got = [];
+  const give = (k, n = 1) => { addItem(k, n); got.push(n > 1 ? `${n} × ${ITEMS[k].toLowerCase()}` : ITEMS[k].toLowerCase()); popLoot(at, k, got.length * 0.15); };
+  if (e.T.boss) {
+    give('dark_essence', 3);
+    const wk = BOSS_WEAPON[e.type];
+    if (wk && !S.owned.includes(wk) && rng() < 0.35) { S.owned.push(wk); popLoot(at, 'chest', 0.6); toast(`RARE DROP: ${WEAPONS[wk].name} (+${WEAPONS[wk].bonus} damage)! Equip it from your bag.`, ICONS[CLASSES[WEAPONS[wk].cls].skill], true); }
+  } else {
+    if (rng() < 0.5) give('bone_dust');
+    if (rng() < (e.type === 'skel_minion' ? 0.08 : 0.15)) give('dark_essence');
+    if (rng() < 0.1) give(['bread', 'pie'][rng() < 0.7 ? 0 : 1]);
+    // very rare: a shop weapon you don't own yet
+    if (rng() < 0.025) {
+      const pool = Object.keys(WEAPONS).filter((k) => !WEAPONS[k].unique && WEAPONS[k].price > 0 && WEAPONS[k].bonus <= 3 && !S.owned.includes(k));
+      if (pool.length) { const wk = pool[Math.floor(rng() * pool.length)]; S.owned.push(wk); popLoot(at, 'chest', 0.4); toast(`Rare drop: ${WEAPONS[wk].name}! Equip it from your bag.`, ICONS[CLASSES[WEAPONS[wk].cls].skill], true); }
+    }
+  }
+  if (got.length) floatText(at.clone().setY(3), got.join(', '), 'gain');
+}
 // ---------- treasure chests (open one and spin your luck!) ----------
 const chests = [];
 const CHEST_SPOTS = [[6, 26], [-30, 22], [36, -26], [-12, -38], [ZONES.glimmer.x + 10, ZONES.glimmer.z - 12], [ZONES.crags.x - 8, ZONES.crags.z + 14],
@@ -679,9 +751,9 @@ function refreshUI() {
   $('tracker').innerHTML = active.map((k) => `<div><b>${QUESTS[k].name}</b><br>${questReady(k) ? `Return to ${npcName(QUESTS[k].giver)}` : questProgress(k)}</div>`).join('');
   for (const n of npcs) {
     if (n.shop) { n.marker.userData.draw('$'); continue; }
-    if (n.king) { n.marker.userData.draw('♛'); continue; }
+    if (n.king) { const st = storyStep(); n.marker.userData.draw(st.some(questReady) ? '?' : st.some((q) => S.quests[q].state === 'todo') ? '!' : '♛'); continue; }
     if (n.lines) { n.marker.userData.draw(''); continue; }
-    const qid = Object.keys(QUESTS).find((k) => QUESTS[k].giver === n.id);
+    const qid = Object.keys(QUESTS).find((k) => QUESTS[k].giver === n.id && !QUESTS[k].story);
     const st = S.quests[qid].state;
     n.marker.userData.draw(st === 'todo' ? '!' : questReady(qid) ? '?' : '');
   }
@@ -699,20 +771,26 @@ function renderSheet() {
   } else if (sheetMode === 'bag') {
     const items = Object.entries(S.inv);
     const slots = [];
-    for (let i = 0; i < 16; i++) {
+    for (let i = 0; i < Math.max(16, Math.ceil(items.length / 4) * 4); i++) {
       const it = items[i];
       slots.push(!it ? '<div class="slot empty"></div>' : FOOD[it[0]]
         ? `<button class="slot food" data-eat="${it[0]}" title="Eat ${ITEMS[it[0]]} (heals ${FOOD[it[0]].heal})"><img src="${ICONS[it[0]]}" alt="${ITEMS[it[0]]}"><span>${it[1]}</span></button>`
         : `<div class="slot" title="${ITEMS[it[0]]}"><img src="${ICONS[it[0]]}" alt="${ITEMS[it[0]]}"><span>${it[1]}</span></div>`);
     }
-    el.innerHTML = `<h3>Bag <small>${S.coins} coins</small></h3><div class="bag">${slots.join('')}</div><p class="hint">Tap food to eat it and heal (or press H). Sell logs, ore, fish and bones to Marta at the market.</p>`;
+    const mine = S.owned.filter((k) => WEAPONS[k].cls === S.cls);
+    const gear = mine.map((k) => `<button class="gearbtn" data-gear="${k}" aria-pressed="${S.equip[S.cls] === k}"><b>${WEAPONS[k].name}</b><span>+${WEAPONS[k].bonus}${WEAPONS[k].unique ? ' · boss drop' : ''}</span></button>`).join('');
+    el.innerHTML = `<h3>Bag <small>${S.coins} coins</small></h3><div class="bag">${slots.join('')}</div>
+      <h4 class="sub">${CLASSES[S.cls].name} weapons</h4><div class="gearlist">${gear}</div>
+      <p class="hint">Tap food to eat it and heal (or press H). Sell logs, ore, fish, bones, bone dust and dark essence to Marta at the market.</p>`;
     el.querySelectorAll('[data-eat]').forEach((b) => { b.onclick = () => eat(b.dataset.eat); });
+    el.querySelectorAll('[data-gear]').forEach((b) => { b.onclick = () => { S.equip[S.cls] = b.dataset.gear; equipWeapon(); buildClassBar(); save(); renderSheet(); burst(player.pos.clone().setY(1.6), '#ffe07a', 20, 4); }; });
   } else if (sheetMode === 'quests') {
-    el.innerHTML = `<h3>Quests</h3>${Object.entries(QUESTS).map(([k, q]) => {
+    const order = Object.entries(QUESTS).filter(([k, q]) => !q.story || storyOpen(k) || S.quests[k].state !== 'todo').sort((a, b) => (b[1].story ? 1 : 0) - (a[1].story ? 1 : 0));
+    el.innerHTML = `<h3>Quests</h3>${order.map(([k, q]) => {
       const st = S.quests[k].state, ready = questReady(k);
       const tag = st === 'done' ? '<span class="tag done">Done</span>' : ready ? '<span class="tag ready">Hand in</span>' : st === 'active' ? '<span class="tag active">Active</span>' : '<span class="tag todo">New</span>';
       const body = st === 'todo' ? `Talk to ${npcName(q.giver)}.` : st === 'done' ? 'Completed.' : ready ? `Return to ${npcName(q.giver)}.` : `${q.desc} (${questProgress(k)})`;
-      return `<div class="quest"><h4>${q.name}${tag}</h4><p>${body}</p></div>`;
+      return `<div class="quest${q.story ? ' story' : ''}">${q.story ? `<small class="chapter">Main story · ${q.chapter}</small>` : ''}<h4>${q.name}${tag}</h4><p>${body}</p></div>`;
     }).join('')}`;
   } else if (sheetMode === 'look') {
     const sw = (part, set = LOOK_COLOURS) => Object.entries(set).map(([k, [nm, c]]) => `<button class="swatch" data-part="${part}" data-col="${k}" title="${nm}" aria-label="${nm}" aria-pressed="${S.look[part] === k}" style="background:${c}"></button>`).join('');
@@ -805,10 +883,26 @@ function eatBest() {
   const fit = have.filter((k) => FOOD[k].heal >= missing).sort((a, b) => FOOD[a].heal - FOOD[b].heal)[0];
   eat(fit || have.sort((a, b) => FOOD[b].heal - FOOD[a].heal)[0]);
 }
-function openKing(npc) {
+function openKing(npc, view) {
   talking = npc;
   const d = $('dialog');
-  d.innerHTML = `<h3>${npc.name}</h3><p>Welcome, brave one! The realm needs heroes of every kind. Choose your calling, and you may change it whenever you visit me. Your skills, bag and coins stay with you.</p>
+  const steps = storyStep();
+  if (view !== 'class' && steps.length) {
+    // pick: something to hand in first, then something new, then progress on an active one
+    const k = steps.find((q) => questReady(q)) || steps.find((q) => S.quests[q].state === 'todo') || steps[0];
+    const q = QUESTS[k], st = S.quests[k];
+    let text, btn;
+    if (questReady(k)) { text = q.ready; btn = ['Hand it over', () => { finishQuest(k, npc); openKing(npc); }]; }
+    else if (st.state === 'todo') { text = q.intro; btn = ['I will do it', () => { st.state = 'active'; toast(`${q.chapter}: ${q.name}`, ICONS.scroll, true); refreshUI(); save(); closeDialog(); }]; }
+    else { text = `${q.desc} So far: ${questProgress(k)}.`; btn = ['On my way', closeDialog]; }
+    d.innerHTML = `<h3>${npc.name}</h3><div class="chapter">${q.chapter} · ${q.name}</div><p></p>${st.state === 'todo' ? `<div class="reward">Reward: ${q.reward.coins} coins and ${Object.values(q.reward.xp)[0]} XP</div>` : ''}
+      <div class="row"><button class="primary" id="kq"></button><button id="kclass">Change class</button><button id="kingbye">Farewell</button></div>`;
+    d.querySelector('p').textContent = text; $('kq').textContent = btn[0]; $('kq').onclick = btn[1];
+    $('kclass').onclick = () => openKing(npc, 'class'); $('kingbye').onclick = closeDialog;
+    showDialog(d); npc.actor.face(player.pos.x, player.pos.z);
+    return;
+  }
+  d.innerHTML = `<h3>${npc.name}</h3><p>${steps.length ? '' : `You have done the kingdom proud. ${DARK_KING}'s shadow still lingers, and I will call on you again soon. `}Choose your calling, and you may change it whenever you visit me. Your skills, bag and coins stay with you.</p>
     <div class="shop">${Object.entries(CLASSES).map(([k, c]) => `<button class="buy" data-cls="${k}" ${S.cls === k ? 'disabled' : ''}><img src="${ICONS[c.skill]}" alt=""><b>${c.name}</b><span>${S.cls === k ? 'Your class now' : c.blurb}</span></button>`).join('')}</div>
     <div class="row"><button id="kingbye">Farewell</button></div>`;
   d.querySelectorAll('[data-cls]').forEach((b) => { b.onclick = () => { switchClass(b.dataset.cls); closeDialog(); npc.actor.play('Cheer', { once: true, onFinish: () => npcIdle(npc) }); }; });
@@ -820,7 +914,7 @@ function openWeaponShop(npc) {
   talking = npc;
   const cls = npc.shop, d = $('dialog');
   const lines = { knight: 'Finest steel this side of the mountains! Sharper blade, harder hits.', mage: 'Wands and staves, darling, humming with power. Each one makes your spells hit harder.', archer: 'Crossbows I made myself. A better one hits harder.' };
-  const list = Object.entries(WEAPONS).filter(([, w]) => w.cls === cls);
+  const list = Object.entries(WEAPONS).filter(([, w]) => w.cls === cls && !w.unique);
   d.innerHTML = `<h3>${npc.name}</h3><p>${lines[cls]}${S.cls !== cls ? ` (These are for the ${CLASSES[cls].name}. Buy them now and they'll be ready when you switch.)` : ''}</p>
     <div class="shop wide">${list.map(([k, w]) => {
       const own = S.owned.includes(k), eq = S.equip[cls] === k;
@@ -849,13 +943,23 @@ function openTalk(npc) {
   showDialog(d);
   npc.actor.face(player.pos.x, player.pos.z);
 }
+function finishQuest(id, npc) {
+  const q = QUESTS[id], st = S.quests[id];
+  for (const [k, n] of Object.entries(q.need)) if (k !== 'kills' && k !== 'boss') takeItem(k, n);
+  st.state = 'done'; S.coins += q.reward.coins;
+  for (const [k, v] of Object.entries(q.reward.xp)) giveXp(k === '$class' ? CLASSES[S.cls].skill : k, v);
+  toast(`Quest complete: ${q.name}`, ICONS.coins, true);
+  burst(npc.actor.pos.clone().setY(2), '#9cff6b', 50, 6, 1.4);
+  npc.actor.play('Cheer', { once: true, onFinish: () => npcIdle(npc) });
+  refreshUI(); save();
+}
 function openDialog(npc) {
   if (npc.lines) { openTalk(npc); return; }
   if (npc.king) { openKing(npc); return; }
   if (npc.shop && npc.shop !== 'food') { openWeaponShop(npc); return; }
   if (npc.shop) { openShop(npc); return; }
   talking = npc;
-  const qid = Object.keys(QUESTS).find((k) => QUESTS[k].giver === npc.id);
+  const qid = Object.keys(QUESTS).find((k) => QUESTS[k].giver === npc.id && !QUESTS[k].story);
   const q = QUESTS[qid], st = S.quests[qid];
   const parts = [`${q.reward.coins} coins`];
   for (const [k, v] of Object.entries(q.reward.xp)) parts.push(`${v} ${k === '$class' ? SKILL_NAME[CLASSES[S.cls].skill] : SKILL_NAME[k]} XP`);
@@ -865,15 +969,7 @@ function openDialog(npc) {
     buttons = [['Accept quest', 'primary', () => { st.state = 'active'; toast(`Quest started: ${q.name}`); refreshUI(); save(); closeDialog(); }], ['Not now', '', closeDialog]];
   } else if (questReady(qid)) {
     text = q.ready;
-    buttons = [['Hand it over', 'primary', () => {
-      for (const [k, n] of Object.entries(q.need)) if (k !== 'kills' && k !== 'boss') takeItem(k, n);
-      st.state = 'done'; S.coins += q.reward.coins;
-      for (const [k, v] of Object.entries(q.reward.xp)) giveXp(k === '$class' ? CLASSES[S.cls].skill : k, v);
-      toast(`Quest complete: ${q.name}`, ICONS.coins, true);
-      burst(npc.actor.pos.clone().setY(2), '#9cff6b', 50, 6, 1.4);
-      npc.actor.play('Cheer', { once: true, onFinish: () => npcIdle(npc) });
-      refreshUI(); save(); closeDialog();
-    }]];
+    buttons = [['Hand it over', 'primary', () => { finishQuest(qid, npc); closeDialog(); }]];
   } else if (st.state === 'active') { text = `${q.desc} So far: ${questProgress(qid)}.`; buttons = [['On my way', '', closeDialog]]; }
   else { text = q.done; buttons = [['Goodbye', '', closeDialog]]; }
   const d = $('dialog');
@@ -1188,6 +1284,7 @@ function hurtEnemy(e, dmg, skill) {
     giveXp(skill, e.T.xp);
     const coins = e.T.coins ? e.T.coins[0] + Math.floor(rng() * (e.T.coins[1] - e.T.coins[0])) : 3 + Math.floor(rng() * 9);
     S.coins += coins; addItem('bones');
+    rollLoot(e);
     if (e.T.boss) {
       addItem(e.T.drop);
       toast(`You defeated ${e.T.name}! It dropped ${ITEMS[e.T.drop].toLowerCase()}!`, ICONS[e.T.drop], true);
@@ -1393,7 +1490,7 @@ function drawMap(cv, full) {
   for (const c of chests) if (!c.open) dot(c.x, c.z, full ? 3 : 3.5, '#ffd23f');
   for (const e of enemies) if (e.hp > 0 && e.state !== 'rising') dot(e.pos.x, e.pos.z, e.T.boss ? 6 : full ? 2.5 : 3.5, e.T.boss ? '#ff2a6a' : '#ff5a4a');
   for (const n of npcs) {
-    const qid = Object.keys(QUESTS).find((q) => QUESTS[q].giver === n.id);
+    const qid = Object.keys(QUESTS).find((q) => QUESTS[q].giver === n.id && !QUESTS[q].story);
     const st = qid && S.quests[qid].state;
     const col = n.king ? '#c58bff' : n.shop ? '#ffe9a0' : st === 'todo' ? '#ffd23f' : qid && questReady(qid) ? '#9cff6b' : '#f6efdc';
     dot(n.x, n.z, full ? 4 : 4.5, col);
@@ -1491,6 +1588,11 @@ function tick() {
   if (player) player.mixer.update(dt);
   for (const n of npcs) { n.actor.mixer.update(dt); n.marker.position.y = 4.6 + Math.sin(now * 3 + n.x) * 0.15; }
 
+  for (let i = lootPops.length - 1; i >= 0; i--) {
+    const L = lootPops[i]; L.t += dt;
+    L.sp.position.y += dt * (2.2 - L.t * 1.6); L.sp.material.opacity = Math.min(1, 2.4 - L.t * 1.4);
+    if (L.t > 1.7) { scene.remove(L.sp); L.sp.material.dispose(); lootPops.splice(i, 1); }
+  }
   for (const c of chests) { if (c.open && now > c.at) { c.open = false; c.m.visible = true; c.glow.visible = true; } if (!c.open) c.glow.intensity = 5 + Math.sin(now * 3 + c.x) * 2; }
   for (const r of doorRings) { const ph = (now * 0.7) % 1; r.scale.setScalar(1 + ph * 0.35); r.material.opacity = 0.85 - ph * 0.6; }
   for (const n of nodes) {
@@ -1567,7 +1669,7 @@ function tick() {
   }
   // bake the map picture once textures have had time to arrive, then once more to be safe
   if ((mapBaked === 0 && now > 2) || (mapBaked === 1 && now > 8)) { mapBaked++; bakeMap(); }
-  if (player && now - lastMap > 0.1) { lastMap = now; mini.hidden = false; drawMap(mini, false); if (!bigMap.hidden) drawMap(bigMap.querySelector('canvas'), true); }
+  if (player && now - lastMap > 0.1) { lastMap = now; mini.hidden = !$('sheet').hidden; drawMap(mini, false); if (!bigMap.hidden) drawMap(bigMap.querySelector('canvas'), true); }
   if (player && now - lastSave > 6) { lastSave = now; save(); }
 
   const P = PRESETS[env.preset];
@@ -1592,7 +1694,7 @@ function tick() {
 }
 addEventListener('pagehide', () => { if (!resetting) save(); });
 
-window.__jq = { goThrough, get where() { return where; }, INTERIORS, switchClass, equipWeapon, openWeaponShop, openKing, jump, eat, eatBest, openShop, drawMinimap: () => drawMinimap(), swing, swingTarget, hitNode, projectiles, timers, get S() { return S; }, get player() { return player; }, enemies, nodes, npcs, startTask, doAction, giveXp, save, openSheet, openDialog };
+window.__jq = { hurtEnemy, goThrough, get where() { return where; }, INTERIORS, switchClass, equipWeapon, openWeaponShop, openKing, jump, eat, eatBest, openShop, drawMinimap: () => drawMinimap(), swing, swingTarget, hitNode, projectiles, timers, get S() { return S; }, get player() { return player; }, enemies, nodes, npcs, startTask, doAction, giveXp, save, openSheet, openDialog };
 window.addEventListener('error', (e) => { const m = $('loadmsg'); if (m) m.textContent = `Something went wrong: ${e.message}`; });
 main().catch((err) => {
   console.error(err);

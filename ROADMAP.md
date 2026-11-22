@@ -11,6 +11,15 @@
 - Free aim: actions are never locked onto a target. A swing, chop or shot hits whatever hitbox it reaches in the direction you face. Trees, rocks and monsters all have health bars.
 - One consistent art style. New models come from the KayKit family (or matching CC0 packs) and go through the same toon shading.
 
+## Main story (optional, but the main path)
+
+After a hundred years of peace the Heartstone's seal broke and dark magic is back. The Dark King, working name Morgoth the Menacing (one constant, `DARK_KING`, in game.js), is fought only at the very end. The story is a long arc of bosses and minibosses before that.
+
+- Chapter 1, "The Seal Breaks" (built): King Jerrold, prove yourself, then win back three Heartstone shards from Bonecrusher, the Gloomcaster and Captain Rattlebones, in any order.
+- Next: the fourth shard mystery in Honeymeadow, then more chapters, lands and bosses.
+- Every story quest should be shareable by a party once online play exists.
+- Side content stays separate so friends can play together any time.
+
 ## Ideas backlog (from Callum)
 
 Playing with friends

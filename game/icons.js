@@ -90,6 +90,8 @@ export const ICONS = {
   mirror: make((g) => { shape(g, '#c98a4a', () => g.roundRect(-4, 14, 8, 22, 3)); shape(g, '#ffd23f', () => g.ellipse(0, -6, 24, 26, 0, 0, 7)); shape(g, '#bfe9ff', () => g.ellipse(0, -6, 16, 18, 0, 0, 7)); shine(g, -6, -14, 6); }),
   gear: make((g) => { shape(g, '#b9b2c8', () => { for (let i = 0; i < 16; i++) { const r = i % 2 ? 22 : 32, a = (i / 16) * Math.PI * 2; g[i ? 'lineTo' : 'moveTo'](Math.cos(a) * r, Math.sin(a) * r); } g.closePath(); }); shape(g, '#7a6f8e', () => g.arc(0, 0, 9, 0, 7)); }),
   chest: make((g) => { shape(g, '#c98a4a', () => g.roundRect(-30, -6, 60, 34, 6)); shape(g, '#a8703a', () => { g.moveTo(-30, -6); g.quadraticCurveTo(0, -36, 30, -6); g.closePath(); }); g.save(); g.lineWidth = 5; g.strokeStyle = '#ffd23f'; g.beginPath(); g.moveTo(-30, 6); g.lineTo(30, 6); g.stroke(); g.restore(); shape(g, '#ffd23f', () => g.roundRect(-6, 0, 12, 14, 3)); }),
+  bone_dust: make((g) => { shape(g, '#d9c9a8', () => { g.moveTo(-26, 18); g.quadraticCurveTo(-30, -14, -10, -24); g.quadraticCurveTo(14, -30, 26, -4); g.quadraticCurveTo(30, 22, 6, 28); g.quadraticCurveTo(-18, 30, -26, 18); }); g.save(); g.lineWidth = 3; g.strokeStyle = '#8a6a3a'; g.beginPath(); g.moveTo(-20, -6); g.quadraticCurveTo(0, -14, 20, -6); g.stroke(); g.restore(); for (const [x, y] of [[-6, 6], [8, 10], [0, 18], [12, -2]]) shape(g, '#f6efdc', () => g.arc(x, y, 3.5, 0, 7)); }),
+  dark_essence: make((g) => { shape(g, '#7a3fd0', () => { g.moveTo(0, -34); g.quadraticCurveTo(26, -6, 18, 16); g.quadraticCurveTo(10, 32, 0, 32); g.quadraticCurveTo(-10, 32, -18, 16); g.quadraticCurveTo(-26, -6, 0, -34); }); shape(g, '#c58bff', () => g.ellipse(-2, 10, 9, 12, 0, 0, 7)); shine(g, -6, 2, 4); }),
   // skills
   melee: make((g) => {
     g.rotate(0.78);
