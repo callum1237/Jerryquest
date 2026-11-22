@@ -1123,7 +1123,8 @@ function tick() {
       if (d > stopAt) { mx = tx / d; mz = tz / d; }
       else { moveTarget = null; marker.visible = false; if (pending) { const t = pending; pending = null; startTask(t); } }
     }
-    if ((mx || mz) && !busy) {
+    // you can always move, even mid-swing; while a swing plays you keep facing where you aimed
+    if (mx || mz) {
       if (talking) closeDialog();
       const len = Math.hypot(mx, mz); mx /= len; mz /= len;
       const speed = 6.5 * (1 + (lvl('speed') - 1) * 0.006);
@@ -1135,10 +1136,12 @@ function tick() {
       // give up on a tap target we can't reach
       stuck = moved < speed * dt * 0.2 ? stuck + dt : 0;
       if (stuck > 0.6 && moveTarget) { moveTarget = null; marker.visible = false; if (pending) { const t = pending; pending = null; startTask(t); } stuck = 0; }
-      const want = Math.atan2(mx, mz);
-      let diff = want - player.root.rotation.y; diff = Math.atan2(Math.sin(diff), Math.cos(diff));
-      player.root.rotation.y += diff * Math.min(1, dt * 14);
-      if (!player.air) player.play('Running_A', { fade: 0.12 });
+      if (!busy) {
+        const want = Math.atan2(mx, mz);
+        let diff = want - player.root.rotation.y; diff = Math.atan2(Math.sin(diff), Math.cos(diff));
+        player.root.rotation.y += diff * Math.min(1, dt * 14);
+        if (!player.air) player.play('Running_A', { fade: 0.12 });
+      }
     } else if (!busy && player.task) {
       gatherTick(player.task);
     } else if (!busy && (player.name === 'Running_A' || player.name === 'Idle_Combat')) {
