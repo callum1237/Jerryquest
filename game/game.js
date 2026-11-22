@@ -38,7 +38,11 @@ const CLASSES = {
 };
 const ITEMS = {
   logs: 'Logs', oak_logs: 'Oak logs', copper_ore: 'Copper ore', iron_ore: 'Iron ore', shrimp: 'Raw shrimp', trout: 'Raw trout', bones: 'Bones',
+  bread: 'Bread', pie: 'Apple pie', stew: 'Hearty stew',
 };
+// Food heals; bought from Marta's stall in the market.
+const FOOD = { bread: { heal: 8, price: 8 }, pie: { heal: 20, price: 20 }, stew: { heal: 40, price: 40 } };
+const SELL = { logs: 3, oak_logs: 6, copper_ore: 4, iron_ore: 8, shrimp: 3, trout: 8, bones: 2 };
 const NODES = {
   tree: { skill: 'woodcutting', req: 1, xp: 25, item: 'logs', name: 'Tree', verb: 'Chop', doing: 'Chopping', deplete: 0.3, respawn: 14 },
   oak: { skill: 'woodcutting', req: 5, xp: 40, item: 'oak_logs', name: 'Oak tree', verb: 'Chop', doing: 'Chopping', deplete: 0.22, respawn: 20 },
@@ -185,7 +189,7 @@ function startAs(k) {
   const prev = player;
   S.cls = k;
   player = new Actor(G[c.model]);
-  if (prev) { player.root.position.copy(prev.root.position); player.root.rotation.y = prev.root.rotation.y; scene.remove(prev.root); }
+  if (prev) { player.root.position.copy(prev.root.position).setY(0); player.root.rotation.y = prev.root.rotation.y; scene.remove(prev.root); }
   else player.root.position.set(S.pos[0], 0, S.pos[1]);
   player.weapons = [];
   player.root.traverse((o) => { if (c.weapon.includes(o.name)) player.weapons.push(o); });
@@ -367,8 +371,12 @@ function markerSprite() {
     if (!ch) { sp.visible = false; return; }
     sp.visible = true;
     g.font = '700 84px Fredoka, Trebuchet MS, sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle';
-    g.lineWidth = 10; g.strokeStyle = '#4a2a17'; g.strokeText(ch, 32, 52);
-    g.fillStyle = ch === '?' ? '#9cff6b' : '#ffd23f'; g.fillText(ch, 32, 52);
+    if (ch === '$') {
+      g.lineWidth = 7; g.strokeStyle = '#4a2a17'; g.fillStyle = '#ffcc33';
+      g.beginPath(); g.arc(32, 52, 24, 0, 7); g.fill(); g.stroke();
+      g.lineWidth = 4; g.beginPath(); g.arc(32, 52, 13, 0, 7); g.stroke();
+      g.fillStyle = 'rgba(255,255,255,.8)'; g.beginPath(); g.ellipse(22, 42, 6, 3.5, -0.6, 0, 7); g.fill();
+    } else { g.lineWidth = 10; g.strokeStyle = '#4a2a17'; g.strokeText(ch, 32, 52); g.fillStyle = ch === '?' ? '#9cff6b' : '#ffd23f'; g.fillText(ch, 32, 52); }
     tex.needsUpdate = true;
   };
   return sp;
@@ -378,6 +386,7 @@ function buildNpcs() {
     { id: 'bertha', name: 'Bertha the Innkeeper', model: 'barbarian', x: -2, z: -10.5, hide: [] },
     { id: 'rowan', name: 'Captain Rowan', model: 'knight', x: 12, z: -18, hide: [] },
     { id: 'fenwick', name: 'Old Fenwick', model: 'mage', x: 15, z: -4.5, hide: [] },
+    { id: 'marta', name: 'Marta the Baker', model: 'barbarian', x: 7.5, z: 10.2, hide: [], shop: true, tint: '#bfe3ff' },
   ];
   for (const d of defs) {
     const a = new Actor(G[d.model], { hide: d.hide, scale: 1.3 });
@@ -385,6 +394,12 @@ function buildNpcs() {
     a.face(0, 0);
     a.play(d.id === 'fenwick' ? 'Spellcasting' : 'Idle');
     if (d.id === 'fenwick') a.mixer.timeScale = 0.4;
+    if (d.tint) a.root.traverse((o) => {
+      if (!o.isMesh || !/_Body$/.test(o.name)) return;
+      const m = { std: o.userData.mats.std.clone(), toon: o.userData.mats.toon.clone() };
+      m.toon.onBeforeCompile = o.userData.mats.toon.onBeforeCompile;
+      m.std.color.set(d.tint); m.toon.color.set(d.tint); registerMesh(o, m);
+    });
     const m = markerSprite(); m.position.set(d.x, 4.6, d.z); scene.add(m);
     colliders.push({ x: d.x, z: d.z, r: 0.9 });
     npcs.push({ ...d, actor: a, marker: m, reach: 3.2 });
@@ -471,6 +486,7 @@ function refreshUI() {
   const active = Object.keys(QUESTS).filter((k) => S.quests[k].state === 'active');
   $('tracker').innerHTML = active.map((k) => `<div><b>${QUESTS[k].name}</b><br>${questReady(k) ? `Return to ${npcName(QUESTS[k].giver)}` : questProgress(k)}</div>`).join('');
   for (const n of npcs) {
+    if (n.shop) { n.marker.userData.draw('$'); continue; }
     const qid = Object.keys(QUESTS).find((k) => QUESTS[k].giver === n.id);
     const st = S.quests[qid].state;
     n.marker.userData.draw(st === 'todo' ? '!' : questReady(qid) ? '?' : '');
@@ -491,9 +507,12 @@ function renderSheet() {
     const slots = [];
     for (let i = 0; i < 16; i++) {
       const it = items[i];
-      slots.push(it ? `<div class="slot" title="${ITEMS[it[0]]}"><img src="${ICONS[it[0]]}" alt="${ITEMS[it[0]]}"><span>${it[1]}</span></div>` : '<div class="slot empty"></div>');
+      slots.push(!it ? '<div class="slot empty"></div>' : FOOD[it[0]]
+        ? `<button class="slot food" data-eat="${it[0]}" title="Eat ${ITEMS[it[0]]} (heals ${FOOD[it[0]].heal})"><img src="${ICONS[it[0]]}" alt="${ITEMS[it[0]]}"><span>${it[1]}</span></button>`
+        : `<div class="slot" title="${ITEMS[it[0]]}"><img src="${ICONS[it[0]]}" alt="${ITEMS[it[0]]}"><span>${it[1]}</span></div>`);
     }
-    el.innerHTML = `<h3>Bag <small>${S.coins} coins</small></h3><div class="bag">${slots.join('')}</div><p class="hint">Gather logs, ore and fish, and collect bones from skeletons.</p>`;
+    el.innerHTML = `<h3>Bag <small>${S.coins} coins</small></h3><div class="bag">${slots.join('')}</div><p class="hint">Tap food to eat it and heal (or press H). Sell logs, ore, fish and bones to Marta at the market.</p>`;
+    el.querySelectorAll('[data-eat]').forEach((b) => { b.onclick = () => eat(b.dataset.eat); });
   } else if (sheetMode === 'quests') {
     el.innerHTML = `<h3>Quests</h3>${Object.entries(QUESTS).map(([k, q]) => {
       const st = S.quests[k].state, ready = questReady(k);
@@ -545,7 +564,55 @@ for (const m of ['skills', 'bag', 'quests', 'look', 'opts']) $(`b-${m}`).addEven
 
 // dialogue
 let talking = null;
+function openShop(npc) {
+  talking = npc;
+  const d = $('dialog');
+  const goods = Object.entries(S.inv).filter(([k]) => SELL[k]);
+  const worth = goods.reduce((a, [k, n]) => a + SELL[k] * n, 0);
+  d.innerHTML = `<h3>${npc.name}</h3><p>Fresh from the oven! Food heals you when you eat it from your bag, or press H.</p>
+    <div class="shop">${Object.entries(FOOD).map(([k, f]) => `<button class="buy" data-food="${k}" ${S.coins < f.price ? 'disabled' : ''}><img src="${ICONS[k]}" alt=""><b>${ITEMS[k]}</b><span>Heals ${f.heal}</span><em>${f.price} coins</em></button>`).join('')}</div>
+    <p class="hint">You have ${S.coins} coins.${worth ? ` I'll also buy your logs, ore, fish and bones for ${worth} coins.` : ' Bring me logs, ore, fish or bones and I will buy them.'}</p>
+    <div class="row">${worth ? `<button id="sellall">Sell goods (+${worth})</button>` : ''}<button id="shopbye">Goodbye</button></div>`;
+  d.querySelectorAll('.buy').forEach((b) => { b.onclick = () => {
+    const k = b.dataset.food, f = FOOD[k];
+    if (S.coins < f.price) return;
+    S.coins -= f.price; addItem(k);
+    toast(`You buy ${ITEMS[k].toLowerCase()}.`, ICONS[k]);
+    save(); openShop(npc);
+  }; });
+  if (worth) $('sellall').onclick = () => {
+    for (const [k] of goods) delete S.inv[k];
+    S.coins += worth; toast(`Sold your goods for ${worth} coins.`, ICONS.coins);
+    refreshUI(); save(); openShop(npc);
+  };
+  $('shopbye').onclick = closeDialog;
+  d.hidden = false;
+  npc.actor.face(player.pos.x, player.pos.z);
+}
+let eatAt = -9;
+function eat(k) {
+  if (!player || player.dead || !FOOD[k] || !S.inv[k] || now < eatAt) return false;
+  if (S.hp >= maxHp()) { toast("You're already at full health.", ICONS[k]); return false; }
+  eatAt = now + 1.2;
+  takeItem(k, 1);
+  const heal = Math.min(FOOD[k].heal, maxHp() - S.hp);
+  S.hp += heal;
+  floatText(player.pos.clone().setY(3.6), `+${heal}`, 'gain');
+  burst(player.pos.clone().setY(1.8), '#9cff6b', 18, 3, 1.2);
+  if (!player.task && now > player.busyUntil) { const dur = player.play('Use_Item', { once: true, fade: 0.08, speed: 1.6, onFinish: () => player.play('Idle') }); player.busyUntil = now + Math.min(0.5, dur); }
+  refreshUI(); save();
+  return true;
+}
+function eatBest() {
+  const missing = maxHp() - S.hp;
+  const have = Object.keys(FOOD).filter((k) => S.inv[k]);
+  if (!have.length) { toast('You have no food. Buy some from Marta at the market.', ICONS.bread); return; }
+  // smallest food that covers what's missing, otherwise the biggest you have
+  const fit = have.filter((k) => FOOD[k].heal >= missing).sort((a, b) => FOOD[a].heal - FOOD[b].heal)[0];
+  eat(fit || have.sort((a, b) => FOOD[b].heal - FOOD[a].heal)[0]);
+}
 function openDialog(npc) {
+  if (npc.shop) { openShop(npc); return; }
   talking = npc;
   const qid = Object.keys(QUESTS).find((k) => QUESTS[k].giver === npc.id);
   const q = QUESTS[qid], st = S.quests[qid];
@@ -587,13 +654,16 @@ const KEYMAP = { KeyW: 'u', ArrowUp: 'u', KeyS: 'd', ArrowDown: 'd', KeyA: 'l', 
 addEventListener('keydown', (e) => {
   if (!player || !$('pick').hidden) return;
   if (KEYMAP[e.code]) { keys.add(KEYMAP[e.code]); cancelTask(); moveTarget = null; e.preventDefault(); }
-  if (e.code === 'Space' || e.code === 'KeyE' || e.code === 'KeyF') { if (!e.repeat) { held = true; doAction(); } e.preventDefault(); }
+  if (e.code === 'KeyE' || e.code === 'KeyF') { if (!e.repeat) { held = true; doAction(); } e.preventDefault(); }
+  if (e.code === 'Space') { if (!e.repeat) jump(); e.preventDefault(); }
+  if (e.code === 'KeyH') eatBest();
+  if (e.code === 'KeyM') toggleBigMap();
   if (e.code === 'KeyK') openSheet('skills');
   if (e.code === 'KeyI' || e.code === 'KeyB') openSheet('bag');
   if (e.code === 'KeyQ') openSheet('quests');
   if (e.code === 'Escape') { closeSheet(); closeDialog(); }
 });
-addEventListener('keyup', (e) => { if (KEYMAP[e.code]) keys.delete(KEYMAP[e.code]); if (e.code === 'Space' || e.code === 'KeyE' || e.code === 'KeyF') held = false; });
+addEventListener('keyup', (e) => { if (KEYMAP[e.code]) keys.delete(KEYMAP[e.code]); if (e.code === 'KeyE' || e.code === 'KeyF') held = false; });
 addEventListener('blur', () => { keys.clear(); held = false; });
 
 let moveTarget = null, pending = null;
@@ -623,11 +693,20 @@ renderer.domElement.addEventListener('pointermove', (e) => {
   if (p) { aim.x = p.x; aim.z = p.z; aim.at = now; }
 });
 renderer.domElement.addEventListener('contextmenu', (e) => e.preventDefault());
+let mouseHeld = false;
+addEventListener('pointerup', (e) => { if (e.pointerType === 'mouse' && e.button === 0) mouseHeld = false; });
 renderer.domElement.addEventListener('pointerdown', (e) => {
   if (!player || player.dead) return;
   const p = groundAt(e.clientX, e.clientY);
   if (!p) return;
-  if (e.button === 2) { aim.x = p.x; aim.z = p.z; aim.at = now; swing(); return; }
+  if (e.pointerType === 'mouse' && e.button === 0) {
+    // left click: talk to someone you clicked on, otherwise attack towards the cursor
+    const t = targetAt(p.x, p.z);
+    if (t) { cancelTask(); startTask(t); return; }
+    aim.x = p.x; aim.z = p.z; aim.at = now; mouseHeld = true;
+    if (talking) closeDialog();
+    swing(); return;
+  }
   cancelTask();
   const t = targetAt(p.x, p.z);
   pending = t;
@@ -661,7 +740,7 @@ const MELEE_REACH = 2.6, TOOL_REACH = 1.7;
 function swingTarget() {
   if (!player) return null;
   const p = player.pos, A = CLASSES[S.cls].atk;
-  for (const n of npcs) if (Math.hypot(n.x - p.x, n.z - p.z) < n.reach + 0.6) return { type: 'npc', n };
+  if (!mouseHeld) for (const n of npcs) if (Math.hypot(n.x - p.x, n.z - p.z) < n.reach + 0.6) return { type: 'npc', n };
   for (const n of nodes) if (n.alive && n.def.skill === 'fishing' && Math.hypot(n.x - p.x, n.z - p.z) < n.reach + 0.6) return { type: 'node', n };
   let foe = null, fd = 1e9;
   const reach = A.proj ? A.range : MELEE_REACH;
@@ -672,7 +751,7 @@ function swingTarget() {
   return { type: 'attack', e: foe };
 }
 function describe(t) {
-  const hint = 'Space or tap here to swing at whatever is in front of you.';
+  const hint = matchMedia('(pointer: coarse)').matches ? 'Tap here to swing at whatever is in front of you.' : 'Click to attack towards your mouse. Space jumps.';
   if (!t) return { label: 'Attack', icon: ICONS[CLASSES[S.cls].skill], hint, ok: true };
   if (t.type === 'npc') return { label: 'Talk', icon: ICONS.magic, hint: t.n.name, ok: true };
   if (t.type === 'attack') return { label: 'Attack', icon: ICONS[CLASSES[S.cls].skill], hint: t.e ? `${t.e.T.name} (${t.e.hp} health)` : hint, ok: true };
@@ -684,6 +763,15 @@ function doAction() {
   if (talking) { closeDialog(); return; }
   swing();
 }
+const GRAV = 34;
+function jump() {
+  if (!player || player.dead || !$('pick').hidden || player.air) return;
+  if (talking) closeDialog();
+  if (player.task) cancelTask();
+  player.air = true; player.vy = 11;
+  player.play(player.clips.Jump_Full_Short ? 'Jump_Full_Short' : 'Cheer', { once: true, fade: 0.06, speed: 1.35 });
+  burst(player.pos.clone().setY(0.2), '#f3e2bd', 8, 2);
+}
 function showGear(which) {
   tool.visible = which === 'axe'; pick.visible = which === 'pick'; rod.visible = which === 'rod';
   player.weapons.forEach((w) => { w.visible = !which; });
@@ -691,6 +779,7 @@ function showGear(which) {
 // One swing: chop, mine, hit with a weapon, or shoot, in the direction you face.
 function swing() {
   if (!player || player.dead || now < player.nextHit) return;
+  if (mouseHeld && now - aim.at < 0.1) { player.face(aim.x, aim.z); }
   if (player.task) cancelTask();
   if (now - aim.at < 2.5) { player.face(aim.x, aim.z); aim.at = -99; }
   const t = swingTarget();
@@ -868,7 +957,7 @@ function hurtPlayer(dmg) {
     player.play('Death_A', { once: true, clamp: true, fade: 0.1 });
     toast('You were knocked out! You wake up by the well.', null, true);
     later(3, () => {
-      player.root.position.set(0, 0, 6); camPos.set(0, 30, 40);
+      player.root.position.set(0, 0, 6); player.air = false; camPos.set(0, 30, 40);
       S.hp = maxHp(); player.dead = false; player.play('Idle'); refreshUI(); save();
     });
   } else if (!player.task && now > player.busyUntil) {
@@ -907,7 +996,11 @@ function enemyTick(e, dt) {
         });
       } else {
         e.play('1H_Melee_Attack_Chop', { once: true, fade: 0.08, onFinish: () => e.play('Idle_Combat') });
-        later(0.4, () => { if (e.hp > 0 && Math.hypot(player.pos.x - ep.x, player.pos.z - ep.z) < reach + 1) hurtPlayer(dmg); });
+        later(0.4, () => {
+          if (e.hp <= 0 || Math.hypot(player.pos.x - ep.x, player.pos.z - ep.z) >= reach + 1) return;
+          if (player.pos.y > 0.7) { floatText(player.pos.clone().setY(3.6), 'Dodged!', 'miss'); return; }
+          hurtPlayer(dmg);
+        });
       }
     } else if (e.name === 'Running_A' || e.name === 'Idle' || e.name === 'Walking_A') e.play('Idle_Combat');
   } else if (e.state === 'return') {
@@ -930,9 +1023,81 @@ function enemyTick(e, dt) {
   }
 }
 
+// ---------- minimap ----------
+const MAP_R = 70, MAP_PX = 512;
+const mapBg = document.createElement('canvas'); mapBg.width = mapBg.height = MAP_PX;
+const PLACES = [['Village', 0, -4], ['Market', 7, 19], ['Skeleton camp', CAMP.x, CAMP.z + 9], ['Mine', MINE.x, MINE.z - 9], ['Lake', LAKE.x, LAKE.z], ['Castle', 4, -54], ['Tavern', -4, -22]];
+// Photograph the world from straight above once, and use it as the map picture.
+function bakeMap() {
+  const cam = new THREE.OrthographicCamera(-MAP_R, MAP_R, MAP_R, -MAP_R, 1, 500);
+  cam.position.set(0, 250, 0); cam.up.set(0, 0, -1); cam.lookAt(0, 0, 0);
+  const rt = new THREE.WebGLRenderTarget(MAP_PX, MAP_PX);
+  rt.texture.colorSpace = THREE.SRGBColorSpace;
+  const fog = scene.fog; scene.fog = null;
+  const hidden = [...clouds, ...enemies.map((e) => e.root), ...npcs.map((n) => n.actor.root)];
+  hidden.forEach((o) => { o.userData.wasVis = o.visible; o.visible = false; });
+  renderer.setRenderTarget(rt); renderer.render(scene, cam); renderer.setRenderTarget(null);
+  hidden.forEach((o) => { o.visible = o.userData.wasVis; });
+  scene.fog = fog;
+  const px = new Uint8Array(MAP_PX * MAP_PX * 4);
+  renderer.readRenderTargetPixels(rt, 0, 0, MAP_PX, MAP_PX, px);
+  rt.dispose();
+  const img = new ImageData(MAP_PX, MAP_PX), row = MAP_PX * 4;
+  for (let y = 0; y < MAP_PX; y++) img.data.set(px.subarray((MAP_PX - 1 - y) * row, (MAP_PX - y) * row), y * row);
+  const g = mapBg.getContext('2d');
+  g.putImageData(img, 0, 0);
+  // warm, storybook paper tint
+  g.globalCompositeOperation = 'soft-light'; g.fillStyle = '#ffdca0'; g.fillRect(0, 0, MAP_PX, MAP_PX);
+  g.globalCompositeOperation = 'source-over';
+}
+const mini = $('minimap'), bigMap = $('bigmap');
+let lastMap = 0, mapBaked = 0;
+function toggleBigMap(force) {
+  const show = force ?? bigMap.hidden;
+  bigMap.hidden = !show;
+  if (show) drawMap(bigMap.querySelector('canvas'), true);
+}
+mini.addEventListener('click', () => toggleBigMap(true));
+$('jumpbtn').addEventListener('pointerdown', (e) => { e.preventDefault(); jump(); });
+bigMap.addEventListener('click', () => toggleBigMap(false));
+function drawMap(cv, full) {
+  if (!player) return;
+  const dpr = Math.min(devicePixelRatio || 1, 2), css = cv.clientWidth || 150;
+  if (cv.width !== Math.round(css * dpr)) { cv.width = cv.height = Math.round(css * dpr); }
+  const W = cv.width, g = cv.getContext('2d');
+  const p = player.pos, half = full ? MAP_R : 30;
+  const cx = full ? 0 : p.x, cz = full ? 0 : p.z;
+  const k = W / (half * 2);
+  const toPx = (x, z) => [(x - cx + half) * k, (z - cz + half) * k];
+  const src = (v) => ((v + MAP_R) / (MAP_R * 2)) * MAP_PX;
+  g.clearRect(0, 0, W, W);
+  g.save();
+  if (!full) { g.beginPath(); g.arc(W / 2, W / 2, W / 2, 0, 7); g.clip(); }
+  g.fillStyle = '#3f7a3a'; g.fillRect(0, 0, W, W);
+  g.drawImage(mapBg, src(cx - half), src(cz - half), src(cx + half) - src(cx - half), src(cz + half) - src(cz - half), 0, 0, W, W);
+  const dot = (x, z, r, fill) => { const [u, v] = toPx(x, z); g.beginPath(); g.arc(u, v, r * dpr, 0, 7); g.fillStyle = fill; g.fill(); g.lineWidth = 1.5 * dpr; g.strokeStyle = '#3a2010'; g.stroke(); };
+  for (const e of enemies) if (e.hp > 0 && e.state !== 'rising') dot(e.pos.x, e.pos.z, full ? 3 : 3.5, '#ff5a4a');
+  for (const n of npcs) {
+    const qid = Object.keys(QUESTS).find((q) => QUESTS[q].giver === n.id);
+    const st = qid && S.quests[qid].state;
+    const col = n.shop ? '#ffe9a0' : st === 'todo' ? '#ffd23f' : qid && questReady(qid) ? '#9cff6b' : '#f6efdc';
+    dot(n.x, n.z, full ? 4 : 4.5, col);
+  }
+  if (full) {
+    g.font = `700 ${13 * dpr}px Fredoka, Trebuchet MS, sans-serif`; g.textAlign = 'center'; g.lineJoin = 'round';
+    for (const [name, x, z] of PLACES) { const [u, v] = toPx(x, z); g.lineWidth = 4 * dpr; g.strokeStyle = '#3a2010'; g.strokeText(name, u, v); g.fillStyle = '#fff6dc'; g.fillText(name, u, v); }
+  }
+  // you: an arrow pointing the way you face
+  const [u, v] = toPx(p.x, p.z), a = player.root.rotation.y, sz = (full ? 7 : 8) * dpr;
+  g.translate(u, v); g.rotate(-a);
+  g.beginPath(); g.moveTo(0, sz * 1.2); g.lineTo(sz * 0.8, -sz * 0.7); g.lineTo(0, -sz * 0.25); g.lineTo(-sz * 0.8, -sz * 0.7); g.closePath();
+  g.fillStyle = '#ffffff'; g.fill(); g.lineWidth = 2 * dpr; g.strokeStyle = '#3a2010'; g.stroke();
+  g.restore();
+}
+
 // ---------- main loop ----------
 const camPos = new THREE.Vector3(0, 30, 40);
-const tmpV = new THREE.Vector3();
+const tmpV = new THREE.Vector3(), tmpF = new THREE.Vector3();
 function collide(p, r = 0.7) {
   for (const c of colliders) {
     const dx = p.x - c.x, dz = p.z - c.z, d = Math.hypot(dx, dz), m = c.r + r;
@@ -973,13 +1138,17 @@ function tick() {
       const want = Math.atan2(mx, mz);
       let diff = want - player.root.rotation.y; diff = Math.atan2(Math.sin(diff), Math.cos(diff));
       player.root.rotation.y += diff * Math.min(1, dt * 14);
-      player.play('Running_A', { fade: 0.12 });
+      if (!player.air) player.play('Running_A', { fade: 0.12 });
     } else if (!busy && player.task) {
       gatherTick(player.task);
     } else if (!busy && (player.name === 'Running_A' || player.name === 'Idle_Combat')) {
       player.play('Idle', { fade: 0.15 });
     }
-    if (held && now >= player.nextHit && !talking) swing();
+    if (player.air) {
+      pp.y += player.vy * dt; player.vy -= GRAV * dt;
+      if (pp.y <= 0) { pp.y = 0; player.air = false; player.vy = 0; burst(pp.clone().setY(0.15), '#f3e2bd', 10, 2.5); if (now > player.busyUntil) player.play(mx || mz ? 'Running_A' : 'Idle', { fade: 0.1 }); }
+    }
+    if ((held || mouseHeld) && now >= player.nextHit && !talking) { if (mouseHeld) aim.at = now; swing(); }
     if (now - lastHurt > 6 && now > regenAt && S.hp < maxHp()) { S.hp = Math.min(maxHp(), S.hp + 1); regenAt = now + 2.5; refreshUI(); }
   }
   if (marker.visible) { marker.scale.setScalar(Math.max(1, marker.scale.x - dt * 2)); marker.material.opacity = 0.6 + 0.3 * Math.sin(now * 8); }
@@ -1008,7 +1177,7 @@ function tick() {
     let hitSomething = false;
     if (pr.owner === 'player') {
       for (const e of enemies) if (e.hp > 0 && e.state !== 'rising' && Math.hypot(e.pos.x - pp.x, e.pos.z - pp.z) < 0.95) { pr.onHit(e); hitSomething = true; break; }
-    } else if (player && !player.dead && Math.hypot(player.pos.x - pp.x, player.pos.z - pp.z) < 0.8) { pr.onHit(); hitSomething = true; }
+    } else if (player && !player.dead && Math.abs(player.pos.y + 1.6 - pp.y) < 1.4 && Math.hypot(player.pos.x - pp.x, player.pos.z - pp.z) < 0.8) { pr.onHit(); hitSomething = true; }
     if (!hitSomething) for (const c of colliders) if (c.r > 0.9 && Math.hypot(c.x - pp.x, c.z - pp.z) < c.r * 0.8) { hitSomething = true; break; }
     if (hitSomething || pr.left <= 0) {
       burst(pp, pr.kind === 'dark' ? '#d6a8ff' : pr.kind === 'bolt' ? '#fff2c0' : '#8ff7ff', hitSomething ? 20 : 8, hitSomething ? 5 : 2);
@@ -1060,6 +1229,9 @@ function tick() {
       $('action').disabled = !info.ok;
     }
   }
+  // bake the map picture once textures have had time to arrive, then once more to be safe
+  if ((mapBaked === 0 && now > 2) || (mapBaked === 1 && now > 8)) { mapBaked++; bakeMap(); }
+  if (player && now - lastMap > 0.1) { lastMap = now; mini.hidden = false; drawMap(mini, false); if (!bigMap.hidden) drawMap(bigMap.querySelector('canvas'), true); }
   if (player && now - lastSave > 6) { lastSave = now; save(); }
 
   const P = PRESETS[env.preset];
@@ -1069,7 +1241,7 @@ function tick() {
   dynamic.flames.forEach((f, i) => { f.scale.set(1, fl * (i ? 1.1 : 1), 1); f.rotation.y = now * (i ? -2 : 2); });
   for (const c of clouds) { c.position.x += dt * 0.8; if (c.position.x > 110) c.position.x = -110; }
 
-  const focus = player ? player.pos : new THREE.Vector3(0, 0, 4);
+  const focus = player ? tmpF.copy(player.pos).setY(0) : tmpF.set(0, 0, 4);
   updateParticles(dt, now, focus);
   const off = new THREE.Vector3(0, 23, 27).multiplyScalar(zoom * (camera.aspect < 1 ? 1.3 : 1));
   camPos.lerp(tmpV.copy(focus).add(off), 1 - Math.pow(0.002, dt));
@@ -1082,7 +1254,7 @@ function tick() {
 }
 addEventListener('pagehide', () => { if (!resetting) save(); });
 
-window.__jq = { swing, swingTarget, hitNode, projectiles, timers, get S() { return S; }, get player() { return player; }, enemies, nodes, npcs, startTask, doAction, giveXp, save, openSheet, openDialog };
+window.__jq = { jump, eat, eatBest, openShop, drawMinimap: () => drawMinimap(), swing, swingTarget, hitNode, projectiles, timers, get S() { return S; }, get player() { return player; }, enemies, nodes, npcs, startTask, doAction, giveXp, save, openSheet, openDialog };
 window.addEventListener('error', (e) => { const m = $('loadmsg'); if (m) m.textContent = `Something went wrong: ${e.message}`; });
 main().catch((err) => {
   console.error(err);

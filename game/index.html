@@ -177,6 +177,19 @@
   .hpbar { position: fixed; width: 54px; height: 9px; transform: translate(-50%, -50%); border: 2px solid var(--ink); border-radius: 6px; background: #6b3a2a; overflow: hidden; pointer-events: none; }
   .hpbar i { display: block; height: 100%; background: #7ee05a; }
   .hpbar.node i { background: #ffc94a; }
+  #minimap { position: fixed; right: calc(env(safe-area-inset-right, 0px) + 16px); bottom: calc(env(safe-area-inset-bottom, 0px) + 16px); width: 160px; height: 160px; border-radius: 50%; padding: 0; border-width: 4px; cursor: pointer; z-index: 2; }
+  #bigmap { display: grid; place-items: center; z-index: 6; background: rgba(40,22,10,.45); }
+  #bigmap[hidden] { display: none; }
+  #bigmap .mapwrap { padding: 14px; width: min(560px, calc(100vw - 32px)); }
+  #bigmap canvas { width: 100%; aspect-ratio: 1; border-radius: 12px; border: 3px solid var(--ink); display: block; margin: 8px 0; }
+  #jumpbtn { position: fixed; right: calc(env(safe-area-inset-right, 0px) + 188px); bottom: calc(env(safe-area-inset-bottom, 0px) + 22px); width: 64px; height: 64px; border-radius: 50%; font-size: 15px; padding: 0; display: none; }
+  @media (pointer: coarse) { #jumpbtn { display: block; } }
+  .shop { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin: 10px 0; }
+  .shop .buy { display: grid; justify-items: center; gap: 2px; padding: 8px 6px; font-size: 14px; }
+  .shop .buy img { width: 44px; height: 44px; }
+  .shop .buy span { font-size: 12px; color: var(--ink-soft); }
+  .shop .buy em { font-style: normal; font-size: 13px; color: var(--plum); }
+  .slot.food { cursor: pointer; padding: 0; }
 
   @media (max-width: 700px) {
     #status { width: 200px; padding: 8px 10px; }
@@ -186,6 +199,8 @@
     #sheet { top: auto; bottom: calc(env(safe-area-inset-bottom, 0px) + 140px); max-height: 52%; }
     #actionhint { display: none; }
     #dialog { bottom: calc(env(safe-area-inset-bottom, 0px) + 140px); }
+    #minimap { width: 104px; height: 104px; bottom: auto; top: calc(env(safe-area-inset-top, 0px) + 12px); right: calc(env(safe-area-inset-right, 0px) + 12px); }
+    #jumpbtn { right: calc(env(safe-area-inset-right, 0px) + 12px); bottom: calc(env(safe-area-inset-bottom, 0px) + 18px); width: 58px; height: 58px; }
   }
   @media (prefers-reduced-motion: reduce) { .float, .toast { animation-duration: .01s; } }
 </style>
@@ -215,6 +230,9 @@
   <div id="actionhint">Space or tap here to swing at whatever is in front of you.</div>
 </div>
 
+<canvas id="minimap" class="panel" title="Map (M)" hidden></canvas>
+<div id="bigmap" class="overlay" hidden><div class="panel mapwrap"><h3>Map of the valley</h3><canvas></canvas><p class="hint">Yellow: someone with a quest. Green: quest ready to hand in. Red: monsters. Tap anywhere to close.</p></div></div>
+<button id="jumpbtn" class="panel" aria-label="Jump">Jump</button>
 <div id="toasts" aria-live="polite"></div>
 <div id="dialog" class="panel" hidden></div>
 

@@ -33,6 +33,7 @@ World
 - A player house you can decorate
 
 Skills
+- Done: Marta's food stall (bread, pie, stew heal you; she buys logs, ore, fish and bones), minimap and full map (M), jumping (dodges melee swings)
 - Cooking fish to heal
 - Smithing ore into weapons
 - Rare golden trees and ore spawns that friends race for

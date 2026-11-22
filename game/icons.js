@@ -51,6 +51,24 @@ export const ICONS = {
   coins: make((g) => {
     for (const [x, y] of [[-10, 8], [10, 4], [0, -10]]) { shape(g, '#ffcc33', () => g.ellipse(x, y, 16, 16, 0, 0, 7)); g.save(); g.lineWidth = 3; g.beginPath(); g.ellipse(x, y, 9, 9, 0, 0, 7); g.stroke(); g.restore(); shine(g, x - 6, y - 7, 3); }
   }),
+  bread: make((g) => {
+    shape(g, '#d9944a', () => { g.moveTo(-34, 14); g.quadraticCurveTo(-36, -22, 0, -22); g.quadraticCurveTo(36, -22, 34, 14); g.closePath(); });
+    g.save(); g.lineWidth = 4; g.strokeStyle = '#f6d39a'; for (const x of [-14, 0, 14]) { g.beginPath(); g.moveTo(x - 6, -12); g.lineTo(x + 6, 2); g.stroke(); } g.restore();
+    shine(g, -16, -12, 4);
+  }),
+  pie: make((g) => {
+    shape(g, '#c9773a', () => { g.moveTo(-36, 6); g.lineTo(36, 6); g.lineTo(28, 24); g.lineTo(-28, 24); g.closePath(); });
+    shape(g, '#f0b85c', () => g.ellipse(0, 4, 36, 16, 0, Math.PI, 0));
+    g.save(); g.lineWidth = 3; for (const x of [-16, 0, 16]) { g.beginPath(); g.moveTo(x - 5, -6); g.lineTo(x + 5, -2); g.stroke(); } g.restore();
+    shape(g, '#e0444f', () => g.arc(0, -16, 6, 0, 7));
+    shine(g, -18, -4, 4);
+  }),
+  stew: make((g) => {
+    shape(g, '#8a5a32', () => { g.moveTo(-36, -4); g.lineTo(36, -4); g.quadraticCurveTo(34, 30, 0, 30); g.quadraticCurveTo(-34, 30, -36, -4); g.closePath(); });
+    shape(g, '#e08a3a', () => g.ellipse(0, -4, 36, 9, 0, 0, 7));
+    for (const [x, y, c] of [[-14, -5, '#7fc96a'], [10, -3, '#ffcf5a'], [0, -7, '#f6d9b0']]) shape(g, c, () => g.arc(x, y, 4, 0, 7));
+    g.save(); g.lineWidth = 3.5; g.strokeStyle = 'rgba(58,32,16,.55)'; for (const x of [-10, 4, 18]) { g.beginPath(); g.moveTo(x, -18); g.quadraticCurveTo(x + 6, -26, x, -34); g.stroke(); } g.restore();
+  }),
   // skills
   melee: make((g) => {
     g.rotate(0.78);
