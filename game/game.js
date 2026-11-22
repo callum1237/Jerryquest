@@ -42,6 +42,25 @@ const ITEMS = {
 };
 // Food heals; bought from Marta's stall in the market.
 const FOOD = { bread: { heal: 8, price: 8 }, pie: { heal: 20, price: 20 }, stew: { heal: 40, price: 40 } };
+// Weapons belong to the character. Each class has its own line, sold by its own shop.
+const WEAPONS = {
+  k_sword: { cls: 'knight', name: 'Knight sword', bonus: 0, price: 0 },
+  k_steel: { cls: 'knight', name: 'Steel sword', bonus: 1, price: 45, model: 'sword_1handed' },
+  k_axe: { cls: 'knight', name: 'Great axe', bonus: 3, price: 140, model: 'axe_2handed' },
+  k_gold: { cls: 'knight', name: 'Golden sword', bonus: 5, price: 320, model: 'sword_1handed', tint: '#ffd84a' },
+  k_royal: { cls: 'knight', name: 'Royal blade', bonus: 7, price: 600, model: 'sword_2handed_color' },
+  m_staff: { cls: 'mage', name: 'Oak staff', bonus: 0, price: 0 },
+  m_wand: { cls: 'mage', name: 'Apprentice wand', bonus: 1, price: 45, model: 'wand' },
+  m_crystal: { cls: 'mage', name: 'Crystal staff', bonus: 3, price: 140, model: 'staff', tint: '#8ff0ff' },
+  m_star: { cls: 'mage', name: 'Starlight wand', bonus: 5, price: 320, model: 'wand', tint: '#ffe27a' },
+  m_ember: { cls: 'mage', name: 'Ember staff', bonus: 7, price: 600, model: 'staff', tint: '#ff8a5a' },
+  a_xbow: { cls: 'archer', name: 'Crossbow', bonus: 0, price: 0 },
+  a_hunter: { cls: 'archer', name: 'Hunter crossbow', bonus: 1, price: 45, model: 'crossbow_1handed', tint: '#a8f08a' },
+  a_heavy: { cls: 'archer', name: 'Heavy crossbow', bonus: 3, price: 140, model: 'crossbow_2handed' },
+  a_gold: { cls: 'archer', name: 'Golden crossbow', bonus: 5, price: 320, model: 'crossbow_1handed', tint: '#ffd84a' },
+  a_shadow: { cls: 'archer', name: 'Shadow repeater', bonus: 7, price: 600, model: 'crossbow_2handed', tint: '#b896ff' },
+};
+const BASIC_WEAPON = { knight: 'k_sword', mage: 'm_staff', archer: 'a_xbow' };
 const SELL = { logs: 3, oak_logs: 6, copper_ore: 4, iron_ore: 8, shrimp: 3, trout: 8, bones: 2 };
 const NODES = {
   tree: { skill: 'woodcutting', req: 1, xp: 25, item: 'logs', name: 'Tree', verb: 'Chop', doing: 'Chopping', deplete: 0.3, respawn: 14 },
@@ -86,12 +105,13 @@ const fresh = () => ({
   quests: Object.fromEntries(Object.keys(QUESTS).map((k) => [k, { state: 'todo', kills: 0 }])),
   hp: 50, pos: [0, 6], preset: 'day',
   look: { outfit: 'none', trim: 'none', hat: true, cape: true, hair: 'none', hairCol: 'chestnut' },
+  owned: ['k_sword', 'm_staff', 'a_xbow'], equip: { knight: 'k_sword', mage: 'm_staff', archer: 'a_xbow' },
 });
 let S = fresh();
 function loadSave() {
   try {
     const raw = localStorage.getItem(SAVE_KEY);
-    if (raw) { const d = JSON.parse(raw); const f = fresh(); S = { ...f, ...d, xp: { ...f.xp, ...d.xp }, quests: { ...f.quests, ...d.quests }, look: { ...f.look, ...d.look } }; return true; }
+    if (raw) { const d = JSON.parse(raw); const f = fresh(); S = { ...f, ...d, xp: { ...f.xp, ...d.xp }, quests: { ...f.quests, ...d.quests }, look: { ...f.look, ...d.look }, equip: { ...f.equip, ...d.equip }, owned: [...new Set([...f.owned, ...(d.owned || [])])] }; return true; }
   } catch (e) { /* storage unavailable */ }
   return false;
 }
@@ -145,12 +165,13 @@ const nodes = [];
 let tool = null, rod = null, pick = null;
 
 // ---------- boot ----------
-const FILES = ['world', 'knight', 'mage', 'archer', 'barbarian', 'skel_warrior', 'skel_minion', 'skel_mage'];
+const FILES = ['world', 'gear', 'knight', 'mage', 'archer', 'barbarian', 'skel_warrior', 'skel_minion', 'skel_mage'];
 async function main() {
   let n = 0;
   const loaded = await Promise.all(FILES.map((f) => loadModel(f).then((g) => { $('loadmsg').textContent = `${++n} of ${FILES.length} models`; return g; })));
   FILES.forEach((f, i) => { G[f] = loaded[i]; });
   for (const c of G.world.scene.children) lib[c.name] = c;
+  for (const c of G.gear.scene.children) lib[c.name] = c;
   buildWorld(lib);
   buildNodes();
   buildNpcs();
@@ -193,6 +214,7 @@ function startAs(k) {
   else player.root.position.set(S.pos[0], 0, S.pos[1]);
   player.weapons = [];
   player.root.traverse((o) => { if (c.weapon.includes(o.name)) player.weapons.push(o); });
+  equipWeapon();
   player.play('Idle');
   player.busyUntil = 0; player.task = null; player.nextHit = 0; player.dead = false;
   S.hp = Math.min(S.hp > 0 ? S.hp : maxHp(), maxHp());
@@ -272,22 +294,41 @@ function applyLook() {
     }
   });
 }
-function buildClassBar() {
-  const bar = $('classes');
-  bar.innerHTML = '';
-  for (const [k, c] of Object.entries(CLASSES)) {
-    const b = document.createElement('button');
-    b.id = `cls-${k}`; b.title = `Switch to ${c.name}`;
-    b.innerHTML = `<img src="${ICONS[c.skill]}" alt="">${c.name}`;
-    b.setAttribute('aria-pressed', String(S.cls === k));
-    b.onclick = () => {
-      if (S.cls === k || !player || player.dead) return;
-      cancelTask(); startAs(k); save();
-      burst(player.pos.clone().setY(1.5), '#ffe07a', 40, 5, 1.2);
-      toast(`You are now a ${c.name}. Your skills, bag and quests come with you.`, ICONS[c.skill]);
-    };
-    bar.appendChild(b);
+const weaponBonus = () => (WEAPONS[S.equip[S.cls]] || { bonus: 0 }).bonus;
+function tinted(obj, col) {
+  obj.traverse((o) => {
+    if (!o.isMesh || !o.userData.mats) return;
+    const m = { std: o.userData.mats.std.clone(), toon: o.userData.mats.toon.clone() };
+    m.toon.onBeforeCompile = o.userData.mats.toon.onBeforeCompile;
+    m.std.color.set(col); m.toon.color.set(col); registerMesh(o, m);
+  });
+  return obj;
+}
+// Swap the hand-held weapon model for the equipped one (the shield stays).
+function equipWeapon() {
+  if (!player) return;
+  const W = WEAPONS[S.equip[S.cls]] || WEAPONS[BASIC_WEAPON[S.cls]];
+  if (player.custom) { player.custom.removeFromParent(); player.weapons = player.weapons.filter((w) => w !== player.custom); player.custom = null; }
+  const main = player.weapons.find((w) => !/Shield/.test(w.name));
+  if (main) main.userData.hiddenByGear = !!W.model;
+  if (main) main.visible = !W.model;
+  if (W.model && lib[W.model]) {
+    const m = lib[W.model].clone(true); stylize(m);
+    if (W.tint) tinted(m, W.tint);
+    player.attach(m); player.custom = m; player.weapons.push(m);
+    if (main) player.weapons = player.weapons.filter((w) => w !== main);
   }
+}
+function buildClassBar() {
+  const c = CLASSES[S.cls];
+  $('classes').innerHTML = `<div class="classchip"><img src="${ICONS[c.skill]}" alt="">${c.name}<small>${WEAPONS[S.equip[S.cls]].name}</small></div><p class="hint">Talk to King Jerrold at the castle to change class.</p>`;
+}
+function switchClass(k) {
+  const c = CLASSES[k];
+  if (S.cls === k || !player || player.dead) return;
+  cancelTask(); startAs(k); save();
+  burst(player.pos.clone().setY(1.5), '#ffe07a', 40, 5, 1.2);
+  toast(`You are now a ${c.name}. Your skills, bag and quests come with you.`, ICONS[c.skill]);
 }
 function updateTitle() {
   $('pname').textContent = CLASSES[S.cls].name;
@@ -376,17 +417,36 @@ function markerSprite() {
       g.beginPath(); g.arc(32, 52, 24, 0, 7); g.fill(); g.stroke();
       g.lineWidth = 4; g.beginPath(); g.arc(32, 52, 13, 0, 7); g.stroke();
       g.fillStyle = 'rgba(255,255,255,.8)'; g.beginPath(); g.ellipse(22, 42, 6, 3.5, -0.6, 0, 7); g.fill();
+    } else if (ch === '♛') {
+      g.lineWidth = 6; g.strokeStyle = '#4a2a17'; g.fillStyle = '#ffcc33';
+      g.beginPath(); g.moveTo(8, 70); g.lineTo(6, 34); g.lineTo(20, 50); g.lineTo(32, 26); g.lineTo(44, 50); g.lineTo(58, 34); g.lineTo(56, 70); g.closePath(); g.fill(); g.stroke();
+      g.fillStyle = '#e0444f'; g.beginPath(); g.arc(32, 58, 5, 0, 7); g.fill();
     } else { g.lineWidth = 10; g.strokeStyle = '#4a2a17'; g.strokeText(ch, 32, 52); g.fillStyle = ch === '?' ? '#9cff6b' : '#ffd23f'; g.fillText(ch, 32, 52); }
     tex.needsUpdate = true;
   };
   return sp;
+}
+function makeCrown() {
+  const g = new THREE.Group(), gold = toon('#ffcc33', { emissive: '#4a2a00' }), gem = toon('#e0444f', { emissive: '#400' });
+  const band = new THREE.Mesh(new THREE.CylinderGeometry(0.5, 0.46, 0.22, 16, 1, true)); band.material = gold.std;
+  band.position.y = 1.05; registerMesh(band, gold); g.add(band);
+  for (let i = 0; i < 6; i++) {
+    const a = (i / 6) * Math.PI * 2;
+    const sp = new THREE.Mesh(new THREE.ConeGeometry(0.1, 0.26, 4)); sp.position.set(Math.cos(a) * 0.47, 1.27, Math.sin(a) * 0.47); registerMesh(sp, gold); g.add(sp);
+  }
+  const j = new THREE.Mesh(new THREE.OctahedronGeometry(0.1)); j.position.set(0, 1.07, 0.5); registerMesh(j, gem); g.add(j);
+  return g;
 }
 function buildNpcs() {
   const defs = [
     { id: 'bertha', name: 'Bertha the Innkeeper', model: 'barbarian', x: -2, z: -10.5, hide: [] },
     { id: 'rowan', name: 'Captain Rowan', model: 'knight', x: 12, z: -18, hide: [] },
     { id: 'fenwick', name: 'Old Fenwick', model: 'mage', x: 15, z: -4.5, hide: [] },
-    { id: 'marta', name: 'Marta the Baker', model: 'barbarian', x: 7.5, z: 10.2, hide: [], shop: true, tint: '#bfe3ff' },
+    { id: 'marta', name: 'Marta the Baker', model: 'barbarian', x: 7.5, z: 10.2, hide: [], shop: 'food', tint: '#bfe3ff' },
+    { id: 'brom', name: 'Brom the Blacksmith', model: 'barbarian', x: 5.5, z: -19.8, hide: [], shop: 'knight', tint: '#ffb38a' },
+    { id: 'wisteria', name: 'Madame Wisteria', model: 'mage', x: 18.4, z: -21.6, hide: [], shop: 'mage', tint: '#f0b0ff' },
+    { id: 'hazel', name: 'Hazel the Fletcher', model: 'archer', x: -22, z: 10.5, hide: [], shop: 'archer', tint: '#d8f0a0' },
+    { id: 'king', name: 'King Jerrold', model: 'knight', x: 4, z: -49, hide: ['Knight_Helmet'], king: true, tint: '#b98cff' },
   ];
   for (const d of defs) {
     const a = new Actor(G[d.model], { hide: d.hide, scale: 1.3 });
@@ -394,8 +454,10 @@ function buildNpcs() {
     a.face(0, 0);
     a.play(d.id === 'fenwick' ? 'Spellcasting' : 'Idle');
     if (d.id === 'fenwick') a.mixer.timeScale = 0.4;
+    if (d.king) a.root.traverse((o) => { if (o.isBone && o.name === 'head') o.add(makeCrown()); });
     if (d.tint) a.root.traverse((o) => {
-      if (!o.isMesh || !/_Body$/.test(o.name)) return;
+      if (!o.isMesh || !/_(Body|Cape)$/.test(o.name)) return;
+      if (/_Cape$/.test(o.name) && !d.king) return;
       const m = { std: o.userData.mats.std.clone(), toon: o.userData.mats.toon.clone() };
       m.toon.onBeforeCompile = o.userData.mats.toon.onBeforeCompile;
       m.std.color.set(d.tint); m.toon.color.set(d.tint); registerMesh(o, m);
@@ -487,6 +549,7 @@ function refreshUI() {
   $('tracker').innerHTML = active.map((k) => `<div><b>${QUESTS[k].name}</b><br>${questReady(k) ? `Return to ${npcName(QUESTS[k].giver)}` : questProgress(k)}</div>`).join('');
   for (const n of npcs) {
     if (n.shop) { n.marker.userData.draw('$'); continue; }
+    if (n.king) { n.marker.userData.draw('♛'); continue; }
     const qid = Object.keys(QUESTS).find((k) => QUESTS[k].giver === n.id);
     const st = S.quests[qid].state;
     n.marker.userData.draw(st === 'todo' ? '!' : questReady(qid) ? '?' : '');
@@ -611,7 +674,43 @@ function eatBest() {
   const fit = have.filter((k) => FOOD[k].heal >= missing).sort((a, b) => FOOD[a].heal - FOOD[b].heal)[0];
   eat(fit || have.sort((a, b) => FOOD[b].heal - FOOD[a].heal)[0]);
 }
+function openKing(npc) {
+  talking = npc;
+  const d = $('dialog');
+  d.innerHTML = `<h3>${npc.name}</h3><p>Welcome, brave one! The realm needs heroes of every kind. Choose your calling, and you may change it whenever you visit me. Your skills, bag and coins stay with you.</p>
+    <div class="shop">${Object.entries(CLASSES).map(([k, c]) => `<button class="buy" data-cls="${k}" ${S.cls === k ? 'disabled' : ''}><img src="${ICONS[c.skill]}" alt=""><b>${c.name}</b><span>${S.cls === k ? 'Your class now' : c.blurb}</span></button>`).join('')}</div>
+    <div class="row"><button id="kingbye">Farewell</button></div>`;
+  d.querySelectorAll('[data-cls]').forEach((b) => { b.onclick = () => { switchClass(b.dataset.cls); closeDialog(); npc.actor.play('Cheer', { once: true, onFinish: () => npcIdle(npc) }); }; });
+  $('kingbye').onclick = closeDialog;
+  d.hidden = false;
+  npc.actor.face(player.pos.x, player.pos.z);
+}
+function openWeaponShop(npc) {
+  talking = npc;
+  const cls = npc.shop, d = $('dialog');
+  const lines = { knight: 'Finest steel this side of the mountains! Sharper blade, harder hits.', mage: 'Wands and staves, darling, humming with power. Each one makes your spells hit harder.', archer: 'Crossbows I made myself. A better one hits harder.' };
+  const list = Object.entries(WEAPONS).filter(([, w]) => w.cls === cls);
+  d.innerHTML = `<h3>${npc.name}</h3><p>${lines[cls]}${S.cls !== cls ? ` (These are for the ${CLASSES[cls].name}. Buy them now and they'll be ready when you switch.)` : ''}</p>
+    <div class="shop wide">${list.map(([k, w]) => {
+      const own = S.owned.includes(k), eq = S.equip[cls] === k;
+      const label = eq ? 'Equipped' : own ? 'Equip' : `${w.price} coins`;
+      return `<button class="buy" data-w="${k}" ${eq || (!own && S.coins < w.price) ? 'disabled' : ''}><img src="${ICONS[CLASSES[cls].skill]}" alt=""><b>${w.name}</b><span>+${w.bonus} damage</span><em>${label}</em></button>`;
+    }).join('')}</div>
+    <p class="hint">You have ${S.coins} coins.</p><div class="row"><button id="wbye">Goodbye</button></div>`;
+  d.querySelectorAll('[data-w]').forEach((b) => { b.onclick = () => {
+    const k = b.dataset.w, w = WEAPONS[k];
+    if (!S.owned.includes(k)) { if (S.coins < w.price) return; S.coins -= w.price; S.owned.push(k); toast(`You buy the ${w.name}!`, ICONS[CLASSES[cls].skill], true); }
+    S.equip[cls] = k;
+    if (S.cls === cls) { equipWeapon(); burst(player.pos.clone().setY(1.6), '#ffe07a', 24, 4); }
+    buildClassBar(); refreshUI(); save(); openWeaponShop(npc);
+  }; });
+  $('wbye').onclick = closeDialog;
+  d.hidden = false;
+  npc.actor.face(player.pos.x, player.pos.z);
+}
 function openDialog(npc) {
+  if (npc.king) { openKing(npc); return; }
+  if (npc.shop && npc.shop !== 'food') { openWeaponShop(npc); return; }
   if (npc.shop) { openShop(npc); return; }
   talking = npc;
   const qid = Object.keys(QUESTS).find((k) => QUESTS[k].giver === npc.id);
@@ -650,10 +749,10 @@ function closeDialog() { $('dialog').hidden = true; talking = null; }
 
 // ---------- input ----------
 const keys = new Set();
-const KEYMAP = { KeyW: 'u', ArrowUp: 'u', KeyS: 'd', ArrowDown: 'd', KeyA: 'l', ArrowLeft: 'l', KeyD: 'r', ArrowRight: 'r' };
+const KEYMAP = { ShiftLeft: 'sprint', ShiftRight: 'sprint', KeyW: 'u', ArrowUp: 'u', KeyS: 'd', ArrowDown: 'd', KeyA: 'l', ArrowLeft: 'l', KeyD: 'r', ArrowRight: 'r' };
 addEventListener('keydown', (e) => {
   if (!player || !$('pick').hidden) return;
-  if (KEYMAP[e.code]) { keys.add(KEYMAP[e.code]); cancelTask(); moveTarget = null; e.preventDefault(); }
+  if (KEYMAP[e.code]) { keys.add(KEYMAP[e.code]); if (KEYMAP[e.code] !== 'sprint') { cancelTask(); moveTarget = null; } e.preventDefault(); }
   if (e.code === 'KeyE' || e.code === 'KeyF') { if (!e.repeat) { held = true; doAction(); } e.preventDefault(); }
   if (e.code === 'Space') { if (!e.repeat) jump(); e.preventDefault(); }
   if (e.code === 'KeyH') eatBest();
@@ -751,7 +850,7 @@ function swingTarget() {
   return { type: 'attack', e: foe };
 }
 function describe(t) {
-  const hint = matchMedia('(pointer: coarse)').matches ? 'Tap here to swing at whatever is in front of you.' : 'Click to attack towards your mouse. Space jumps.';
+  const hint = matchMedia('(pointer: coarse)').matches ? 'Tap here to swing at whatever is in front of you.' : 'Click to attack. Space jumps, Shift sprints.';
   if (!t) return { label: 'Attack', icon: ICONS[CLASSES[S.cls].skill], hint, ok: true };
   if (t.type === 'npc') return { label: 'Talk', icon: ICONS.magic, hint: t.n.name, ok: true };
   if (t.type === 'attack') return { label: 'Attack', icon: ICONS[CLASSES[S.cls].skill], hint: t.e ? `${t.e.T.name} (${t.e.hp} health)` : hint, ok: true };
@@ -815,12 +914,12 @@ function swing() {
     const fwd = fwdOf(player);
     if (A.proj) {
       shoot(player.pos.clone().add(new THREE.Vector3(0, 1.8, 0)).addScaledVector(fwd, 0.8), fwd, A.proj, A.range, 'player',
-        (e) => hurtEnemy(e, rollDamage(skill, A.bonus || 0), skill));
+        (e) => hurtEnemy(e, rollDamage(skill, (A.bonus || 0) + weaponBonus()), skill));
       return;
     }
     burst(player.pos.clone().setY(1.5).addScaledVector(fwd, 1.4), '#fff2a8', 14, 5);
     let hit = false;
-    for (const e of enemies) if (e.hp > 0 && e.state !== 'rising' && inArc(e.pos.x, e.pos.z, 0.8, MELEE_REACH + 0.3) >= 0) { hurtEnemy(e, rollDamage(skill), skill); hit = true; }
+    for (const e of enemies) if (e.hp > 0 && e.state !== 'rising' && inArc(e.pos.x, e.pos.z, 0.8, MELEE_REACH + 0.3) >= 0) { hurtEnemy(e, rollDamage(skill, weaponBonus()), skill); hit = true; }
     if (!hit) for (const n of nodes) if (n.alive && n.def.skill !== 'fishing' && inArc(n.x, n.z, n.r, MELEE_REACH) >= 0) { burst(new THREE.Vector3(n.x, 1.4, n.z), '#ffe9a8', 6, 3); break; }
   });
 }
@@ -1026,7 +1125,7 @@ function enemyTick(e, dt) {
 // ---------- minimap ----------
 const MAP_R = 70, MAP_PX = 512;
 const mapBg = document.createElement('canvas'); mapBg.width = mapBg.height = MAP_PX;
-const PLACES = [['Village', 0, -4], ['Market', 7, 19], ['Skeleton camp', CAMP.x, CAMP.z + 9], ['Mine', MINE.x, MINE.z - 9], ['Lake', LAKE.x, LAKE.z], ['Castle', 4, -54], ['Tavern', -4, -22]];
+const PLACES = [['King', 4, -45], ['Village', 0, -4], ['Market', 7, 19], ['Skeleton camp', CAMP.x, CAMP.z + 9], ['Mine', MINE.x, MINE.z - 9], ['Lake', LAKE.x, LAKE.z], ['Castle', 4, -54], ['Tavern', -4, -22]];
 // Photograph the world from straight above once, and use it as the map picture.
 function bakeMap() {
   const cam = new THREE.OrthographicCamera(-MAP_R, MAP_R, MAP_R, -MAP_R, 1, 500);
@@ -1059,6 +1158,7 @@ function toggleBigMap(force) {
 }
 mini.addEventListener('click', () => toggleBigMap(true));
 $('jumpbtn').addEventListener('pointerdown', (e) => { e.preventDefault(); jump(); });
+$('sprintbtn').addEventListener('pointerdown', (e) => { e.preventDefault(); sprintToggle = !sprintToggle; $('sprintbtn').setAttribute('aria-pressed', String(sprintToggle)); });
 bigMap.addEventListener('click', () => toggleBigMap(false));
 function drawMap(cv, full) {
   if (!player) return;
@@ -1080,7 +1180,7 @@ function drawMap(cv, full) {
   for (const n of npcs) {
     const qid = Object.keys(QUESTS).find((q) => QUESTS[q].giver === n.id);
     const st = qid && S.quests[qid].state;
-    const col = n.shop ? '#ffe9a0' : st === 'todo' ? '#ffd23f' : qid && questReady(qid) ? '#9cff6b' : '#f6efdc';
+    const col = n.king ? '#c58bff' : n.shop ? '#ffe9a0' : st === 'todo' ? '#ffd23f' : qid && questReady(qid) ? '#9cff6b' : '#f6efdc';
     dot(n.x, n.z, full ? 4 : 4.5, col);
   }
   if (full) {
@@ -1106,6 +1206,7 @@ function collide(p, r = 0.7) {
   const d = Math.hypot(p.x, p.z);
   if (d > 66) { p.x *= 66 / d; p.z *= 66 / d; }
 }
+let stamina = 100, staminaAt = 0, sprintToggle = false;
 let lastUi = 0, lastSave = 0, regenAt = 0, lastAct = '', stuck = 0;
 function tick() {
   const dt = Math.min(clock.getDelta(), 0.05);
@@ -1127,12 +1228,14 @@ function tick() {
     if (mx || mz) {
       if (talking) closeDialog();
       const len = Math.hypot(mx, mz); mx /= len; mz /= len;
-      const speed = 6.5 * (1 + (lvl('speed') - 1) * 0.006);
+      const sprinting = (keys.has('sprint') || sprintToggle) && stamina > 1 && !busy;
+      if (sprinting) { stamina = Math.max(0, stamina - dt * 22); staminaAt = now + 1; if (stamina <= 1) sprintToggle = false; }
+      const speed = 6.5 * (1 + (lvl('speed') - 1) * 0.006) * (sprinting ? 1.65 : 1);
       const ox = pp.x, oz = pp.z;
       pp.x += mx * speed * dt; pp.z += mz * speed * dt;
       collide(pp);
       const moved = Math.hypot(pp.x - ox, pp.z - oz);
-      if (moved > 0.001) giveXp('speed', moved * 0.5);
+      if (moved > 0.001) giveXp('speed', moved * (sprinting ? 0.9 : 0.5));
       // give up on a tap target we can't reach
       stuck = moved < speed * dt * 0.2 ? stuck + dt : 0;
       if (stuck > 0.6 && moveTarget) { moveTarget = null; marker.visible = false; if (pending) { const t = pending; pending = null; startTask(t); } stuck = 0; }
@@ -1140,13 +1243,16 @@ function tick() {
         const want = Math.atan2(mx, mz);
         let diff = want - player.root.rotation.y; diff = Math.atan2(Math.sin(diff), Math.cos(diff));
         player.root.rotation.y += diff * Math.min(1, dt * 14);
-        if (!player.air) player.play('Running_A', { fade: 0.12 });
+        if (!player.air) player.play('Running_A', { fade: 0.12, speed: sprinting ? 1.35 : 1 });
+        if (sprinting && rng() < 0.3) burst(pp.clone().setY(0.15), '#f3e2bd', 1, 1.5);
       }
     } else if (!busy && player.task) {
       gatherTick(player.task);
     } else if (!busy && (player.name === 'Running_A' || player.name === 'Idle_Combat')) {
       player.play('Idle', { fade: 0.15 });
     }
+    if (now > staminaAt && stamina < 100) stamina = Math.min(100, stamina + dt * 16);
+    $('stamfill').style.width = `${stamina}%`;
     if (player.air) {
       pp.y += player.vy * dt; player.vy -= GRAV * dt;
       if (pp.y <= 0) { pp.y = 0; player.air = false; player.vy = 0; burst(pp.clone().setY(0.15), '#f3e2bd', 10, 2.5); if (now > player.busyUntil) player.play(mx || mz ? 'Running_A' : 'Idle', { fade: 0.1 }); }
@@ -1257,7 +1363,7 @@ function tick() {
 }
 addEventListener('pagehide', () => { if (!resetting) save(); });
 
-window.__jq = { jump, eat, eatBest, openShop, drawMinimap: () => drawMinimap(), swing, swingTarget, hitNode, projectiles, timers, get S() { return S; }, get player() { return player; }, enemies, nodes, npcs, startTask, doAction, giveXp, save, openSheet, openDialog };
+window.__jq = { switchClass, equipWeapon, openWeaponShop, openKing, jump, eat, eatBest, openShop, drawMinimap: () => drawMinimap(), swing, swingTarget, hitNode, projectiles, timers, get S() { return S; }, get player() { return player; }, enemies, nodes, npcs, startTask, doAction, giveXp, save, openSheet, openDialog };
 window.addEventListener('error', (e) => { const m = $('loadmsg'); if (m) m.textContent = `Something went wrong: ${e.message}`; });
 main().catch((err) => {
   console.error(err);

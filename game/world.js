@@ -117,7 +117,7 @@ export function buildWorld(library) {
     const dx = tx - fx, dz = tz - fz, len = Math.hypot(dx, dz);
     addPath(new THREE.PlaneGeometry(w, len), fx + dx / 2, fz + dz / 2, Math.atan2(dx, dz));
   };
-  spoke(0, -40); spoke(-22, 26); spoke(-28, -4); spoke(22, 10, 2.2); spoke(10, 14, 2); spoke(MINE.x + 4, MINE.z + 4, 2.4, -28, -4);
+  spoke(4, -50); spoke(-22, 26); spoke(-28, -4); spoke(22, 10, 2.2); spoke(10, 14, 2); spoke(MINE.x + 4, MINE.z + 4, 2.4, -28, -4);
   spoke(0, 52, 2.4, 0, 0);
 
   // village
@@ -149,7 +149,7 @@ export function buildWorld(library) {
   for (let i = 0; i < 380; i++) {
     const a = rng() * Math.PI * 2, rr = 42 + rng() * 58;
     const x = Math.cos(a) * rr, z = Math.sin(a) * rr;
-    if (blocked(x, z) || (Math.abs(x) < 4 && z > 0)) continue;
+    if (blocked(x, z) || (Math.abs(x) < 4 && z > 0) || Math.hypot(x - 4, z + 48) < 14 || (Math.abs(x - 2) < 5 && z < 0 && z > -50)) continue;
     const big = rr > 52;
     const k = big ? (rng() > 0.5 ? 'trees_A_large' : 'trees_B_large') : (rng() > 0.5 ? 'trees_A_medium' : 'trees_B_medium');
     kinds[k].push(M(x, 0, z, S_NATURE * (0.85 + rng() * 0.35), rng() * 6));
