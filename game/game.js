@@ -1,8 +1,8 @@
 // JerryQuest: playable single-player slice. Classes, skills that level by use, gathering, combat and quests.
-import { THREE, scene, camera, renderer, sun, PRESETS, env, applyPreset, styled, setStyled, stylize, toon, registerMesh,
+import { THREE, scene, camera, renderer, sun, sky, PRESETS, env, applyPreset, styled, setStyled, stylize, toon, registerMesh,
   loadModel, burst, updateParticles, render, rng } from './engine.js';
 import * as SkeletonUtils from 'three/addons/utils/SkeletonUtils.js';
-import { buildWorld, buildFlowers, place, colliders, clouds, dynamic, LAKE, CAMP, MINE, S_NATURE, blocked, isFree } from './world.js';
+import { buildWorld, buildFlowers, place, colliders, clouds, dynamic, LAKE, CAMP, MINE, S_NATURE, blocked, isFree, ZONES, WORLD_R } from './world.js';
 import { ICONS } from './icons.js';
 import { buildInteriors, INTERIORS } from './interiors.js';
 
@@ -40,6 +40,7 @@ const CLASSES = {
 const ITEMS = {
   logs: 'Logs', oak_logs: 'Oak logs', copper_ore: 'Copper ore', iron_ore: 'Iron ore', shrimp: 'Raw shrimp', trout: 'Raw trout', bones: 'Bones',
   bread: 'Bread', pie: 'Apple pie', stew: 'Hearty stew',
+  lucky_sock: "Bonecrusher's lucky sock", gloom_hat: "Gloomcaster's droopy hat", rattle_tooth: "Rattlebones' gold tooth",
 };
 // Food heals; bought from Marta's stall in the market.
 const FOOD = { bread: { heal: 8, price: 8 }, pie: { heal: 20, price: 20 }, stew: { heal: 40, price: 40 } };
@@ -62,7 +63,7 @@ const WEAPONS = {
   a_shadow: { cls: 'archer', name: 'Shadow repeater', bonus: 7, price: 600, model: 'crossbow_2handed', tint: '#b896ff' },
 };
 const BASIC_WEAPON = { knight: 'k_sword', mage: 'm_staff', archer: 'a_xbow' };
-const SELL = { logs: 3, oak_logs: 6, copper_ore: 4, iron_ore: 8, shrimp: 3, trout: 8, bones: 2 };
+const SELL = { lucky_sock: 60, gloom_hat: 60, rattle_tooth: 60, logs: 3, oak_logs: 6, copper_ore: 4, iron_ore: 8, shrimp: 3, trout: 8, bones: 2 };
 const NODES = {
   tree: { skill: 'woodcutting', req: 1, xp: 25, item: 'logs', name: 'Tree', verb: 'Chop', doing: 'Chopping', deplete: 0.3, respawn: 14 },
   oak: { skill: 'woodcutting', req: 5, xp: 40, item: 'oak_logs', name: 'Oak tree', verb: 'Chop', doing: 'Chopping', deplete: 0.22, respawn: 20 },
@@ -77,6 +78,10 @@ const ENEMY_TYPES = {
   skel_minion: { name: 'Skeleton', hp: 16, maxHit: 3, weapon: 'Skeleton_Blade', xp: 15 },
   skel_warrior: { name: 'Skeleton Warrior', hp: 28, maxHit: 5, weapon: 'Skeleton_Blade', xp: 30 },
   skel_mage: { name: 'Skeleton Mage', hp: 22, maxHit: 4, weapon: 'Skeleton_Staff', xp: 25, ranged: true },
+  // minibosses: big, tough, and every third attack is a giant slam you can see coming (jump or run!)
+  boss_crusher: { name: 'Bonecrusher', model: 'skel_warrior', hp: 170, maxHit: 8, weapon: 'axe_2handed', xp: 400, boss: true, scale: 2.5, coins: [90, 150], drop: 'lucky_sock', slam: 5.5 },
+  boss_gloom: { name: 'Gloomcaster', model: 'skel_mage', hp: 140, maxHit: 7, weapon: 'Skeleton_Staff', xp: 400, boss: true, scale: 2.3, coins: [90, 150], drop: 'gloom_hat', ranged: true, spread: true, slam: 4.5 },
+  boss_rattle: { name: 'Captain Rattlebones', model: 'skel_minion', hp: 150, maxHit: 7, weapon: 'Skeleton_Blade', xp: 400, boss: true, scale: 2.3, coins: [90, 150], drop: 'rattle_tooth', slam: 6 },
 };
 const QUESTS = {
   firewood: {
@@ -96,6 +101,12 @@ const QUESTS = {
     intro: 'Ahem. A wizard cannot live on spells alone. Fetch me 3 raw shrimp from the lake, and 2 copper ore from the mine for my new cauldron.',
     ready: 'Shrimp AND copper! My cauldron and my belly thank you.', done: 'Mmm, shrimp stew. Truly the finest magic.',
     need: { shrimp: 3, copper_ore: 2 }, reward: { coins: 100, xp: { fishing: 150, mining: 150 } }, desc: 'Bring Fenwick 3 raw shrimp and 2 copper ore.',
+  },
+  crusher: {
+    name: 'The Big Bad Bones', giver: 'giles', bossType: 'boss_crusher',
+    intro: "A giant skeleton called Bonecrusher stomps about the Grumble Crags, west of the valley. Every stomp sours my milk! Knock him down, and mind his big slam. Jump or run when the ground glows red!",
+    ready: 'You beat Bonecrusher? My cows are cheering! Well, mooing.', done: 'Milk is sweet again, thanks to you.',
+    need: { boss: 1 }, reward: { coins: 300, xp: { $class: 600 } }, desc: 'Defeat Bonecrusher in the Grumble Crags (west).',
   },
 };
 
@@ -453,6 +464,17 @@ function buildNpcs() {
     { id: 'king', name: 'King Jerrold', model: 'knight', x: INTERIORS.castle.king.x, z: INTERIORS.castle.king.z, hide: ['Knight_Helmet'], king: true, tint: '#b98cff', inside: 'castle' },
     ...INTERIORS.castle.guards.map(([x, z], i) => ({ id: `guard${i}`, name: 'Royal Guard', model: 'knight', x, z, hide: [], inside: 'castle', tint: '#8fb8ff',
       lines: ['Long live King Jerrold!', 'The King grants a new calling to any hero who asks.', 'Mind the carpet. The King had it cleaned this morning.'] })),
+    { id: 'giles', name: 'Farmer Giles', model: 'barbarian', x: ZONES.meadow.x + 3, z: ZONES.meadow.z + 5, hide: [], tint: '#d8c070' },
+    { id: 'pip', name: 'Granny Pip', model: 'mage', x: ZONES.meadow.x - 6, z: ZONES.meadow.z + 1, hide: [], tint: '#ffc0d8',
+      lines: ['Back in my day, skeletons said please before they stabbed you.', 'Have you tried my apple pie? Marta in the village sells it. I taught her!', 'The windmill squeaks a little song at night. Listen closely.'] },
+    { id: 'crier', name: 'Bertram the Town Crier', model: 'knight', x: -6, z: 5, hide: ['Knight_Helmet'], tint: '#ffd08a',
+      lines: ['Hear ye! Four lands lie beyond the woods: Glimmerwood to the east, Grumble Crags to the west, Honeymeadow to the south and Haunted Hollow to the north!', 'Hear ye! Each land has a fearsome boss. Watch for the red glow on the ground and get out of the way!', 'Hear ye! Hold Shift to sprint. Press M for the map. That is all. Hear ye!'] },
+    { id: 'lumi', name: 'Lumi the Wisp-keeper', model: 'mage', x: ZONES.glimmer.x - 14, z: ZONES.glimmer.z + 4, hide: [], tint: '#9ff0ff',
+      lines: ['The Gloomcaster stole the colour from half my mushrooms. The rest glow twice as bright out of spite!', 'Glimmerwood hums at night. Can you hear it? No? Try humming back.'] },
+    { id: 'dot', name: 'Prospector Dot', model: 'archer', x: ZONES.crags.x + 15, z: ZONES.crags.z + 4, hide: [], tint: '#e8b080',
+      lines: ['Bonecrusher sleeps in the middle of the Crags. Well, "sleeps". Mostly he stomps.', 'When the ground glows red, jump! I learned that one the hard way. Twice.'] },
+    { id: 'mort', name: 'Gravekeeper Mort', model: 'barbarian', x: ZONES.hollow.x + 12, z: ZONES.hollow.z + 12, hide: [], tint: '#a8a8c0',
+      lines: ['Captain Rattlebones keeps getting up. I keep putting him down. It is a living. Well. Sort of.', 'Do not mind the gravestones. Most of them are empty. Most.'] },
     { id: 'tom', name: 'Old Tom the Barkeep', model: 'barbarian', x: INTERIORS.tavern.barkeep.x, z: INTERIORS.tavern.barkeep.z, hide: [], shop: 'food', tint: '#e8c89a', inside: 'tavern', face: 'south' },
   ];
   for (const d of defs) {
@@ -477,20 +499,28 @@ function buildNpcs() {
 const npcIdle = (n) => n.actor.play(n.id === 'fenwick' ? 'Spellcasting' : 'Idle');
 
 // ---------- enemies ----------
+function spawnEnemy(k, x, z) {
+  const T = ENEMY_TYPES[k];
+  const e = new Actor(G[T.model || k], { scale: T.scale || 1.3 });
+  const w = lib[T.weapon].clone(true); stylize(w); e.attach(w);
+  e.type = k; e.T = T; e.home = new THREE.Vector2(x, z);
+  e.root.position.set(x, 0, z); e.root.rotation.y = rng() * 6;
+  e.hp = T.hp; e.state = 'idle'; e.timer = rng() * 3; e.target = new THREE.Vector2(); e.nextHit = 0; e.swings = 0;
+  e.play('Idle');
+  if (T.boss) e.root.traverse((o) => { if (o.isMesh && /Body|Head/.test(o.name)) tinted(o, k === 'boss_gloom' ? '#c8a8ff' : k === 'boss_crusher' ? '#ffd0a0' : '#c0ffc8'); });
+  if (!T.boss) { const bar = document.createElement('div'); bar.className = 'hpbar'; bar.hidden = true; bar.innerHTML = '<i></i>'; document.body.appendChild(bar); e.bar = bar; }
+  else e.bar = { hidden: true, style: {}, firstChild: { style: {} } };
+  enemies.push(e);
+}
 function buildEnemies() {
-  const spots = [['skel_warrior', -3, -4], ['skel_minion', -6, 3], ['skel_mage', 2, 6], ['skel_minion', 5, -1], ['skel_minion', -1, 9]];
-  for (const [k, dx, dz] of spots) {
-    const T = ENEMY_TYPES[k];
-    const e = new Actor(G[k]);
-    const w = lib[T.weapon].clone(true); stylize(w); e.attach(w);
-    e.type = k; e.T = T; e.home = new THREE.Vector2(CAMP.x + dx, CAMP.z + dz);
-    e.root.position.set(e.home.x, 0, e.home.y); e.root.rotation.y = rng() * 6;
-    e.hp = T.hp; e.state = 'idle'; e.timer = rng() * 3; e.target = new THREE.Vector2(); e.nextHit = 0;
-    e.play('Idle');
-    const bar = document.createElement('div'); bar.className = 'hpbar'; bar.hidden = true; bar.innerHTML = '<i></i>';
-    document.body.appendChild(bar); e.bar = bar;
-    enemies.push(e);
-  }
+  for (const [k, dx, dz] of [['skel_warrior', -3, -4], ['skel_minion', -6, 3], ['skel_mage', 2, 6], ['skel_minion', 5, -1], ['skel_minion', -1, 9]]) spawnEnemy(k, CAMP.x + dx, CAMP.z + dz);
+  const ring = (Z, list, r) => list.forEach((k, i) => { const a = (i / list.length) * Math.PI * 2 + 0.4; spawnEnemy(k, Z.x + Math.cos(a) * r, Z.z + Math.sin(a) * r); });
+  ring(ZONES.crags, ['skel_warrior', 'skel_minion', 'skel_warrior', 'skel_minion'], 16);
+  ring(ZONES.glimmer, ['skel_mage', 'skel_minion', 'skel_mage', 'skel_mage'], 17);
+  ring(ZONES.hollow, ['skel_minion', 'skel_warrior', 'skel_minion', 'skel_mage', 'skel_minion'], 14);
+  spawnEnemy('boss_crusher', ZONES.crags.x, ZONES.crags.z);
+  spawnEnemy('boss_gloom', ZONES.glimmer.x + 4, ZONES.glimmer.z);
+  spawnEnemy('boss_rattle', ZONES.hollow.x, ZONES.hollow.z + 2);
 }
 
 // ---------- inventory, xp, quests ----------
@@ -514,13 +544,13 @@ function giveXp(skill, amount, at) {
 function questReady(id) {
   const q = QUESTS[id], st = S.quests[id];
   if (st.state !== 'active') return false;
-  return Object.entries(q.need).every(([k, n]) => (k === 'kills' ? st.kills : (S.inv[k] || 0)) >= n);
+  return Object.entries(q.need).every(([k, n]) => (k === 'kills' ? st.kills : k === 'boss' ? (st.boss || 0) : (S.inv[k] || 0)) >= n);
 }
 function questProgress(id) {
   const q = QUESTS[id], st = S.quests[id];
   return Object.entries(q.need).map(([k, n]) => {
-    const have = Math.min(n, k === 'kills' ? st.kills : (S.inv[k] || 0));
-    return `${k === 'kills' ? 'Skeletons' : ITEMS[k]} ${have}/${n}`;
+    const have = Math.min(n, k === 'kills' ? st.kills : k === 'boss' ? (st.boss || 0) : (S.inv[k] || 0));
+    return `${k === 'kills' ? 'Skeletons' : k === 'boss' ? ENEMY_TYPES[q.bossType].name : ITEMS[k]} ${have}/${n}`;
   }).join(', ');
 }
 
@@ -546,6 +576,23 @@ function floatText(p, text, cls = '') {
   setTimeout(() => el.remove(), 1000);
 }
 const npcName = (id) => npcs.find((n) => n.id === id).name;
+function bossUi() {
+  if (!player) return;
+  const b = enemies.find((e) => e.T.boss && e.hp > 0 && (e.state === 'chase' || e.state === 'slam'));
+  const bar = $('bossbar');
+  bar.hidden = !b;
+  if (b) { $('bossname').textContent = b.T.name; $('bossfill').style.width = `${(b.hp / b.T.hp) * 100}%`; }
+}
+let zoneNow = null;
+function zoneBanner() {
+  if (!player || where !== 'out') return;
+  const z = Object.values(ZONES).find((Z) => Math.hypot(player.pos.x - Z.x, player.pos.z - Z.z) < Z.r + 4);
+  const name = z ? z.name : Math.hypot(player.pos.x, player.pos.z) < 40 ? 'Jerry Village' : null;
+  if (name && name !== zoneNow) {
+    const el = $('banner'); el.textContent = name; el.classList.remove('show'); void el.offsetWidth; el.classList.add('show');
+  }
+  if (name) zoneNow = name;
+}
 // ---------- doors ----------
 let where = 'out', fading = false;
 function buildDoors() {
@@ -783,7 +830,7 @@ function openDialog(npc) {
   } else if (questReady(qid)) {
     text = q.ready;
     buttons = [['Hand it over', 'primary', () => {
-      for (const [k, n] of Object.entries(q.need)) if (k !== 'kills') takeItem(k, n);
+      for (const [k, n] of Object.entries(q.need)) if (k !== 'kills' && k !== 'boss') takeItem(k, n);
       st.state = 'done'; S.coins += q.reward.coins;
       for (const [k, v] of Object.entries(q.reward.xp)) giveXp(k === '$class' ? CLASSES[S.cls].skill : k, v);
       toast(`Quest complete: ${q.name}`, ICONS.coins, true);
@@ -1086,12 +1133,19 @@ function hurtEnemy(e, dmg, skill) {
     e.state = 'dead'; e.bar.hidden = true;
     e.play('Death_A', { once: true, clamp: true, fade: 0.1 });
     giveXp(skill, e.T.xp);
-    const coins = 3 + Math.floor(rng() * 9);
+    const coins = e.T.coins ? e.T.coins[0] + Math.floor(rng() * (e.T.coins[1] - e.T.coins[0])) : 3 + Math.floor(rng() * 9);
     S.coins += coins; addItem('bones');
+    if (e.T.boss) {
+      addItem(e.T.drop);
+      toast(`You defeated ${e.T.name}! It dropped ${ITEMS[e.T.drop].toLowerCase()}!`, ICONS[e.T.drop], true);
+      burst(e.pos.clone().setY(2), '#ffe07a', 80, 8, 1.6);
+      for (const k of Object.keys(QUESTS)) if (S.quests[k].state === 'active' && QUESTS[k].bossType === e.type) S.quests[k].boss = 1;
+      $('bossbar').hidden = true;
+    }
     floatText(e.pos.clone().setY(2.4), `+${coins} coins`, 'gain');
     for (const k of Object.keys(QUESTS)) if (S.quests[k].state === 'active' && QUESTS[k].need.kills !== undefined) S.quests[k].kills++;
     refreshUI();
-    later(16, () => {
+    later(e.T.boss ? 90 : 16, () => {
       e.hp = e.T.hp; e.state = 'rising';
       e.root.position.set(e.home.x, 0, e.home.y);
       const ok = e.play('Spawn_Ground_Skeletons', { once: true, clamp: true, onFinish: () => { e.state = 'idle'; e.play('Idle'); } });
@@ -1127,30 +1181,70 @@ function hurtPlayer(dmg) {
 const timers = [];
 const later = (t, f) => timers.push({ t, f });
 
+// The miniboss's big move: a red circle grows on the ground, then BOOM. Jump or get out!
+const slamGeo = new THREE.CircleGeometry(1, 40);
+function bossSlam(e) {
+  const R = e.T.slam;
+  e.state = 'slam';
+  const m = new THREE.Mesh(slamGeo, new THREE.MeshBasicMaterial({ color: '#ff3b2f', transparent: true, opacity: 0.35, depthWrite: false, fog: false }));
+  m.rotation.x = -Math.PI / 2; m.position.set(e.pos.x, 0.12, e.pos.z); m.layers.set(1); m.scale.setScalar(0.1); scene.add(m);
+  const edge = new THREE.Mesh(new THREE.RingGeometry(R - 0.25, R, 48), new THREE.MeshBasicMaterial({ color: '#ffdf6b', transparent: true, opacity: 0.9, depthWrite: false, fog: false }));
+  edge.rotation.x = -Math.PI / 2; edge.position.set(e.pos.x, 0.13, e.pos.z); edge.layers.set(1); scene.add(edge);
+  slams.push({ m, edge, t: 0, dur: 1.15, R, e });
+  const anim = e.T.ranged ? 'Spellcasting' : e.clips['2H_Melee_Attack_Chop'] ? '2H_Melee_Attack_Chop' : '1H_Melee_Attack_Chop';
+  e.play(anim, { once: true, fade: 0.1, speed: 0.8 });
+}
+const slams = [];
+function slamTick(dt) {
+  for (let i = slams.length - 1; i >= 0; i--) {
+    const s2 = slams[i]; s2.t += dt;
+    const k = Math.min(1, s2.t / s2.dur);
+    s2.m.scale.setScalar(s2.R * k); s2.m.material.opacity = 0.25 + 0.3 * k;
+    if (k >= 1) {
+      const e = s2.e;
+      burst(e.pos.clone().setY(0.5), '#ffd08a', 60, 9, 1.4);
+      shake = 0.5;
+      if (e.hp > 0 && !player.dead && where === 'out' && Math.hypot(player.pos.x - e.pos.x, player.pos.z - e.pos.z) < s2.R) {
+        if (player.pos.y > 0.7) floatText(player.pos.clone().setY(3.6), 'Dodged!', 'miss');
+        else hurtPlayer(Math.round(e.T.maxHit * 1.6));
+      }
+      if (e.hp > 0) { e.state = 'chase'; e.play('Idle_Combat'); }
+      scene.remove(s2.m, s2.edge); slams.splice(i, 1);
+    }
+  }
+}
+let shake = 0;
 function enemyTick(e, dt) {
   const ep = e.pos;
   if (e.state === 'dead' || e.state === 'rising') return;
   const toP = Math.hypot(player.pos.x - ep.x, player.pos.z - ep.z);
   const fromHome = Math.hypot(ep.x - e.home.x, ep.z - e.home.y);
-  const reach = e.T.ranged ? 8 : 2.4;
+  const big = e.T.boss, reach = e.T.ranged ? (big ? 10 : 8) : big ? 3.6 : 2.4;
   if (player.dead && (e.state === 'chase')) e.state = 'return';
-  if ((e.state === 'idle' || e.state === 'walk') && toP < 7.5 && !player.dead && $('pick').hidden) e.state = 'chase';
+  if (where !== 'out' && e.state === 'chase') e.state = 'return';
+  if ((e.state === 'idle' || e.state === 'walk') && toP < (big ? 11 : 7.5) && !player.dead && $('pick').hidden && where === 'out') e.state = 'chase';
+  if (e.state === 'slam') return;
   if (e.state === 'chase') {
-    if (fromHome > 20) { e.state = 'return'; return; }
+    if (fromHome > (big ? 28 : 20)) { e.state = 'return'; return; }
     e.face(player.pos.x, player.pos.z);
     if (toP > reach) {
       const dx = player.pos.x - ep.x, dz = player.pos.z - ep.z;
       ep.x += (dx / toP) * 4.2 * dt; ep.z += (dz / toP) * 4.2 * dt;
       if (e.name !== '1H_Melee_Attack_Chop' && e.name !== 'Spellcast_Shoot' && e.name !== 'Hit_A') e.play('Running_A', { fade: 0.15 });
     } else if (now > e.nextHit) {
-      e.nextHit = now + 1.9 + rng() * 0.6;
+      e.nextHit = now + (big ? 2.2 : 1.9) + rng() * 0.6;
       const dmg = rng() < 0.3 ? 0 : 1 + Math.floor(rng() * e.T.maxHit);
+      if (big && ++e.swings % 3 === 0) { bossSlam(e); return; }
       if (e.T.ranged) {
         e.play('Spellcast_Shoot', { once: true, fade: 0.08, onFinish: () => e.play('Idle_Combat') });
         later(0.35, () => {
           if (e.hp <= 0 || player.dead) return;
           const dir = new THREE.Vector3(player.pos.x - ep.x, 0, player.pos.z - ep.z);
-          shoot(ep.clone().setY(1.8).addScaledVector(dir.clone().normalize(), 0.6), dir, 'dark', 12, 'enemy', () => hurtPlayer(dmg));
+          const spreads = e.T.spread ? [-0.3, 0, 0.3] : [0];
+          for (const sp of spreads) {
+            const d2 = dir.clone().applyAxisAngle(new THREE.Vector3(0, 1, 0), sp);
+            shoot(ep.clone().setY(big ? 3 : 1.8).addScaledVector(d2.clone().normalize(), big ? 1.4 : 0.6), d2, 'dark', big ? 15 : 12, 'enemy', () => hurtPlayer(dmg));
+          }
         });
       } else {
         e.play('1H_Melee_Attack_Chop', { once: true, fade: 0.08, onFinish: () => e.play('Idle_Combat') });
@@ -1163,7 +1257,7 @@ function enemyTick(e, dt) {
     } else if (e.name === 'Running_A' || e.name === 'Idle' || e.name === 'Walking_A') e.play('Idle_Combat');
   } else if (e.state === 'return') {
     const dx = e.home.x - ep.x, dz = e.home.y - ep.z, d = Math.hypot(dx, dz);
-    if (d < 0.5) { e.state = 'idle'; e.hp = e.T.hp; e.play('Idle'); }
+    if (d < 0.5) { e.state = 'idle'; e.hp = e.T.hp; e.swings = 0; e.play('Idle'); }
     else { ep.x += (dx / d) * 4 * dt; ep.z += (dz / d) * 4 * dt; e.face(e.home.x, e.home.y); e.play('Walking_A'); }
   } else {
     e.timer -= dt;
@@ -1182,12 +1276,13 @@ function enemyTick(e, dt) {
 }
 
 // ---------- minimap ----------
-const MAP_R = 70, MAP_PX = 512;
+const MAP_R = 165, MAP_PX = 1024;
 const mapBg = document.createElement('canvas'); mapBg.width = mapBg.height = MAP_PX;
-const PLACES = [['King', 4, -45], ['Village', 0, -4], ['Market', 7, 19], ['Skeleton camp', CAMP.x, CAMP.z + 9], ['Mine', MINE.x, MINE.z - 9], ['Lake', LAKE.x, LAKE.z], ['Castle', 4, -54], ['Tavern', -4, -22]];
+const PLACES = [['Village', 0, -4], ['Skeleton camp', CAMP.x, CAMP.z + 9], ['Mine', MINE.x, MINE.z - 9], ['Castle', 4, -54], ...Object.values(ZONES).map((Z) => [Z.name, Z.x, Z.z - Z.r * 0.55])];
 // Photograph the world from straight above once, and use it as the map picture.
 function bakeMap() {
   const cam = new THREE.OrthographicCamera(-MAP_R, MAP_R, MAP_R, -MAP_R, 1, 500);
+  const oldSky = sky.visible; sky.visible = false;
   cam.position.set(0, 250, 0); cam.up.set(0, 0, -1); cam.lookAt(0, 0, 0);
   const rt = new THREE.WebGLRenderTarget(MAP_PX, MAP_PX);
   rt.texture.colorSpace = THREE.SRGBColorSpace;
@@ -1196,7 +1291,7 @@ function bakeMap() {
   hidden.forEach((o) => { o.userData.wasVis = o.visible; o.visible = false; });
   renderer.setRenderTarget(rt); renderer.render(scene, cam); renderer.setRenderTarget(null);
   hidden.forEach((o) => { o.visible = o.userData.wasVis; });
-  scene.fog = fog;
+  scene.fog = fog; sky.visible = oldSky;
   const px = new Uint8Array(MAP_PX * MAP_PX * 4);
   renderer.readRenderTargetPixels(rt, 0, 0, MAP_PX, MAP_PX, px);
   rt.dispose();
@@ -1224,7 +1319,7 @@ function drawMap(cv, full) {
   const dpr = Math.min(devicePixelRatio || 1, 2), css = cv.clientWidth || 150;
   if (cv.width !== Math.round(css * dpr)) { cv.width = cv.height = Math.round(css * dpr); }
   const W = cv.width, g = cv.getContext('2d');
-  const p = player.pos, half = full ? MAP_R : 30;
+  const p = player.pos, half = full ? MAP_R : 34;
   const cx = full ? 0 : p.x, cz = full ? 0 : p.z;
   const k = W / (half * 2);
   const toPx = (x, z) => [(x - cx + half) * k, (z - cz + half) * k];
@@ -1242,7 +1337,7 @@ function drawMap(cv, full) {
   g.fillStyle = '#3f7a3a'; g.fillRect(0, 0, W, W);
   g.drawImage(mapBg, src(cx - half), src(cz - half), src(cx + half) - src(cx - half), src(cz + half) - src(cz - half), 0, 0, W, W);
   const dot = (x, z, r, fill) => { const [u, v] = toPx(x, z); g.beginPath(); g.arc(u, v, r * dpr, 0, 7); g.fillStyle = fill; g.fill(); g.lineWidth = 1.5 * dpr; g.strokeStyle = '#3a2010'; g.stroke(); };
-  for (const e of enemies) if (e.hp > 0 && e.state !== 'rising') dot(e.pos.x, e.pos.z, full ? 3 : 3.5, '#ff5a4a');
+  for (const e of enemies) if (e.hp > 0 && e.state !== 'rising') dot(e.pos.x, e.pos.z, e.T.boss ? 6 : full ? 2.5 : 3.5, e.T.boss ? '#ff2a6a' : '#ff5a4a');
   for (const n of npcs) {
     const qid = Object.keys(QUESTS).find((q) => QUESTS[q].giver === n.id);
     const st = qid && S.quests[qid].state;
@@ -1271,7 +1366,7 @@ function collide(p, r = 0.7) {
   }
   if (where !== 'out') return;
   const d = Math.hypot(p.x, p.z);
-  if (d > 66) { p.x *= 66 / d; p.z *= 66 / d; }
+  if (d > WORLD_R) { p.x *= WORLD_R / d; p.z *= WORLD_R / d; }
 }
 let stamina = 100, staminaAt = 0, sprintToggle = false;
 let lastUi = 0, lastSave = 0, regenAt = 0, lastAct = '', stuck = 0;
@@ -1330,7 +1425,15 @@ function tick() {
   }
   if (marker.visible) { marker.scale.setScalar(Math.max(1, marker.scale.x - dt * 2)); marker.material.opacity = 0.6 + 0.3 * Math.sin(now * 8); }
 
-  for (const e of enemies) { if (player) enemyTick(e, dt); e.mixer.update(dt); }
+  for (const e of enemies) {
+    const near = !player || Math.hypot(e.pos.x - player.pos.x, e.pos.z - player.pos.z) < 70;
+    if (player && (near || e.state !== 'idle')) enemyTick(e, dt);
+    if (near) e.mixer.update(dt);
+  }
+  slamTick(dt);
+  bossUi();
+  zoneBanner();
+  for (const [i, c] of dynamic.crystals.entries()) { c.position.y = 2.4 + Math.sin(now * 1.6 + i) * 0.4; c.rotation.y = now * 0.8 + i; }
   if (player) player.mixer.update(dt);
   for (const n of npcs) { n.actor.mixer.update(dt); n.marker.position.y = 4.6 + Math.sin(now * 3 + n.x) * 0.15; }
 
@@ -1424,6 +1527,8 @@ function tick() {
   const off = new THREE.Vector3(0, 23, 27).multiplyScalar(zoom * (camera.aspect < 1 ? 1.3 : 1));
   camPos.lerp(tmpV.copy(focus).add(off), 1 - Math.pow(0.002, dt));
   camera.position.copy(camPos);
+  if (shake > 0) { shake = Math.max(0, shake - dt); camera.position.x += (rng() - 0.5) * shake * 1.2; camera.position.y += (rng() - 0.5) * shake; }
+  sky.position.copy(camera.position);
   camera.lookAt(focus.x, 1.2, focus.z - 1);
   const sd = P.sunDir;
   sun.position.set(focus.x + sd[0], sd[1], focus.z + sd[2]);

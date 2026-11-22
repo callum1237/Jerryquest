@@ -5,9 +5,25 @@ export const S_BUILD = 5, S_NATURE = 4.5, S_PROP = 2.6;
 export const LAKE = { x: 30, z: -6, r: 12 };
 export const CAMP = { x: -22, z: 31 };
 export const MINE = { x: -36, z: -24 };
+export const WORLD_R = 150;
+// The four lands beyond the valley forest. Each has its own colour, mood, monsters and a miniboss.
+export const ZONES = {
+  glimmer: { name: 'Glimmerwood', x: 108, z: 6, r: 34, grass: '#5aa6a0', grass2: '#7d7fd6' },
+  crags: { name: 'Grumble Crags', x: -106, z: -4, r: 34, grass: '#9a9a78', grass2: '#b5a27e' },
+  meadow: { name: 'Honeymeadow', x: 4, z: 108, r: 34, grass: '#8fc24e', grass2: '#c6c25c' },
+  hollow: { name: 'Haunted Hollow', x: -10, z: -112, r: 30, grass: '#4f6b58', grass2: '#6a5f78' },
+};
+// Roads out of the valley: [toX, toZ, fromX, fromZ]
+export const ROADS = [[ZONES.glimmer.x - 20, 6, 22, 10], [-86, -4, -28, -4], [4, 86, 0, 30], [-16, -58, 0, -40], [-10, -92, -16, -58]];
+const nearRoad = (x, z, pad) => ROADS.some(([tx, tz, fx, fz]) => {
+  const dx = tx - fx, dz = tz - fz, L2 = dx * dx + dz * dz;
+  const t = Math.max(0, Math.min(1, ((x - fx) * dx + (z - fz) * dz) / L2));
+  return Math.hypot(x - (fx + dx * t), z - (fz + dz * t)) < pad;
+});
+const inZone = (x, z, pad = 0) => Object.values(ZONES).some((Z) => Math.hypot(x - Z.x, z - Z.z) < Z.r + pad);
 export const colliders = []; // {x,z,r}
 export const clouds = [];
-export const dynamic = { waterMat: null, fireLight: null, flames: [] };
+export const dynamic = { waterMat: null, fireLight: null, flames: [], crystals: [], signs: [] };
 export let lib = {};
 
 export const M = (x, y, z, s = 1, ry = 0) => new THREE.Matrix4().compose(
@@ -55,16 +71,21 @@ export const isFree = (x, z, pad = 0) => !colliders.some((c) => Math.hypot(c.x -
 export function buildWorld(library) {
   lib = library;
   // painted ground
-  const gGeo = new THREE.PlaneGeometry(240, 240, 120, 120);
+  const gGeo = new THREE.PlaneGeometry(440, 440, 200, 200);
   gGeo.rotateX(-Math.PI / 2);
+  const zc = new THREE.Color(), zc2 = new THREE.Color();
   const gc = [], cA = new THREE.Color('#5ea83e'), cB = new THREE.Color('#86bf52'), cC = new THREE.Color('#438f38'), tmpc = new THREE.Color();
   const pos = gGeo.attributes.position;
   for (let i = 0; i < pos.count; i++) {
     const x = pos.getX(i), z = pos.getZ(i);
     const n = Math.sin(x * 0.07) * Math.cos(z * 0.06) + 0.5 * Math.sin(x * 0.19 + z * 0.13) + 0.3 * Math.cos(z * 0.23 - x * 0.05);
     tmpc.copy(cA).lerp(n > 0 ? cB : cC, Math.min(1, Math.abs(n) * 0.55));
+    for (const Z of Object.values(ZONES)) {
+      const k = 1 - THREE.MathUtils.smoothstep(Math.hypot(x - Z.x, z - Z.z), Z.r * 0.6, Z.r * 1.35);
+      if (k > 0) tmpc.lerp(zc.set(Z.grass).lerp(zc2.set(Z.grass2), (n + 1.5) / 3), k * 0.7);
+    }
     const d = Math.hypot(x, z);
-    pos.setY(i, d > 66 ? (d - 66) * 0.12 * (1 + 0.5 * Math.sin(x * 0.11 + z * 0.07)) : 0);
+    pos.setY(i, d > WORLD_R + 4 ? (d - WORLD_R - 4) * 0.25 * (1 + 0.5 * Math.sin(x * 0.11 + z * 0.07)) : 0);
     gc.push(tmpc.r, tmpc.g, tmpc.b);
   }
   gGeo.setAttribute('color', new THREE.Float32BufferAttribute(gc, 3));
@@ -117,6 +138,7 @@ export function buildWorld(library) {
     const dx = tx - fx, dz = tz - fz, len = Math.hypot(dx, dz);
     addPath(new THREE.PlaneGeometry(w, len), fx + dx / 2, fz + dz / 2, Math.atan2(dx, dz));
   };
+  for (const [tx, tz, fx, fz] of ROADS) spoke(tx, tz, 2.8, fx, fz);
   spoke(4, -50); spoke(-22, 26); spoke(-28, -4); spoke(22, 10, 2.2); spoke(10, 14, 2); spoke(MINE.x + 4, MINE.z + 4, 2.4, -28, -4);
   spoke(0, 52, 2.4, 0, 0);
 
@@ -144,43 +166,141 @@ export function buildWorld(library) {
   place('tent', CAMP.x + 4, CAMP.z + 6, S_PROP + 1, -0.6);
   buildCampfire(CAMP.x, CAMP.z - 2);
 
-  // forest ring (scenery only)
+  // forest belt around the valley, with gaps where the roads leave
   const kinds = { trees_A_large: [], trees_B_large: [], trees_A_medium: [], trees_B_medium: [] };
-  for (let i = 0; i < 380; i++) {
-    const a = rng() * Math.PI * 2, rr = 42 + rng() * 58;
-    const x = Math.cos(a) * rr, z = Math.sin(a) * rr;
-    if (blocked(x, z) || (Math.abs(x) < 4 && z > 0) || Math.hypot(x - 4, z + 48) < 14 || (Math.abs(x - 2) < 5 && z < 0 && z > -50)) continue;
-    const big = rr > 52;
+  const treeAt = (x, z, big) => {
     const k = big ? (rng() > 0.5 ? 'trees_A_large' : 'trees_B_large') : (rng() > 0.5 ? 'trees_A_medium' : 'trees_B_medium');
     kinds[k].push(M(x, 0, z, S_NATURE * (0.85 + rng() * 0.35), rng() * 6));
-    if (rr < 64) colliders.push({ x, z, r: big ? 3.5 : 2.2 });
+    colliders.push({ x, z, r: big ? 3.2 : 2.2 });
+  };
+  for (let i = 0; i < 1400; i++) {
+    const a = rng() * Math.PI * 2, rr = 42 + rng() * (WORLD_R - 30);
+    const x = Math.cos(a) * rr, z = Math.sin(a) * rr;
+    if (blocked(x, z) || (Math.abs(x) < 4 && z > 0 && z < 40) || Math.hypot(x - 4, z + 48) < 14 || (Math.abs(x - 2) < 5 && z < 0 && z > -50)) continue;
+    if (nearRoad(x, z, 6) || inZone(x, z, 2)) continue;
+    // a dense belt near the valley, thinner woods further out, open glades between
+    const belt = rr < 66 ? 1 : 0.38 + 0.3 * Math.sin(x * 0.05) * Math.cos(z * 0.04);
+    if (rng() > belt) continue;
+    treeAt(x, z, rr > 52);
   }
+  // zones get their own trees
+  const glimmerTrees = [], glimmerBig = [];
+  for (let i = 0; i < 70; i++) {
+    const Z = ZONES.glimmer, a = rng() * Math.PI * 2, rr = 8 + rng() * (Z.r + 6);
+    const x = Z.x + Math.cos(a) * rr, z = Z.z + Math.sin(a) * rr;
+    if (nearRoad(x, z, 4) || Math.hypot(x - Z.x, z - Z.z) < 10 || !isFree(x, z, 1.5)) continue;
+    (rng() > 0.5 ? glimmerBig : glimmerTrees).push(M(x, 0, z, S_NATURE * (0.9 + rng() * 0.5), rng() * 6));
+    colliders.push({ x, z, r: 2.2 });
+  }
+  // recolour the leaves by rotating the texture's hue (trunks stay brown-ish)
+  const tintTrees = (group, hue, sat = 1, bright = 1) => group.traverse((o) => {
+    if (!o.isMesh) return;
+    const m = o.userData.mats;
+    for (const key of ['std', 'toon']) {
+      const mat = m[key].clone(), prev = m[key].onBeforeCompile;
+      mat.onBeforeCompile = (sh, r) => {
+        if (prev) prev(sh, r);
+        sh.fragmentShader = sh.fragmentShader.replace('#include <map_fragment>', `#include <map_fragment>
+          { vec3 c = diffuseColor.rgb; float g = dot(c, vec3(0.299, 0.587, 0.114));
+            float a = ${hue.toFixed(3)}; float cs = cos(a), sn = sin(a);
+            mat3 R = mat3(0.299+0.701*cs+0.168*sn, 0.587-0.587*cs+0.330*sn, 0.114-0.114*cs-0.497*sn,
+                          0.299-0.299*cs-0.328*sn, 0.587+0.413*cs+0.035*sn, 0.114-0.114*cs+0.292*sn,
+                          0.299-0.300*cs+1.250*sn, 0.587-0.588*cs-1.050*sn, 0.114+0.886*cs-0.203*sn);
+            float leaf = smoothstep(0.02, 0.12, c.g - max(c.r, c.b));
+            vec3 h = mix(vec3(g), c * R, ${sat.toFixed(2)}) * ${bright.toFixed(2)};
+            diffuseColor.rgb = mix(c, h, leaf); }`);
+      };
+      mat.customProgramCacheKey = () => `hue${hue}${sat}${bright}`;
+      m[key] = mat;
+    }
+    o.material = m.toon;
+  });
+  tintTrees(instanced(lib.trees_B_large, glimmerBig), -2.6, 0.85, 1.05);
+  tintTrees(instanced(lib.trees_A_medium, glimmerTrees), -0.9, 1.1, 1.1);
   for (const [k, list] of Object.entries(kinds)) if (list.length) instanced(lib[k], list);
 
-  // scenery rocks
+  // scenery rocks, more of them in the Crags
   const rocks = { rock_single_A: [], rock_single_B: [], rock_single_C: [] };
+  const addRockAt = (x, z, s) => { rocks[Object.keys(rocks)[Math.floor(rng() * 3)]].push(M(x, 0, z, s, rng() * 6)); colliders.push({ x, z, r: s * 0.18 }); };
   for (let i = 0; i < 50; i++) {
     const a = rng() * Math.PI * 2, rr = 12 + rng() * 40;
     const x = Math.cos(a) * rr, z = Math.sin(a) * rr;
     if (blocked(x, z) || !isFree(x, z, 1)) continue;
     rocks[Object.keys(rocks)[Math.floor(rng() * 3)]].push(M(x, 0, z, S_NATURE * (0.8 + rng() * 0.8), rng() * 6));
   }
+  for (let i = 0; i < 70; i++) {
+    const Z = ZONES.crags, a = rng() * Math.PI * 2, rr = 6 + rng() * (Z.r + 8);
+    const x = Z.x + Math.cos(a) * rr, z = Z.z + Math.sin(a) * rr;
+    if (nearRoad(x, z, 3.5) || Math.hypot(x - Z.x, z - Z.z) < 9 || !isFree(x, z, 1)) continue;
+    addRockAt(x, z, S_NATURE * (1 + rng() * 1.6));
+  }
+  const cragHills = [];
+  for (let i = 0; i < 9; i++) { const a = (i / 9) * Math.PI * 2, Z = ZONES.crags; const x = Z.x + Math.cos(a) * (Z.r + 6), z = Z.z + Math.sin(a) * (Z.r + 6); if (!nearRoad(x, z, 8)) cragHills.push(M(x, 0, z, 7 + rng() * 3, rng() * 6)); }
+  instanced(lib.mountain_C_grass, cragHills);
   for (const [k, list] of Object.entries(rocks)) instanced(lib[k], list);
 
-  // distant mountains and hills
-  const far = { mountain_A_grass_trees: [], mountain_B_grass_trees: [], mountain_C_grass: [], hills_A_trees: [], hills_B_trees: [] };
-  for (let i = 0; i < 26; i++) {
-    const a = (i / 26) * Math.PI * 2 + rng() * 0.2, rr = 98 + rng() * 14;
-    far[['mountain_A_grass_trees', 'mountain_B_grass_trees', 'mountain_C_grass'][i % 3]].push(M(Math.cos(a) * rr, -1, Math.sin(a) * rr, 12 + rng() * 5, rng() * 6));
+  // Honeymeadow hamlet: homes, windmill, fields
+  const H = ZONES.meadow;
+  const hamlet = [['building_home_A_red', -9, -3], ['building_home_B_yellow', 9, -5], ['building_home_A_blue', -11, 9], ['building_windmill_green', 15, 10], ['building_grain', -2, 14], ['building_well_blue', 0, 2]];
+  for (const [n, dx, dz] of hamlet) place(n, H.x + dx, H.z + dz, n === 'building_windmill_green' ? 6 : S_BUILD, Math.atan2(-dx, -dz));
+  for (let r2 = 0; r2 < 3; r2++) for (let i = 0; i < 5; i++) place('building_grain', H.x + 20 + i * 3.2, H.z - 12 + r2 * 4.5, 3, 0, { collide: false });
+  for (let i = 0; i < 6; i++) place('fence_wood_straight', H.x + 18.5 + i * 3.4, H.z - 15, S_PROP + 1.4, 0, { collide: false });
+  for (const [n, dx, dz] of [['sack', 4, 6], ['crate_A_big', 6, 6], ['wheelbarrow', -5, 5], ['barrel', 7, -1], ['resource_lumber', -14, 2]]) place(n, H.x + dx, H.z + dz, S_PROP, rng() * 6, { shrink: 0.6 });
+  addPath(new THREE.CircleGeometry(6, 32), H.x, H.z);
+
+  // Haunted Hollow: dead-grey trees, gravestones, tents
+  const W = ZONES.hollow, dead = [];
+  for (let i = 0; i < 40; i++) {
+    const a = rng() * Math.PI * 2, rr = 10 + rng() * (W.r + 4);
+    const x = W.x + Math.cos(a) * rr, z = W.z + Math.sin(a) * rr;
+    if (nearRoad(x, z, 4) || !isFree(x, z, 1.5)) continue;
+    dead.push(M(x, 0, z, S_NATURE * (0.9 + rng() * 0.4), rng() * 6)); colliders.push({ x, z, r: 2 });
   }
-  for (let i = 0; i < 22; i++) {
-    const a = rng() * Math.PI * 2, rr = 76 + rng() * 14;
-    far[i % 2 ? 'hills_A_trees' : 'hills_B_trees'].push(M(Math.cos(a) * rr, 0, Math.sin(a) * rr, 9 + rng() * 3, rng() * 6));
+  tintTrees(instanced(lib.trees_A_medium, dead), 2.6, 0.2, 0.85);
+  const stoneM = toon('#a7a3ad');
+  for (let i = 0; i < 18; i++) {
+    const x = W.x - 9 + (i % 6) * 3.6, z = W.z - 4 + Math.floor(i / 6) * 4.5;
+    const g = new THREE.Mesh(new THREE.BoxGeometry(1.2, 1.5, 0.35)); g.position.set(x + (rng() - 0.5), 0.7, z); g.rotation.set((rng() - 0.5) * 0.2, (rng() - 0.5) * 0.4, (rng() - 0.5) * 0.25);
+    g.castShadow = true; registerMesh(g, stoneM); scene.add(g);
+    const top = new THREE.Mesh(new THREE.CylinderGeometry(0.6, 0.6, 0.35, 12, 1, false, 0, Math.PI)); top.rotation.set(Math.PI / 2, 0, Math.PI / 2); top.position.set(0, 0.75, 0); registerMesh(top, stoneM); g.add(top);
+    colliders.push({ x, z, r: 0.7 });
+  }
+  place('tent', W.x + 12, W.z + 8, S_PROP + 1, 2.2);
+
+  // Glimmerwood: glowing mushrooms and floating crystals
+  const G = ZONES.glimmer;
+  const capCols = ['#ff7eb6', '#7fe3f0', '#c58bff', '#ffd23f'];
+  for (let i = 0; i < 26; i++) {
+    const a = rng() * Math.PI * 2, rr = 4 + rng() * G.r;
+    const x = G.x + Math.cos(a) * rr, z = G.z + Math.sin(a) * rr;
+    if (nearRoad(x, z, 3) || !isFree(x, z, 0.8)) continue;
+    const s2 = 0.8 + rng() * 1.6, col = capCols[i % 4];
+    const stem = new THREE.Mesh(new THREE.CylinderGeometry(0.18 * s2, 0.26 * s2, 0.9 * s2, 8)); stem.position.set(x, 0.45 * s2, z); stem.castShadow = true; registerMesh(stem, toon('#fff1d6'));
+    const cap = new THREE.Mesh(new THREE.SphereGeometry(0.62 * s2, 14, 8, 0, Math.PI * 2, 0, Math.PI / 2)); cap.position.set(x, 0.85 * s2, z); cap.castShadow = true;
+    registerMesh(cap, toon(col, { emissive: col, emissiveIntensity: 0.35 }));
+    scene.add(stem, cap);
+    if (s2 > 1.6) colliders.push({ x, z, r: 0.6 * s2 });
+  }
+  for (let i = 0; i < 10; i++) {
+    const a = (i / 10) * Math.PI * 2, x = G.x + Math.cos(a) * 9, z = G.z + Math.sin(a) * 9;
+    const c = new THREE.Mesh(new THREE.OctahedronGeometry(0.7, 0)); c.scale.set(0.7, 1.4, 0.7); c.position.set(x, 2.4, z);
+    registerMesh(c, toon('#bfa8ff', { emissive: '#7a5cff', emissiveIntensity: 0.6 })); scene.add(c); dynamic.crystals.push(c);
+  }
+  const gl = new THREE.PointLight('#b48cff', 40, 30, 1.4); gl.position.set(G.x, 5, G.z); scene.add(gl);
+
+  // signposts at each road's end
+  for (const Z of Object.values(ZONES)) dynamic.signs.push({ name: Z.name, x: Z.x, z: Z.z, r: Z.r });
+
+  // mountains around the edge of the world
+  const far = { mountain_A_grass_trees: [], mountain_B_grass_trees: [], mountain_C_grass: [] };
+  for (let i = 0; i < 44; i++) {
+    const a = (i / 44) * Math.PI * 2 + rng() * 0.08, rr = WORLD_R + 14 + rng() * 10;
+    far[['mountain_A_grass_trees', 'mountain_B_grass_trees', 'mountain_C_grass'][i % 3]].push(M(Math.cos(a) * rr, -1, Math.sin(a) * rr, 14 + rng() * 5, rng() * 6));
   }
   for (const [k, list] of Object.entries(far)) instanced(lib[k], list, { cast: false });
 
-  for (let i = 0; i < 9; i++) {
-    const c = place(i % 2 ? 'cloud_big' : 'cloud_small', -80 + rng() * 160, -70 + rng() * 140, 4 + rng() * 2, rng() * 6, { collide: false, y: 26 + rng() * 6 });
+  for (let i = 0; i < 20; i++) {
+    const c = place(i % 2 ? 'cloud_big' : 'cloud_small', -150 + rng() * 300, -150 + rng() * 300, 4 + rng() * 2, rng() * 6, { collide: false, y: 26 + rng() * 6 });
     c.traverse((o) => { if (o.isMesh) o.receiveShadow = false; });
     clouds.push(c);
   }

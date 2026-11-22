@@ -15,7 +15,7 @@
 
 Playing with friends
 - Parties that share XP and quest progress
-- World bosses that need everyone
+- World bosses that need everyone (done so far: three minibosses, Bonecrusher, Gloomcaster and Captain Rattlebones, with telegraphed slam attacks)
 - Friendly duels in a town arena
 - Dokapon-style pranks, like a trap that turns a friend into a chicken for 30 seconds
 
