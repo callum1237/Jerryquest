@@ -974,6 +974,16 @@ function spawnEnemy(k, x, z) {
   if (T.boss) addSilhouette(e.root, '#ff8a9a');
   if (!T.boss) { const bar = document.createElement('div'); bar.className = 'hpbar'; bar.hidden = true; bar.innerHTML = '<i></i>'; document.body.appendChild(bar); e.bar = bar; }
   else e.bar = { hidden: true, style: {}, firstChild: { style: {} } };
+  e.flashMats = [];
+  e.root.traverse((o) => {
+    if (!o.isMesh || !o.userData.mats || o.userData.isSil || Array.isArray(o.userData.mats.toon)) return;
+    const m = { std: o.userData.mats.std.clone(), toon: o.userData.mats.toon.clone() };
+    m.toon.onBeforeCompile = o.userData.mats.toon.onBeforeCompile;
+    registerMesh(o, m); e.flashMats.push(m.std, m.toon);
+  });
+  // heavier enemies barely budge: minions fly, warriors stagger, bosses rock on their heels
+  e.mass = T.mass || (T.dragon ? 16 : T.boss ? 7 : k === 'skel_minion' ? 0.8 : k === 'skel_warrior' ? 1.3 : 1);
+  e.kb = new THREE.Vector2(); e.vy = 0; e.lift = 0; e.staggerUntil = 0; e.flashT = 0;
   enemies.push(e);
 }
 function buildEnemies() {
@@ -1800,22 +1810,53 @@ function swing() {
   const sp = THREE.MathUtils.clamp(1.05 / w.cd, 0.85, 1.9);
   showGear(null);
   if (t.e && A.proj) player.face(t.e.pos.x, t.e.pos.z); // gentle aim help for ranged
-  player.nextHit = now + w.cd;
-  const dur = player.play(w.heavy && A.heavy ? A.heavy : A.anim, { once: true, fade: 0.08, speed: sp });
-  player.busyUntil = now + Math.min(dur * 0.7, w.cd * 0.7);
-  later(A.hitAt / sp * 1.15, () => {
+  // Combo: keep attacking within a moment of the last swing to chain up to three different moves.
+  // The third is a finisher: harder, wider and it sends enemies flying.
+  if (now - lastSwingAt > w.cd + 0.7 || comboStep >= 3) comboStep = 0;
+  comboStep++; lastSwingAt = now;
+  const C = comboOf(w)[comboStep - 1], fin = comboStep === 3, spd = sp * C.speed;
+  player.nextHit = now + w.cd * (fin ? 1.25 : 0.82);
+  const dur = player.play(C.anim, { once: true, fade: 0.06, speed: spd });
+  player.busyUntil = now + Math.min(dur * 0.7, w.cd * 0.75);
+  if (fin) { const fw = fwdOf(player); dashLunge = { x: fw.x, z: fw.z, left: A.proj ? 0 : 0.9 }; }
+  later(C.hitAt / spd * 1.15, () => {
     if (player.dead) return;
-    const fwd = fwdOf(player);
+    const fwd = fwdOf(player), dmg = () => Math.max(1, Math.round(heroDamage() * C.mult));
     if (A.proj) {
-      shoot(player.pos.clone().add(new THREE.Vector3(0, 1.8, 0)).addScaledVector(fwd, 0.8), fwd, A.proj, w.reach, 'player',
-        (e) => hurtEnemy(e, heroDamage()));
+      const shots = fin && A.proj === 'bolt' ? [-0.12, 0.12] : [0];
+      for (const a of shots) {
+        const d = fwd.clone().applyAxisAngle(new THREE.Vector3(0, 1, 0), a);
+        shoot(player.pos.clone().add(new THREE.Vector3(0, 1.8, 0)).addScaledVector(d, 0.8), d, A.proj, w.reach, 'player', (e) => hurtEnemy(e, dmg(), null, C.power));
+      }
+      if (fin) burst(player.pos.clone().setY(1.8).addScaledVector(fwd, 1), A.proj === 'orb' ? '#bff6ff' : '#ffe9a8', 18, 4);
       return;
     }
-    burst(player.pos.clone().setY(1.5).addScaledVector(fwd, w.reach * 0.55), '#fff2a8', 14, 5);
+    const reach = w.reach * C.reach;
+    burst(player.pos.clone().setY(1.5).addScaledVector(fwd, reach * 0.55), fin ? '#ffd27a' : '#fff2a8', fin ? 26 : 14, fin ? 7 : 5);
     let hit = false;
-    for (const e of enemies) if (e.hp > 0 && e.state !== 'rising' && inArc(e.pos.x, e.pos.z, 0.8, w.reach + 0.3) >= 0) { hurtEnemy(e, heroDamage()); hit = true; }
+    for (const e of enemies) if (e.hp > 0 && e.state !== 'rising' && inArc(e.pos.x, e.pos.z, 0.8, reach + 0.3, C.arc) >= 0) { hurtEnemy(e, dmg(), null, C.power); hit = true; }
     if (!hit) for (const n of nodes) if (n.alive && n.def.skill !== 'fishing' && inArc(n.x, n.z, n.r, w.reach) >= 0) { burst(new THREE.Vector3(n.x, 1.4, n.z), '#ffe9a8', 6, 3); break; }
   });
+}
+let comboStep = 0, lastSwingAt = -9, dashLunge = null;
+// three moves per weapon style: anim, when it lands, damage, knockback, reach and arc
+function comboOf(w) {
+  if (w.type === 'magic') return [
+    { anim: 'Spellcast_Shoot', hitAt: 0.35, mult: 1, power: 1, speed: 1 },
+    { anim: 'Spellcast_Shoot', hitAt: 0.3, mult: 1, power: 1, speed: 1.15 },
+    { anim: 'Spellcasting', hitAt: 0.3, mult: 1.6, power: 2.2, speed: 1.1 }];
+  if (w.type === 'ranged') return [
+    { anim: '1H_Ranged_Shoot', hitAt: 0.22, mult: 1, power: 1, speed: 1 },
+    { anim: '1H_Ranged_Shoot', hitAt: 0.2, mult: 1, power: 1, speed: 1.15 },
+    { anim: '1H_Ranged_Shoot', hitAt: 0.24, mult: 1.15, power: 1.8, speed: 0.95 }];
+  if (w.heavy) return [
+    { anim: '2H_Melee_Attack_Slice', hitAt: 0.36, mult: 1, power: 1.1, speed: 1.1, reach: 1, arc: 0.95 },
+    { anim: '2H_Melee_Attack_Chop', hitAt: 0.5, mult: 1.1, power: 1.2, speed: 1.15, reach: 1, arc: 0.85 },
+    { anim: '2H_Melee_Attack_Stab', hitAt: 0.5, mult: 1.6, power: 2.4, speed: 1.35, reach: 1.25, arc: 0.6 }];
+  return [
+    { anim: '1H_Melee_Attack_Slice_Diagonal', hitAt: 0.32, mult: 1, power: 1, speed: 1, reach: 1, arc: 0.95 },
+    { anim: '1H_Melee_Attack_Slice_Horizontal', hitAt: 0.34, mult: 1, power: 1.1, speed: 1.1, reach: 1.05, arc: 1.15 },
+    { anim: '1H_Melee_Attack_Stab', hitAt: 0.5, mult: 1.5, power: 2.3, speed: 1.4, reach: 1.25, arc: 0.6 }];
 }
 let specialReady = 0;
 function special() {
@@ -1828,7 +1869,7 @@ function special() {
   specialReady = now + SP.cd; player.nextHit = now + 0.6;
   const big = w.unique ? 1.25 : 1;
   const fwd = fwdOf(player), pp = player.pos;
-  const hitIn = (cx, cz, R, mult) => { let n = 0; for (const e of enemies) if (e.hp > 0 && e.state !== 'rising' && e.inside === where && Math.hypot(e.pos.x - cx, e.pos.z - cz) < R + (e.T.boss ? 1.2 : 0.5)) { hurtEnemy(e, Math.round(heroDamage() * mult) || 1); n++; } return n; };
+  const hitIn = (cx, cz, R, mult) => { let n = 0; for (const e of enemies) if (e.hp > 0 && e.state !== 'rising' && e.inside === where && Math.hypot(e.pos.x - cx, e.pos.z - cz) < R + (e.T.boss ? 1.2 : 0.5)) { hurtEnemy(e, Math.round(heroDamage() * mult) || 1, { x: cx, z: cz }, 1.7); n++; } return n; };
   const ring = (cx, cz, R, col) => {
     const m = new THREE.Mesh(new THREE.RingGeometry(0.7, 1, 48), new THREE.MeshBasicMaterial({ color: col, transparent: true, opacity: 0.85, depthWrite: false, fog: false, side: THREE.DoubleSide }));
     m.rotation.x = -Math.PI / 2; m.position.set(cx, 0.2, cz); m.layers.set(1); scene.add(m);
@@ -1857,7 +1898,7 @@ function special() {
     later(0.2, () => {
       for (const a of [-0.36, -0.18, 0, 0.18, 0.36]) {
         const d = fwd.clone().applyAxisAngle(new THREE.Vector3(0, 1, 0), a * big);
-        shoot(pp.clone().add(new THREE.Vector3(0, 1.8, 0)).addScaledVector(d, 0.8), d, 'bolt', w.reach, 'player', (e) => hurtEnemy(e, Math.round(heroDamage() * SP.mult)));
+        shoot(pp.clone().add(new THREE.Vector3(0, 1.8, 0)).addScaledVector(d, 0.8), d, 'bolt', w.reach, 'player', (e) => hurtEnemy(e, Math.round(heroDamage() * SP.mult), null, 1.2));
       }
     });
   }
@@ -1973,13 +2014,46 @@ function heroDamage() {
   if (rng() < 0.1) return 0;
   return Math.max(1, Math.round(W().dmg * dmgMult() * (0.8 + rng() * 0.4)));
 }
-function hurtEnemy(e, dmg) {
+let hitStopUntil = 0;
+// Every hit shoves the enemy away from where the blow came from. Heavy weapons and specials shove harder,
+// a finishing blow launches small enemies, and big bosses barely move. A tiny freeze sells the impact.
+function impact(e, dmg, src, power, killed) {
+  const from = src || player.pos, w = W();
+  const dx = e.pos.x - from.x, dz = e.pos.z - from.z, d = Math.hypot(dx, dz) || 1;
+  const force = (7 + Math.min(dmg, 30) * 0.5) * (w.heavy ? 1.5 : 1) * power * (killed ? 1.8 : 1);
+  const m = e.mass || 1;
+  e.kb.set((dx / d) * force / m, (dz / d) * force / m);
+  if (m < 3) { e.vy = (killed ? 9 : 4.5) * Math.min(1.6, power) / m; e.lift = Math.max(e.lift, 0.01); }
+  e.staggerUntil = now + Math.min(0.45, 0.35 / Math.sqrt(m)) * (killed ? 0 : 1);
+  e.flashT = now + 0.13;
+  hitStopUntil = now + (killed ? 0.12 : w.heavy || power > 1.4 ? 0.08 : 0.05) * (e.T.boss ? 0.7 : 1);
+  const at = e.pos.clone().setY(e.T.boss ? 2.6 : 1.5);
+  const col = w.type === 'magic' ? '#bff6ff' : w.type === 'ranged' ? '#ffe9a8' : '#fff4d0';
+  burst(at, col, killed ? 34 : 20, killed ? 8 : 6, killed ? 1.3 : 1);
+  burst(at, '#ffb347', 8, 4);
+  const ring = new THREE.Mesh(new THREE.RingGeometry(0.6, 1, 32), new THREE.MeshBasicMaterial({ color: '#fff6d8', transparent: true, opacity: 0.85, depthWrite: false, fog: false, side: THREE.DoubleSide }));
+  ring.position.copy(at); ring.lookAt(camera.position); ring.layers.set(1); scene.add(ring);
+  fx.push({ m: ring, t: 0, dur: 0.22, R: (e.T.boss ? 2.2 : 1.2) * (killed ? 1.5 : 1) });
+}
+function knockTick(e, dt) {
+  const ep = e.pos;
+  if (Math.abs(e.kb.x) + Math.abs(e.kb.y) > 0.05) {
+    ep.x += e.kb.x * dt; ep.z += e.kb.y * dt;
+    e.kb.multiplyScalar(Math.exp(-7 * dt));
+    if (e.inside === 'out') pushOut(ep, e.T.boss ? 1.2 : 0.6);
+  }
+  if (e.lift > 0) { e.vy -= 32 * dt; e.lift = Math.max(0, e.lift + e.vy * dt); if (!e.lift) e.vy = 0; ep.y = e.lift; }
+  // white flash that fades over a few frames
+  const f = Math.max(0, (e.flashT - now) / 0.13);
+  if (f !== e.flashLast) { e.flashLast = f; for (const m of e.flashMats) if (m.emissive) { m.emissive.setRGB(f, f * 0.95, f * 0.85); } }
+}
+function hurtEnemy(e, dmg, src = null, power = 1) {
   const head = e.pos.clone().setY(3.4);
   if (e.state === 'idle' || e.state === 'walk') e.state = 'chase';
   if (dmg === 0) { floatText(head, 'Miss', 'miss'); return; }
   e.hp = Math.max(0, e.hp - dmg);
-  floatText(head, String(dmg));
-  burst(e.pos.clone().setY(1.6), '#ffffff', 14, 5);
+  floatText(head, String(dmg), e.hp <= 0 ? 'kill' : dmg >= Math.max(8, W().dmg * 1.6) ? 'big' : '');
+  impact(e, dmg, src, power, e.hp <= 0);
   giveHeroXp(dmg * HIT_HERO_XP);
   if (e.hp <= 0) {
     e.state = 'dead'; e.bar.hidden = true;
@@ -2006,8 +2080,9 @@ function hurtEnemy(e, dmg) {
       if (!ok) { e.state = 'idle'; e.play('Idle'); }
       burst(e.pos.clone().setY(0.5), '#b9ff8a', 30, 4);
     });
-  } else if (e.state !== 'slam' && !['1H_Melee_Attack_Chop', '2H_Melee_Attack_Chop', 'Spellcast_Shoot', 'Spellcasting'].includes(e.name)) {
-    e.play('Hit_A', { once: true, fade: 0.05, onFinish: () => e.play('Idle_Combat') });
+  } else if (e.state !== 'slam' && (e.mass < 3 || !['1H_Melee_Attack_Chop', '2H_Melee_Attack_Chop', 'Spellcast_Shoot', 'Spellcasting'].includes(e.name))) {
+    // small enemies flinch even mid-swing (it interrupts them); bosses only flinch when idle
+    e.play('Hit_A', { once: true, fade: 0.04, speed: 1.3, onFinish: () => e.play('Idle_Combat') });
   }
 }
 let lastHurt = -10;
@@ -2143,7 +2218,9 @@ function slamTick(dt) {
 let shake = 0;
 function enemyTick(e, dt) {
   const ep = e.pos;
+  knockTick(e, dt);
   if (e.state === 'dead' || e.state === 'rising') return;
+  if (now < e.staggerUntil && e.state !== 'slam') return;
   const toP = Math.hypot(player.pos.x - ep.x, player.pos.z - ep.z);
   const fromHome = Math.hypot(ep.x - e.home.x, ep.z - e.home.y);
   const big = e.T.boss, reach = e.T.ranged ? (big ? 10 : 8) : big ? 3.6 : 2.4;
@@ -2314,8 +2391,8 @@ function collide(p, r = 0.7) {
 let stamina = 100, staminaAt = 0, sprintToggle = false;
 let lastUi = 0, lastSave = 0, regenAt = 0, lastAct = '', stuck = 0;
 function tick() {
-  const dt = Math.min(clock.getDelta(), 0.05);
   now = clock.elapsedTime;
+  const dt = Math.min(clock.getDelta(), 0.05) * (now < hitStopUntil ? 0.08 : 1);
   for (let i = timers.length - 1; i >= 0; i--) { timers[i].t -= dt; if (timers[i].t <= 0) { const f = timers[i].f; timers.splice(i, 1); f(); } }
 
   if (player && !player.dead && !uiLock()) {
@@ -2329,6 +2406,7 @@ function tick() {
       if (d > stopAt) { mx = tx / d; mz = tz / d; }
       else { moveTarget = null; marker.visible = false; if (pending) { const t = pending; pending = null; startTask(t); } }
     }
+    if (dashLunge && dashLunge.left > 0) { const st = Math.min(dashLunge.left, 9 * dt); dashLunge.left -= st; pp.x += dashLunge.x * st; pp.z += dashLunge.z * st; collide(pp); }
     if (dashLeft > 0) { const st = Math.min(dashLeft, 18 * dt); dashLeft -= st; pp.x += dashDir * st; collide(pp); if (dashLeft <= 0) dashUntil = Math.min(dashUntil, now); player.root.rotation.z = -dashDir * 0.25; if (rng() < 0.6) burst(pp.clone().setY(0.9), '#ffffff', 2, 1.5, 0.6); }
     else if (player.root.rotation.z) player.root.rotation.z = 0;
     // you can always move, even mid-swing; while a swing plays you keep facing where you aimed
@@ -2484,7 +2562,6 @@ function tick() {
   else {
     camPos.lerp(tmpV.copy(focus).add(off), 1 - Math.pow(0.002, dt));
     camera.position.copy(camPos);
-    if (shake > 0) { shake = Math.max(0, shake - dt); camera.position.x += (rng() - 0.5) * shake * 1.2; camera.position.y += (rng() - 0.5) * shake; }
     camera.lookAt(focus.x, 1.2, focus.z - 1);
   }
   sky.position.copy(camera.position);
