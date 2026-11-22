@@ -417,17 +417,17 @@ function hairGroup(style, len = 'short') {
   };
   // The hair "shell": a sphere a little bigger than the head, cut along a hairline.
   // front is how low it comes over the forehead, side over the ears, back at the nape.
-  const shell = (front = 0.42, side = 0.05, back = -0.5) => {
+  const shell = (front = 0.42, side = -0.05, back = -0.78) => {
     const k = `${front}|${side}|${back}`;
     if (!shellGeos[k]) {
-      const src = new THREE.SphereGeometry(1, 40, 28), p = src.attributes.position, idx = src.index.array, keep = [];
-      const ok = (i) => {
-        const x = p.getX(i), y = p.getY(i), z = p.getZ(i);
-        const hl = z > 0 ? THREE.MathUtils.lerp(side, front, Math.min(1, z / Math.max(0.35, Math.hypot(x, z)) * 1.15)) : THREE.MathUtils.lerp(side, back, Math.min(1, -z / Math.max(0.35, Math.hypot(x, z))));
-        return y > hl;
-      };
-      for (let i = 0; i < idx.length; i += 3) if (ok(idx[i]) && ok(idx[i + 1]) && ok(idx[i + 2])) keep.push(idx[i], idx[i + 1], idx[i + 2]);
-      src.setIndex(keep); shellGeos[k] = src;
+      const src = new THREE.SphereGeometry(1, 48, 32), p = src.attributes.position;
+      for (let i = 0; i < p.count; i++) {
+        const x = p.getX(i), y = p.getY(i), z = p.getZ(i), hz = Math.hypot(x, z);
+        const f = hz > 1e-4 ? z / hz : 0; // +1 front, -1 back
+        const hl = f > 0 ? THREE.MathUtils.lerp(side, front, Math.pow(f, 1.6)) : THREE.MathUtils.lerp(side, back, Math.pow(-f, 0.8));
+        if (y < hl) { const r = Math.sqrt(Math.max(0, 1 - hl * hl)); p.setXYZ(i, hz > 1e-4 ? (x / hz) * r : 0, hl, hz > 1e-4 ? (z / hz) * r : 0); }
+      }
+      src.computeVertexNormals(); shellGeos[k] = src;
     }
     return add(shellGeos[k], HC.x, HC.y + 0.01, HC.z - 0.01, 0, 0, 0, HR.x * 1.07, HR.y * 1.08, HR.z * 1.07);
   };
@@ -438,11 +438,13 @@ function hairGroup(style, len = 'short') {
     if (kind === 'spiky') { for (let i = -3; i <= 3; i++) lock(i * 0.19, 0.82, 0.34 - (i % 2 ? 0.08 : 0), 0.15, 0.08, i * 0.12, 0.5); return; }
     if (kind === 'swept') { for (let i = -3; i <= 3; i++) lock(i * 0.2 - 0.1, 0.84, 0.32 + (i > 0 ? 0.08 : 0), 0.17, 0.05, -0.7, 0.45); return; }
   };
-  const sidelocks = (h = 0.6) => { for (const s of [-1, 1]) lock(s * 0.98, 0.25, h, 0.11, 0.06, 0, 0.5, 1.04); };
+  const sidelocks = (h = 0.6) => { for (const s of [-1, 1]) lock(s * 1.0, 0.2, h, 0.12, 0.0, 0, 0.85, 1.03); };
   const LEN = { short: 0, shoulder: 0.55, long: 0.95, vlong: 1.4 }[len] || 0;
   const backHair = (L) => {
     if (!L) return;
-    for (let i = 0; i < 9; i++) { const az = Math.PI * (0.52 + i * 0.12); lock(az, 0.15, 0.55 + L * 0.65, 0.2, 0.02, 0, 0.55, 1.0); }
+    for (let i = 0; i < 9; i++) { const az = Math.PI * (0.52 + i * 0.12); lock(az, 0.0, 0.55 + L * 0.65, 0.22, 0.0, 0, 0.8, 1.0); }
+    // a soft mass under the locks so long hair has body from behind
+    add(new THREE.CapsuleGeometry(0.3, 0.2 + L * 0.5, 4, 12), HC.x, HC.y - 0.2 - L * 0.32, HC.z - HR.z * 0.62, 0.1, 0, 0, 1.55, 1, 0.62);
     sidelocks(0.45 + L * 0.35);
   };
   const spikes = (n = 9, big = 1) => {
@@ -452,21 +454,21 @@ function hairGroup(style, len = 'short') {
   if (style === 'spiky') { shell(); bangs('spiky'); spikes(10); }
   if (style === 'hero') {
     shell(); bangs('spiky');
-    const sp = [[0, 1.0, 0.7], [0.5, 0.95, 0.6], [-0.5, 0.95, 0.6], [1.1, 0.75, 0.55], [-1.1, 0.75, 0.55], [2.2, 0.6, 0.6], [-2.2, 0.6, 0.6], [Math.PI, 0.6, 0.65], [1.6, 0.4, 0.45], [-1.6, 0.4, 0.45]];
+    const sp = [[0, 1.0, 0.55], [0.5, 0.95, 0.5], [-0.5, 0.95, 0.5], [1.1, 0.75, 0.45], [-1.1, 0.75, 0.45], [2.2, 0.6, 0.5], [-2.2, 0.6, 0.5], [Math.PI, 0.6, 0.55], [1.6, 0.4, 0.38], [-1.6, 0.4, 0.38]];
     for (const [az, el, h] of sp) lock(az, el, h, 0.17, 2.45 - el, 0, 0.7, 0.92);
   }
-  if (style === 'swept') { shell(0.38); bangs('swept'); lock(-0.55, 0.45, 0.62, 0.12, 0.05, -0.2, 0.5); }
-  if (style === 'bun') { shell(0.48, 0.15, -0.2); bangs('centre'); add(new THREE.SphereGeometry(0.25, 16, 12), HC.x, HC.y + HR.y * 0.95, HC.z - HR.z * 0.55); }
+  if (style === 'swept') { shell(0.38); bangs('swept'); lock(-0.8, 0.4, 0.42, 0.12, 0.05, -0.2, 0.6); }
+  if (style === 'bun') { shell(0.48, -0.05, -0.7); bangs('centre'); add(new THREE.SphereGeometry(0.25, 16, 12), HC.x, HC.y + HR.y * 0.95, HC.z - HR.z * 0.55); }
   if (style === 'long') {
-    shell(0.45, 0.1, -0.15); bangs('centre');
+    shell(0.45, -0.05, -0.72); bangs('centre');
     add(new THREE.TorusGeometry(0.1, 0.04, 6, 12), HC.x, HC.y + HR.y * 0.62, HC.z - HR.z * 1.0, 0.6);
     const t = lock(Math.PI, 0.55, 0.9 + LEN * 0.55, 0.2, -0.15, 0, 0.75, 1.12);
     t.position.y += 0.05;
   }
-  if (style === 'bob') { shell(0.42, -0.45, -0.55); bangs('blunt'); for (const s of [-1, 1]) lock(s * 1.1, 0.1, 0.5, 0.17, 0.08, 0, 0.6, 1.03); }
-  if (style === 'hime') { shell(0.42, 0.05, -0.4); bangs('blunt'); sidelocks(0.75); backHair(Math.max(LEN, 0.95)); }
+  if (style === 'bob') { shell(0.42, -0.62, -0.75); bangs('blunt'); for (const s of [-1, 1]) lock(s * 1.2, 0.05, 0.42, 0.16, -0.12, 0, 0.9, 1.0); }
+  if (style === 'hime') { shell(0.42, -0.1, -0.8); bangs('blunt'); sidelocks(0.75); backHair(Math.max(LEN, 0.95)); }
   if (style === 'twin') {
-    shell(0.45, 0.15, -0.25); bangs('centre');
+    shell(0.45, -0.05, -0.72); bangs('centre');
     for (const s of [-1, 1]) { add(new THREE.SphereGeometry(0.09, 10, 8), HC.x + s * HR.x * 0.82, HC.y + HR.y * 0.55, HC.z - HR.z * 0.45); const t = lock(s * 2.0, 0.55, 0.7 + LEN * 0.5, 0.18, 0.7, 0, 0.75, 1.15); t.rotation.z = s * 0.25; }
   }
   if (style === 'curls') {
@@ -530,7 +532,7 @@ const headGeo = (() => {
   g.computeVertexNormals();
   return g;
 })();
-const earGeo = new THREE.ConeGeometry(0.16, 0.62, 4);
+const earGeo = new THREE.ConeGeometry(0.13, 0.5, 10);
 const humanEarGeo = new THREE.SphereGeometry(1, 12, 10);
 const FW = 1024, FH = 512, FX = 256, EY = 268, ESEP = 80;
 function shade(hex, k) { return `#${new THREE.Color(hex).multiplyScalar(k).getHexString()}`; }
@@ -680,7 +682,8 @@ function buildFace() {
   const fg = new THREE.Group(); player.faceGroup = fg; H.bone.add(fg);
   const box = H.box, c = box.getCenter(new THREE.Vector3()), sz = box.getSize(new THREE.Vector3());
   const rx = sz.x * 0.5, ry = sz.y * 0.47, rz = sz.z * 0.5;
-  const mats = toon('#ffffff');
+  const mats = toon('#f6f2f0');
+  mats.toon.onBeforeCompile = () => {};
   mats.std.map = faceTexture(L, 'open'); mats.toon.map = mats.std.map;
   for (const mat of [mats.std, mats.toon]) { mat.stencilWrite = true; mat.stencilRef = 1; mat.stencilFunc = THREE.AlwaysStencilFunc; mat.stencilZPass = THREE.ReplaceStencilOp; }
   const head = new THREE.Mesh(headGeo); registerMesh(head, mats); head.castShadow = true;
@@ -691,7 +694,7 @@ function buildFace() {
   const skinMat = toon(SKIN_TONES[L.skin][1]);
   for (const sx of [-1, 1]) {
     const e = new THREE.Mesh(L.ears === 'elf' ? earGeo : humanEarGeo); registerMesh(e, skinMat); e.castShadow = true;
-    if (L.ears === 'elf') { e.position.set(sx * (rx + 0.1), c.y - ry * 0.02, c.z - rz * 0.08); e.rotation.set(-0.3, 0, -sx * 1.12); e.scale.set(1, 1, 0.45); }
+    if (L.ears === 'elf') { e.position.set(sx * (rx + 0.1), c.y - ry * 0.02, c.z - rz * 0.08); e.rotation.set(-0.3, 0, -sx * 1.12); e.scale.set(1, 1, 0.6); }
     else { e.position.set(sx * rx * 0.97, c.y - ry * 0.08, c.z - rz * 0.06); e.scale.set(rx * 0.13, ry * 0.2, rz * 0.15); }
     fg.add(e);
   }
@@ -735,10 +738,30 @@ function applyLook() {
         o.userData.mats = o.userData.ownMats;
         o.material = styled.on ? o.userData.mats.toon : o.userData.mats.std;
       }
-      const col = isLimb ? arm.tint || '#ffffff' : LOOK_COLOURS[isCape ? L.trim : L.outfit][1];
-      o.userData.mats.std.color.set(col); o.userData.mats.toon.color.set(col);
+      const key = isCape ? L.trim : L.outfit, col = isLimb ? arm.tint || '#ffffff' : LOOK_COLOURS[key][1];
+      const amt = isLimb || key === 'none' ? 0 : isCape ? 1 : 0.75;
+      for (const mat of [o.userData.mats.std, o.userData.mats.toon]) { colourise(mat, amt); mat.color.set(amt ? mixHex(col, '#ffffff', 0.12) : col); }
     }
   });
+}
+function colourise(mat, amt) {
+  if (!mat.userData.colourise) {
+    mat.userData.colourise = { value: amt };
+    const prev = mat.onBeforeCompile;
+    mat.onBeforeCompile = (sh, r) => {
+      if (prev) prev(sh, r);
+      sh.uniforms.colourise = mat.userData.colourise;
+      sh.fragmentShader = 'uniform float colourise;\n' + sh.fragmentShader.replace('#include <map_fragment>',
+        `#ifdef USE_MAP
+          vec4 texel = texture2D(map, vMapUv);
+          float lum = dot(texel.rgb, vec3(0.299, 0.587, 0.114));
+          diffuseColor *= vec4(mix(texel.rgb, vec3(min(1.0, 0.35 + lum * 1.25)), colourise), texel.a);
+        #endif`);
+    };
+    mat.customProgramCacheKey = () => 'colourise';
+    mat.needsUpdate = true;
+  }
+  mat.userData.colourise.value = amt;
 }
 function tinted(obj, col) {
   obj.traverse((o) => {
@@ -1571,6 +1594,7 @@ function closeDialog() { $('dialog').hidden = true; talking = null; }
 const keys = new Set();
 const KEYMAP = { ShiftLeft: 'sprint', ShiftRight: 'sprint', KeyW: 'u', ArrowUp: 'u', KeyS: 'd', ArrowDown: 'd', KeyA: 'l', ArrowLeft: 'l', KeyD: 'r', ArrowRight: 'r' };
 addEventListener('keydown', (e) => {
+  if (creator.open && e.key === 'Escape' && creator.mode !== 'new') { closeCreator(false); return; }
   if (!player || uiLock()) return;
   if (KEYMAP[e.code]) {
     const k = KEYMAP[e.code];
@@ -2521,6 +2545,7 @@ function renderCreator() {
     <div class="cc-panel panel">
       <h2 class="cc-title">${isNew ? 'Create your hero' : 'Change your look'}</h2>
       <label class="cc-name"><span>Name</span><input id="cc-name" maxlength="16" autocomplete="off" spellcheck="false" value="${(S.name || '').replace(/"/g, '&quot;')}" placeholder="Name your hero"><button id="cc-rname" title="Pick a name for me" aria-label="Pick a name for me">&#127922;</button></label>
+      <p class="cc-namehint" id="cc-namehint">Up to 16 letters, numbers, spaces, ' or -</p>
       <div class="cc-tabs" role="tablist">${Object.entries(tabs).map(([k, nm]) => `<button role="tab" data-tab="${k}" aria-selected="${creator.tab === k}">${nm}</button>`).join('')}</div>
       <div class="cc-body">${body}</div>
       <div class="cc-foot"><button id="cc-random">&#127922; Surprise me</button>${isNew ? '' : '<button id="cc-cancel">Cancel</button>'}<button id="cc-done" class="primary">${isNew ? 'Begin adventure' : 'Done'}</button></div>
@@ -2533,14 +2558,25 @@ function renderCreator() {
       const part = b.dataset.part, val = b.dataset.val, was = L[part];
       L[part] = val;
       if (['hair', 'hairLen', 'hairCol', 'eyeStyle', 'eyes', 'mouth', 'mark', 'skin', 'ears'].includes(part)) L.hat = false;
-      if (part === 'sex' && was !== val) { if (val === 'f' && L.hairLen === 'short') L.hairLen = 'long'; rebuildHero(); }
+      if (part === 'sex' && was !== val) {
+        // swap the starter hair if it is still the other body's starter
+        const D = { m: ['hero', 'short'], f: ['hime', 'long'] }, o = D[was], n = D[val];
+        if (o && L.hair === o[0] && L.hairLen === o[1]) { L.hair = n[0]; L.hairLen = n[1]; }
+        rebuildHero();
+      }
       else applyLook();
       player.blinkAt = now + 1.5;
       renderCreator();
     };
   });
   const nm = $('cc-name');
-  nm.oninput = () => { const v = cleanName(nm.value); if (v !== nm.value) nm.value = v; S.name = v; updateTitle(); };
+  nm.oninput = () => {
+    const v = cleanName(nm.value), hint = $('cc-namehint');
+    hint.textContent = v !== nm.value ? "Only letters, numbers, spaces, ' and - work in names" : `${v.length} / 16${v.trim() ? '' : ' · leave it empty and you will be called Hero'}`;
+    hint.classList.toggle('warn', v !== nm.value);
+    if (v !== nm.value) nm.value = v;
+    S.name = v; updateTitle();
+  };
   nm.onkeydown = (e) => { if (e.key === 'Enter') { nm.blur(); } e.stopPropagation(); };
   $('cc-rname').onclick = () => { S.name = NAME_IDEAS[Math.floor(Math.random() * NAME_IDEAS.length)]; nm.value = S.name; updateTitle(); };
   $('cc-random').onclick = () => { const sex = S.look.sex; randomLook(); S.look.sex = sex; applyLook(); renderCreator(); };
@@ -2594,7 +2630,8 @@ function creatorCam(dt) {
   if (!creator.drag && now > creator.idleAt) creator.yaw += (Math.sin(now * 0.5) * 0.45 - creator.yaw) * Math.min(1, dt * 1.2);
   player.root.rotation.y = creator.yaw;
   const headY = 2.5 * (player.headScale || 1) ** 0.3;
-  const ty = creator.close ? headY : 1.45, dist = (creator.close ? 4.2 : 8.2) * (phone ? 1.6 : 1);
+  const hs = player.headScale || 1;
+  const ty = creator.close ? headY + (hs - 1) * 0.9 : 1.45 + (hs - 1) * 0.6, dist = (creator.close ? 4.2 * hs : 8.2 + (hs - 1) * 3) * (phone ? (creator.close ? 1.9 : 1.5) : 1);
   const want = tmpV.set(p.x, ty + (creator.close ? 0.5 : 1.6), p.z + dist);
   // clip away anything standing between the camera and the hero (bushes, fences)
   const near = Math.max(0.1, dist - 2.2);
@@ -2604,7 +2641,7 @@ function creatorCam(dt) {
   camera.lookAt(p.x, ty, p.z);
   const w = innerWidth, h = innerHeight;
   // shift the picture so the hero sits in the open space: above the panel on phones, left of it on wider screens
-  if (phone) camera.setViewOffset(w, h, 0, h * 0.2, w, h);
+  if (phone) camera.setViewOffset(w, h, 0, h * (creator.close ? 0.34 : 0.24), w, h);
   else camera.setViewOffset(w, h, (Math.min(460, w * 0.42) + 24) / 2, 0, w, h);
   creator.light.position.set(p.x + 1.5, ty + 1.2, p.z + 3.5);
 }
