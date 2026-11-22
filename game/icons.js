@@ -126,5 +126,35 @@ export const ICONS = {
     shape(g, '#8a5a32', () => g.roundRect(-4, -26, 8, 60, 4));
     shape(g, '#c3cad3', () => { g.moveTo(-34, -14); g.quadraticCurveTo(0, -40, 34, -14); g.quadraticCurveTo(0, -28, -34, -14); });
   }),
+  shield: make((g) => {
+    shape(g, '#5f9ef0', () => { g.moveTo(0, -32); g.quadraticCurveTo(18, -24, 30, -26); g.quadraticCurveTo(32, 12, 0, 34); g.quadraticCurveTo(-32, 12, -30, -26); g.quadraticCurveTo(-18, -24, 0, -32); });
+    shape(g, '#ffd84a', () => { g.moveTo(0, -18); g.lineTo(6, -4); g.lineTo(20, -4); g.lineTo(9, 5); g.lineTo(13, 19); g.lineTo(0, 11); g.lineTo(-13, 19); g.lineTo(-9, 5); g.lineTo(-20, -4); g.lineTo(-6, -4); g.closePath(); });
+    shine(g, -16, -16, 5);
+  }),
+  armour: make((g) => {
+    shape(g, '#c8d4e4', () => { g.moveTo(-14, -30); g.lineTo(-30, -20); g.lineTo(-24, 0); g.lineTo(-18, -4); g.lineTo(-18, 30); g.lineTo(18, 30); g.lineTo(18, -4); g.lineTo(24, 0); g.lineTo(30, -20); g.lineTo(14, -30); g.quadraticCurveTo(0, -18, -14, -30); });
+    g.save(); g.lineWidth = 3; g.beginPath(); g.moveTo(-18, 8); g.lineTo(18, 8); g.moveTo(0, -20); g.lineTo(0, 30); g.stroke(); g.restore();
+    shine(g, -10, -12, 4);
+  }),
+  star: make((g) => {
+    shape(g, '#ffd84a', () => { for (let i = 0; i < 10; i++) { const a = -Math.PI / 2 + (i * Math.PI) / 5, r = i % 2 ? 14 : 32; g.lineTo(Math.cos(a) * r, Math.sin(a) * r); } g.closePath(); });
+    shine(g, -6, -10, 5);
+  }),
+  silver_ring: make((g) => {
+    g.save(); g.lineWidth = 14; g.strokeStyle = INK; g.beginPath(); g.ellipse(0, 8, 22, 18, 0, 0, 7); g.stroke();
+    g.lineWidth = 8; g.strokeStyle = '#dfe6ee'; g.beginPath(); g.ellipse(0, 8, 22, 18, 0, 0, 7); g.stroke(); g.restore();
+    shape(g, '#8fd8ff', () => { g.moveTo(0, -30); g.lineTo(12, -16); g.lineTo(0, -4); g.lineTo(-12, -16); g.closePath(); });
+    shine(g, -3, -20, 3);
+  }),
+  ruby: make((g) => {
+    shape(g, '#ff3b5c', () => { g.moveTo(-18, -22); g.lineTo(18, -22); g.lineTo(32, -6); g.lineTo(0, 30); g.lineTo(-32, -6); g.closePath(); });
+    g.save(); g.lineWidth = 3; g.beginPath(); g.moveTo(-32, -6); g.lineTo(32, -6); g.moveTo(-8, -22); g.lineTo(-12, -6); g.lineTo(0, 30); g.lineTo(12, -6); g.lineTo(8, -22); g.stroke(); g.restore();
+    shine(g, -14, -14, 5);
+  }),
+  golden_crown: make((g) => {
+    shape(g, '#ffd84a', () => { g.moveTo(-30, 22); g.lineTo(-32, -18); g.lineTo(-16, 0); g.lineTo(0, -26); g.lineTo(16, 0); g.lineTo(32, -18); g.lineTo(30, 22); g.closePath(); });
+    for (const [x, c] of [[-16, '#ff5a6a'], [0, '#5fb3e6'], [16, '#66c46a']]) shape(g, c, () => g.arc(x, 12, 5, 0, 7));
+    shine(g, -20, -4, 4);
+  }),
   fishing: make((g) => fish(g, '#5fb3e6', '#e6f6ff')),
 };

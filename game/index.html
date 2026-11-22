@@ -171,8 +171,9 @@
     position: fixed; left: 50%; transform: translateX(-50%);
     bottom: calc(env(safe-area-inset-bottom, 0px) + 92px);
     width: min(520px, calc(100% - 32px)); padding: 14px 16px; z-index: 4;
+    max-height: calc(100dvh - 110px); overflow-y: auto; overscroll-behavior: contain;
   }
-  #dialog h3 { font-size: 20px; }
+  #dialog h3 { font-size: 20px; margin-top: -2px; position: sticky; top: 0; z-index: 1; }
   #dialog p { margin: 6px 0 10px; font-size: 15px; line-height: 1.45; font-weight: 700; }
   #dialog .reward { font-size: 13px; color: var(--ink-soft); font-weight: 800; margin-top: -4px; }
   #dialog .row { display: flex; gap: 8px; flex-wrap: wrap; }
@@ -229,6 +230,9 @@
   #fade { position: fixed; inset: 0; background: #1c120c; opacity: 0; pointer-events: none; transition: opacity .3s; z-index: 5; }
   #fade.on { opacity: 1; }
   .shop.wide { grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); }
+  .shop.sell { grid-template-columns: repeat(auto-fill, minmax(118px, 1fr)); }
+  .shop.sell .buy img { width: 34px; height: 34px; }
+  .shop.sell .buy em { color: #2f7d32; font-weight: 800; }
   .shop { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin: 10px 0; }
   .shop .buy { display: grid; justify-items: center; gap: 2px; padding: 8px 6px; font-size: 14px; }
   .shop .buy img { width: 44px; height: 44px; }
@@ -241,6 +245,28 @@
   .quest .chapter { display: block; margin: 0; }
   h4.sub { font-family: var(--display); color: var(--plum); margin: 12px 0 6px; font-size: 15px; }
   .gearlist { display: grid; gap: 6px; }
+  .gearbtn b { display: flex; align-items: center; gap: 6px; }
+  .gearbtn b img { width: 22px; height: 22px; }
+  .gearbtn.now { background: #fff7e2; border: 2px solid var(--ink); border-radius: 12px; padding: 6px 10px; }
+  .herolvl { display: grid; gap: 3px; margin-bottom: 10px; }
+  .herolvl .xp { height: 10px; background: #e3c48a; border: 2px solid var(--ink); border-radius: 6px; overflow: hidden; }
+  .herolvl .xp i { display: block; height: 100%; background: linear-gradient(#ffe58a, var(--gold)); }
+  .herolvl small { font-size: 12px; color: var(--ink-soft); font-weight: 700; }
+  .stats { display: grid; gap: 8px; }
+  .stat { display: grid; grid-template-columns: 34px 1fr auto auto; gap: 0 10px; align-items: center; background: #fff7e2; border: 2px solid var(--ink); border-radius: 12px; padding: 6px 8px; }
+  .stat img { width: 34px; height: 34px; grid-row: span 2; }
+  .stat .nm { font-weight: 800; }
+  .stat .lv { font-family: var(--display); font-weight: 700; font-size: 22px; grid-row: span 2; font-variant-numeric: tabular-nums; }
+  .stat small { grid-column: 2; font-size: 12px; color: var(--ink-soft); font-weight: 700; }
+  .stat img, .stat .lv, .stat .plus { grid-row: 1 / span 2 !important; align-self: center; }
+  .stat .lv { grid-column: 3; } .stat .plus { grid-column: 4; }
+  .stat .plus { grid-row: span 2; width: 36px; height: 36px; padding: 0; font: 700 22px/1 var(--display); border-radius: 50%; background: linear-gradient(#ffe58a, var(--gold)); }
+  #classes .spend { margin-top: 4px; font-size: 13px; padding: 4px 8px; background: linear-gradient(#ffe58a, var(--gold)); animation: glowpulse 1.6s ease-in-out infinite; }
+  @keyframes glowpulse { 50% { box-shadow: 0 0 0 3px rgb(255 216 74 / .55), 0 3px 0 var(--ink); } }
+  @media (prefers-reduced-motion: reduce) { #classes .spend { animation: none; } }
+  .card.begin { width: min(360px, 100%); }
+  .statpill { display: inline-flex; align-items: center; gap: 4px; margin-right: 10px; font-weight: 800; }
+  .statpill img { width: 20px; height: 20px; }
   .gearbtn { display: flex; justify-content: space-between; align-items: center; text-align: left; font-size: 14px; }
   .gearbtn span { font-size: 12px; color: var(--ink-soft); }
 
@@ -272,7 +298,7 @@
 </section>
 
 <nav id="menu" class="panel" aria-label="Menus">
-  <button id="b-skills" aria-pressed="false"><img data-icon="magic" alt="">Skills</button>
+  <button id="b-skills" aria-pressed="false"><img data-icon="star" alt="">Hero</button>
   <button id="b-bag" aria-pressed="false"><img data-icon="bag" alt="">Bag</button>
   <button id="b-quests" aria-pressed="false"><img data-icon="scroll" alt="">Quests</button>
   <button id="b-look" aria-pressed="false"><img data-icon="mirror" alt="">Look</button>
@@ -299,7 +325,7 @@
 <div id="pick" class="overlay" hidden>
   <div class="wrap">
     <h1>JerryQuest</h1>
-    <p class="sub">Choose a class to start. You can switch any time, and every hero can chop, mine and fish.</p>
+    <p class="sub">One hero, built your way. Every hero can fight, chop, mine and fish.</p>
     <div class="cards" id="cards"></div>
   </div>
 </div>

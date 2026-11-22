@@ -1,4 +1,4 @@
-// JerryQuest: playable single-player slice. Classes, skills that level by use, gathering, combat and quests.
+// JerryQuest: playable single-player slice. One hero shaped by gear and stat points, skills that level by use, gathering, combat and quests.
 import { THREE, scene, camera, renderer, sun, sky, PRESETS, env, applyPreset, styled, setStyled, stylize, toon, registerMesh,
   loadModel, burst, updateParticles, render, rng } from './engine.js';
 import * as SkeletonUtils from 'three/addons/utils/SkeletonUtils.js';
@@ -12,66 +12,87 @@ let now = 0;
 
 // ---------- rules ----------
 const SKILLS = [
-  ['melee', 'Melee'], ['magic', 'Magic'], ['ranged', 'Ranged'], ['speed', 'Speed'],
-  ['woodcutting', 'Woodcutting'], ['mining', 'Mining'], ['fishing', 'Fishing'],
+  ['woodcutting', 'Woodcutting'], ['mining', 'Mining'], ['fishing', 'Fishing'], ['speed', 'Speed'],
 ];
 const SKILL_NAME = Object.fromEntries(SKILLS);
 const XPT = [0, 0];
 { let pts = 0; for (let l = 1; l < 99; l++) { pts += Math.floor(l + 300 * Math.pow(2, l / 7)); XPT[l + 1] = Math.floor(pts / 4); } }
 const levelOf = (xp) => { let l = 1; while (l < 99 && xp >= XPT[l + 1]) l++; return l; };
 
-const CLASSES = {
-  knight: {
-    name: 'Knight', model: 'knight', skill: 'melee', weapon: ['1H_Sword', 'Badge_Shield'],
-    blurb: 'Sword and shield. Fights up close and shrugs off hits.', perk: 'Trains Melee. Starts with the most health.',
-    atk: { anim: '1H_Melee_Attack_Slice_Diagonal', range: 2.8, cd: 1.25, hitAt: 0.32 }, hp: 60,
-  },
-  mage: {
-    name: 'Mage', model: 'mage', skill: 'magic', weapon: ['2H_Staff'],
-    blurb: 'Hurls glowing bolts from a safe distance.', perk: 'Trains Magic. Hits hardest of the three.',
-    atk: { anim: 'Spellcast_Shoot', range: 12, cd: 1.6, hitAt: 0.35, proj: 'orb', bonus: 2 }, hp: 45,
-  },
-  archer: {
-    name: 'Archer', model: 'archer', skill: 'ranged', weapon: ['1H_Crossbow'],
-    blurb: 'Quick crossbow shots from range.', perk: 'Trains Ranged. Fastest attacks.',
-    atk: { anim: '1H_Ranged_Shoot', range: 13, cd: 1.05, hitAt: 0.22, proj: 'bolt' }, hp: 50,
-  },
+// ---------- the hero: one level, three stats ----------
+// Every level gives +1 Attack, +1 Defense and +1 Health for free, plus 2 points to spend anywhere.
+const STATS = { atk: ['Attack', 'melee'], def: ['Defense', 'shield'], hp: ['Health', 'heart'] };
+const AUTO_PER_LEVEL = 1, FREE_PER_LEVEL = 2;
+// Attack multiplies your weapon's base damage. Defense divides the damage you take.
+// Health adds max health. A point of Defense and a point of Health are worth about the same,
+// so a balanced hero lasts longest.
+// Hero XP: bosses and quests give the most; hitting and beating monsters gives some;
+// chopping, mining and fishing give a little (this share of the skill XP).
+const GATHER_HERO_XP = 0.25, HIT_HERO_XP = 3;
+const ATK_MULT = 0.1, DEF_DIV = 0.1, HP_BASE = 50, HP_PER = 6;
+// How each kind of weapon attacks. The weapon itself sets damage, reach (or range) and swing time.
+const STYLES = {
+  melee: { anim: '1H_Melee_Attack_Slice_Diagonal', heavy: '2H_Melee_Attack_Chop', hitAt: 0.32 },
+  magic: { anim: 'Spellcast_Shoot', hitAt: 0.35, proj: 'orb' },
+  ranged: { anim: '1H_Ranged_Shoot', hitAt: 0.22, proj: 'bolt' },
 };
+const STYLE_NAME = { melee: 'Melee', magic: 'Magic', ranged: 'Ranged' };
 const ITEMS = {
   logs: 'Logs', oak_logs: 'Oak logs', copper_ore: 'Copper ore', iron_ore: 'Iron ore', shrimp: 'Raw shrimp', trout: 'Raw trout', bones: 'Bones',
   bread: 'Bread', pie: 'Apple pie', stew: 'Hearty stew',
   bone_dust: 'Bone dust', dark_essence: 'Dark essence',
+  silver_ring: 'Silver ring', ruby: 'Ruby', golden_crown: 'Tiny golden crown',
   lucky_sock: "Bonecrusher's lucky sock", gloom_hat: "Gloomcaster's droopy hat", rattle_tooth: "Rattlebones' gold tooth",
 };
 // Food heals; bought from Marta's stall in the market.
 const FOOD = { bread: { heal: 8, price: 8 }, pie: { heal: 20, price: 20 }, stew: { heal: 40, price: 40 } };
-// Weapons belong to the character. Each class has its own line, sold by its own shop.
+// Weapons. dmg = base damage (your Attack multiplies it), reach = swing radius for melee or range for
+// magic and crossbows, cd = seconds between attacks (lower is faster). Your weapon decides how you fight.
 const WEAPONS = {
-  k_sword: { cls: 'knight', name: 'Knight sword', bonus: 0, price: 0 },
-  k_steel: { cls: 'knight', name: 'Steel sword', bonus: 1, price: 45, model: 'sword_1handed' },
-  k_axe: { cls: 'knight', name: 'Great axe', bonus: 3, price: 140, model: 'axe_2handed' },
-  k_gold: { cls: 'knight', name: 'Golden sword', bonus: 5, price: 320, model: 'sword_1handed', tint: '#ffd84a' },
-  k_royal: { cls: 'knight', name: 'Royal blade', bonus: 7, price: 600, model: 'sword_2handed_color' },
-  m_staff: { cls: 'mage', name: 'Oak staff', bonus: 0, price: 0 },
-  m_wand: { cls: 'mage', name: 'Apprentice wand', bonus: 1, price: 45, model: 'wand' },
-  m_crystal: { cls: 'mage', name: 'Crystal staff', bonus: 3, price: 140, model: 'staff', tint: '#8ff0ff' },
-  m_star: { cls: 'mage', name: 'Starlight wand', bonus: 5, price: 320, model: 'wand', tint: '#ffe27a' },
-  m_ember: { cls: 'mage', name: 'Ember staff', bonus: 7, price: 600, model: 'staff', tint: '#ff8a5a' },
-  a_xbow: { cls: 'archer', name: 'Crossbow', bonus: 0, price: 0 },
-  a_hunter: { cls: 'archer', name: 'Hunter crossbow', bonus: 1, price: 45, model: 'crossbow_1handed', tint: '#a8f08a' },
-  a_heavy: { cls: 'archer', name: 'Heavy crossbow', bonus: 3, price: 140, model: 'crossbow_2handed' },
-  a_gold: { cls: 'archer', name: 'Golden crossbow', bonus: 5, price: 320, model: 'crossbow_1handed', tint: '#ffd84a' },
-  a_shadow: { cls: 'archer', name: 'Shadow repeater', bonus: 7, price: 600, model: 'crossbow_2handed', tint: '#b896ff' },
+  k_sword: { type: 'melee', name: 'Knight sword', dmg: 4, reach: 2.6, cd: 0.9, price: 0 },
+  k_dagger: { type: 'melee', name: 'Quick dagger', dmg: 4, reach: 2.0, cd: 0.5, price: 40, model: 'dagger' },
+  k_steel: { type: 'melee', name: 'Steel sword', dmg: 6, reach: 2.7, cd: 0.85, price: 45, model: 'sword_1handed' },
+  k_axe: { type: 'melee', name: 'Great axe', dmg: 9, reach: 3.2, cd: 1.35, price: 140, model: 'axe_2handed', heavy: true },
+  k_gold: { type: 'melee', name: 'Golden sword', dmg: 10, reach: 2.8, cd: 0.8, price: 320, model: 'sword_1handed', tint: '#ffd84a' },
+  k_royal: { type: 'melee', name: 'Royal blade', dmg: 13, reach: 3.4, cd: 1.1, price: 600, model: 'sword_2handed_color', heavy: true },
+  m_wand: { type: 'magic', name: 'Apprentice wand', dmg: 4, reach: 11, cd: 0.8, price: 45, model: 'wand' },
+  m_staff: { type: 'magic', name: 'Oak staff', dmg: 6, reach: 12, cd: 1.2, price: 60, model: 'staff' },
+  m_crystal: { type: 'magic', name: 'Crystal staff', dmg: 9, reach: 13, cd: 1.1, price: 160, model: 'staff', tint: '#8ff0ff' },
+  m_star: { type: 'magic', name: 'Starlight wand', dmg: 9, reach: 12, cd: 0.7, price: 320, model: 'wand', tint: '#ffe27a' },
+  m_ember: { type: 'magic', name: 'Ember staff', dmg: 14, reach: 14, cd: 1.2, price: 600, model: 'staff', tint: '#ff8a5a' },
+  a_xbow: { type: 'ranged', name: 'Hunter crossbow', dmg: 4, reach: 13, cd: 0.75, price: 45, model: 'crossbow_1handed' },
+  a_heavy: { type: 'ranged', name: 'Heavy crossbow', dmg: 8, reach: 15, cd: 1.2, price: 150, model: 'crossbow_2handed' },
+  a_gold: { type: 'ranged', name: 'Golden crossbow', dmg: 10, reach: 14, cd: 0.8, price: 320, model: 'crossbow_1handed', tint: '#ffd84a' },
+  a_shadow: { type: 'ranged', name: 'Shadow repeater', dmg: 9, reach: 13, cd: 0.5, price: 600, model: 'crossbow_2handed', tint: '#b896ff' },
   // unique boss weapons: only from boss drops, never sold
-  k_cleaver: { cls: 'knight', name: "Bonecrusher's Cleaver", bonus: 9, price: 0, unique: true, model: 'axe_2handed', tint: '#ff9a7a' },
-  m_gloom: { cls: 'mage', name: 'Gloomstaff', bonus: 9, price: 0, unique: true, model: 'staff', tint: '#b07aff' },
-  a_rattle: { cls: 'archer', name: "Rattlebones' Repeater", bonus: 9, price: 0, unique: true, model: 'crossbow_2handed', tint: '#9effa8' },
+  k_cleaver: { type: 'melee', name: "Bonecrusher's Cleaver", dmg: 15, reach: 3.4, cd: 1.2, price: 0, unique: true, model: 'axe_2handed', tint: '#ff9a7a', heavy: true },
+  m_gloom: { type: 'magic', name: 'Gloomstaff', dmg: 15, reach: 14, cd: 1.0, price: 0, unique: true, model: 'staff', tint: '#b07aff' },
+  a_rattle: { type: 'ranged', name: "Rattlebones' Repeater", dmg: 12, reach: 14, cd: 0.55, price: 0, unique: true, model: 'crossbow_2handed', tint: '#9effa8' },
 };
+// Shields and armour add Defense on top of your Defense points.
+const ARMOUR = {
+  sh_badge: { slot: 'shield', name: 'Badge shield', def: 2, price: 0 },
+  sh_square: { slot: 'shield', name: 'Square shield', def: 4, price: 80, model: 'shield_square_color' },
+  sh_spike: { slot: 'shield', name: 'Spiked shield', def: 6, price: 220, model: 'shield_spikes_color' },
+  ar_cloth: { slot: 'armour', name: 'Cloth tunic', def: 0, price: 0 },
+  ar_leather: { slot: 'armour', name: 'Leather armour', def: 2, price: 60, tint: '#e0b088' },
+  ar_chain: { slot: 'armour', name: 'Chainmail', def: 4, price: 160, tint: '#cfd9e6' },
+  ar_gold: { slot: 'armour', name: 'Golden plate', def: 7, price: 450, tint: '#ffe070' },
+};
+for (const w of Object.values(WEAPONS)) w.slot = 'weapon';
+const GEAR = { ...WEAPONS, ...ARMOUR };
+// spare gear sells back to the smiths for half price; boss weapons are worth a fortune
+const gearValue = (g) => (g.unique ? 250 : Math.floor(g.price / 2));
+const gearIcon = (g) => (g.slot === 'weapon' ? ICONS[g.type] : ICONS[g.slot]);
+const gearStats = (g) => (g.slot === 'weapon'
+  ? `${g.dmg} dmg · ${g.type === 'melee' ? 'reach' : 'range'} ${g.reach} · ${g.cd}s`
+  : `+${g.def} defense`);
+
 // Who drops what. Regular monsters roll this table; bosses always drop their trophy and may drop their weapon.
 const BOSS_WEAPON = { boss_crusher: 'k_cleaver', boss_gloom: 'm_gloom', boss_rattle: 'a_rattle' };
 const DARK_KING = 'Morgoth the Menacing'; // working name, change it here
-const BASIC_WEAPON = { knight: 'k_sword', mage: 'm_staff', archer: 'a_xbow' };
-const SELL = { bone_dust: 3, dark_essence: 15, lucky_sock: 60, gloom_hat: 60, rattle_tooth: 60, logs: 3, oak_logs: 6, copper_ore: 4, iron_ore: 8, shrimp: 3, trout: 8, bones: 2 };
+// Everything can be sold. Treasures (rings, rubies, crowns) are rare drops worth a lot.
+const SELL = { bread: 4, pie: 10, stew: 20, silver_ring: 40, ruby: 120, golden_crown: 400, bone_dust: 3, dark_essence: 15, lucky_sock: 60, gloom_hat: 60, rattle_tooth: 60, logs: 3, oak_logs: 6, copper_ore: 4, iron_ore: 8, shrimp: 3, trout: 8, bones: 2 };
 const NODES = {
   tree: { skill: 'woodcutting', req: 1, xp: 25, item: 'logs', name: 'Tree', verb: 'Chop', doing: 'Chopping', deplete: 0.3, respawn: 14 },
   oak: { skill: 'woodcutting', req: 5, xp: 40, item: 'oak_logs', name: 'Oak tree', verb: 'Chop', doing: 'Chopping', deplete: 0.22, respawn: 20 },
@@ -87,9 +108,9 @@ const ENEMY_TYPES = {
   skel_warrior: { name: 'Skeleton Warrior', hp: 28, maxHit: 5, weapon: 'Skeleton_Blade', xp: 30 },
   skel_mage: { name: 'Skeleton Mage', hp: 22, maxHit: 4, weapon: 'Skeleton_Staff', xp: 25, ranged: true },
   // minibosses: big, tough, and every third attack is a giant slam you can see coming (jump or run!)
-  boss_crusher: { name: 'Bonecrusher', model: 'skel_warrior', hp: 170, maxHit: 8, weapon: 'axe_2handed', xp: 400, boss: true, scale: 2.5, coins: [90, 150], drop: 'lucky_sock', slam: 5.5 },
-  boss_gloom: { name: 'Gloomcaster', model: 'skel_mage', hp: 140, maxHit: 7, weapon: 'Skeleton_Staff', xp: 400, boss: true, scale: 2.3, coins: [90, 150], drop: 'gloom_hat', ranged: true, spread: true, slam: 4.5 },
-  boss_rattle: { name: 'Captain Rattlebones', model: 'skel_minion', hp: 150, maxHit: 7, weapon: 'Skeleton_Blade', xp: 400, boss: true, scale: 2.3, coins: [90, 150], drop: 'rattle_tooth', slam: 6 },
+  boss_crusher: { name: 'Bonecrusher', model: 'skel_warrior', hp: 170, maxHit: 8, weapon: 'axe_2handed', xp: 800, boss: true, scale: 2.5, coins: [90, 150], drop: 'lucky_sock', slam: 5.5 },
+  boss_gloom: { name: 'Gloomcaster', model: 'skel_mage', hp: 140, maxHit: 7, weapon: 'Skeleton_Staff', xp: 800, boss: true, scale: 2.3, coins: [90, 150], drop: 'gloom_hat', ranged: true, spread: true, slam: 4.5 },
+  boss_rattle: { name: 'Captain Rattlebones', model: 'skel_minion', hp: 150, maxHit: 7, weapon: 'Skeleton_Blade', xp: 800, boss: true, scale: 2.3, coins: [90, 150], drop: 'rattle_tooth', slam: 6 },
 };
 const QUESTS = {
   firewood: {
@@ -102,7 +123,7 @@ const QUESTS = {
     name: 'Bones in the Woods', giver: 'rowan',
     intro: 'Skeletons have made camp to the south-west, past the lumber mill. Knock down 4 of them and the road will be safe again.',
     ready: 'Four of them? Ha! You fight like a captain already.', done: "The camp keeps stirring, but you've shown them who's in charge.",
-    need: { kills: 4 }, reward: { coins: 80, xp: { $class: 200 } }, desc: 'Defeat 4 skeletons at the camp.',
+    need: { kills: 4 }, reward: { coins: 80, xp: { hero: 200 } }, desc: 'Defeat 4 skeletons at the camp.',
   },
   supper: {
     name: "The Wizard's Supper", giver: 'fenwick',
@@ -114,7 +135,7 @@ const QUESTS = {
     name: 'The Big Bad Bones', giver: 'giles', bossType: 'boss_crusher',
     intro: "A giant skeleton called Bonecrusher stomps about the Grumble Crags, west of the valley. Every stomp sours my milk! Knock him down, and mind his big slam. Jump or run when the ground glows red!",
     ready: 'You beat Bonecrusher? My cows are cheering! Well, mooing.', done: 'Milk is sweet again, thanks to you.',
-    need: { boss: 1 }, reward: { coins: 300, xp: { $class: 600 } }, desc: 'Defeat Bonecrusher in the Grumble Crags (west).',
+    need: { boss: 1 }, reward: { coins: 300, xp: { hero: 600 } }, desc: 'Defeat Bonecrusher in the Grumble Crags (west).',
   },
 };
 
@@ -126,25 +147,25 @@ Object.assign(QUESTS, {
     intro: `For a hundred years the Heartstone kept the dark magic sealed away, and the kingdom knew only peace. Last night the Heartstone cracked. The seal is broken, and ${DARK_KING}'s servants are waking. The skeletons south-west of the village are the first of them. Show me you can stand against them: defeat 3.`,
     ready: 'You stood firm. Good. The kingdom will need that courage, for this is only the beginning.',
     done: 'The Heartstone shattered into shards when the seal broke. Find them, hero.',
-    need: { kills: 3 }, reward: { coins: 60, xp: { $class: 200 } }, desc: 'Defeat 3 skeletons, then return to King Jerrold.',
+    need: { kills: 3 }, reward: { coins: 60, xp: { hero: 200 } }, desc: 'Defeat 3 skeletons, then return to King Jerrold.',
   },
   st_crags: {
     story: true, chapter: 'Chapter 1', name: 'The Shard of the Crags', giver: 'king', after: ['st_1'], bossType: 'boss_crusher',
     intro: `A shard of the Heartstone fell in the Grumble Crags, to the west. ${DARK_KING}'s brute, Bonecrusher, has claimed it. Defeat him and bring the shard home.`,
     ready: 'The Crags shard! It still glows. One piece of the seal, restored.', done: 'The Crags shard rests in the throne room, humming softly.',
-    need: { boss: 1 }, reward: { coins: 150, xp: { $class: 500 } }, desc: 'Defeat Bonecrusher in the Grumble Crags (west).',
+    need: { boss: 1 }, reward: { coins: 150, xp: { hero: 500 } }, desc: 'Defeat Bonecrusher in the Grumble Crags (west).',
   },
   st_glimmer: {
     story: true, chapter: 'Chapter 1', name: 'The Shard of Glimmerwood', giver: 'king', after: ['st_1'], bossType: 'boss_gloom',
     intro: `Another shard lies in Glimmerwood, to the east. The Gloomcaster, ${DARK_KING}'s sorcerer, drinks its light. Stop him before the whole forest goes grey.`,
     ready: 'The Glimmerwood shard! Feel how it sparkles. The seal grows stronger.', done: 'The Glimmerwood shard glitters beside its brother.',
-    need: { boss: 1 }, reward: { coins: 150, xp: { $class: 500 } }, desc: 'Defeat the Gloomcaster in Glimmerwood (east).',
+    need: { boss: 1 }, reward: { coins: 150, xp: { hero: 500 } }, desc: 'Defeat the Gloomcaster in Glimmerwood (east).',
   },
   st_hollow: {
     story: true, chapter: 'Chapter 1', name: 'The Shard of the Hollow', giver: 'king', after: ['st_1'], bossType: 'boss_rattle',
     intro: `The third shard sank into Haunted Hollow, north of the castle. Captain Rattlebones leads ${DARK_KING}'s restless dead there. Put him to rest, if only for a while.`,
     ready: 'The Hollow shard, cold as moonlight. Three of the pieces are home.', done: 'Three shards, safe. But the Heartstone is not whole...',
-    need: { boss: 1 }, reward: { coins: 150, xp: { $class: 500 } }, desc: 'Defeat Captain Rattlebones in Haunted Hollow (north).',
+    need: { boss: 1 }, reward: { coins: 150, xp: { hero: 500 } }, desc: 'Defeat Captain Rattlebones in Haunted Hollow (north).',
   },
 });
 const storyOpen = (k) => (QUESTS[k].after || []).every((a) => S.quests[a] && S.quests[a].state === 'done');
@@ -153,28 +174,52 @@ const storyStep = () => Object.keys(QUESTS).filter((k) => QUESTS[k].story && sto
 // ---------- saved state ----------
 const SAVE_KEY = 'jerryquest_save_v1';
 const fresh = () => ({
-  cls: null, xp: Object.fromEntries(SKILLS.map(([k]) => [k, 0])), inv: {}, coins: 0,
+  started: false, xp: Object.fromEntries(SKILLS.map(([k]) => [k, 0])), inv: {}, coins: 0,
+  hero: { xp: 0, alloc: { atk: 0, def: 0, hp: 0 } },
   quests: Object.fromEntries(Object.keys(QUESTS).map((k) => [k, { state: 'todo', kills: 0 }])),
-  hp: 50, pos: [0, 6], preset: 'day',
+  hp: 56, pos: [0, 6], preset: 'day',
   look: { outfit: 'none', trim: 'none', hat: true, cape: true, hair: 'none', hairCol: 'chestnut' },
-  owned: ['k_sword', 'm_staff', 'a_xbow'], equip: { knight: 'k_sword', mage: 'm_staff', archer: 'a_xbow' },
+  owned: ['k_sword', 'sh_badge', 'ar_cloth'], equip: { weapon: 'k_sword', shield: 'sh_badge', armour: 'ar_cloth' },
 });
 let S = fresh();
 function loadSave() {
   try {
     const raw = localStorage.getItem(SAVE_KEY);
-    if (raw) { const d = JSON.parse(raw); const f = fresh(); S = { ...f, ...d, xp: { ...f.xp, ...d.xp }, quests: { ...f.quests, ...d.quests }, look: { ...f.look, ...d.look }, equip: { ...f.equip, ...d.equip }, owned: [...new Set([...f.owned, ...(d.owned || [])])] }; return true; }
+    if (raw) {
+      const d = JSON.parse(raw); const f = fresh();
+      // older saves had classes and Melee/Magic/Ranged skills: fold that into the hero
+      if (d.cls && !d.hero) {
+        const old = d.xp || {};
+        d.hero = { xp: (old.melee || 0) + (old.magic || 0) + (old.ranged || 0), alloc: { atk: 0, def: 0, hp: 0 } };
+        d.equip = { weapon: (d.equip && d.equip[d.cls]) || 'k_sword', shield: 'sh_badge', armour: 'ar_cloth' };
+        d.started = true;
+      }
+      S = { ...f, ...d, xp: { ...f.xp, ...d.xp }, hero: { ...f.hero, ...d.hero, alloc: { ...f.hero.alloc, ...(d.hero || {}).alloc } }, quests: { ...f.quests, ...d.quests }, look: { ...f.look, ...d.look }, equip: { ...f.equip, ...d.equip }, owned: [...new Set([...f.owned, ...(d.owned || [])])] };
+      for (const k of Object.keys(S.xp)) if (!SKILL_NAME[k]) delete S.xp[k];
+      S.owned = S.owned.filter((k) => GEAR[k]);
+      for (const sl of ['weapon', 'shield', 'armour']) if (!GEAR[S.equip[sl]]) S.equip[sl] = f.equip[sl];
+      delete S.cls;
+      return true;
+    }
   } catch (e) { /* storage unavailable */ }
   return false;
 }
 function save() {
-  if (!S.cls || !player) return;
+  if (!S.started || !player) return;
   S.pos = where === 'out' ? [player.root.position.x, player.root.position.z] : [INTERIORS[where].exitTo.x, INTERIORS[where].exitTo.z];
   try { localStorage.setItem(SAVE_KEY, JSON.stringify(S)); } catch (e) { /* storage unavailable */ }
 }
 const lvl = (k) => levelOf(S.xp[k]);
-const maxHp = () => CLASSES[S.cls].hp + Math.floor((lvl('melee') + lvl('magic') + lvl('ranged') - 3) * 1.5);
-const totalLevel = () => SKILLS.reduce((a, [k]) => a + lvl(k), 0);
+const heroLvl = () => levelOf(S.hero.xp);
+// a stat = 1 at level 1, +1 every level, plus whatever points you spent on it
+const stat = (k) => heroLvl() * AUTO_PER_LEVEL + S.hero.alloc[k];
+const freePoints = () => (heroLvl() - 1) * FREE_PER_LEVEL - Object.values(S.hero.alloc).reduce((a, b) => a + b, 0);
+const W = () => WEAPONS[S.equip.weapon] || WEAPONS.k_sword;
+const gearDef = () => (ARMOUR[S.equip.shield] || { def: 0 }).def + (ARMOUR[S.equip.armour] || { def: 0 }).def;
+const totalDef = () => stat('def') + gearDef();
+const dmgMult = () => 1 + ATK_MULT * stat('atk');
+const defDiv = () => 1 + DEF_DIV * totalDef();
+const maxHp = () => HP_BASE + HP_PER * stat('hp');
 
 // ---------- characters ----------
 class Actor {
@@ -240,38 +285,34 @@ async function main() {
   applyPreset(S.preset || 'day');
   $('loading').style.opacity = '0';
   setTimeout(() => $('loading').remove(), 700);
-  if (had && S.cls) startAs(S.cls); else showPick();
+  if (had && S.started) startHero(); else showPick();
   renderer.setAnimationLoop(tick);
 }
 
 function showPick() {
   const cards = $('cards');
   cards.innerHTML = '';
-  for (const [k, c] of Object.entries(CLASSES)) {
-    const b = document.createElement('button');
-    b.className = 'card panel'; b.id = `pick-${k}`;
-    b.innerHTML = `<h3><img src="${ICONS[c.skill]}" alt="">${c.name}</h3><p>${c.blurb}</p><p class="perk">${c.perk}</p>`;
-    b.addEventListener('click', () => {
-      $('pick').hidden = true;
-      if (!S.cls) { S.xp[c.skill] = XPT[5]; S.cls = k; S.hp = maxHp(); }
-      startAs(k); save();
-      if (!S.welcomed) { S.welcomed = true; toast('Welcome to Greenhollow! Look for villagers with a ! above their heads.', null, true); }
-    });
-    cards.appendChild(b);
-  }
+  const b = document.createElement('button');
+  b.className = 'card panel begin'; b.id = 'pick-begin';
+  b.innerHTML = `<h3><img src="${ICONS.star}" alt="">Begin your adventure</h3><p>You start with a sword and a shield. Level up to earn stat points, and shape your hero with the weapons, shields and armour you find.</p>
+    <p class="perk">${Object.values(STATS).map(([nm, ic]) => `<span class="statpill"><img src="${ICONS[ic]}" alt="">${nm}</span>`).join('')}</p>`;
+  b.addEventListener('click', () => {
+    $('pick').hidden = true;
+    if (!S.started) { S.started = true; S.hp = maxHp(); }
+    startHero(); save();
+    if (!S.welcomed) { S.welcomed = true; toast('Welcome to Greenhollow! Look for villagers with a ! above their heads.', null, true); }
+  });
+  cards.appendChild(b);
   $('pick').hidden = false;
 }
 
-function startAs(k) {
-  const c = CLASSES[k];
-  const prev = player;
-  S.cls = k;
-  player = new Actor(G[c.model]);
-  if (prev) { player.root.position.copy(prev.root.position).setY(0); player.root.rotation.y = prev.root.rotation.y; scene.remove(prev.root); }
-  else player.root.position.set(S.pos[0], 0, S.pos[1]);
+function startHero() {
+  player = new Actor(G.knight);
+  player.root.position.set(S.pos[0], 0, S.pos[1]);
+  player.base = {};
+  player.root.traverse((o) => { if (o.name === '1H_Sword') player.base.weapon = o; if (o.name === 'Badge_Shield') player.base.shield = o; });
   player.weapons = [];
-  player.root.traverse((o) => { if (c.weapon.includes(o.name)) player.weapons.push(o); });
-  equipWeapon();
+  equipGear();
   player.play('Idle');
   player.busyUntil = 0; player.task = null; player.nextHit = 0; player.dead = false;
   S.hp = Math.min(S.hp > 0 ? S.hp : maxHp(), maxHp());
@@ -279,8 +320,7 @@ function startAs(k) {
   if (rod) { rod.removeFromParent(); player.attach(rod); rod.visible = false; }
   if (pick) { pick.removeFromParent(); player.attach(pick); pick.visible = false; }
   updateTitle();
-  buildClassBar();
-  applyLook();
+  buildGearBar();
   refreshUI();
 }
 const LOOK_COLOURS = {
@@ -331,27 +371,27 @@ function applyLook() {
   for (const g of hairCache.values()) g.removeFromParent();
   const hc = HAIR_COLOURS[L.hairCol] || HAIR_COLOURS.chestnut;
   hairMats.std.color.set(hc[1]); hairMats.toon.color.set(hc[1]);
-  const showHair = L.hair !== 'none' && S.cls !== 'archer' && !L.hat;
+  const showHair = L.hair !== 'none' && !L.hat;
+  const arm = ARMOUR[S.equip.armour] || ARMOUR.ar_cloth;
   if (showHair) { let head; player.root.traverse((o) => { if (o.isBone && o.name === 'head') head = o; }); if (head) head.add(hairGroup(L.hair)); }
   player.root.traverse((o) => {
     if (!o.isMesh || !o.userData.mats) return;
     const n = o.name;
-    const isCape = /_Cape$/.test(n), isBody = /_Body$/.test(n), isHat = /_(Helmet|Hat)$/.test(n);
+    const isCape = /_Cape$/.test(n), isBody = /_Body$/.test(n), isHat = /_(Helmet|Hat)$/.test(n), isLimb = /_(ArmLeft|ArmRight|LegLeft|LegRight)$/.test(n);
     if (isHat) o.visible = L.hat;
     if (isCape) o.visible = L.cape;
-    if (isCape || isBody) {
+    if (isCape || isBody || isLimb) {
       if (!o.userData.ownMats) {
         o.userData.ownMats = { std: o.userData.mats.std.clone(), toon: o.userData.mats.toon.clone() };
         o.userData.ownMats.toon.onBeforeCompile = o.userData.mats.toon.onBeforeCompile;
         o.userData.mats = o.userData.ownMats;
         o.material = styled.on ? o.userData.mats.toon : o.userData.mats.std;
       }
-      const col = LOOK_COLOURS[isCape ? L.trim : L.outfit][1];
+      const col = isLimb ? arm.tint || '#ffffff' : LOOK_COLOURS[isCape ? L.trim : L.outfit][1];
       o.userData.mats.std.color.set(col); o.userData.mats.toon.color.set(col);
     }
   });
 }
-const weaponBonus = () => (WEAPONS[S.equip[S.cls]] || { bonus: 0 }).bonus;
 function tinted(obj, col) {
   obj.traverse((o) => {
     if (!o.isMesh || !o.userData.mats) return;
@@ -361,37 +401,41 @@ function tinted(obj, col) {
   });
   return obj;
 }
-// Swap the hand-held weapon model for the equipped one (the shield stays).
-function equipWeapon() {
+// Put the equipped weapon in the right hand, the shield in the left, and tint the armour.
+function handSlot(side) { let s = null; player.root.traverse((o) => { if (!s && new RegExp(`handslot${side}$`, 'i').test(o.name)) s = o; }); return s; }
+function equipGear() {
   if (!player) return;
-  const W = WEAPONS[S.equip[S.cls]] || WEAPONS[BASIC_WEAPON[S.cls]];
-  if (player.custom) { player.custom.removeFromParent(); player.weapons = player.weapons.filter((w) => w !== player.custom); player.custom = null; }
-  const main = player.weapons.find((w) => !/Shield/.test(w.name));
-  if (main) main.userData.hiddenByGear = !!W.model;
-  if (main) main.visible = !W.model;
-  if (W.model && lib[W.model]) {
-    const m = lib[W.model].clone(true); stylize(m);
-    if (W.tint) tinted(m, W.tint);
-    player.attach(m); player.custom = m; player.weapons.push(m);
-    if (main) player.weapons = player.weapons.filter((w) => w !== main);
-  }
+  const w = W(), sh = ARMOUR[S.equip.shield] || ARMOUR.sh_badge;
+  for (const m of player.customs || []) m.removeFromParent();
+  player.customs = []; player.weapons = [];
+  const hold = (item, base, side) => {
+    if (base) base.visible = !item.model;
+    if (!item.model) { if (base) player.weapons.push(base); return; }
+    if (!lib[item.model]) return;
+    const m = lib[item.model].clone(true); stylize(m);
+    if (item.tint) tinted(m, item.tint);
+    const slot = handSlot(side);
+    if (slot) slot.add(m);
+    player.customs.push(m); player.weapons.push(m);
+  };
+  hold(w, player.base.weapon, 'r');
+  hold(sh, player.base.shield, 'l');
+  for (const g of player.weapons) g.visible = !player.task;
+  // the ground wedge shows how far your weapon reaches
+  arcMesh.scale.setScalar(w.type === 'melee' ? (w.reach + 0.6) / (MELEE_REACH + 0.6) : 1);
+  applyLook();
 }
-function buildClassBar() {
-  const c = CLASSES[S.cls];
-  $('classes').innerHTML = `<div class="classchip"><img src="${ICONS[c.skill]}" alt="">${c.name}<small>${WEAPONS[S.equip[S.cls]].name}</small></div><p class="hint">Talk to King Jerrold at the castle to change class.</p>`;
-}
-function switchClass(k) {
-  const c = CLASSES[k];
-  if (S.cls === k || !player || player.dead) return;
-  cancelTask(); startAs(k); save();
-  burst(player.pos.clone().setY(1.5), '#ffe07a', 40, 5, 1.2);
-  toast(`You are now a ${c.name}. Your skills, bag and quests come with you.`, ICONS[c.skill]);
+function buildGearBar() {
+  const w = W(), free = freePoints();
+  $('classes').innerHTML = `<div class="classchip"><img src="${ICONS[w.type]}" alt="">${w.name}<small>${STYLE_NAME[w.type]}</small></div>`
+    + (free > 0 ? `<button id="spendpts" class="spend"><img src="${ICONS.star}" alt="">${free} stat point${free > 1 ? 's' : ''} to spend</button>` : '');
+  if (free > 0) $('spendpts').onclick = () => openSheet('skills');
 }
 function updateTitle() {
-  $('pname').textContent = CLASSES[S.cls].name;
-  $('pclass').textContent = `Total level ${totalLevel()}`;
-  $('badgeicon').src = ICONS[CLASSES[S.cls].skill];
-  $('badgelvl').textContent = lvl(CLASSES[S.cls].skill);
+  $('pname').textContent = 'Hero';
+  $('pclass').textContent = `Level ${heroLvl()} · ${stat('atk')} atk · ${totalDef()} def`;
+  $('badgeicon').src = ICONS[W().type];
+  $('badgelvl').textContent = heroLvl();
 }
 
 // ---------- gathering nodes ----------
@@ -502,9 +546,9 @@ function buildNpcs() {
     { id: 'rowan', name: 'Captain Rowan', model: 'knight', x: 12, z: -18, hide: [] },
     { id: 'fenwick', name: 'Old Fenwick', model: 'mage', x: 15, z: -4.5, hide: [] },
     { id: 'marta', name: 'Marta the Baker', model: 'barbarian', x: 7.5, z: 10.2, hide: [], shop: 'food', tint: '#bfe3ff' },
-    { id: 'brom', name: 'Brom the Blacksmith', model: 'barbarian', x: 5.5, z: -19.8, hide: [], shop: 'knight', tint: '#ffb38a' },
-    { id: 'wisteria', name: 'Madame Wisteria', model: 'mage', x: 18.4, z: -21.6, hide: [], shop: 'mage', tint: '#f0b0ff' },
-    { id: 'hazel', name: 'Hazel the Fletcher', model: 'archer', x: -22, z: 10.5, hide: [], shop: 'archer', tint: '#d8f0a0' },
+    { id: 'brom', name: 'Brom the Blacksmith', model: 'barbarian', x: 5.5, z: -19.8, hide: [], shop: 'melee', tint: '#ffb38a' },
+    { id: 'wisteria', name: 'Madame Wisteria', model: 'mage', x: 18.4, z: -21.6, hide: [], shop: 'magic', tint: '#f0b0ff' },
+    { id: 'hazel', name: 'Hazel the Fletcher', model: 'archer', x: -22, z: 10.5, hide: [], shop: 'ranged', tint: '#d8f0a0' },
     { id: 'king', name: 'King Jerrold', model: 'knight', x: INTERIORS.castle.king.x, z: INTERIORS.castle.king.z, hide: ['Knight_Helmet'], king: true, tint: '#b98cff', inside: 'castle' },
     ...INTERIORS.castle.guards.map(([x, z], i) => ({ id: `guard${i}`, name: 'Royal Guard', model: 'knight', x, z, hide: [], inside: 'castle', tint: '#8fb8ff',
       lines: ['Long live King Jerrold!', 'The King grants a new calling to any hero who asks.', 'Mind the carpet. The King had it cleaned this morning.'] })),
@@ -580,11 +624,37 @@ function giveXp(skill, amount, at) {
     if (skill !== 'speed' || after % 5 === 0) { const el = $('banner'); el.textContent = `Level up! ${SKILL_NAME[skill]} ${after}`; el.classList.add('lvl'); el.classList.remove('show'); void el.offsetWidth; el.classList.add('show'); zoneNow = null; setTimeout(() => el.classList.remove('lvl'), 3300); }
     burst(player.pos.clone().setY(1.5), '#ffd23f', 50, 7, 1.4);
     if (!player.task && now > player.busyUntil && !player.dead) { player.play('Cheer', { once: true, onFinish: () => player.play('Idle') }); player.busyUntil = now + 1.2; }
-    if (['melee', 'magic', 'ranged'].includes(skill)) S.hp = Math.min(maxHp(), S.hp + 5);
     updateTitle();
     refreshUI();
   }
-  if (!$('sheet').hidden && sheetMode === 'skills' && skill !== 'speed') renderSheet();
+  // gathering also trains the hero a little (bosses and quests give the most)
+  if (skill !== 'speed' && amount > 0) giveHeroXp(Math.max(1, Math.round(amount * GATHER_HERO_XP)));
+  else if (!$('sheet').hidden && sheetMode === 'skills' && skill !== 'speed') renderSheet();
+}
+function giveHeroXp(amount, at) {
+  const before = heroLvl();
+  S.hero.xp += amount;
+  const after = heroLvl();
+  if (at) floatText(at, `+${Math.round(amount)} XP`, 'gain');
+  if (after > before) {
+    const n = after - before;
+    S.hp = maxHp();
+    toast(`Hero level ${after}! +${n} Attack, Defense and Health, and ${n * FREE_PER_LEVEL} points to spend.`, ICONS.star, true);
+    const el = $('banner'); el.textContent = `Level up! Hero ${after}`; el.classList.add('lvl'); el.classList.remove('show'); void el.offsetWidth; el.classList.add('show'); zoneNow = null; setTimeout(() => el.classList.remove('lvl'), 3300);
+    burst(player.pos.clone().setY(1.5), '#ffd23f', 60, 7, 1.5);
+    if (!player.task && now > player.busyUntil && !player.dead) { player.play('Cheer', { once: true, onFinish: () => player.play('Idle') }); player.busyUntil = now + 1.2; }
+    buildGearBar();
+  }
+  updateTitle(); refreshUI();
+  if (!$('sheet').hidden && sheetMode === 'skills') renderSheet();
+}
+function spendPoint(k) {
+  if (freePoints() <= 0) return;
+  const before = maxHp();
+  S.hero.alloc[k]++;
+  if (k === 'hp') S.hp += maxHp() - before;
+  burst(player.pos.clone().setY(1.6), k === 'hp' ? '#ff7a8a' : k === 'def' ? '#8fc2ff' : '#ffd84a', 16, 4);
+  updateTitle(); buildGearBar(); refreshUI(); save(); renderSheet();
 }
 function questReady(id) {
   const q = QUESTS[id], st = S.quests[id];
@@ -656,16 +726,21 @@ function rollLoot(e) {
   const give = (k, n = 1) => { addItem(k, n); got.push(n > 1 ? `${n} × ${ITEMS[k].toLowerCase()}` : ITEMS[k].toLowerCase()); popLoot(at, k, got.length * 0.15); };
   if (e.T.boss) {
     give('dark_essence', 3);
+    if (rng() < 0.4) give('ruby');
+    if (rng() < 0.12) { give('golden_crown'); toast('A tiny golden crown! Marta will pay a fortune for that.', ICONS.golden_crown, true); }
     const wk = BOSS_WEAPON[e.type];
-    if (wk && !S.owned.includes(wk) && rng() < 0.35) { S.owned.push(wk); popLoot(at, 'chest', 0.6); toast(`RARE DROP: ${WEAPONS[wk].name} (+${WEAPONS[wk].bonus} damage)! Equip it from your bag.`, ICONS[CLASSES[WEAPONS[wk].cls].skill], true); }
+    if (wk && !S.owned.includes(wk) && rng() < 0.35) { S.owned.push(wk); popLoot(at, 'chest', 0.6); toast(`RARE DROP: ${WEAPONS[wk].name} (${gearStats(WEAPONS[wk])})! Equip it from your bag.`, ICONS[WEAPONS[wk].type], true); }
   } else {
     if (rng() < 0.5) give('bone_dust');
     if (rng() < (e.type === 'skel_minion' ? 0.08 : 0.15)) give('dark_essence');
     if (rng() < 0.1) give(['bread', 'pie'][rng() < 0.7 ? 0 : 1]);
+    // treasures: rare, and worth selling
+    if (rng() < (e.type === 'skel_minion' ? 0.03 : 0.06)) give('silver_ring');
+    if (rng() < (e.type === 'skel_minion' ? 0.006 : 0.015)) { give('ruby'); toast('A ruby! That will sell for a lot.', ICONS.ruby, true); }
     // very rare: a shop weapon you don't own yet
     if (rng() < 0.025) {
-      const pool = Object.keys(WEAPONS).filter((k) => !WEAPONS[k].unique && WEAPONS[k].price > 0 && WEAPONS[k].bonus <= 3 && !S.owned.includes(k));
-      if (pool.length) { const wk = pool[Math.floor(rng() * pool.length)]; S.owned.push(wk); popLoot(at, 'chest', 0.4); toast(`Rare drop: ${WEAPONS[wk].name}! Equip it from your bag.`, ICONS[CLASSES[WEAPONS[wk].cls].skill], true); }
+      const pool = Object.keys(GEAR).filter((k) => !GEAR[k].unique && GEAR[k].price > 0 && GEAR[k].price <= 160 && !S.owned.includes(k));
+      if (pool.length) { const wk = pool[Math.floor(rng() * pool.length)]; S.owned.push(wk); popLoot(at, 'chest', 0.4); toast(`Rare drop: ${GEAR[wk].name}! Equip it from your bag.`, gearIcon(GEAR[wk]), true); }
     }
   }
   if (got.length) floatText(at.clone().setY(3), got.join(', '), 'gain');
@@ -685,7 +760,7 @@ function buildChests() {
 const LUCK = [
   [40, 'coins', () => { const c = 15 + Math.floor(rng() * 50); S.coins += c; return [`${c} coins!`, ICONS.coins]; }],
   [22, 'food', () => { const k = ['bread', 'pie', 'stew'][Math.floor(rng() * 3)]; addItem(k, 2); return [`2 × ${ITEMS[k].toLowerCase()}!`, ICONS[k]]; }],
-  [18, 'xp', () => { const sk = SKILLS[Math.floor(rng() * SKILLS.length)][0]; giveXp(sk, 150); return [`150 ${SKILL_NAME[sk]} XP!`, ICONS[sk]]; }],
+  [18, 'xp', () => { if (rng() < 0.5) { giveHeroXp(150); return ['150 hero XP!', ICONS.star]; } const sk = SKILLS[Math.floor(rng() * 3)][0]; giveXp(sk, 150); return [`150 ${SKILL_NAME[sk]} XP!`, ICONS[sk]]; }],
   [8, 'jackpot', () => { S.coins += 150; burst(player.pos.clone().setY(2), '#ffe07a', 90, 9, 1.6); return ['JACKPOT! 150 coins!', ICONS.coins]; }],
   [12, 'prank', () => { player.air = true; player.vy = 18; hurtPlayer(3); burst(player.pos.clone().setY(1), '#ff9af0', 60, 6, 1.2); return ['Boing! A spring-loaded prank!', ICONS.chest]; }],
 ];
@@ -742,7 +817,7 @@ function checkDoors() {
   }
 }
 function refreshUI() {
-  if (!S.cls) return;
+  if (!S.started) return;
   const mh = maxHp();
   $('hpfill').style.width = `${Math.max(0, (S.hp / mh) * 100)}%`;
   $('hptext').textContent = `${Math.max(0, Math.ceil(S.hp))} / ${mh}`;
@@ -763,11 +838,21 @@ function refreshUI() {
 function renderSheet() {
   const el = $('sheet');
   if (sheetMode === 'skills') {
-    el.innerHTML = `<h3>Skills <small>Total level ${totalLevel()}</small></h3><div class="skills">${SKILLS.map(([k, nm]) => {
-      const l = lvl(k), cur = XPT[l], next = XPT[Math.min(99, l + 1)];
-      const pct = l >= 99 ? 100 : ((S.xp[k] - cur) / (next - cur)) * 100;
-      return `<div class="skill" title="${Math.floor(S.xp[k])} XP"><img src="${ICONS[k]}" alt=""><span class="nm">${nm}</span><span class="lv">${l}</span><div class="xp"><i style="width:${pct}%"></i></div></div>`;
-    }).join('')}</div><p class="hint">Skills level up as you use them. Speed rises as you travel and makes you run faster.</p>`;
+    const L = heroLvl(), cur = XPT[L], next = XPT[Math.min(99, L + 1)], free = freePoints();
+    const pct = L >= 99 ? 100 : ((S.hero.xp - cur) / (next - cur)) * 100;
+    const effect = { atk: `Weapon damage × ${dmgMult().toFixed(1)}`, def: `Damage taken ÷ ${defDiv().toFixed(1)}${gearDef() ? ` (gear +${gearDef()})` : ''}`, hp: `${maxHp()} max health` };
+    const w = W();
+    el.innerHTML = `<h3>Hero <small>Level ${L}</small></h3>
+      <div class="herolvl"><div class="xp"><i style="width:${pct}%"></i></div><small>${Math.floor(S.hero.xp - cur)} / ${next - cur} XP to level ${L + 1}</small></div>
+      <div class="stats">${Object.entries(STATS).map(([k, [nm, ic]]) => `<div class="stat"><img src="${ICONS[ic]}" alt=""><span class="nm">${nm}</span><span class="lv">${stat(k)}</span><small>${effect[k]}</small>${free > 0 ? `<button class="plus" data-stat="${k}" aria-label="Add a point to ${nm}">+</button>` : ''}</div>`).join('')}</div>
+      <p class="hint">${free > 0 ? `<b>${free} point${free > 1 ? 's' : ''} to spend.</b> ` : ''}Each level gives +1 to every stat and ${FREE_PER_LEVEL} points to spend. Defense and Health keep you alive about equally, so mixing them works best.</p>
+      <h4 class="sub">Weapon</h4><div class="gearbtn now"><b><img src="${ICONS[w.type]}" alt="">${w.name}</b><span>${gearStats(w)}</span></div>
+      <h4 class="sub">Gathering</h4><div class="skills">${SKILLS.map(([k, nm]) => {
+      const l = lvl(k), c0 = XPT[l], n0 = XPT[Math.min(99, l + 1)];
+      const pc = l >= 99 ? 100 : ((S.xp[k] - c0) / (n0 - c0)) * 100;
+      return `<div class="skill" title="${Math.floor(S.xp[k])} XP"><img src="${ICONS[k]}" alt=""><span class="nm">${nm}</span><span class="lv">${l}</span><div class="xp"><i style="width:${pc}%"></i></div></div>`;
+    }).join('')}</div><p class="hint">Gathering skills level up as you use them. Speed rises as you travel and makes you run faster.</p>`;
+    el.querySelectorAll('[data-stat]').forEach((b) => { b.onclick = () => spendPoint(b.dataset.stat); });
   } else if (sheetMode === 'bag') {
     const items = Object.entries(S.inv);
     const slots = [];
@@ -777,13 +862,15 @@ function renderSheet() {
         ? `<button class="slot food" data-eat="${it[0]}" title="Eat ${ITEMS[it[0]]} (heals ${FOOD[it[0]].heal})"><img src="${ICONS[it[0]]}" alt="${ITEMS[it[0]]}"><span>${it[1]}</span></button>`
         : `<div class="slot" title="${ITEMS[it[0]]}"><img src="${ICONS[it[0]]}" alt="${ITEMS[it[0]]}"><span>${it[1]}</span></div>`);
     }
-    const mine = S.owned.filter((k) => WEAPONS[k].cls === S.cls);
-    const gear = mine.map((k) => `<button class="gearbtn" data-gear="${k}" aria-pressed="${S.equip[S.cls] === k}"><b>${WEAPONS[k].name}</b><span>+${WEAPONS[k].bonus}${WEAPONS[k].unique ? ' · boss drop' : ''}</span></button>`).join('');
+    const group = (slot, title) => {
+      const mine = S.owned.filter((k) => GEAR[k] && GEAR[k].slot === slot);
+      return `<h4 class="sub">${title}</h4><div class="gearlist">${mine.map((k) => `<button class="gearbtn" data-gear="${k}" aria-pressed="${S.equip[slot] === k}"><b><img src="${gearIcon(GEAR[k])}" alt="">${GEAR[k].name}</b><span>${gearStats(GEAR[k])}${GEAR[k].unique ? ' · boss drop' : ''}</span></button>`).join('')}</div>`;
+    };
     el.innerHTML = `<h3>Bag <small>${S.coins} coins</small></h3><div class="bag">${slots.join('')}</div>
-      <h4 class="sub">${CLASSES[S.cls].name} weapons</h4><div class="gearlist">${gear}</div>
-      <p class="hint">Tap food to eat it and heal (or press H). Sell logs, ore, fish, bones, bone dust and dark essence to Marta at the market.</p>`;
+      ${group('weapon', 'Weapons')}${group('shield', 'Shields')}${group('armour', 'Armour')}
+      <p class="hint">Your weapon decides how you fight: swords up close, staffs and wands throw magic, crossbows shoot. Tap food to eat it and heal (or press H). Marta at the market buys anything in your bag, and the smiths buy back spare gear.</p>`;
     el.querySelectorAll('[data-eat]').forEach((b) => { b.onclick = () => eat(b.dataset.eat); });
-    el.querySelectorAll('[data-gear]').forEach((b) => { b.onclick = () => { S.equip[S.cls] = b.dataset.gear; equipWeapon(); buildClassBar(); save(); renderSheet(); burst(player.pos.clone().setY(1.6), '#ffe07a', 20, 4); }; });
+    el.querySelectorAll('[data-gear]').forEach((b) => { b.onclick = () => { const g = GEAR[b.dataset.gear]; S.equip[g.slot] = b.dataset.gear; cancelTask(); equipGear(); buildGearBar(); updateTitle(); save(); renderSheet(); burst(player.pos.clone().setY(1.6), '#ffe07a', 20, 4); }; });
   } else if (sheetMode === 'quests') {
     const order = Object.entries(QUESTS).filter(([k, q]) => !q.story || storyOpen(k) || S.quests[k].state !== 'todo').sort((a, b) => (b[1].story ? 1 : 0) - (a[1].story ? 1 : 0));
     el.innerHTML = `<h3>Quests</h3>${order.map(([k, q]) => {
@@ -795,27 +882,26 @@ function renderSheet() {
   } else if (sheetMode === 'look') {
     const sw = (part, set = LOOK_COLOURS) => Object.entries(set).map(([k, [nm, c]]) => `<button class="swatch" data-part="${part}" data-col="${k}" title="${nm}" aria-label="${nm}" aria-pressed="${S.look[part] === k}" style="background:${c}"></button>`).join('');
     const styles = Object.entries(HAIR_STYLES).map(([k, nm]) => `<button class="hairbtn" data-hair="${k}" aria-pressed="${S.look.hair === k}">${nm}</button>`).join('');
-    const hasHat = S.cls !== 'archer';
     el.innerHTML = `<h3>Look</h3><div class="look">
       <h4>Outfit colour</h4><div class="swatches">${sw('outfit')}</div>
       <h4>Cape colour</h4><div class="swatches">${sw('trim')}</div>
       <h4>Hair</h4><div class="toggles">${styles}</div>
       <div class="swatches">${sw('hairCol', HAIR_COLOURS)}</div>
-      <p class="hint">${S.cls === 'archer' ? 'Your hood covers your hair. Switch to Knight or Mage to see it.' : S.look.hat ? `Take off your ${S.cls === 'knight' ? 'helmet' : 'hat'} to show your hair.` : ''}</p>
+      <p class="hint">${S.look.hat ? 'Take off your helmet to show your hair.' : ''}</p>
       <h4>Show</h4><div class="toggles">
-        ${hasHat ? `<button id="l-hat" aria-pressed="${S.look.hat}">${S.cls === 'knight' ? 'Helmet' : 'Hat'}</button>` : ''}
+        <button id="l-hat" aria-pressed="${S.look.hat}">Helmet</button>
         <button id="l-cape" aria-pressed="${S.look.cape}">Cape</button></div>
-      <p class="hint">Your look belongs to your character and carries across classes. More outfits, faces, hats and gear are on the roadmap.</p></div>`;
+      <p class="hint">Armour changes the colour of your arms and legs. More outfits, faces, hats and gear are on the roadmap.</p></div>`;
     el.querySelectorAll('.swatch').forEach((b) => { b.onclick = () => { S.look[b.dataset.part] = b.dataset.col; applyLook(); save(); renderSheet(); }; });
     el.querySelectorAll('.hairbtn').forEach((b) => { b.onclick = () => { S.look.hair = b.dataset.hair; if (S.look.hair !== 'none') S.look.hat = false; applyLook(); save(); renderSheet(); }; });
-    if (hasHat) $('l-hat').onclick = () => { S.look.hat = !S.look.hat; applyLook(); save(); renderSheet(); };
+    $('l-hat').onclick = () => { S.look.hat = !S.look.hat; applyLook(); save(); renderSheet(); };
     $('l-cape').onclick = () => { S.look.cape = !S.look.cape; applyLook(); save(); renderSheet(); };
   } else if (sheetMode === 'opts') {
     el.innerHTML = `<h3>Options</h3><div class="opts">
       <button id="o-style" aria-pressed="${styled.on}">Storybook look: ${styled.on ? 'On' : 'Off'}</button>
       <button id="o-tod" aria-pressed="${env.preset === 'golden'}">${env.preset === 'golden' ? 'Switch to daytime' : 'Switch to golden hour'}</button>
             <button id="o-reset" class="danger">Start over</button>
-      <p class="hint">Switch class any time with the buttons under your health bar. Skills, bag, coins and quests belong to your character, not your class. Progress saves in this browser for now. Accounts that save online come in the next step.</p></div>`;
+      <p class="hint">Progress saves in this browser for now. Accounts that save online come in the next step.</p></div>`;
     $('o-style').onclick = () => { setStyled(!styled.on); renderSheet(); };
     $('o-tod').onclick = () => { applyPreset(env.preset === 'golden' ? 'day' : 'golden'); S.preset = env.preset; save(); renderSheet(); };
     $('o-reset').onclick = () => {
@@ -840,21 +926,30 @@ function openShop(npc) {
   talking = npc;
   const d = $('dialog');
   const goods = Object.entries(S.inv).filter(([k]) => SELL[k]);
-  const worth = goods.reduce((a, [k, n]) => a + SELL[k] * n, 0);
-  d.innerHTML = `<h3>${npc.name}</h3><p>Fresh from the oven! Food heals you when you eat it from your bag, or press H.</p>
+  const bulk = goods.filter(([k]) => !FOOD[k] && !['silver_ring', 'ruby', 'golden_crown', 'lucky_sock', 'gloom_hat', 'rattle_tooth'].includes(k));
+  const worth = bulk.reduce((a, [k, n]) => a + SELL[k] * n, 0);
+  d.innerHTML = `<h3>${npc.name}</h3><p>Fresh from the oven! Food heals you when you eat it from your bag, or press H. And I buy anything you bring me.</p>
     <div class="shop">${Object.entries(FOOD).map(([k, f]) => `<button class="buy" data-food="${k}" ${S.coins < f.price ? 'disabled' : ''}><img src="${ICONS[k]}" alt=""><b>${ITEMS[k]}</b><span>Heals ${f.heal}</span><em>${f.price} coins</em></button>`).join('')}</div>
-    <p class="hint">You have ${S.coins} coins.${worth ? ` I'll also buy your logs, ore, fish and bones for ${worth} coins.` : ' Bring me logs, ore, fish or bones and I will buy them.'}</p>
-    <div class="row">${worth ? `<button id="sellall">Sell goods (+${worth})</button>` : ''}<button id="shopbye">Goodbye</button></div>`;
-  d.querySelectorAll('.buy').forEach((b) => { b.onclick = () => {
+    ${goods.length ? `<h4 class="sub">Sell to Marta</h4><div class="shop sell">${goods.map(([k, n]) => `<button class="buy" data-sell="${k}"><img src="${ICONS[k]}" alt=""><b>${ITEMS[k]} × ${n}</b><span>${SELL[k]} each</span><em>Sell +${SELL[k] * n}</em></button>`).join('')}</div>` : ''}
+    <p class="hint">You have ${S.coins} coins.${goods.length ? '' : ' Bring me logs, ore, fish, bones or treasures from monsters and I will buy them.'}</p>
+    <div class="row">${worth ? `<button id="sellall">Sell all materials (+${worth})</button>` : ''}<button id="shopbye">Goodbye</button></div>`;
+  d.querySelectorAll('[data-food]').forEach((b) => { b.onclick = () => {
     const k = b.dataset.food, f = FOOD[k];
     if (S.coins < f.price) return;
     S.coins -= f.price; addItem(k);
     toast(`You buy ${ITEMS[k].toLowerCase()}.`, ICONS[k]);
     save(); openShop(npc);
   }; });
+  d.querySelectorAll('[data-sell]').forEach((b) => { b.onclick = () => {
+    const k = b.dataset.sell, n = S.inv[k] || 0, c = SELL[k] * n;
+    if (!n) return;
+    delete S.inv[k]; S.coins += c;
+    toast(`Sold ${n} × ${ITEMS[k].toLowerCase()} for ${c} coins.`, ICONS.coins, c >= 100);
+    refreshUI(); save(); openShop(npc);
+  }; });
   if (worth) $('sellall').onclick = () => {
-    for (const [k] of goods) delete S.inv[k];
-    S.coins += worth; toast(`Sold your goods for ${worth} coins.`, ICONS.coins);
+    for (const [k] of bulk) delete S.inv[k];
+    S.coins += worth; toast(`Sold your materials for ${worth} coins.`, ICONS.coins);
     refreshUI(); save(); openShop(npc);
   };
   $('shopbye').onclick = closeDialog;
@@ -883,11 +978,11 @@ function eatBest() {
   const fit = have.filter((k) => FOOD[k].heal >= missing).sort((a, b) => FOOD[a].heal - FOOD[b].heal)[0];
   eat(fit || have.sort((a, b) => FOOD[b].heal - FOOD[a].heal)[0]);
 }
-function openKing(npc, view) {
+function openKing(npc) {
   talking = npc;
   const d = $('dialog');
   const steps = storyStep();
-  if (view !== 'class' && steps.length) {
+  if (steps.length) {
     // pick: something to hand in first, then something new, then progress on an active one
     const k = steps.find((q) => questReady(q)) || steps.find((q) => S.quests[q].state === 'todo') || steps[0];
     const q = QUESTS[k], st = S.quests[k];
@@ -896,38 +991,46 @@ function openKing(npc, view) {
     else if (st.state === 'todo') { text = q.intro; btn = ['I will do it', () => { st.state = 'active'; toast(`${q.chapter}: ${q.name}`, ICONS.scroll, true); refreshUI(); save(); closeDialog(); }]; }
     else { text = `${q.desc} So far: ${questProgress(k)}.`; btn = ['On my way', closeDialog]; }
     d.innerHTML = `<h3>${npc.name}</h3><div class="chapter">${q.chapter} · ${q.name}</div><p></p>${st.state === 'todo' ? `<div class="reward">Reward: ${q.reward.coins} coins and ${Object.values(q.reward.xp)[0]} XP</div>` : ''}
-      <div class="row"><button class="primary" id="kq"></button><button id="kclass">Change class</button><button id="kingbye">Farewell</button></div>`;
+      <div class="row"><button class="primary" id="kq"></button><button id="kingbye">Farewell</button></div>`;
     d.querySelector('p').textContent = text; $('kq').textContent = btn[0]; $('kq').onclick = btn[1];
-    $('kclass').onclick = () => openKing(npc, 'class'); $('kingbye').onclick = closeDialog;
+    $('kingbye').onclick = closeDialog;
     showDialog(d); npc.actor.face(player.pos.x, player.pos.z);
     return;
   }
-  d.innerHTML = `<h3>${npc.name}</h3><p>${steps.length ? '' : `You have done the kingdom proud. ${DARK_KING}'s shadow still lingers, and I will call on you again soon. `}Choose your calling, and you may change it whenever you visit me. Your skills, bag and coins stay with you.</p>
-    <div class="shop">${Object.entries(CLASSES).map(([k, c]) => `<button class="buy" data-cls="${k}" ${S.cls === k ? 'disabled' : ''}><img src="${ICONS[c.skill]}" alt=""><b>${c.name}</b><span>${S.cls === k ? 'Your class now' : c.blurb}</span></button>`).join('')}</div>
+  d.innerHTML = `<h3>${npc.name}</h3><p>You have done the kingdom proud. ${DARK_KING}'s shadow still lingers, and I will call on you again soon. Until then, grow strong: the smiths in the village sell fine weapons, shields and armour.</p>
     <div class="row"><button id="kingbye">Farewell</button></div>`;
-  d.querySelectorAll('[data-cls]').forEach((b) => { b.onclick = () => { switchClass(b.dataset.cls); closeDialog(); npc.actor.play('Cheer', { once: true, onFinish: () => npcIdle(npc) }); }; });
   $('kingbye').onclick = closeDialog;
   showDialog(d);
   npc.actor.face(player.pos.x, player.pos.z);
 }
 function openWeaponShop(npc) {
   talking = npc;
-  const cls = npc.shop, d = $('dialog');
-  const lines = { knight: 'Finest steel this side of the mountains! Sharper blade, harder hits.', mage: 'Wands and staves, darling, humming with power. Each one makes your spells hit harder.', archer: 'Crossbows I made myself. A better one hits harder.' };
-  const list = Object.entries(WEAPONS).filter(([, w]) => w.cls === cls && !w.unique);
-  d.innerHTML = `<h3>${npc.name}</h3><p>${lines[cls]}${S.cls !== cls ? ` (These are for the ${CLASSES[cls].name}. Buy them now and they'll be ready when you switch.)` : ''}</p>
-    <div class="shop wide">${list.map(([k, w]) => {
-      const own = S.owned.includes(k), eq = S.equip[cls] === k;
-      const label = eq ? 'Equipped' : own ? 'Equip' : `${w.price} coins`;
-      return `<button class="buy" data-w="${k}" ${eq || (!own && S.coins < w.price) ? 'disabled' : ''}><img src="${ICONS[CLASSES[cls].skill]}" alt=""><b>${w.name}</b><span>+${w.bonus} damage</span><em>${label}</em></button>`;
+  const type = npc.shop, d = $('dialog');
+  const lines = { melee: 'Finest steel this side of the mountains! Swords, axes, shields and armour. A longer blade swings wider, a lighter one swings faster.', magic: 'Wands and staves, darling, humming with power. Hold one and your blows become bolts of magic you can throw from afar.', ranged: 'Crossbows I made myself. Hold one and you shoot from a safe distance. Lighter ones shoot faster.' };
+  const sells = (g) => (g.slot === 'weapon' ? g.type === type : type === 'melee');
+  const list = Object.entries(GEAR).filter(([, g]) => !g.unique && g.price > 0 && sells(g));
+  const spare = S.owned.map((k) => [k, GEAR[k]]).filter(([k, g]) => g && sells(g) && gearValue(g) > 0 && S.equip[g.slot] !== k);
+  d.innerHTML = `<h3>${npc.name}</h3><p>${lines[type]}</p>
+    <div class="shop wide">${list.map(([k, g]) => {
+      const own = S.owned.includes(k), eq = S.equip[g.slot] === k;
+      const label = eq ? 'Equipped' : own ? 'Equip' : `${g.price} coins`;
+      return `<button class="buy" data-w="${k}" ${eq || (!own && S.coins < g.price) ? 'disabled' : ''}><img src="${gearIcon(g)}" alt=""><b>${g.name}</b><span>${gearStats(g)}</span><em>${label}</em></button>`;
     }).join('')}</div>
-    <p class="hint">You have ${S.coins} coins.</p><div class="row"><button id="wbye">Goodbye</button></div>`;
+    ${spare.length ? `<h4 class="sub">Sell spare gear</h4><div class="shop sell">${spare.map(([k, g]) => `<button class="buy" data-sellg="${k}"><img src="${gearIcon(g)}" alt=""><b>${g.name}</b><span>${gearStats(g)}</span><em>Sell +${gearValue(g)}</em></button>`).join('')}</div>` : ''}
+    <p class="hint">You have ${S.coins} coins. Damage is the weapon's base: your Attack multiplies it.</p><div class="row"><button id="wbye">Goodbye</button></div>`;
   d.querySelectorAll('[data-w]').forEach((b) => { b.onclick = () => {
-    const k = b.dataset.w, w = WEAPONS[k];
-    if (!S.owned.includes(k)) { if (S.coins < w.price) return; S.coins -= w.price; S.owned.push(k); toast(`You buy the ${w.name}!`, ICONS[CLASSES[cls].skill], true); }
-    S.equip[cls] = k;
-    if (S.cls === cls) { equipWeapon(); burst(player.pos.clone().setY(1.6), '#ffe07a', 24, 4); }
-    buildClassBar(); refreshUI(); save(); openWeaponShop(npc);
+    const k = b.dataset.w, g = GEAR[k];
+    if (!S.owned.includes(k)) { if (S.coins < g.price) return; S.coins -= g.price; S.owned.push(k); toast(`You buy the ${g.name}!`, gearIcon(g), true); }
+    S.equip[g.slot] = k;
+    cancelTask(); equipGear(); burst(player.pos.clone().setY(1.6), '#ffe07a', 24, 4);
+    buildGearBar(); updateTitle(); refreshUI(); save(); openWeaponShop(npc);
+  }; });
+  d.querySelectorAll('[data-sellg]').forEach((b) => { b.onclick = () => {
+    const k = b.dataset.sellg, g = GEAR[k];
+    if (!S.owned.includes(k) || S.equip[g.slot] === k) return;
+    S.owned = S.owned.filter((o) => o !== k); S.coins += gearValue(g);
+    toast(`Sold the ${g.name} for ${gearValue(g)} coins.`, ICONS.coins, g.unique);
+    refreshUI(); save(); openWeaponShop(npc);
   }; });
   $('wbye').onclick = closeDialog;
   showDialog(d);
@@ -947,7 +1050,7 @@ function finishQuest(id, npc) {
   const q = QUESTS[id], st = S.quests[id];
   for (const [k, n] of Object.entries(q.need)) if (k !== 'kills' && k !== 'boss') takeItem(k, n);
   st.state = 'done'; S.coins += q.reward.coins;
-  for (const [k, v] of Object.entries(q.reward.xp)) giveXp(k === '$class' ? CLASSES[S.cls].skill : k, v);
+  for (const [k, v] of Object.entries(q.reward.xp)) { if (k === 'hero') giveHeroXp(v); else giveXp(k, v); }
   toast(`Quest complete: ${q.name}`, ICONS.coins, true);
   burst(npc.actor.pos.clone().setY(2), '#9cff6b', 50, 6, 1.4);
   npc.actor.play('Cheer', { once: true, onFinish: () => npcIdle(npc) });
@@ -962,7 +1065,7 @@ function openDialog(npc) {
   const qid = Object.keys(QUESTS).find((k) => QUESTS[k].giver === npc.id && !QUESTS[k].story);
   const q = QUESTS[qid], st = S.quests[qid];
   const parts = [`${q.reward.coins} coins`];
-  for (const [k, v] of Object.entries(q.reward.xp)) parts.push(`${v} ${k === '$class' ? SKILL_NAME[CLASSES[S.cls].skill] : SKILL_NAME[k]} XP`);
+  for (const [k, v] of Object.entries(q.reward.xp)) parts.push(`${v} ${k === 'hero' ? 'hero' : SKILL_NAME[k]} XP`);
   let text, buttons;
   if (st.state === 'todo') {
     text = q.intro;
@@ -1089,12 +1192,12 @@ function inArc(x, z, r, reach, half = 0.95) {
 const MELEE_REACH = 2.6, TOOL_REACH = 1.7;
 function swingTarget() {
   if (!player) return null;
-  const p = player.pos, A = CLASSES[S.cls].atk;
+  const p = player.pos, w = W(), A = STYLES[w.type];
   for (const c of chests) if (!c.open && Math.hypot(c.x - p.x, c.z - p.z) < c.reach) return { type: 'chest', n: c };
   if (!mouseHeld) for (const n of npcs) if (Math.hypot(n.x - p.x, n.z - p.z) < n.reach + 0.6) return { type: 'npc', n };
   for (const n of nodes) if (n.alive && n.def.skill === 'fishing' && Math.hypot(n.x - p.x, n.z - p.z) < n.reach + 0.6) return { type: 'node', n };
   let foe = null, fd = 1e9;
-  const reach = A.proj ? A.range : MELEE_REACH;
+  const reach = w.reach;
   for (const e of enemies) if (e.hp > 0 && e.state !== 'rising') { const d = inArc(e.pos.x, e.pos.z, 0.8, reach, A.proj ? 0.3 : 0.95); if (d >= 0 && d < fd) { fd = d; foe = e; } }
   let node = null, nd = 1e9;
   for (const n of nodes) if (n.alive && n.def.skill !== 'fishing') { const d = inArc(n.x, n.z, n.r, TOOL_REACH, 0.8); if (d >= 0 && d < nd) { nd = d; node = n; } }
@@ -1103,10 +1206,10 @@ function swingTarget() {
 }
 function describe(t) {
   const hint = matchMedia('(pointer: coarse)').matches ? 'Tap here to swing at whatever is in front of you.' : 'Click to attack. Space jumps, Shift sprints.';
-  if (!t) return { label: 'Attack', icon: ICONS[CLASSES[S.cls].skill], hint, ok: true };
+  if (!t) return { label: 'Attack', icon: ICONS[W().type], hint, ok: true };
   if (t.type === 'npc') return { label: 'Talk', icon: ICONS.magic, hint: t.n.name, ok: true };
   if (t.type === 'chest') return { label: 'Open', icon: ICONS.chest, hint: 'A treasure chest! What could be inside?', ok: true };
-  if (t.type === 'attack') return { label: 'Attack', icon: ICONS[CLASSES[S.cls].skill], hint: t.e ? `${t.e.T.name} (${t.e.hp} health)` : hint, ok: true };
+  if (t.type === 'attack') return { label: 'Attack', icon: ICONS[W().type], hint: t.e ? `${t.e.T.name} (${t.e.hp} health)` : hint, ok: true };
   const d = t.n.def, l = lvl(d.skill);
   return { label: d.verb, icon: ICONS[d.skill], hint: l >= d.req ? `${d.name} · ${SKILL_NAME[d.skill]} ${d.req}+` : `${d.name} needs ${SKILL_NAME[d.skill]} level ${d.req}`, ok: l >= d.req };
 }
@@ -1157,24 +1260,26 @@ function swing() {
     later(1.3, () => { if (player.nextHit === stamp && !player.task) showGear(null); });
     return;
   }
-  const A = CLASSES[S.cls].atk, skill = CLASSES[S.cls].skill;
+  const w = W(), A = STYLES[w.type];
+  // lighter weapons swing faster, so the animation speeds up to match
+  const sp = THREE.MathUtils.clamp(1.05 / w.cd, 0.85, 1.9);
   showGear(null);
   if (t.e && A.proj) player.face(t.e.pos.x, t.e.pos.z); // gentle aim help for ranged
-  player.nextHit = now + A.cd * 0.85;
-  const dur = player.play(A.anim, { once: true, fade: 0.08, speed: 1.15 });
-  player.busyUntil = now + Math.min(dur * 0.7, A.cd * 0.6);
-  later(A.hitAt, () => {
+  player.nextHit = now + w.cd;
+  const dur = player.play(w.heavy && A.heavy ? A.heavy : A.anim, { once: true, fade: 0.08, speed: sp });
+  player.busyUntil = now + Math.min(dur * 0.7, w.cd * 0.7);
+  later(A.hitAt / sp * 1.15, () => {
     if (player.dead) return;
     const fwd = fwdOf(player);
     if (A.proj) {
-      shoot(player.pos.clone().add(new THREE.Vector3(0, 1.8, 0)).addScaledVector(fwd, 0.8), fwd, A.proj, A.range, 'player',
-        (e) => hurtEnemy(e, rollDamage(skill, (A.bonus || 0) + weaponBonus()), skill));
+      shoot(player.pos.clone().add(new THREE.Vector3(0, 1.8, 0)).addScaledVector(fwd, 0.8), fwd, A.proj, w.reach, 'player',
+        (e) => hurtEnemy(e, heroDamage()));
       return;
     }
-    burst(player.pos.clone().setY(1.5).addScaledVector(fwd, 1.4), '#fff2a8', 14, 5);
+    burst(player.pos.clone().setY(1.5).addScaledVector(fwd, w.reach * 0.55), '#fff2a8', 14, 5);
     let hit = false;
-    for (const e of enemies) if (e.hp > 0 && e.state !== 'rising' && inArc(e.pos.x, e.pos.z, 0.8, MELEE_REACH + 0.3) >= 0) { hurtEnemy(e, rollDamage(skill, weaponBonus()), skill); hit = true; }
-    if (!hit) for (const n of nodes) if (n.alive && n.def.skill !== 'fishing' && inArc(n.x, n.z, n.r, MELEE_REACH) >= 0) { burst(new THREE.Vector3(n.x, 1.4, n.z), '#ffe9a8', 6, 3); break; }
+    for (const e of enemies) if (e.hp > 0 && e.state !== 'rising' && inArc(e.pos.x, e.pos.z, 0.8, w.reach + 0.3) >= 0) { hurtEnemy(e, heroDamage()); hit = true; }
+    if (!hit) for (const n of nodes) if (n.alive && n.def.skill !== 'fishing' && inArc(n.x, n.z, n.r, w.reach) >= 0) { burst(new THREE.Vector3(n.x, 1.4, n.z), '#ffe9a8', 6, 3); break; }
   });
 }
 function hitNode(n) {
@@ -1265,23 +1370,23 @@ function shoot(from, dir, kind, range, owner, onHit) {
   scene.add(mesh);
   projectiles.push({ mesh, dir: dir.clone().setY(0).normalize(), kind, owner, onHit, speed: kind === 'bolt' ? 26 : kind === 'dark' ? 11 : 17, left: range + 1 });
 }
-function rollDamage(skill, bonus = 0) {
-  const maxHit = 2 + Math.floor(lvl(skill) * 0.55) + bonus;
-  if (rng() < 0.12) return 0;
-  return 1 + Math.floor(rng() * maxHit);
+// Your damage: the weapon's base damage, multiplied by your Attack, with a little luck either way.
+function heroDamage() {
+  if (rng() < 0.1) return 0;
+  return Math.max(1, Math.round(W().dmg * dmgMult() * (0.8 + rng() * 0.4)));
 }
-function hurtEnemy(e, dmg, skill) {
+function hurtEnemy(e, dmg) {
   const head = e.pos.clone().setY(3.4);
   if (e.state === 'idle' || e.state === 'walk') e.state = 'chase';
   if (dmg === 0) { floatText(head, 'Miss', 'miss'); return; }
   e.hp = Math.max(0, e.hp - dmg);
   floatText(head, String(dmg));
   burst(e.pos.clone().setY(1.6), '#ffffff', 14, 5);
-  giveXp(skill, dmg * 4);
+  giveHeroXp(dmg * HIT_HERO_XP);
   if (e.hp <= 0) {
     e.state = 'dead'; e.bar.hidden = true;
     e.play('Death_A', { once: true, clamp: true, fade: 0.1 });
-    giveXp(skill, e.T.xp);
+    giveHeroXp(e.T.xp, e.pos.clone().setY(4));
     const coins = e.T.coins ? e.T.coins[0] + Math.floor(rng() * (e.T.coins[1] - e.T.coins[0])) : 3 + Math.floor(rng() * 9);
     S.coins += coins; addItem('bones');
     rollLoot(e);
@@ -1311,6 +1416,10 @@ function hurtPlayer(dmg) {
   if (player.dead) return;
   const head = player.pos.clone().setY(3.6);
   if (dmg === 0) { floatText(head, 'Miss', 'miss'); return; }
+  // Defense divides the hit; the leftover fraction rounds up or down by chance
+  const d = dmg / defDiv();
+  dmg = Math.floor(d) + (rng() < d - Math.floor(d) ? 1 : 0);
+  if (dmg === 0) { floatText(head, 'Blocked', 'miss'); burst(player.pos.clone().setY(1.5), '#bfe0ff', 8, 3); return; }
   S.hp -= dmg; lastHurt = now;
   floatText(head, String(dmg), 'hurt');
   burst(player.pos.clone().setY(1.5), '#ff8a7a', 10, 4);
@@ -1694,7 +1803,7 @@ function tick() {
 }
 addEventListener('pagehide', () => { if (!resetting) save(); });
 
-window.__jq = { hurtEnemy, goThrough, get where() { return where; }, INTERIORS, switchClass, equipWeapon, openWeaponShop, openKing, jump, eat, eatBest, openShop, drawMinimap: () => drawMinimap(), swing, swingTarget, hitNode, projectiles, timers, get S() { return S; }, get player() { return player; }, enemies, nodes, npcs, startTask, doAction, giveXp, save, openSheet, openDialog };
+window.__jq = { hurtEnemy, goThrough, get where() { return where; }, INTERIORS, equipGear, spendPoint, giveHeroXp, heroLvl, stat, maxHp, defDiv, openWeaponShop, openKing, jump, eat, eatBest, openShop, drawMinimap: () => drawMinimap(), swing, swingTarget, hitNode, projectiles, timers, get S() { return S; }, get player() { return player; }, enemies, nodes, npcs, startTask, doAction, giveXp, save, openSheet, openDialog };
 window.addEventListener('error', (e) => { const m = $('loadmsg'); if (m) m.textContent = `Something went wrong: ${e.message}`; });
 main().catch((err) => {
   console.error(err);

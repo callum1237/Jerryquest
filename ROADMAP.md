@@ -1,13 +1,18 @@
 # Roadmap
 
 1. **Pick the look** (done): free KayKit models with storybook shading, ink outlines and warm lighting.
-2. **Playable single-player slice** (done, being polished): classes, seven skills, gathering, combat, inventory, three quests.
+2. **Playable single-player slice** (done, being polished): one hero with a level and stats, gear-based builds, gathering skills, combat, inventory, quests and story chapter 1.
 3. **Accounts and saving**: sign up and log in; character, skills, bag, quests and position saved online.
 4. **Shared world**: everyone online in the same persistent world, gathering, fighting and questing together.
 
 ## Design rules
 
-- Everything belongs to the **character**, not the class: skills, bag, coins, gear, quests, pets and houses. Classes can be switched freely.
+- **No classes (for now).** There is one hero. Your build comes from your gear and the stat points you spend.
+- **Hero level** comes from XP: bosses and quests give the most, hitting and beating monsters gives some, gathering gives a little. Each level gives +1 Attack, +1 Defense and +1 Health automatically, plus 2 free points.
+- **Stats:** Attack multiplies the weapon's base damage (×(1 + 0.1 × Attack)). Defense divides incoming damage (÷(1 + 0.1 × (Defense + shield + armour))). Health adds 6 max health per point (50 base). Defense and Health are tuned to be worth about the same, so neither is the obvious pick.
+- **Items have stats:** weapons have damage, reach/range and swing time; the weapon type decides how you fight (melee swing, magic bolt or crossbow shot). Shields and armour add Defense.
+- **Everything can be sold:** Marta buys anything in your bag, the smiths buy back spare gear. Monsters and bosses sometimes drop valuable treasures (silver rings, rubies, tiny golden crowns).
+- Woodcutting, Mining and Fishing (and Speed) level by use and have no combat stats.
 - Free aim: actions are never locked onto a target. A swing, chop or shot hits whatever hitbox it reaches in the direction you face. Trees, rocks and monsters all have health bars.
 - One consistent art style. New models come from the KayKit family (or matching CC0 packs) and go through the same toon shading.
 
@@ -29,7 +34,7 @@ Playing with friends
 - Dokapon-style pranks, like a trap that turns a friend into a chicken for 30 seconds
 
 Progression
-- Sub-class unlock at level 20 (for example Knight to Paladin)
+- Classes may come back later, built from items and levels (for example a Paladin unlock at level 20)
 - Gear that changes how your character looks
 - Character customisation. Done: outfit and cape colours, helmet/hat and cape toggles, six hair styles in eight colours. Next: face and eye options. These need new face art painted onto the model texture, because the free character models have their faces baked in
 - Rare drops with silly names
