@@ -7,6 +7,8 @@ export const CAMP = { x: -22, z: 31 };
 export const MINE = { x: -36, z: -24 };
 export const WORLD_R = 150;
 // The four lands beyond the valley forest. Each has its own colour, mood, monsters and a miniboss.
+// The village is spread out a little: every village building and prop sits VS times further from the well.
+export const VS = 1.22;
 export const ZONES = {
   glimmer: { name: 'Glimmerwood', x: 108, z: 6, r: 34, grass: '#5aa6a0', grass2: '#7d7fd6' },
   crags: { name: 'Grumble Crags', x: -106, z: -4, r: 34, grass: '#9a9a78', grass2: '#b5a27e' },
@@ -14,7 +16,7 @@ export const ZONES = {
   hollow: { name: 'Haunted Hollow', x: -10, z: -112, r: 30, grass: '#4f6b58', grass2: '#6a5f78' },
 };
 // Roads out of the valley: [toX, toZ, fromX, fromZ]
-export const ROADS = [[ZONES.glimmer.x - 20, 6, 22, 10], [-86, -4, -28, -4], [4, 86, 0, 30], [-16, -58, 0, -40], [-10, -92, -16, -58]];
+export const ROADS = [[62, -55, 25, -21], [ZONES.glimmer.x - 20, 6, 22, 10], [-86, -4, -28, -4], [4, 86, 0, 30], [-16, -58, 0, -40], [-10, -92, -16, -58]];
 const nearRoad = (x, z, pad) => ROADS.some(([tx, tz, fx, fz]) => {
   const dx = tx - fx, dz = tz - fz, L2 = dx * dx + dz * dz;
   const t = Math.max(0, Math.min(1, ((x - fx) * dx + (z - fz) * dz) / L2));
@@ -65,7 +67,7 @@ export function place(name, x, z, s, ry = 0, { collide = true, y = 0, shrink = 0
 }
 const faceCenter = (x, z) => Math.atan2(-x, -z);
 export const blocked = (x, z) => Math.hypot(x - LAKE.x, z - LAKE.z) < LAKE.r + 3 || Math.hypot(x - CAMP.x, z - CAMP.z) < 11
-  || Math.hypot(x - 4, z + 66) < 18 || Math.hypot(x - MINE.x, z - MINE.z) < 9;
+  || Math.hypot(x - 4, z + 66) < 18 || Math.hypot(x - 62, z + 63) < 11 || Math.hypot(x - MINE.x, z - MINE.z) < 9;
 export const isFree = (x, z, pad = 0) => !colliders.some((c) => Math.hypot(c.x - x, c.z - z) < c.r + pad);
 
 export function buildWorld(library) {
@@ -139,7 +141,7 @@ export function buildWorld(library) {
     addPath(new THREE.PlaneGeometry(w, len), fx + dx / 2, fz + dz / 2, Math.atan2(dx, dz));
   };
   for (const [tx, tz, fx, fz] of ROADS) spoke(tx, tz, 2.8, fx, fz);
-  spoke(4, -50); spoke(-22, 26); spoke(-28, -4); spoke(22, 10, 2.2); spoke(10, 14, 2); spoke(MINE.x + 4, MINE.z + 4, 2.4, -28, -4);
+  spoke(4, -50); spoke(-22 * VS, 26 * VS); spoke(-28 * VS, -4 * VS); spoke(22 * VS, 10 * VS, 2.2); spoke(10 * VS, 14 * VS, 2); spoke(MINE.x + 4, MINE.z + 4, 2.4, -28, -4);
   spoke(0, 52, 2.4, 0, 0);
 
   // village
@@ -150,16 +152,16 @@ export function buildWorld(library) {
     ['building_blacksmith_red', 9, -24, S_BUILD], ['building_church_yellow', -14, -28, 6], ['building_windmill_green', -30, -12, 6],
     ['building_lumbermill_green', -27, 14, S_BUILD], ['building_tower_A_red', 22, -26, 6], ['building_mine_green', MINE.x - 6, MINE.z - 6, 6],
   ];
-  for (const [n, x, z, s] of ring) place(n, x, z, s, faceCenter(x, z));
+  for (const [n, x0, z0, s] of ring) { const mine = /mine/.test(n), x = mine ? x0 : x0 * VS, z = mine ? z0 : z0 * VS; place(n, x, z, s, faceCenter(x, z)); }
   place('building_castle_blue', 4, -66, 14, 0); // big enough to feel like a king lives there
-  place('building_grain', 20, 14, S_BUILD, 0.6);
-  for (let i = 0; i < 5; i++) place(i === 2 ? 'fence_wood_straight_gate' : 'fence_wood_straight', 16 + i * 3.4, 22, S_PROP + 1.4, 0, { collide: false });
+  place('building_grain', 20 * VS, 14 * VS, S_BUILD, 0.6);
+  for (let i = 0; i < 5; i++) place(i === 2 ? 'fence_wood_straight_gate' : 'fence_wood_straight', 16 * VS + i * 3.4, 22 * VS, S_PROP + 1.4, 0, { collide: false });
   const props = [
     ['barrel', -7, -12], ['barrel', -8.5, -12.5], ['crate_A_big', -9, -14], ['sack', 5, 11], ['sack', 6, 10.6], ['crate_B_small', 10, 11],
     ['weaponrack', 13, -21], ['target', 15, -17], ['wheelbarrow', -23, 11], ['resource_lumber', -24, 18], ['resource_stone', MINE.x - 1, MINE.z - 3],
     ['bucket_water', 2.6, 2.2], ['flag_red', -3, -9], ['flag_blue', 3, -9], ['crate_A_big', 18, 6], ['barrel', 19, 7.5],
   ];
-  for (const [n, x, z] of props) place(n, x, z, S_PROP, rng() * 6, { shrink: 0.6 });
+  for (const [n, x, z] of props) { const v = n === 'resource_stone' ? 1 : VS; place(n, x * v, z * v, S_PROP, rng() * 6, { shrink: 0.6 }); }
 
   // skeleton camp
   place('tent', CAMP.x - 5, CAMP.z + 1, S_PROP + 1, 0.8);
@@ -174,12 +176,12 @@ export function buildWorld(library) {
     colliders.push({ x, z, r: big ? 3.2 : 2.2 });
   };
   for (let i = 0; i < 1400; i++) {
-    const a = rng() * Math.PI * 2, rr = 42 + rng() * (WORLD_R - 30);
+    const a = rng() * Math.PI * 2, rr = 48 + rng() * (WORLD_R - 36);
     const x = Math.cos(a) * rr, z = Math.sin(a) * rr;
-    if (blocked(x, z) || (Math.abs(x) < 4 && z > 0 && z < 40) || Math.hypot(x - 4, z + 48) < 14 || Math.hypot(x - 4, z + 66) < 22 || (Math.abs(x - 2) < 5 && z < 0 && z > -50)) continue;
+    if (blocked(x, z) || (Math.abs(x) < 4 && z > 0 && z < 40) || Math.hypot(x - 4, z + 48) < 14 || Math.hypot(x - 4, z + 66) < 22 || Math.hypot(x - 62, z + 63) < 13 || (Math.abs(x - 2) < 5 && z < 0 && z > -50)) continue;
     if (nearRoad(x, z, 6) || inZone(x, z, 2)) continue;
     // a dense belt near the valley, thinner woods further out, open glades between
-    const belt = rr < 66 ? 1 : 0.38 + 0.3 * Math.sin(x * 0.05) * Math.cos(z * 0.04);
+    const belt = rr < 70 ? 1 : 0.38 + 0.3 * Math.sin(x * 0.05) * Math.cos(z * 0.04);
     if (rng() > belt) continue;
     treeAt(x, z, rr > 52);
   }

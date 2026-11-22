@@ -30,12 +30,12 @@ const flat = (w, d, col, x, z, y = 0.06) => {
 };
 
 // A rectangular room: floor, side and back walls, open front (the camera looks in from the south).
-function room(cx, cz, w, d, floor, { windows = false } = {}) {
+function room(cx, cz, w, d, floor, { windows = false, tint = null } = {}) {
   const x0 = cx - (w * T) / 2, z0 = cz - (d * T) / 2;
-  for (let i = 0; i < w; i++) for (let j = 0; j < d; j++) put(floor, x0 + T / 2 + i * T, z0 + T / 2 + j * T);
-  for (let i = 0; i < w; i++) put(windows && i % 2 ? 'wall_window_open' : 'wall', x0 + T / 2 + i * T, z0 - 0.5);
-  for (let j = 0; j < d; j++) { put('wall', x0 - 0.5, z0 + T / 2 + j * T, { ry: Math.PI / 2 }); put('wall', x0 + w * T + 0.5, z0 + T / 2 + j * T, { ry: Math.PI / 2 }); }
-  put('wall_corner', x0 - 0.5, z0 - 0.5); put('wall_corner', x0 + w * T + 0.5, z0 - 0.5);
+  for (let i = 0; i < w; i++) for (let j = 0; j < d; j++) put(floor, x0 + T / 2 + i * T, z0 + T / 2 + j * T, { tint });
+  for (let i = 0; i < w; i++) put(windows && i % 2 ? 'wall_window_open' : 'wall', x0 + T / 2 + i * T, z0 - 0.5, { tint });
+  for (let j = 0; j < d; j++) { put('wall', x0 - 0.5, z0 + T / 2 + j * T, { ry: Math.PI / 2, tint }); put('wall', x0 + w * T + 0.5, z0 + T / 2 + j * T, { ry: Math.PI / 2, tint }); }
+  put('wall_corner', x0 - 0.5, z0 - 0.5, { tint }); put('wall_corner', x0 + w * T + 0.5, z0 - 0.5, { tint });
   // low front edge so the room reads as a room without hiding the inside
   const half = (w * T) / 2 - 2.2;
   boxMesh(half + 0.5, 0.7, 0.8, '#8d8a86', x0 - 0.5 + (half + 0.5) / 2, 0.35, z0 + d * T + 0.4);
@@ -111,6 +111,47 @@ function tavern() {
   addLight(cx, 4, r.z0 + 6, '#ffc890', 30, 20);
   INTERIORS.tavern = { name: 'The Sleepy Boar tavern', room: r, outside: null, exitTo: null, barkeep: { x: cx - 1, z: r.z0 + 1.8 } };
 }
+// The Ember Cave: Gagron the Hideous sleeps on a hoard at the back, between pools of lava.
+function cave() {
+  const cx = 420, cz = 0;
+  const r = room(cx, cz, 8, 9, 'floor_tile_large', { tint: '#8a7466' });
+  const rock = toon('#6e5a4c'), lava = new THREE.MeshBasicMaterial({ color: '#ff7a24', fog: false }), lavaHot = new THREE.MeshBasicMaterial({ color: '#ffd04a', fog: false });
+  // stalagmites and boulders around the edges
+  const spike = (x, z, h) => { const m = new THREE.Mesh(new THREE.ConeGeometry(0.6 + h * 0.18, h, 6)); m.position.set(x, h / 2, z); m.castShadow = true; registerMesh(m, rock); scene.add(m); colliders.push({ x, z, r: 0.7 + h * 0.12 }); };
+  const edgeSpots = [[r.x0 + 2, r.z0 + 3, 3.4], [r.x0 + 3.5, r.z0 + 12, 2.4], [r.x0 + 2, r.z0 + 22, 3], [r.x1 - 2, r.z0 + 4, 3.6], [r.x1 - 3, r.z0 + 14, 2.2], [r.x1 - 2, r.z0 + 25, 3.2], [r.x0 + 8, r.z0 + 2, 2.6], [r.x1 - 8, r.z0 + 2, 2.8]];
+  for (const [x, z, h] of edgeSpots) spike(x, z, h);
+  for (const [x, z, s] of [[r.x0 + 4, r.z1 - 5, 3], [r.x1 - 4, r.z1 - 6, 3.4], [r.x0 + 6, r.z0 + 7, 2.4]]) { const o = put(['rock_single_A', 'rock_single_B', 'rock_single_C'][Math.floor(s) % 3], x, z, { s, tint: '#7a6656' }); if (o) colliders.push({ x, z, r: s * 0.45 }); }
+  // lava pools (glowing; walking on them is fine, they're just very warm-looking)
+  for (const [x, z, w2, d2] of [[r.x0 + 6, r.z0 + 17, 5, 3], [r.x1 - 7, r.z0 + 9, 4, 3.5], [r.x1 - 6, r.z0 + 21, 3.5, 2.5]]) {
+    const m = new THREE.Mesh(new THREE.CircleGeometry(1, 24), lava); m.rotation.x = -Math.PI / 2; m.scale.set(w2, d2, 1); m.position.set(x, 0.08, z); m.layers.set(1); scene.add(m);
+    const m2 = new THREE.Mesh(new THREE.CircleGeometry(1, 24), lavaHot); m2.rotation.x = -Math.PI / 2; m2.scale.set(w2 * 0.55, d2 * 0.5, 1); m2.position.set(x, 0.09, z); m2.layers.set(1); scene.add(m2);
+    addLight(x, 1.5, z, '#ff7a30', 30, 12);
+    lavaPools.push(m2);
+  }
+  // Gagron's hoard
+  for (const sx of [-1, 0, 1]) put('coin_stack_large', cx + sx * 3, r.z0 + 3.5, { s: 1.6 });
+  put('chest_gold', cx - 5.5, r.z0 + 3, { ry: 0.4 }); put('chest_gold', cx + 5.5, r.z0 + 3.2, { ry: -0.5 });
+  colliders.push({ x: cx - 5.5, z: r.z0 + 3, r: 1.2 }, { x: cx + 5.5, z: r.z0 + 3.2, r: 1.2 });
+  for (const z of [r.z0 + 8, r.z0 + 20]) { put('torch_mounted', r.x0 + 0.1, z, { ry: Math.PI / 2 }); put('torch_mounted', r.x1 - 0.1, z, { ry: -Math.PI / 2 }); }
+  addLight(cx, 6, r.z0 + 8, '#ff9a50', 50, 26);
+  addLight(cx, 5, r.z1 - 6, '#ffb070', 30, 18);
+  INTERIORS.cave = { name: 'The Ember Cave', room: r, outside: { x: CAVE.x, z: CAVE.z + 2.6 }, exitTo: { x: CAVE.x, z: CAVE.z + 5.4 }, lair: { x: cx, z: r.z0 + 11 } };
+  caveMouth();
+}
+export const CAVE = { x: 62, z: -60 };
+export const lavaPools = [];
+// The way in, out in the valley: a rocky hill with a dark, glowing archway.
+function caveMouth() {
+  const { x, z } = CAVE;
+  const hill = put('mountain_C_grass', x, z - 12, { s: 6.5 });
+  if (hill) colliders.push({ x, z: z - 12, r: 6 });
+  for (const [dx, dz, s] of [[-4.6, -0.6, 3.2], [4.6, -0.4, 3.4], [-6.5, -3, 3.8], [6.8, -3.2, 3.6]]) { const o = put('rock_single_C', x + dx, z + dz, { s, ry: dx }); if (o) colliders.push({ x: x + dx, z: z + dz, r: s * 0.42 }); }
+  const archMat = toon('#7a6a5c');
+  const arch = new THREE.Mesh(new THREE.TorusGeometry(3.2, 0.85, 8, 20, Math.PI)); arch.position.set(x, 0, z - 0.6); arch.castShadow = true; registerMesh(arch, archMat); scene.add(arch);
+  const hole = new THREE.Mesh(new THREE.CircleGeometry(2.9, 24, 0, Math.PI), new THREE.MeshBasicMaterial({ color: '#160c08', fog: false })); hole.position.set(x, 0, z - 0.7); scene.add(hole);
+  const glow = new THREE.PointLight('#ff7a30', 18, 9, 1.5); glow.position.set(x, 1.4, z - 0.2); scene.add(glow);
+  colliders.push({ x: x - 3.1, z: z - 0.6, r: 0.9 }, { x: x + 3.1, z: z - 0.6, r: 0.9 }, { x, z: z - 1.6, r: 1.6 });
+}
 const rngPick = (v) => Math.abs(Math.sin(v * 12.9898)) > 0.5;
 
 function addLight(x, y, z, col, intensity, dist) {
@@ -120,10 +161,11 @@ function addLight(x, y, z, col, intensity, dist) {
 export function buildInteriors(library, doors) {
   lib = library;
   // darkness around the rooms
-  const dark = new THREE.Mesh(new THREE.PlaneGeometry(260, 120), new THREE.MeshBasicMaterial({ color: '#1c120c' }));
-  dark.rotation.x = -Math.PI / 2; dark.position.set(330, -0.08, 0); scene.add(dark);
+  const dark = new THREE.Mesh(new THREE.PlaneGeometry(320, 140), new THREE.MeshBasicMaterial({ color: '#1c120c' }));
+  dark.rotation.x = -Math.PI / 2; dark.position.set(360, -0.08, 0); scene.add(dark);
   castle();
   tavern();
+  cave();
   // where each building's front door is in the valley
   Object.assign(INTERIORS.tavern, doors.tavern);
 }

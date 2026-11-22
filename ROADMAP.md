@@ -2,8 +2,8 @@
 
 1. **Pick the look** (done): free KayKit models with storybook shading, ink outlines and warm lighting.
 2. **Playable single-player slice** (done, being polished): one hero with a level and stats, gear-based builds, gathering skills, combat, inventory, quests and story chapter 1.
-3. **Accounts and saving**: sign up and log in; character, skills, bag, quests and position saved online.
-4. **Shared world**: everyone online in the same persistent world, gathering, fighting and questing together.
+3. **Accounts and saving**: sign up and log in; character, skills, bag, bank, quests and position saved online. Adds a **wealth leaderboard** (richest players, counting bank and pocket coins).
+4. **Shared world**: everyone online in the same persistent world, gathering, fighting and questing together. PvP rule: when another player knocks you out, they pick ONE prize: 80% of the coins in your pocket, OR your weapon, OR your armour, OR two items from your bag.
 
 ## Design rules
 
@@ -12,6 +12,9 @@
 - **Stats:** Attack multiplies the weapon's base damage (×(1 + 0.1 × Attack)). Defense divides incoming damage (÷(1 + 0.1 × (Defense + shield + armour))). Health adds 6 max health per point (50 base). Defense and Health are tuned to be worth about the same, so neither is the obvious pick.
 - **Items have stats:** weapons have damage, reach/range and swing time; the weapon type decides how you fight (melee swing, magic bolt or crossbow shot). Shields and armour add Defense.
 - **Everything can be sold:** Marta buys anything in your bag, the smiths buy back spare gear. Monsters and bosses sometimes drop valuable treasures (silver rings, rubies, tiny golden crowns).
+- **Every weapon has a basic attack and a special (R):** swords Whirlwind, heavy weapons Ground Slam, magic Starburst, crossbows Volley. Specials hit an area and have a cooldown.
+- **Dash** left or right (Z / C, or double-tap A / D) to dodge attacks.
+- **Bank:** Penny the Banker keeps coins safe. When you are knocked out you drop half the coins in your pocket where you fell, and can go back for them.
 - Woodcutting, Mining and Fishing (and Speed) level by use and have no combat stats.
 - Free aim: actions are never locked onto a target. A swing, chop or shot hits whatever hitbox it reaches in the direction you face. Trees, rocks and monsters all have health bars.
 - One consistent art style. New models come from the KayKit family (or matching CC0 packs) and go through the same toon shading.
@@ -20,7 +23,7 @@
 
 After a hundred years of peace the Heartstone's seal broke and dark magic is back. The Dark King, working name Morgoth the Menacing (one constant, `DARK_KING`, in game.js), is fought only at the very end. The story is a long arc of bosses and minibosses before that.
 
-- Chapter 1, "The Seal Breaks" (built): King Jerrold, prove yourself, then win back three Heartstone shards from Bonecrusher, the Gloomcaster and Captain Rattlebones, in any order.
+- Chapter 1, "The Seal Breaks" (built): King Jerrold, prove yourself, defeat the first boss **Gagron the Hideous**, a fire dragon in the Ember Cave, then win back three Heartstone shards from Bonecrusher, the Gloomcaster and Captain Rattlebones, in any order.
 - Next: the fourth shard mystery in Honeymeadow, then more chapters, lands and bosses.
 - Every story quest should be shareable by a party once online play exists.
 - Side content stays separate so friends can play together any time.
@@ -36,7 +39,7 @@ Playing with friends
 Progression
 - Classes may come back later, built from items and levels (for example a Paladin unlock at level 20)
 - Gear that changes how your character looks
-- Character customisation. Done: outfit and cape colours, helmet/hat and cape toggles, six hair styles in eight colours. Next: face and eye options. These need new face art painted onto the model texture, because the free character models have their faces baked in
+- Character customisation. Done: outfit and cape colours, helmet/hat and cape toggles, hair styles, lengths and colours, skin tones, eye colours and styles, head size, elf ears. Next: more face options and a true chibi body (needs a free rigged chibi model)
 - Rare drops with silly names
 - Skill capes for maxing a skill
 

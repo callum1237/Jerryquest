@@ -2,7 +2,7 @@
 import { THREE, scene, camera, renderer, sun, sky, PRESETS, env, applyPreset, styled, setStyled, stylize, toon, registerMesh,
   loadModel, burst, updateParticles, render, rng } from './engine.js';
 import * as SkeletonUtils from 'three/addons/utils/SkeletonUtils.js';
-import { buildWorld, buildFlowers, place, colliders, clouds, dynamic, LAKE, CAMP, MINE, S_NATURE, blocked, isFree, ZONES, WORLD_R } from './world.js';
+import { buildWorld, buildFlowers, place, colliders, clouds, dynamic, LAKE, CAMP, MINE, S_NATURE, blocked, isFree, ZONES, WORLD_R, VS } from './world.js';
 import { ICONS } from './icons.js';
 import { buildInteriors, INTERIORS } from './interiors.js';
 
@@ -37,11 +37,19 @@ const STYLES = {
   ranged: { anim: '1H_Ranged_Shoot', hitAt: 0.22, proj: 'bolt' },
 };
 const STYLE_NAME = { melee: 'Melee', magic: 'Magic', ranged: 'Ranged' };
+// Every weapon also has a special attack (R, or the Special button): usually an area attack, on a cooldown.
+const SPECIALS = {
+  whirl: { name: 'Whirlwind', desc: 'Spin and hit everything around you', cd: 6, mult: 1.5 },
+  quake: { name: 'Ground Slam', desc: 'Leap and smash the ground in a wide ring', cd: 8, mult: 2.0 },
+  nova: { name: 'Starburst', desc: 'A magic circle bursts where you aim', cd: 7, mult: 1.8 },
+  volley: { name: 'Volley', desc: 'Fire a fan of five bolts', cd: 6, mult: 1.0 },
+};
+const specialOf = (w) => (w.type === 'magic' ? 'nova' : w.type === 'ranged' ? 'volley' : w.heavy ? 'quake' : 'whirl');
 const ITEMS = {
   logs: 'Logs', oak_logs: 'Oak logs', copper_ore: 'Copper ore', iron_ore: 'Iron ore', shrimp: 'Raw shrimp', trout: 'Raw trout', bones: 'Bones',
   bread: 'Bread', pie: 'Apple pie', stew: 'Hearty stew',
   bone_dust: 'Bone dust', dark_essence: 'Dark essence',
-  silver_ring: 'Silver ring', ruby: 'Ruby', golden_crown: 'Tiny golden crown',
+  dragon_scale: "Gagron's fire scale", silver_ring: 'Silver ring', ruby: 'Ruby', golden_crown: 'Tiny golden crown',
   lucky_sock: "Bonecrusher's lucky sock", gloom_hat: "Gloomcaster's droopy hat", rattle_tooth: "Rattlebones' gold tooth",
 };
 // Food heals; bought from Marta's stall in the market.
@@ -67,6 +75,7 @@ const WEAPONS = {
   // unique boss weapons: only from boss drops, never sold
   k_cleaver: { type: 'melee', name: "Bonecrusher's Cleaver", dmg: 15, reach: 3.4, cd: 1.2, price: 0, unique: true, model: 'axe_2handed', tint: '#ff9a7a', heavy: true },
   m_gloom: { type: 'magic', name: 'Gloomstaff', dmg: 15, reach: 14, cd: 1.0, price: 0, unique: true, model: 'staff', tint: '#b07aff' },
+  k_flame: { type: 'melee', name: "Gagron's Flamebrand", dmg: 14, reach: 3.0, cd: 0.9, price: 0, unique: true, model: 'sword_2handed_color', tint: '#ff8a3a', heavy: true },
   a_rattle: { type: 'ranged', name: "Rattlebones' Repeater", dmg: 12, reach: 14, cd: 0.55, price: 0, unique: true, model: 'crossbow_2handed', tint: '#9effa8' },
 };
 // Shields and armour add Defense on top of your Defense points.
@@ -85,14 +94,14 @@ const GEAR = { ...WEAPONS, ...ARMOUR };
 const gearValue = (g) => (g.unique ? 250 : Math.floor(g.price / 2));
 const gearIcon = (g) => (g.slot === 'weapon' ? ICONS[g.type] : ICONS[g.slot]);
 const gearStats = (g) => (g.slot === 'weapon'
-  ? `${g.dmg} dmg · ${g.type === 'melee' ? 'reach' : 'range'} ${g.reach} · ${g.cd}s`
+  ? `${g.dmg} dmg · ${g.type === 'melee' ? 'reach' : 'range'} ${g.reach} · ${g.cd}s · ${SPECIALS[specialOf(g)].name}`
   : `+${g.def} defense`);
 
 // Who drops what. Regular monsters roll this table; bosses always drop their trophy and may drop their weapon.
-const BOSS_WEAPON = { boss_crusher: 'k_cleaver', boss_gloom: 'm_gloom', boss_rattle: 'a_rattle' };
+const BOSS_WEAPON = { boss_gagron: 'k_flame', boss_crusher: 'k_cleaver', boss_gloom: 'm_gloom', boss_rattle: 'a_rattle' };
 const DARK_KING = 'Morgoth the Menacing'; // working name, change it here
 // Everything can be sold. Treasures (rings, rubies, crowns) are rare drops worth a lot.
-const SELL = { bread: 4, pie: 10, stew: 20, silver_ring: 40, ruby: 120, golden_crown: 400, bone_dust: 3, dark_essence: 15, lucky_sock: 60, gloom_hat: 60, rattle_tooth: 60, logs: 3, oak_logs: 6, copper_ore: 4, iron_ore: 8, shrimp: 3, trout: 8, bones: 2 };
+const SELL = { dragon_scale: 90, bread: 4, pie: 10, stew: 20, silver_ring: 40, ruby: 120, golden_crown: 400, bone_dust: 3, dark_essence: 15, lucky_sock: 60, gloom_hat: 60, rattle_tooth: 60, logs: 3, oak_logs: 6, copper_ore: 4, iron_ore: 8, shrimp: 3, trout: 8, bones: 2 };
 const NODES = {
   tree: { skill: 'woodcutting', req: 1, xp: 25, item: 'logs', name: 'Tree', verb: 'Chop', doing: 'Chopping', deplete: 0.3, respawn: 14 },
   oak: { skill: 'woodcutting', req: 5, xp: 40, item: 'oak_logs', name: 'Oak tree', verb: 'Chop', doing: 'Chopping', deplete: 0.22, respawn: 20 },
@@ -110,6 +119,8 @@ const ENEMY_TYPES = {
   // minibosses: big, tough, and every third attack is a giant slam you can see coming (jump or run!)
   boss_crusher: { name: 'Bonecrusher', model: 'skel_warrior', hp: 170, maxHit: 8, weapon: 'axe_2handed', xp: 800, boss: true, scale: 2.5, coins: [90, 150], drop: 'lucky_sock', slam: 5.5 },
   boss_gloom: { name: 'Gloomcaster', model: 'skel_mage', hp: 140, maxHit: 7, weapon: 'Skeleton_Staff', xp: 800, boss: true, scale: 2.3, coins: [90, 150], drop: 'gloom_hat', ranged: true, spread: true, slam: 4.5 },
+  // the first story boss: a fire dragon in a cave north-east of the castle. Breathes fire and rains fireballs.
+  boss_gagron: { name: 'Gagron the Hideous', model: 'dragon', hp: 260, maxHit: 7, xp: 900, boss: true, dragon: true, scale: 2.1, coins: [120, 200], drop: 'dragon_scale', inside: 'cave', noBones: true },
   boss_rattle: { name: 'Captain Rattlebones', model: 'skel_minion', hp: 150, maxHit: 7, weapon: 'Skeleton_Blade', xp: 800, boss: true, scale: 2.3, coins: [90, 150], drop: 'rattle_tooth', slam: 6 },
 };
 const QUESTS = {
@@ -149,36 +160,42 @@ Object.assign(QUESTS, {
     done: 'The Heartstone shattered into shards when the seal broke. Find them, hero.',
     need: { kills: 3 }, reward: { coins: 60, xp: { hero: 200 } }, desc: 'Defeat 3 skeletons, then return to King Jerrold.',
   },
+  st_dragon: {
+    story: true, chapter: 'Chapter 1', name: "Gagron's Lair", giver: 'king', after: ['st_1'], bossType: 'boss_gagron',
+    intro: `When the Heartstone broke, its biggest shard fell into the Ember Cave, north-east of the castle. Something woke up down there: Gagron the Hideous, a fire dragon, and he is guarding it. Watch the ground: when it glows, his fire is coming. Jump, dash or run!`,
+    ready: 'You beat Gagron and brought back the shard! It is warm as a hearth. The first piece of the seal is home.', done: 'The Ember shard glows on its stand. Gagron will sulk in his cave for a while.',
+    need: { boss: 1 }, reward: { coins: 200, xp: { hero: 700 } }, desc: 'Defeat Gagron the Hideous in the Ember Cave (north-east of the castle).',
+  },
   st_crags: {
-    story: true, chapter: 'Chapter 1', name: 'The Shard of the Crags', giver: 'king', after: ['st_1'], bossType: 'boss_crusher',
+    story: true, chapter: 'Chapter 1', name: 'The Shard of the Crags', giver: 'king', after: ['st_dragon'], bossType: 'boss_crusher',
     intro: `A shard of the Heartstone fell in the Grumble Crags, to the west. ${DARK_KING}'s brute, Bonecrusher, has claimed it. Defeat him and bring the shard home.`,
     ready: 'The Crags shard! It still glows. One piece of the seal, restored.', done: 'The Crags shard rests in the throne room, humming softly.',
     need: { boss: 1 }, reward: { coins: 150, xp: { hero: 500 } }, desc: 'Defeat Bonecrusher in the Grumble Crags (west).',
   },
   st_glimmer: {
-    story: true, chapter: 'Chapter 1', name: 'The Shard of Glimmerwood', giver: 'king', after: ['st_1'], bossType: 'boss_gloom',
+    story: true, chapter: 'Chapter 1', name: 'The Shard of Glimmerwood', giver: 'king', after: ['st_dragon'], bossType: 'boss_gloom',
     intro: `Another shard lies in Glimmerwood, to the east. The Gloomcaster, ${DARK_KING}'s sorcerer, drinks its light. Stop him before the whole forest goes grey.`,
     ready: 'The Glimmerwood shard! Feel how it sparkles. The seal grows stronger.', done: 'The Glimmerwood shard glitters beside its brother.',
     need: { boss: 1 }, reward: { coins: 150, xp: { hero: 500 } }, desc: 'Defeat the Gloomcaster in Glimmerwood (east).',
   },
   st_hollow: {
-    story: true, chapter: 'Chapter 1', name: 'The Shard of the Hollow', giver: 'king', after: ['st_1'], bossType: 'boss_rattle',
+    story: true, chapter: 'Chapter 1', name: 'The Shard of the Hollow', giver: 'king', after: ['st_dragon'], bossType: 'boss_rattle',
     intro: `The third shard sank into Haunted Hollow, north of the castle. Captain Rattlebones leads ${DARK_KING}'s restless dead there. Put him to rest, if only for a while.`,
     ready: 'The Hollow shard, cold as moonlight. Three of the pieces are home.', done: 'Three shards, safe. But the Heartstone is not whole...',
     need: { boss: 1 }, reward: { coins: 150, xp: { hero: 500 } }, desc: 'Defeat Captain Rattlebones in Haunted Hollow (north).',
   },
 });
-const storyOpen = (k) => (QUESTS[k].after || []).every((a) => S.quests[a] && S.quests[a].state === 'done');
+const storyOpen = (k) => (S.quests[k] && S.quests[k].state !== 'todo') || (QUESTS[k].after || []).every((a) => S.quests[a] && S.quests[a].state === 'done');
 const storyStep = () => Object.keys(QUESTS).filter((k) => QUESTS[k].story && storyOpen(k) && S.quests[k].state !== 'done');
 
 // ---------- saved state ----------
 const SAVE_KEY = 'jerryquest_save_v1';
 const fresh = () => ({
-  started: false, xp: Object.fromEntries(SKILLS.map(([k]) => [k, 0])), inv: {}, coins: 0,
+  started: false, bank: 0, xp: Object.fromEntries(SKILLS.map(([k]) => [k, 0])), inv: {}, coins: 0,
   hero: { xp: 0, alloc: { atk: 0, def: 0, hp: 0 } },
   quests: Object.fromEntries(Object.keys(QUESTS).map((k) => [k, { state: 'todo', kills: 0 }])),
   hp: 56, pos: [0, 6], preset: 'day',
-  look: { outfit: 'none', trim: 'none', hat: true, cape: true, hair: 'none', hairCol: 'chestnut' },
+  look: { outfit: 'none', trim: 'none', hat: false, cape: true, hair: 'hero', hairLen: 'short', hairCol: 'chestnut', skin: 'peach', eyes: 'brown', eyeStyle: 'round', head: 'normal', ears: 'human' },
   owned: ['k_sword', 'sh_badge', 'ar_cloth'], equip: { weapon: 'k_sword', shield: 'sh_badge', armour: 'ar_cloth' },
 });
 let S = fresh();
@@ -267,7 +284,7 @@ class Actor {
     this.mixer.addEventListener('finished', (e) => { if (e.action === this.current && this.onFinish) { const f = this.onFinish; this.onFinish = null; f(); } });
   }
   play(name, { once = false, fade = 0.18, speed = 1, clamp = false, onFinish = null } = {}) {
-    const clip = this.clips[name];
+    const clip = this.clips[name] || (this.alias && this.clips[this.alias[name]]);
     if (!clip) return 0;
     const a = this.mixer.clipAction(clip);
     if (this.current === a && !once) return clip.duration;
@@ -293,7 +310,7 @@ const nodes = [];
 let tool = null, rod = null, pick = null;
 
 // ---------- boot ----------
-const FILES = ['world', 'gear', 'interior', 'knight', 'mage', 'archer', 'barbarian', 'skel_warrior', 'skel_minion', 'skel_mage'];
+const FILES = ['world', 'gear', 'interior', 'dragon', 'knight', 'mage', 'archer', 'barbarian', 'skel_warrior', 'skel_minion', 'skel_mage'];
 async function main() {
   let n = 0;
   const loaded = await Promise.all(FILES.map((f) => loadModel(f).then((g) => { $('loadmsg').textContent = `${++n} of ${FILES.length} models`; return g; })));
@@ -302,7 +319,8 @@ async function main() {
   for (const c of G.gear.scene.children) lib[c.name] = c;
   for (const c of G.interior.scene.children) lib[c.name] = c;
   buildWorld(lib);
-  buildInteriors(lib, { tavern: { outside: { x: -4.0, z: -12.3 }, exitTo: { x: -3.4, z: -9.4 } } });
+  // the tavern door sits in front of the tavern, which moved out with the rest of the village
+  buildInteriors(lib, { tavern: { outside: { x: -4.0 * VS, z: -17 * VS + 4.7 }, exitTo: { x: -4.0 * VS + 0.6, z: -17 * VS + 7.6 } } });
   buildDoors();
   buildChests();
   buildNodes();
@@ -363,12 +381,24 @@ const HAIR_COLOURS = {
   chestnut: ['Chestnut', '#8a4f2a'], black: ['Black', '#2e2630'], blonde: ['Blonde', '#f2c75c'], ginger: ['Ginger', '#e0742f'],
   snow: ['Snow', '#f1ece4'], pink: ['Pink', '#ff8fc8'], blue: ['Blue', '#5f9ef0'], green: ['Green', '#66c46a'],
 };
-const HAIR_STYLES = { none: 'None', short: 'Short', spiky: 'Spiky', long: 'Long', bun: 'Bun', mohawk: 'Mohawk' };
+const HAIR_STYLES = { none: 'Bald', short: 'Neat', spiky: 'Spiky', hero: 'Hero spikes', swept: 'Swept fringe', bun: 'Top bun', mohawk: 'Mohawk', long: 'Ponytail' };
+const HAIR_LENGTHS = { short: 'Short', shoulder: 'Shoulder', long: 'Long', vlong: 'Very long' };
+const SKIN_TONES = {
+  porcelain: ['Porcelain', '#ffe9dc'], peach: ['Peach', '#f9cfb0'], honey: ['Honey', '#e7b085'], tan: ['Tan', '#c98d5e'],
+  bronze: ['Bronze', '#b37548'], umber: ['Umber', '#93603d'], ebony: ['Ebony', '#74493a'], green: ['Orc green', '#8fc46a'], blue: ['Frost blue', '#9cc8ec'],
+};
+const EYE_COLOURS = {
+  brown: ['Brown', '#8a5228'], hazel: ['Hazel', '#a88a3a'], blue: ['Blue', '#3d8fe0'], sky: ['Sky', '#7fd0ff'], green: ['Green', '#3fae4a'],
+  emerald: ['Emerald', '#1fd18a'], violet: ['Violet', '#9a5ff0'], red: ['Red', '#e0393f'], gold: ['Gold', '#f2b51c'], grey: ['Grey', '#8a96a8'],
+};
+const EYE_STYLES = { round: 'Big and round', sharp: 'Determined', sleepy: 'Sleepy', happy: 'Happy', classic: 'Little dots' };
+const HEAD_SIZES = { normal: ['Normal', 1], big: ['Big', 1.15], chibi: ['Chibi', 1.3] };
 const hairMats = toon('#8a4f2a');
 for (const mat of [hairMats.std, hairMats.toon]) { mat.stencilWrite = true; mat.stencilRef = 1; mat.stencilFunc = THREE.AlwaysStencilFunc; mat.stencilZPass = THREE.ReplaceStencilOp; }
 const hairCache = new Map();
-function hairGroup(style) {
-  if (hairCache.has(style)) return hairCache.get(style);
+function hairGroup(style, len = 'short') {
+  const key = `${style}|${len}`;
+  if (hairCache.has(key)) return hairCache.get(key);
   const g = new THREE.Group();
   const add = (geo, x, y, z, rx = 0, ry = 0, rz = 0, sx = 1, sy = 1, sz = 1) => {
     const m = new THREE.Mesh(geo); m.position.set(x, y, z); m.rotation.set(rx, ry, rz); m.scale.set(sx, sy, sz);
@@ -394,19 +424,168 @@ function hairGroup(style) {
   if (style === 'mohawk') {
     for (let i = 0; i < 5; i++) add(new THREE.ConeGeometry(0.13, 0.5, 5), 0, HAIR_Y + HAIR_R * 0.82 - Math.abs(i - 1.5) * 0.06, 0.32 - i * 0.2, -0.35 + i * 0.18, 0, 0, 1, 1, 1.6);
   }
-  hairCache.set(style, g);
+  if (style === 'hero') {
+    // big anime spikes sweeping up and back, with a fringe over the forehead
+    cap();
+    const spikes = [[0, 0.95, 0.15, -0.5, 0, 0.62], [0.32, 0.85, 0.05, -0.7, 0, -0.6], [-0.32, 0.85, 0.05, -0.7, 0, 0.6], [0.18, 0.9, -0.3, -1.2, 0, -0.35], [-0.18, 0.9, -0.3, -1.2, 0, 0.35],
+      [0.45, 0.6, -0.15, -0.5, 0, -1.1], [-0.45, 0.6, -0.15, -0.5, 0, 1.1], [0, 0.75, -0.48, -1.7, 0, 0]];
+    for (const [x, y, z, rx, ry, rz] of spikes) add(new THREE.ConeGeometry(0.2, 0.62, 5), x * HAIR_R * 1.6, HAIR_Y + y * HAIR_R * 0.85, z * HAIR_R * 1.6, rx, ry, rz);
+    for (let i = 0; i < 4; i++) add(new THREE.ConeGeometry(0.11, 0.36, 4), (i - 1.5) * 0.17, HAIR_Y + HAIR_R * 0.42, HAIR_R * 0.98, 2.3, 0, (i - 1.5) * 0.25);
+  }
+  if (style === 'swept') {
+    cap();
+    add(new THREE.SphereGeometry(0.3, 14, 10), HAIR_R * 0.35, HAIR_Y + HAIR_R * 0.5, HAIR_R * 0.62, 0.3, 0, -0.5, 1.5, 0.55, 0.8);
+    add(new THREE.ConeGeometry(0.14, 0.5, 5), HAIR_R * 0.72, HAIR_Y + HAIR_R * 0.05, HAIR_R * 0.72, 2.7, 0, 0.4);
+  }
+  // hair length: a fall of hair down the back, from collar-length to very long
+  const LEN = { short: 0, shoulder: 0.55, long: 1.0, vlong: 1.5 }[len] || 0;
+  if (LEN && style !== 'none' && style !== 'mohawk' && style !== 'long') {
+    add(new THREE.CapsuleGeometry(0.34, 0.3 + LEN * 0.5, 4, 12), 0, HAIR_Y - 0.15 - LEN * 0.3, -HAIR_R * 0.72, 0.12, 0, 0, 1.85, 1, 0.7);
+    for (const sx of [-1, 1]) add(new THREE.CapsuleGeometry(0.075, 0.18 + LEN * 0.3, 4, 8), sx * HAIR_R * 1.0, HAIR_Y - 0.14 - LEN * 0.16, HAIR_R * 0.05, 0, 0, sx * 0.06, 1, 1, 0.8);
+  }
+  hairCache.set(key, g);
   return g;
 }
 const HAIR_Y = 0.62, HAIR_R = 0.56;
+
+// ---------- face, skin, head size, ears ----------
+// The hero's head texture is painted on a canvas per hero: skin is recoloured to the chosen tone,
+// and the original dot eyes are painted over so new anime eyes (with iris colour) can sit on top.
+function headParts() {
+  if (player.headInfo) return player.headInfo;
+  let head = null, bone = null;
+  player.root.traverse((o) => { if (o.isSkinnedMesh && /_Head$/.test(o.name)) head = o; if (o.isBone && o.name === 'head') bone = o; });
+  if (!head || !bone) return null;
+  player.root.updateMatrixWorld(true);
+  const inv = bone.matrixWorld.clone().invert(), v = new THREE.Vector3();
+  const pos = head.geometry.attributes.position, uv = head.geometry.attributes.uv;
+  const box = new THREE.Box3(), eyes = { L: new THREE.Box3(), R: new THREE.Box3() };
+  for (let i = 0; i < pos.count; i++) {
+    v.fromBufferAttribute(pos, i); head.applyBoneTransform(i, v); v.applyMatrix4(head.matrixWorld).applyMatrix4(inv);
+    box.expandByPoint(v);
+    if (uv.getX(i) > 0.29) eyes[v.x < 0 ? 'L' : 'R'].expandByPoint(v);
+  }
+  player.headInfo = { head, bone, box, eyes };
+  return player.headInfo;
+}
+let skinTex = null, skinKey = '';
+function paintSkin(head, skin, blankEyes) {
+  const key = `${skin}|${blankEyes}`;
+  const m = head.userData.mats, src = (m.std.userData.origMap || m.std.map);
+  if (!src || !src.image || !src.image.width) { later(0.5, () => applyLook()); return; }
+  m.std.userData.origMap = src;
+  if (key !== skinKey) {
+    const img = src.image, cv = document.createElement('canvas'); cv.width = img.width; cv.height = img.height;
+    const g = cv.getContext('2d'); g.drawImage(img, 0, 0);
+    const W = img.width, H = img.height, x1 = Math.round(W * 0.25), x2 = Math.round(W * 0.36), y2 = Math.round(H * 0.22);
+    const d = g.getImageData(0, 0, x2, y2), px = d.data;
+    // average colour of the main skin swatch, so each pixel keeps its shading but takes the new tone
+    let ar = 0, ag = 0, ab = 0, an = 0;
+    for (let y = 0; y < y2; y++) for (let x = 0; x < W * 0.12; x++) { const i = (y * x2 + x) * 4; ar += px[i]; ag += px[i + 1]; ab += px[i + 2]; an++; }
+    ar /= an; ag /= an; ab /= an;
+    const c = new THREE.Color(SKIN_TONES[skin][1]), tr = c.r * 255, tg = c.g * 255, tb = c.b * 255;
+    for (let y = 0; y < y2; y++) for (let x = 0; x < x2; x++) {
+      const i = (y * x2 + x) * 4;
+      if (x >= x1 && !blankEyes) continue;
+      if (x >= x1) { px[i] = tr; px[i + 1] = tg; px[i + 2] = tb; continue; }
+      px[i] = Math.min(255, px[i] * tr / ar); px[i + 1] = Math.min(255, px[i + 1] * tg / ag); px[i + 2] = Math.min(255, px[i + 2] * tb / ab);
+    }
+    g.putImageData(d, 0, 0);
+    if (skinTex) skinTex.dispose();
+    skinTex = new THREE.CanvasTexture(cv); skinTex.flipY = src.flipY; skinTex.colorSpace = src.colorSpace; skinTex.wrapS = src.wrapS; skinTex.wrapT = src.wrapT;
+    skinKey = key;
+  }
+  for (const mat of [m.std, m.toon]) { mat.map = skinTex; mat.needsUpdate = true; }
+}
+const eyeTexCache = new Map();
+function eyeTexture(style, eyeCol, browCol, flip) {
+  const key = [style, eyeCol, browCol, flip, S.look.skin].join('|');
+  if (eyeTexCache.has(key)) return eyeTexCache.get(key);
+  const cv = document.createElement('canvas'); cv.width = 128; cv.height = 176;
+  const g = cv.getContext('2d');
+  if (flip) { g.translate(128, 0); g.scale(-1, 1); }
+  const ink = '#2a1810';
+  // eyebrow, in the hair colour (outer end is on the right of this canvas)
+  g.lineCap = 'round'; g.strokeStyle = browCol; g.lineWidth = 13;
+  g.beginPath();
+  if (style === 'sharp') { g.moveTo(18, 52); g.lineTo(112, 26); } else if (style === 'sleepy') { g.moveTo(18, 40); g.quadraticCurveTo(64, 30, 110, 42); } else { g.moveTo(18, 38); g.quadraticCurveTo(64, 14, 112, 34); }
+  g.stroke();
+  if (style === 'happy') {
+    g.strokeStyle = ink; g.lineWidth = 15; g.beginPath(); g.moveTo(18, 120); g.quadraticCurveTo(64, 64, 110, 120); g.stroke();
+  } else {
+    const cy = 116, rx = 44, ry = style === 'sleepy' ? 40 : 52;
+    g.save();
+    g.beginPath(); g.ellipse(64, cy, rx, ry, 0, 0, Math.PI * 2);
+    if (style === 'sharp') { g.rect(0, 0, 0, 0); }
+    g.clip();
+    g.fillStyle = '#ffffff'; g.fillRect(0, 0, 128, 176);
+    const grad = g.createLinearGradient(0, cy - 40, 0, cy + 40);
+    const col = new THREE.Color(eyeCol);
+    grad.addColorStop(0, `#${col.clone().multiplyScalar(0.45).getHexString()}`); grad.addColorStop(0.55, eyeCol); grad.addColorStop(1, `#${col.clone().lerp(new THREE.Color('#ffffff'), 0.45).getHexString()}`);
+    g.fillStyle = grad; g.beginPath(); g.arc(64, cy + 6, 38, 0, Math.PI * 2); g.fill();
+    g.fillStyle = ink; g.beginPath(); g.arc(64, cy + 6, 15, 0, Math.PI * 2); g.fill();
+    g.fillStyle = '#ffffff'; g.beginPath(); g.arc(48, cy - 12, 11, 0, Math.PI * 2); g.fill(); g.beginPath(); g.arc(80, cy + 22, 5.5, 0, Math.PI * 2); g.fill();
+    // lids: determined eyes are cut by a slanted lid, sleepy ones are half closed
+    g.fillStyle = `#${new THREE.Color((SKIN_TONES[S.look.skin] || SKIN_TONES.peach)[1]).multiplyScalar(0.82).getHexString()}`;
+    if (style === 'sharp') { g.beginPath(); g.moveTo(0, 0); g.lineTo(128, 0); g.lineTo(128, 62); g.lineTo(0, 98); g.closePath(); g.fill(); }
+    if (style === 'sleepy') { g.fillRect(0, 0, 128, cy - 6); }
+    g.restore();
+    // thick upper lash line with a little flick at the outer corner
+    g.strokeStyle = ink; g.lineWidth = 11; g.beginPath();
+    if (style === 'sharp') { g.moveTo(18, 98); g.lineTo(112, 64); g.lineTo(122, 56); }
+    else if (style === 'sleepy') { g.moveTo(20, cy - 6); g.lineTo(108, cy - 6); g.lineTo(118, cy - 12); }
+    else { g.ellipse(64, cy, rx, ry, 0, Math.PI * 1.08, Math.PI * 1.95); g.lineTo(122, cy - 30); }
+    g.stroke();
+    g.lineWidth = 4; g.beginPath(); g.ellipse(64, cy, rx, ry, 0, Math.PI * 0.2, Math.PI * 0.8); g.stroke();
+  }
+  const t = new THREE.CanvasTexture(cv); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 4;
+  eyeTexCache.set(key, t);
+  return t;
+}
+const earGeo = new THREE.ConeGeometry(0.16, 0.62, 4);
+function buildFace() {
+  const H = headParts();
+  if (!H) return;
+  const L = S.look;
+  if (player.faceGroup) { player.faceGroup.removeFromParent(); player.faceGroup.traverse((o) => { if (o.material && o.material.dispose) o.material.dispose(); }); }
+  const fg = new THREE.Group(); player.faceGroup = fg; H.bone.add(fg);
+  paintSkin(H.head, L.skin, L.eyeStyle !== 'classic');
+  const hc = (HAIR_COLOURS[L.hairCol] || HAIR_COLOURS.chestnut)[1];
+  if (L.eyeStyle !== 'classic' && !L.hat) {
+    for (const side of ['L', 'R']) {
+      const b = H.eyes[side]; if (b.isEmpty()) continue;
+      const c = b.getCenter(new THREE.Vector3()), sz = b.getSize(new THREE.Vector3());
+      const w = Math.max(sz.x, sz.y) * 2.5;
+      const m = new THREE.Mesh(new THREE.PlaneGeometry(w, w * 1.375), new THREE.MeshBasicMaterial({ map: eyeTexture(L.eyeStyle, EYE_COLOURS[L.eyes][1], hc, side === 'L'), transparent: true, alphaTest: 0.3, depthWrite: false, fog: false, polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -4 }));
+      m.position.set(c.x + (side === 'L' ? -1 : 1) * w * 0.06, c.y + w * 0.12, b.max.z + 0.012);
+      m.rotation.y = (side === 'L' ? -1 : 1) * 0.22;
+      m.renderOrder = 2; m.layers.set(1);
+      fg.add(m);
+    }
+  }
+  if (L.ears === 'elf') {
+    const skinMat = toon(SKIN_TONES[L.skin][1]);
+    const cy = (H.box.min.y + H.box.max.y) / 2, cz = (H.box.min.z + H.box.max.z) / 2;
+    for (const sx of [-1, 1]) {
+      const e = new THREE.Mesh(earGeo); registerMesh(e, skinMat); e.castShadow = true;
+      e.position.set(sx * (H.box.max.x + 0.12), cy + 0.05, cz - 0.05); e.rotation.set(-0.35, 0, -sx * 1.05); e.scale.set(1, 1, 0.45);
+      fg.add(e);
+    }
+  }
+  player.headScale = HEAD_SIZES[L.head] ? HEAD_SIZES[L.head][1] : 1;
+}
 function applyLook() {
   if (!player) return;
   const L = S.look;
   for (const g of hairCache.values()) g.removeFromParent();
   const hc = HAIR_COLOURS[L.hairCol] || HAIR_COLOURS.chestnut;
-  hairMats.std.color.set(hc[1]); hairMats.toon.color.set(hc[1]);
+  // a touch darker than the swatch so sunlight doesn't bleach the top of the hair
+  const hcol = new THREE.Color(hc[1]).multiplyScalar(0.72);
+  hairMats.std.color.copy(hcol); hairMats.toon.color.copy(hcol);
   const showHair = L.hair !== 'none' && !L.hat;
   const arm = ARMOUR[S.equip.armour] || ARMOUR.ar_cloth;
-  if (showHair) { let head; player.root.traverse((o) => { if (o.isBone && o.name === 'head') head = o; }); if (head) head.add(hairGroup(L.hair)); }
+  if (showHair) { let head; player.root.traverse((o) => { if (o.isBone && o.name === 'head') head = o; }); if (head) head.add(hairGroup(L.hair, L.hairLen)); }
+  buildFace();
   player.root.traverse((o) => {
     if (!o.isMesh || !o.userData.mats) return;
     const n = o.name;
@@ -490,7 +669,7 @@ function buildNodes() {
     cut.visible = false;
     nodes.push(hpNode({ kind, def: NODES[kind], x, z, full, cut, alive: true, respawnAt: 0, reach: 2.6, r: 1.1 }));
   };
-  for (let i = 0; i < 80 && nodes.length < 18; i++) { const a = rng() * Math.PI * 2, r = 16 + rng() * 20; addTree(Math.cos(a) * r, Math.sin(a) * r, 'tree'); }
+  for (let i = 0; i < 80 && nodes.length < 18; i++) { const a = rng() * Math.PI * 2, r = 18 + rng() * 24; addTree(Math.cos(a) * r, Math.sin(a) * r, 'tree'); }
   for (let i = 0; i < 60 && nodes.filter((n) => n.kind === 'oak').length < 8; i++) addTree(6 + rng() * 26, 30 + rng() * 14, 'oak');
 
   const addRock = (x, z, kind) => {
@@ -576,27 +755,28 @@ function makeCrown() {
 }
 function buildNpcs() {
   const defs = [
-    { id: 'bertha', name: 'Bertha the Innkeeper', model: 'barbarian', x: -7.2, z: -11, hide: [] },
-    { id: 'rowan', name: 'Captain Rowan', model: 'knight', x: 12, z: -18, hide: [] },
-    { id: 'fenwick', name: 'Old Fenwick', model: 'mage', x: 15, z: -4.5, hide: [] },
-    { id: 'marta', name: 'Marta the Baker', model: 'barbarian', x: 7.5, z: 10.2, hide: [], shop: 'food', tint: '#bfe3ff' },
-    { id: 'brom', name: 'Brom the Blacksmith', model: 'barbarian', x: 5.5, z: -19.8, hide: [], shop: 'melee', tint: '#ffb38a' },
-    { id: 'wisteria', name: 'Madame Wisteria', model: 'mage', x: 18.4, z: -21.6, hide: [], shop: 'magic', tint: '#f0b0ff' },
-    { id: 'hazel', name: 'Hazel the Fletcher', model: 'archer', x: -22, z: 10.5, hide: [], shop: 'ranged', tint: '#d8f0a0' },
+    { id: 'bertha', name: 'Bertha the Innkeeper', model: 'barbarian', x: -7.2 * VS, z: -11 * VS, hide: [] },
+    { id: 'rowan', name: 'Captain Rowan', model: 'knight', x: 12 * VS, z: -18 * VS, hide: [] },
+    { id: 'fenwick', name: 'Old Fenwick', model: 'mage', x: 15 * VS, z: -4.5 * VS, hide: [] },
+    { id: 'marta', name: 'Marta the Baker', model: 'barbarian', x: 7.5 * VS, z: 10.2 * VS, hide: [], shop: 'food', tint: '#bfe3ff' },
+    { id: 'brom', name: 'Brom the Blacksmith', model: 'barbarian', x: 5.5 * VS, z: -19.8 * VS, hide: [], shop: 'melee', tint: '#ffb38a' },
+    { id: 'wisteria', name: 'Madame Wisteria', model: 'mage', x: 18.4 * VS, z: -21.6 * VS, hide: [], shop: 'magic', tint: '#f0b0ff' },
+    { id: 'hazel', name: 'Hazel the Fletcher', model: 'archer', x: -22 * VS, z: 10.5 * VS, hide: [], shop: 'ranged', tint: '#d8f0a0' },
     { id: 'king', name: 'King Jerrold', model: 'knight', x: INTERIORS.castle.king.x, z: INTERIORS.castle.king.z, hide: ['Knight_Helmet'], king: true, tint: '#b98cff', inside: 'castle' },
     ...INTERIORS.castle.guards.map(([x, z], i) => ({ id: `guard${i}`, name: 'Royal Guard', model: 'knight', x, z, hide: [], inside: 'castle', tint: '#8fb8ff',
       lines: ['Long live King Jerrold!', 'The King grants a new calling to any hero who asks.', 'Mind the carpet. The King had it cleaned this morning.'] })),
     { id: 'giles', name: 'Farmer Giles', model: 'barbarian', x: ZONES.meadow.x + 3, z: ZONES.meadow.z + 5, hide: [], tint: '#d8c070' },
     { id: 'pip', name: 'Granny Pip', model: 'mage', x: ZONES.meadow.x - 6, z: ZONES.meadow.z + 1, hide: [], tint: '#ffc0d8',
       lines: ['Back in my day, skeletons said please before they stabbed you.', 'Have you tried my apple pie? Marta in the village sells it. I taught her!', 'The windmill squeaks a little song at night. Listen closely.'] },
-    { id: 'crier', name: 'Bertram the Town Crier', model: 'knight', x: -6, z: 5, hide: ['Knight_Helmet'], tint: '#ffd08a',
-      lines: ['Hear ye! Four lands lie beyond the woods: Glimmerwood to the east, Grumble Crags to the west, Honeymeadow to the south and Haunted Hollow to the north!', 'Hear ye! Each land has a fearsome boss. Watch for the red glow on the ground and get out of the way!', 'Hear ye! Hold Shift to sprint. Press M for the map. That is all. Hear ye!'] },
+    { id: 'crier', name: 'Bertram the Town Crier', model: 'knight', x: -6 * VS, z: 5 * VS, hide: ['Knight_Helmet'], tint: '#ffd08a',
+      lines: ['Hear ye! Four lands lie beyond the woods: Glimmerwood to the east, Grumble Crags to the west, Honeymeadow to the south and Haunted Hollow to the north!', 'Hear ye! Each land has a fearsome boss. Watch for the red glow on the ground and get out of the way!', 'Hear ye! Hold Shift to sprint, press Z or C (or tap A or D twice) to dash, R for your special attack, and M for the map. Hear ye!', 'Hear ye! Coins in the bank are safe. Coins in your pocket? Half of them fall out when you get knocked out!'] },
     { id: 'lumi', name: 'Lumi the Wisp-keeper', model: 'mage', x: ZONES.glimmer.x - 14, z: ZONES.glimmer.z + 4, hide: [], tint: '#9ff0ff',
       lines: ['The Gloomcaster stole the colour from half my mushrooms. The rest glow twice as bright out of spite!', 'Glimmerwood hums at night. Can you hear it? No? Try humming back.'] },
     { id: 'dot', name: 'Prospector Dot', model: 'archer', x: ZONES.crags.x + 15, z: ZONES.crags.z + 4, hide: [], tint: '#e8b080',
       lines: ['Bonecrusher sleeps in the middle of the Crags. Well, "sleeps". Mostly he stomps.', 'When the ground glows red, jump! I learned that one the hard way. Twice.'] },
     { id: 'mort', name: 'Gravekeeper Mort', model: 'barbarian', x: ZONES.hollow.x + 12, z: ZONES.hollow.z + 12, hide: [], tint: '#a8a8c0',
       lines: ['Captain Rattlebones keeps getting up. I keep putting him down. It is a living. Well. Sort of.', 'Do not mind the gravestones. Most of them are empty. Most.'] },
+    { id: 'penny', name: 'Penny the Banker', model: 'mage', x: -3 * VS, z: 13.5 * VS, hide: [], bank: true, tint: '#ffe08a' },
     { id: 'tom', name: 'Old Tom the Barkeep', model: 'barbarian', x: INTERIORS.tavern.barkeep.x, z: INTERIORS.tavern.barkeep.z, hide: [], shop: 'food', tint: '#e8c89a', inside: 'tavern', face: 'south' },
   ];
   for (const d of defs) {
@@ -624,7 +804,9 @@ const npcIdle = (n) => n.actor.play(n.id === 'fenwick' ? 'Spellcasting' : 'Idle'
 function spawnEnemy(k, x, z) {
   const T = ENEMY_TYPES[k];
   const e = new Actor(G[T.model || k], { scale: T.scale || 1.3 });
-  const w = lib[T.weapon].clone(true); stylize(w); e.attach(w);
+  if (T.weapon) { const w = lib[T.weapon].clone(true); stylize(w); e.attach(w); }
+  if (T.dragon) e.alias = { Idle: 'Flying_Idle', Idle_Combat: 'Flying_Idle', Running_A: 'Fast_Flying', Walking_A: 'Flying_Idle', Hit_A: 'HitReact', Death_A: 'Death', '1H_Melee_Attack_Chop': 'Headbutt', Spellcast_Shoot: 'Punch', Spellcasting: 'Yes', '2H_Melee_Attack_Chop': 'Punch' };
+  e.inside = T.inside || 'out';
   e.type = k; e.T = T; e.home = new THREE.Vector2(x, z);
   e.root.position.set(x, 0, z); e.root.rotation.y = rng() * 6;
   e.hp = T.hp; e.state = 'idle'; e.timer = rng() * 3; e.target = new THREE.Vector2(); e.nextHit = 0; e.swings = 0;
@@ -644,6 +826,7 @@ function buildEnemies() {
   spawnEnemy('boss_crusher', ZONES.crags.x, ZONES.crags.z);
   spawnEnemy('boss_gloom', ZONES.glimmer.x + 4, ZONES.glimmer.z);
   spawnEnemy('boss_rattle', ZONES.hollow.x, ZONES.hollow.z + 2);
+  spawnEnemy('boss_gagron', INTERIORS.cave.lair.x, INTERIORS.cave.lair.z);
 }
 
 // ---------- inventory, xp, quests ----------
@@ -728,7 +911,7 @@ function floatText(p, text, cls = '') {
 const npcName = (id) => npcs.find((n) => n.id === id).name;
 function bossUi() {
   if (!player) return;
-  const b = where === 'out' && $('sheet').hidden ? enemies.find((e) => e.T.boss && e.hp > 0 && (e.state === 'chase' || e.state === 'slam') && Math.hypot(e.pos.x - player.pos.x, e.pos.z - player.pos.z) < 32) : null;
+  const b = $('sheet').hidden ? enemies.find((e) => e.T.boss && e.inside === where && e.hp > 0 && (e.state === 'chase' || e.state === 'slam') && Math.hypot(e.pos.x - player.pos.x, e.pos.z - player.pos.z) < 32) : null;
   const bar = $('bossbar');
   bar.hidden = !b;
   if (b) { $('bossname').textContent = b.T.name; $('bossfill').style.width = `${(b.hp / b.T.hp) * 100}%`; }
@@ -737,7 +920,7 @@ let zoneNow = null;
 function zoneBanner() {
   if (!player || where !== 'out') return;
   const z = Object.values(ZONES).find((Z) => Math.hypot(player.pos.x - Z.x, player.pos.z - Z.z) < Z.r + 4);
-  const name = z ? z.name : Math.hypot(player.pos.x, player.pos.z) < 40 ? 'Jerry Village' : Math.hypot(player.pos.x - 4, player.pos.z + 64) < 28 ? 'Castle grounds' : null;
+  const name = z ? z.name : Math.hypot(player.pos.x, player.pos.z) < 46 ? 'Jerry Village' : Math.hypot(player.pos.x - 4, player.pos.z + 64) < 28 ? 'Castle grounds' : null;
   if (name && name !== zoneNow) {
     const el = $('banner'); el.textContent = name; el.classList.remove('show'); void el.offsetWidth; el.classList.add('show');
   }
@@ -848,7 +1031,7 @@ function rollLoot(e) {
 }
 // ---------- treasure chests (open one and spin your luck!) ----------
 const chests = [];
-const CHEST_SPOTS = [[6, 26], [-30, 22], [36, -26], [-12, -38], [ZONES.glimmer.x + 10, ZONES.glimmer.z - 12], [ZONES.crags.x - 8, ZONES.crags.z + 14],
+const CHEST_SPOTS = [[6 * VS, 26 * VS], [-30 * VS, 22 * VS], [36 * VS, -26 * VS], [-12 * VS, -38 * VS], [ZONES.glimmer.x + 10, ZONES.glimmer.z - 12], [ZONES.crags.x - 8, ZONES.crags.z + 14],
   [ZONES.meadow.x - 16, ZONES.meadow.z + 12], [ZONES.hollow.x - 14, ZONES.hollow.z - 6], [70, 60], [-64, 70], [-70, -60], [66, -66]];
 function buildChests() {
   for (const [x, z] of CHEST_SPOTS) {
@@ -926,7 +1109,7 @@ function refreshUI() {
   const active = Object.keys(QUESTS).filter((k) => S.quests[k].state === 'active');
   $('tracker').innerHTML = active.map((k) => `<div><b>${QUESTS[k].name}</b><br>${questReady(k) ? `Return to ${npcName(QUESTS[k].giver)}` : questProgress(k)}</div>`).join('');
   for (const n of npcs) {
-    if (n.shop) { n.marker.userData.draw('$'); continue; }
+    if (n.shop || n.bank) { n.marker.userData.draw('$'); continue; }
     if (n.king) { const st = storyStep(); n.marker.userData.draw(st.some(questReady) ? '?' : st.some((q) => S.quests[q].state === 'todo') ? '!' : '♛'); continue; }
     if (n.lines) { n.marker.userData.draw(''); continue; }
     const qid = Object.keys(QUESTS).find((k) => QUESTS[k].giver === n.id && !QUESTS[k].story);
@@ -967,7 +1150,7 @@ function renderSheet() {
       const mine = S.owned.filter((k) => GEAR[k] && GEAR[k].slot === slot);
       return `<h4 class="sub">${title}</h4><div class="gearlist">${mine.map((k) => `<button class="gearbtn" data-gear="${k}" aria-pressed="${S.equip[slot] === k}"><b><img src="${gearIcon(GEAR[k])}" alt="">${GEAR[k].name}</b><span>${gearStats(GEAR[k])}${GEAR[k].unique ? ' · boss drop' : ''}</span></button>`).join('')}</div>`;
     };
-    el.innerHTML = `<h3>Bag <small>${S.coins} coins</small></h3><div class="bag">${slots.join('')}</div>
+    el.innerHTML = `<h3>Bag <small>${S.coins} coins${S.bank ? ` · ${S.bank} banked` : ''}</small></h3><div class="bag">${slots.join('')}</div>
       ${group('weapon', 'Weapons')}${group('shield', 'Shields')}${group('armour', 'Armour')}
       <p class="hint">Your weapon decides how you fight: swords up close, staffs and wands throw magic, crossbows shoot. Tap food to eat it and heal (or press H). Marta at the market buys anything in your bag, and the smiths buy back spare gear.</p>`;
     el.querySelectorAll('[data-eat]').forEach((b) => { b.onclick = () => eat(b.dataset.eat); });
@@ -982,19 +1165,26 @@ function renderSheet() {
     }).join('')}`;
   } else if (sheetMode === 'look') {
     const sw = (part, set = LOOK_COLOURS) => Object.entries(set).map(([k, [nm, c]]) => `<button class="swatch" data-part="${part}" data-col="${k}" title="${nm}" aria-label="${nm}" aria-pressed="${S.look[part] === k}" style="background:${c}"></button>`).join('');
+    const pick = (part, set) => Object.entries(set).map(([k, nm]) => `<button class="hairbtn" data-opt="${part}" data-val="${k}" aria-pressed="${S.look[part] === k}">${nm}</button>`).join('');
     const styles = Object.entries(HAIR_STYLES).map(([k, nm]) => `<button class="hairbtn" data-hair="${k}" aria-pressed="${S.look.hair === k}">${nm}</button>`).join('');
     el.innerHTML = `<h3>Look</h3><div class="look">
       <h4>Outfit colour</h4><div class="swatches">${sw('outfit')}</div>
       <h4>Cape colour</h4><div class="swatches">${sw('trim')}</div>
-      <h4>Hair</h4><div class="toggles">${styles}</div>
+      <h4>Skin tone</h4><div class="swatches">${sw('skin', SKIN_TONES)}</div>
+      <h4>Eyes</h4><div class="toggles">${pick('eyeStyle', EYE_STYLES)}</div>
+      <div class="swatches">${sw('eyes', EYE_COLOURS)}</div>
+      <h4>Hair style</h4><div class="toggles">${styles}</div>
+      <h4>Hair length</h4><div class="toggles">${pick('hairLen', HAIR_LENGTHS)}</div>
       <div class="swatches">${sw('hairCol', HAIR_COLOURS)}</div>
-      <p class="hint">${S.look.hat ? 'Take off your helmet to show your hair.' : ''}</p>
+      <h4>Head</h4><div class="toggles">${pick('head', Object.fromEntries(Object.entries(HEAD_SIZES).map(([k, v]) => [k, v[0]])))}${pick('ears', { human: 'Round ears', elf: 'Elf ears' })}</div>
+      <p class="hint">${S.look.hat ? 'Take off your helmet to show your face and hair.' : ''}</p>
       <h4>Show</h4><div class="toggles">
         <button id="l-hat" aria-pressed="${S.look.hat}">Helmet</button>
         <button id="l-cape" aria-pressed="${S.look.cape}">Cape</button></div>
-      <p class="hint">Armour changes the colour of your arms and legs. More outfits, faces, hats and gear are on the roadmap.</p></div>`;
-    el.querySelectorAll('.swatch').forEach((b) => { b.onclick = () => { S.look[b.dataset.part] = b.dataset.col; applyLook(); save(); renderSheet(); }; });
-    el.querySelectorAll('.hairbtn').forEach((b) => { b.onclick = () => { S.look.hair = b.dataset.hair; if (S.look.hair !== 'none') S.look.hat = false; applyLook(); save(); renderSheet(); }; });
+      <p class="hint">Armour changes the colour of your arms and legs. Your look belongs to your hero and other players will see it once online play arrives.</p></div>`;
+    el.querySelectorAll('.swatch').forEach((b) => { b.onclick = () => { S.look[b.dataset.part] = b.dataset.col; if (['skin', 'eyes', 'hairCol'].includes(b.dataset.part)) S.look.hat = false; applyLook(); save(); renderSheet(); }; });
+    el.querySelectorAll('[data-hair]').forEach((b) => { b.onclick = () => { S.look.hair = b.dataset.hair; if (S.look.hair !== 'none') S.look.hat = false; applyLook(); save(); renderSheet(); }; });
+    el.querySelectorAll('[data-opt]').forEach((b) => { b.onclick = () => { S.look[b.dataset.opt] = b.dataset.val; S.look.hat = false; applyLook(); save(); renderSheet(); }; });
     $('l-hat').onclick = () => { S.look.hat = !S.look.hat; applyLook(); save(); renderSheet(); };
     $('l-cape').onclick = () => { S.look.cape = !S.look.cape; applyLook(); save(); renderSheet(); };
   } else if (sheetMode === 'opts') {
@@ -1142,6 +1332,40 @@ function openWeaponShop(npc) {
   showDialog(d);
   npc.actor.face(player.pos.x, player.pos.z);
 }
+// The bank keeps coins safe. Coins you carry can be lost when you're knocked out.
+function openBank(npc) {
+  talking = npc;
+  const d = $('dialog');
+  const opts = (verb, have) => [10, 100, 1000].filter((n) => n <= have).map((n) => `<button data-${verb}="${n}">${verb === 'dep' ? 'Deposit' : 'Withdraw'} ${n}</button>`).join('') + (have ? `<button data-${verb}="${have}" class="primary">${verb === 'dep' ? 'Deposit' : 'Withdraw'} all (${have})</button>` : '');
+  d.innerHTML = `<h3>${npc.name}</h3><p>Coins in my vault are safe as houses. Coins in your pocket? Get knocked out and half of them spill on the ground!</p>
+    <div class="bankrow"><div class="bankbox"><img src="${ICONS.coins}" alt=""><b>${S.coins}</b><small>in your pocket</small></div><div class="bankbox vault"><img src="${ICONS.chest}" alt=""><b>${S.bank}</b><small>in the bank</small></div></div>
+    <div class="row wrap">${opts('dep', S.coins)}</div><div class="row wrap">${opts('wd', S.bank)}</div>
+    <div class="row"><button id="bankbye">Goodbye</button></div>`;
+  d.querySelectorAll('[data-dep]').forEach((b) => { b.onclick = () => { const n = Math.min(+b.dataset.dep, S.coins); S.coins -= n; S.bank += n; toast(`Deposited ${n} coins. They're safe now.`, ICONS.coins); refreshUI(); save(); openBank(npc); }; });
+  d.querySelectorAll('[data-wd]').forEach((b) => { b.onclick = () => { const n = Math.min(+b.dataset.wd, S.bank); S.bank -= n; S.coins += n; toast(`Withdrew ${n} coins.`, ICONS.coins); refreshUI(); save(); openBank(npc); }; });
+  $('bankbye').onclick = closeDialog;
+  showDialog(d);
+  npc.actor.face(player.pos.x, player.pos.z);
+}
+// When you're knocked out, half your carried coins spill into a pouch where you fell. Grab it back if you can!
+const pouches = [];
+function dropPouch(n) {
+  if (n <= 0) return;
+  const m = lib.coin_stack_large.clone(true); stylize(m); m.scale.setScalar(1.4);
+  m.position.set(player.pos.x, 0, player.pos.z); scene.add(m);
+  const glow = new THREE.PointLight('#ffd86b', 5, 5, 1.6); glow.position.set(player.pos.x, 1.2, player.pos.z); scene.add(glow);
+  pouches.push({ m, glow, n, where, until: now + 240 });
+}
+function pouchTick() {
+  if (!player || player.dead) return;
+  for (let i = pouches.length - 1; i >= 0; i--) {
+    const P = pouches[i];
+    P.m.rotation.y += 0.03;
+    const gone = now > P.until, near = P.where === where && Math.hypot(P.m.position.x - player.pos.x, P.m.position.z - player.pos.z) < 1.6;
+    if (near) { S.coins += P.n; toast(`You got your ${P.n} coins back!`, ICONS.coins, true); burst(P.m.position.clone().setY(1), '#ffe07a', 30, 5); refreshUI(); save(); }
+    if (near || gone) { scene.remove(P.m, P.glow); pouches.splice(i, 1); }
+  }
+}
 function openTalk(npc) {
   talking = npc;
   const d = $('dialog');
@@ -1165,6 +1389,7 @@ function finishQuest(id, npc) {
 function openDialog(npc) {
   if (npc.lines) { openTalk(npc); return; }
   if (npc.king) { openKing(npc); return; }
+  if (npc.bank) { openBank(npc); return; }
   if (npc.shop && npc.shop !== 'food') { openWeaponShop(npc); return; }
   if (npc.shop) { openShop(npc); return; }
   talking = npc;
@@ -1211,7 +1436,15 @@ const keys = new Set();
 const KEYMAP = { ShiftLeft: 'sprint', ShiftRight: 'sprint', KeyW: 'u', ArrowUp: 'u', KeyS: 'd', ArrowDown: 'd', KeyA: 'l', ArrowLeft: 'l', KeyD: 'r', ArrowRight: 'r' };
 addEventListener('keydown', (e) => {
   if (!player || !$('pick').hidden) return;
-  if (KEYMAP[e.code]) { keys.add(KEYMAP[e.code]); if (KEYMAP[e.code] !== 'sprint') { cancelTask(); moveTarget = null; } e.preventDefault(); }
+  if (KEYMAP[e.code]) {
+    const k = KEYMAP[e.code];
+    // tap left or right twice quickly to dash that way
+    if ((k === 'l' || k === 'r') && !e.repeat) { if (now - lastTap[k] < 0.28) dash(k === 'l' ? -1 : 1); lastTap[k] = now; }
+    keys.add(k); if (k !== 'sprint') { cancelTask(); moveTarget = null; } e.preventDefault();
+  }
+  if (e.code === 'KeyZ' && !e.repeat) dash(-1);
+  if (e.code === 'KeyC' && !e.repeat) dash(1);
+  if (e.code === 'KeyR' && !e.repeat) special();
   if (e.code === 'KeyE' || e.code === 'KeyF') { if (!e.repeat) { held = true; doAction(); } e.preventDefault(); }
   if (e.code === 'Space') { if (!e.repeat) jump(); e.preventDefault(); }
   if (e.code === 'KeyH') eatBest();
@@ -1325,6 +1558,17 @@ function doAction() {
   swing();
 }
 const GRAV = 34;
+// Dash: a quick sidestep to the left or right of the screen. Brief dodge window, short cooldown.
+let dashUntil = 0, dashReady = 0, dashDir = 0, dashLeft = 0, lastTap = { l: -9, r: -9 };
+const dodging = () => player.pos.y > 0.7 || now < dashUntil + 0.08 || dashLeft > 0;
+function dash(side) {
+  if (!player || player.dead || !$('pick').hidden || now < dashReady || stamina < 12) return;
+  if (talking) closeDialog();
+  if (player.task) cancelTask();
+  dashDir = side; dashUntil = now + 0.2; dashReady = now + 0.75; dashLeft = 3.6;
+  stamina = Math.max(0, stamina - 12); staminaAt = now + 1;
+  burst(player.pos.clone().setY(0.4), '#f3e2bd', 12, 3);
+}
 function jump() {
   if (!player || player.dead || !$('pick').hidden || player.air) return;
   if (talking) closeDialog();
@@ -1387,6 +1631,69 @@ function swing() {
     for (const e of enemies) if (e.hp > 0 && e.state !== 'rising' && inArc(e.pos.x, e.pos.z, 0.8, w.reach + 0.3) >= 0) { hurtEnemy(e, heroDamage()); hit = true; }
     if (!hit) for (const n of nodes) if (n.alive && n.def.skill !== 'fishing' && inArc(n.x, n.z, n.r, w.reach) >= 0) { burst(new THREE.Vector3(n.x, 1.4, n.z), '#ffe9a8', 6, 3); break; }
   });
+}
+let specialReady = 0;
+function special() {
+  if (!player || player.dead || !$('pick').hidden || where === 'castle' || where === 'tavern') return;
+  if (now < specialReady) { toast(`${SPECIALS[specialOf(W())].name} is recharging...`, ICONS.star); return; }
+  if (talking) closeDialog();
+  if (player.task) cancelTask();
+  if (now - aim.at < 2.5) { player.face(aim.x, aim.z); aim.at = -99; }
+  const w = W(), key = specialOf(w), SP = SPECIALS[key];
+  specialReady = now + SP.cd; player.nextHit = now + 0.6;
+  const big = w.unique ? 1.25 : 1;
+  const fwd = fwdOf(player), pp = player.pos;
+  const hitIn = (cx, cz, R, mult) => { let n = 0; for (const e of enemies) if (e.hp > 0 && e.state !== 'rising' && e.inside === where && Math.hypot(e.pos.x - cx, e.pos.z - cz) < R + (e.T.boss ? 1.2 : 0.5)) { hurtEnemy(e, Math.round(heroDamage() * mult) || 1); n++; } return n; };
+  const ring = (cx, cz, R, col) => {
+    const m = new THREE.Mesh(new THREE.RingGeometry(0.7, 1, 48), new THREE.MeshBasicMaterial({ color: col, transparent: true, opacity: 0.85, depthWrite: false, fog: false, side: THREE.DoubleSide }));
+    m.rotation.x = -Math.PI / 2; m.position.set(cx, 0.2, cz); m.layers.set(1); scene.add(m);
+    fx.push({ m, t: 0, dur: 0.45, R });
+  };
+  floatText(pp.clone().setY(4.2), SP.name + '!', 'gain');
+  if (key === 'whirl') {
+    const R = (w.reach + 1.4) * big;
+    player.play('1H_Melee_Attack_Slice_Diagonal', { once: true, fade: 0.05, speed: 1.6 }); player.busyUntil = now + 0.45;
+    let spin = 0; const spinT = () => { spin += 1; player.root.rotation.y += Math.PI / 3; if (spin < 6) later(0.05, spinT); }; spinT();
+    later(0.2, () => { ring(pp.x, pp.z, R, '#fff2a8'); burst(pp.clone().setY(1.2), '#fff2a8', 30, 7); hitIn(pp.x, pp.z, R, SP.mult); });
+  } else if (key === 'quake') {
+    const R = 4.6 * big;
+    player.air = true; player.vy = 12; player.play(player.clips.Jump_Full_Short ? 'Jump_Full_Short' : 'Cheer', { once: true, fade: 0.06, speed: 1.3 });
+    later(0.62, () => { player.play('2H_Melee_Attack_Chop', { once: true, fade: 0.05, speed: 1.6 }); });
+    later(0.75, () => { ring(pp.x, pp.z, R, '#ffd08a'); burst(pp.clone().setY(0.4), '#ffd08a', 60, 9, 1.4); shake = 0.45; hitIn(pp.x, pp.z, R, SP.mult); });
+  } else if (key === 'nova') {
+    const dist = Math.min(w.reach * 0.6, 7), cx = pp.x + fwd.x * dist, cz = pp.z + fwd.z * dist, R = 3.6 * big;
+    player.play('Spellcasting', { once: true, fade: 0.06, speed: 1.4 }); player.busyUntil = now + 0.5;
+    const rune = new THREE.Mesh(new THREE.RingGeometry(0.8, 1, 6), new THREE.MeshBasicMaterial({ color: '#9ff0ff', transparent: true, opacity: 0.8, depthWrite: false, fog: false, side: THREE.DoubleSide }));
+    rune.rotation.x = -Math.PI / 2; rune.position.set(cx, 0.2, cz); rune.scale.setScalar(R); rune.layers.set(1); scene.add(rune);
+    fx.push({ m: rune, t: 0, dur: 0.55, spin: true });
+    later(0.5, () => { ring(cx, cz, R, '#9ff0ff'); burst(new THREE.Vector3(cx, 1, cz), '#bff6ff', 60, 8, 1.4); burst(new THREE.Vector3(cx, 1, cz), '#ffe07a', 24, 6); hitIn(cx, cz, R, SP.mult); });
+  } else {
+    player.play('1H_Ranged_Shoot', { once: true, fade: 0.06, speed: 1.5 }); player.busyUntil = now + 0.4;
+    later(0.2, () => {
+      for (const a of [-0.36, -0.18, 0, 0.18, 0.36]) {
+        const d = fwd.clone().applyAxisAngle(new THREE.Vector3(0, 1, 0), a * big);
+        shoot(pp.clone().add(new THREE.Vector3(0, 1.8, 0)).addScaledVector(d, 0.8), d, 'bolt', w.reach, 'player', (e) => hurtEnemy(e, Math.round(heroDamage() * SP.mult)));
+      }
+    });
+  }
+}
+const fx = [];
+function fxTick(dt) {
+  for (let i = fx.length - 1; i >= 0; i--) {
+    const f = fx[i]; f.t += dt; const k = f.t / f.dur;
+    if (f.R) f.m.scale.setScalar(f.R * (0.3 + 0.7 * k));
+    if (f.spin) f.m.rotation.z += dt * 4;
+    f.m.material.opacity = 0.85 * (1 - k);
+    if (k >= 1) { scene.remove(f.m); f.m.geometry.dispose(); f.m.material.dispose(); fx.splice(i, 1); }
+  }
+  const el = $('specialbtn');
+  if (el && player) {
+    const left = Math.max(0, specialReady - now), SP = SPECIALS[specialOf(W())];
+    el.style.setProperty('--cd', String(left / SP.cd));
+    el.classList.toggle('cooling', left > 0);
+    const lbl = left > 0 ? `${Math.ceil(left)}s` : SP.name;
+    if (el.dataset.lbl !== lbl) { el.dataset.lbl = lbl; el.querySelector('span').textContent = lbl; }
+  }
 }
 function hitNode(n) {
   if (!n.alive) return;
@@ -1492,7 +1799,7 @@ function hurtEnemy(e, dmg) {
   if (e.hp <= 0) {
     e.state = 'dead'; e.bar.hidden = true;
     e.play('Death_A', { once: true, clamp: true, fade: 0.1 });
-    later(0.75, () => { if (e.state === 'dead') collapse(e); });
+    if (!e.T.noBones) later(0.75, () => { if (e.state === 'dead') collapse(e); });
     giveHeroXp(e.T.xp, e.pos.clone().setY(4));
     const coins = e.T.coins ? e.T.coins[0] + Math.floor(rng() * (e.T.coins[1] - e.T.coins[0])) : 3 + Math.floor(rng() * 9);
     S.coins += coins; addItem('bones');
@@ -1533,7 +1840,9 @@ function hurtPlayer(dmg) {
   if (S.hp <= 0) {
     S.hp = 0; player.dead = true; cancelTask(); moveTarget = null;
     player.play('Death_A', { once: true, clamp: true, fade: 0.1 });
-    toast('You were knocked out! You wake up by the well.', null, true);
+    const lost = Math.floor(S.coins / 2);
+    if (lost > 0) { S.coins -= lost; dropPouch(lost); }
+    toast(lost > 0 ? `You were knocked out and dropped ${lost} coins where you fell! Go back for them, or bank your coins next time.` : 'You were knocked out! You wake up by the well.', null, true);
     later(3, () => {
       player.root.position.set(0, 0, 6); player.air = false; where = 'out'; camPos.set(0, 30, 40);
       S.hp = maxHp(); player.dead = false; player.play('Idle'); refreshUI(); save();
@@ -1546,6 +1855,73 @@ function hurtPlayer(dmg) {
 
 const timers = [];
 const later = (t, f) => timers.push({ t, f });
+
+// ---------- Gagron's fire ----------
+// Every fire attack paints a glowing warning on the floor first. Jump, dash or step out before it fills.
+const hazards = [];
+const hazardMat = () => new THREE.MeshBasicMaterial({ color: '#ff6a1f', transparent: true, opacity: 0.25, depthWrite: false, fog: false, side: THREE.DoubleSide });
+function hazard({ x, z, R, dir = 0, half = Math.PI, dur = 1.1, dmg, fire = true }) {
+  const geo = half >= Math.PI ? new THREE.CircleGeometry(1, 40) : new THREE.CircleGeometry(1, 30, Math.PI / 2 - half, half * 2);
+  const m = new THREE.Mesh(geo, hazardMat()); m.rotation.x = -Math.PI / 2; m.rotation.z = dir; m.position.set(x, 0.14, z); m.layers.set(1); m.scale.setScalar(R * 0.1); scene.add(m);
+  const edge = new THREE.Mesh(half >= Math.PI ? new THREE.RingGeometry(0.95, 1, 48) : new THREE.RingGeometry(0.96, 1, 30, 1, Math.PI / 2 - half, half * 2), new THREE.MeshBasicMaterial({ color: '#ffd23f', transparent: true, opacity: 0.9, depthWrite: false, fog: false, side: THREE.DoubleSide }));
+  edge.rotation.x = -Math.PI / 2; edge.rotation.z = dir; edge.position.set(x, 0.15, z); edge.layers.set(1); edge.scale.setScalar(R); scene.add(edge);
+  hazards.push({ x, z, R, dir, half, dur, dmg, fire, m, edge, t: 0 });
+}
+function inHazard(h) {
+  const dx = player.pos.x - h.x, dz = player.pos.z - h.z, d = Math.hypot(dx, dz);
+  if (d > h.R) return false;
+  if (h.half >= Math.PI) return true;
+  // angle on the floor, measured the same way as the sector was drawn
+  let a = Math.atan2(-dz, dx) - (Math.PI / 2 + h.dir); a = Math.atan2(Math.sin(a), Math.cos(a));
+  return Math.abs(a) <= h.half;
+}
+function hazardTick(dt) {
+  for (let i = hazards.length - 1; i >= 0; i--) {
+    const h = hazards[i]; h.t += dt;
+    const k = Math.min(1, h.t / h.dur);
+    h.m.scale.setScalar(h.R * k); h.m.material.opacity = 0.2 + 0.35 * k;
+    if (k >= 1) {
+      // whoosh: flames along the area
+      for (let j = 0; j < 7; j++) {
+        const rr = h.R * Math.sqrt(rng()), aa = h.half >= Math.PI ? rng() * 6.28 : Math.PI / 2 + h.dir + (rng() * 2 - 1) * h.half;
+        burst(new THREE.Vector3(h.x + Math.cos(aa) * rr, 0.6, h.z - Math.sin(aa) * rr), j % 2 ? '#ffb347' : '#ff5a1f', 14, 5, 1.2);
+      }
+      shake = Math.max(shake, 0.3);
+      if (!player.dead && inHazard(h)) {
+        if (dodging()) floatText(player.pos.clone().setY(3.6), 'Dodged!', 'miss');
+        else hurtPlayer(h.dmg);
+      }
+      scene.remove(h.m, h.edge); h.m.material.dispose(); hazards.splice(i, 1);
+    }
+  }
+}
+function dragonAttack(e, toP) {
+  const ep = e.pos, n = ++e.swings;
+  const toward = Math.atan2(player.pos.x - ep.x, player.pos.z - ep.z);
+  if (n % 3 === 0) {
+    // fireball rain: three warning circles around you, then fireballs fall
+    e.play('Spellcasting', { once: true, fade: 0.1, onFinish: () => e.play('Idle_Combat') });
+    for (let i = 0; i < 3; i++) {
+      const a = rng() * 6.28, r = i === 0 ? 0 : 2 + rng() * 2.5;
+      const x = player.pos.x + Math.cos(a) * r, z = player.pos.z + Math.sin(a) * r;
+      later(i * 0.25, () => hazard({ x, z, R: 2.4, dur: 1.2, dmg: Math.round(e.T.maxHit * 1.3) }));
+    }
+  } else if (toP < 5 && n % 2 === 0) {
+    e.face(player.pos.x, player.pos.z);
+    e.play('1H_Melee_Attack_Chop', { once: true, fade: 0.08, onFinish: () => e.play('Idle_Combat') });
+    later(0.55, () => {
+      if (e.hp <= 0 || Math.hypot(player.pos.x - ep.x, player.pos.z - ep.z) > 5.5) return;
+      if (dodging()) { floatText(player.pos.clone().setY(3.6), 'Dodged!', 'miss'); return; }
+      hurtPlayer(1 + Math.floor(rng() * e.T.maxHit));
+    });
+  } else {
+    // fire breath: a wide cone in front of him
+    e.face(player.pos.x, player.pos.z); e.state = 'slam';
+    e.play('Spellcast_Shoot', { once: true, fade: 0.1 });
+    hazard({ x: ep.x, z: ep.z, R: 12, dir: toward + Math.PI, half: 0.42, dur: 1.15, dmg: Math.round(e.T.maxHit * 1.6) });
+    later(1.2, () => { if (e.hp > 0) { e.state = 'chase'; e.play('Idle_Combat'); } });
+  }
+}
 
 // The miniboss's big move: a red circle grows on the ground, then BOOM. Jump or get out!
 const slamGeo = new THREE.CircleGeometry(1, 40);
@@ -1571,7 +1947,7 @@ function slamTick(dt) {
       burst(e.pos.clone().setY(0.5), '#ffd08a', 60, 9, 1.4);
       shake = 0.5;
       if (e.hp > 0 && !player.dead && where === 'out' && Math.hypot(player.pos.x - e.pos.x, player.pos.z - e.pos.z) < s2.R) {
-        if (player.pos.y > 0.7) floatText(player.pos.clone().setY(3.6), 'Dodged!', 'miss');
+        if (dodging()) floatText(player.pos.clone().setY(3.6), 'Dodged!', 'miss');
         else hurtPlayer(Math.round(e.T.maxHit * 1.6));
       }
       if (e.hp > 0) { e.state = 'chase'; e.play('Idle_Combat'); }
@@ -1587,8 +1963,8 @@ function enemyTick(e, dt) {
   const fromHome = Math.hypot(ep.x - e.home.x, ep.z - e.home.y);
   const big = e.T.boss, reach = e.T.ranged ? (big ? 10 : 8) : big ? 3.6 : 2.4;
   if (player.dead && (e.state === 'chase')) e.state = 'return';
-  if (where !== 'out' && e.state === 'chase') e.state = 'return';
-  if ((e.state === 'idle' || e.state === 'walk') && toP < (big ? 11 : 6.5) && !player.dead && $('pick').hidden && where === 'out'
+  if (where !== e.inside && e.state === 'chase') e.state = 'return';
+  if ((e.state === 'idle' || e.state === 'walk') && toP < (big ? 11 : 6.5) && !player.dead && $('pick').hidden && where === e.inside
     && (big || enemies.filter((o) => o.state === 'chase' && !o.T.boss).length < 3)) e.state = 'chase';
   if (e.state === 'slam') return;
   if (e.state === 'chase') {
@@ -1601,6 +1977,7 @@ function enemyTick(e, dt) {
     } else if (now > e.nextHit) {
       e.nextHit = now + (big ? 2.2 : 1.9) + rng() * 0.6;
       const dmg = rng() < 0.3 ? 0 : 1 + Math.floor(rng() * e.T.maxHit);
+      if (e.T.dragon) { dragonAttack(e, toP); return; }
       if (big && ++e.swings % 3 === 0) { bossSlam(e); return; }
       if (e.T.ranged) {
         e.play('Spellcast_Shoot', { once: true, fade: 0.08, onFinish: () => e.play('Idle_Combat') });
@@ -1617,7 +1994,7 @@ function enemyTick(e, dt) {
         e.play('1H_Melee_Attack_Chop', { once: true, fade: 0.08, onFinish: () => e.play('Idle_Combat') });
         later(0.4, () => {
           if (e.hp <= 0 || Math.hypot(player.pos.x - ep.x, player.pos.z - ep.z) >= reach + 1) return;
-          if (player.pos.y > 0.7) { floatText(player.pos.clone().setY(3.6), 'Dodged!', 'miss'); return; }
+          if (dodging()) { floatText(player.pos.clone().setY(3.6), 'Dodged!', 'miss'); return; }
           hurtPlayer(dmg);
         });
       }
@@ -1681,6 +2058,9 @@ function toggleBigMap(force) {
 }
 mini.addEventListener('click', () => toggleBigMap(true));
 $('jumpbtn').addEventListener('pointerdown', (e) => { e.preventDefault(); jump(); });
+$('dashl').addEventListener('pointerdown', (e) => { e.preventDefault(); dash(-1); });
+$('dashr').addEventListener('pointerdown', (e) => { e.preventDefault(); dash(1); });
+$('specialbtn').addEventListener('pointerdown', (e) => { e.preventDefault(); special(); });
 $('sprintbtn').addEventListener('pointerdown', (e) => { e.preventDefault(); sprintToggle = !sprintToggle; $('sprintbtn').setAttribute('aria-pressed', String(sprintToggle)); });
 bigMap.addEventListener('click', () => toggleBigMap(false));
 function drawMap(cv, full) {
@@ -1764,6 +2144,8 @@ function tick() {
       if (d > stopAt) { mx = tx / d; mz = tz / d; }
       else { moveTarget = null; marker.visible = false; if (pending) { const t = pending; pending = null; startTask(t); } }
     }
+    if (dashLeft > 0) { const st = Math.min(dashLeft, 18 * dt); dashLeft -= st; pp.x += dashDir * st; collide(pp); if (dashLeft <= 0) dashUntil = Math.min(dashUntil, now); player.root.rotation.z = -dashDir * 0.25; if (rng() < 0.6) burst(pp.clone().setY(0.9), '#ffffff', 2, 1.5, 0.6); }
+    else if (player.root.rotation.z) player.root.rotation.z = 0;
     // you can always move, even mid-swing; while a swing plays you keep facing where you aimed
     if (mx || mz) {
       if (talking) closeDialog();
@@ -1809,11 +2191,14 @@ function tick() {
     if (near) e.mixer.update(dt);
   }
   slamTick(dt);
+  hazardTick(dt);
+  fxTick(dt);
   pileTick(dt);
+  pouchTick();
   bossUi();
   zoneBanner();
   for (const [i, c] of dynamic.crystals.entries()) { c.position.y = 2.4 + Math.sin(now * 1.6 + i) * 0.4; c.rotation.y = now * 0.8 + i; }
-  if (player) player.mixer.update(dt);
+  if (player) { player.mixer.update(dt); if (player.headScale && player.headInfo) player.headInfo.bone.scale.setScalar(player.headScale); }
   for (const n of npcs) { n.actor.mixer.update(dt); n.marker.position.y = 4.6 + Math.sin(now * 3 + n.x) * 0.15; }
 
   for (let i = lootPops.length - 1; i >= 0; i--) {
@@ -1922,7 +2307,7 @@ function tick() {
 }
 addEventListener('pagehide', () => { if (!resetting) save(); });
 
-window.__jq = { hurtEnemy, goThrough, get where() { return where; }, INTERIORS, equipGear, spendPoint, giveHeroXp, heroLvl, stat, maxHp, defDiv, openWeaponShop, openKing, jump, eat, eatBest, openShop, swing, swingTarget, hitNode, projectiles, timers, get S() { return S; }, get player() { return player; }, enemies, nodes, npcs, startTask, doAction, giveXp, save, openSheet, openDialog };
+window.__jq = { setZoom: (z) => { zoom = z; }, hurtEnemy, goThrough, get where() { return where; }, INTERIORS, equipGear, spendPoint, giveHeroXp, heroLvl, stat, maxHp, defDiv, openWeaponShop, openKing, jump, eat, eatBest, openShop, swing, swingTarget, hitNode, projectiles, timers, get S() { return S; }, get player() { return player; }, enemies, nodes, npcs, startTask, doAction, giveXp, save, openSheet, openDialog };
 window.addEventListener('error', (e) => { const m = $('loadmsg'); if (m) m.textContent = `Something went wrong: ${e.message}`; });
 main().catch((err) => {
   console.error(err);
