@@ -1,0 +1,230 @@
+<title>JerryQuest</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fredoka:wght@500;600;700&family=Nunito:wght@600;700;800&display=swap">
+<style>
+  /* Layout: full-screen game, storybook parchment panels pinned to the corners, one side sheet for Skills/Bag/Quests */
+  :root {
+    --parch: #fbecc8;
+    --parch-deep: #f0d39a;
+    --ink: #4a2a17;
+    --ink-soft: #7a5236;
+    --gold: #e8a93a;
+    --plum: #6b3fa0;
+    --leaf: #4f9a3e;
+    --berry: #d9483b;
+    --sky: #3f8fe6;
+    --night: #1e1636;
+    --display: "Fredoka", "Trebuchet MS", system-ui, sans-serif;
+    --body: "Nunito", "Segoe UI", system-ui, sans-serif;
+    color-scheme: light;
+  }
+  [hidden] { display: none !important; }
+  html, body { height: 100%; }
+  body { background: var(--night); color: var(--ink); font-family: var(--body); overflow: hidden; -webkit-user-select: none; user-select: none; }
+  #stage { position: fixed; inset: 0; }
+  #stage canvas { display: block; width: 100%; height: 100%; touch-action: none; }
+
+  .panel {
+    background: linear-gradient(180deg, var(--parch), var(--parch-deep));
+    border: 3px solid var(--ink);
+    border-radius: 18px;
+    box-shadow: 0 4px 0 var(--ink), 0 10px 24px rgb(30 22 54 / .35);
+  }
+  h2, h3 { font-family: var(--display); margin: 0; color: var(--plum); text-wrap: balance; }
+  button {
+    font-family: var(--display); font-weight: 600; font-size: 15px;
+    color: var(--ink); background: #fff7e2;
+    border: 2.5px solid var(--ink); border-radius: 12px;
+    padding: 7px 12px; cursor: pointer;
+    box-shadow: 0 3px 0 var(--ink);
+    transition: transform .08s, box-shadow .08s, background .15s;
+  }
+  button:hover { background: #fffbef; }
+  button:active { transform: translateY(3px); box-shadow: 0 0 0 var(--ink); }
+  button:focus-visible { outline: 3px solid var(--plum); outline-offset: 2px; }
+  button[aria-pressed="true"] { background: var(--gold); color: #3a1f0d; }
+  button.primary { background: var(--gold); }
+  button.danger { background: #ffb3a6; }
+
+  /* status: top-left */
+  #status {
+    position: fixed;
+    top: calc(env(safe-area-inset-top, 0px) + 12px);
+    left: max(16px, env(safe-area-inset-left, 0px));
+    padding: 10px 14px 12px; width: 250px; max-width: calc(100% - 32px);
+    display: grid; gap: 6px;
+  }
+  #status .who { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+  #status .who h2 { font-size: 22px; }
+  #status .who span { font-size: 13px; font-weight: 800; color: var(--ink-soft); }
+  .bar { height: 14px; border: 2.5px solid var(--ink); border-radius: 9px; background: #6b3a2a; overflow: hidden; position: relative; }
+  .bar > i { position: absolute; inset: 0 auto 0 0; background: linear-gradient(180deg, #ff7a6b, var(--berry)); transition: width .25s; }
+  .bar > b { position: absolute; inset: 0; font: 700 10px/10px var(--display); color: #fff; text-align: center; padding-top: 0; text-shadow: 0 1px 0 var(--ink); }
+  #coins { display: flex; align-items: center; gap: 6px; font-family: var(--display); font-weight: 600; font-variant-numeric: tabular-nums; }
+  #coins img { width: 22px; height: 22px; }
+  #classes { display: flex; gap: 5px; }
+  #classes button { flex: 1; font-size: 13px; padding: 4px 6px; display: flex; align-items: center; justify-content: center; gap: 4px; }
+  #classes img { width: 18px; height: 18px; }
+  #tracker { font-size: 13px; font-weight: 700; line-height: 1.35; border-top: 2px dashed rgb(74 42 23 / .3); padding-top: 6px; }
+  #tracker:empty { display: none; }
+  #tracker b { font-family: var(--display); font-weight: 600; color: var(--plum); }
+
+  /* menu: top-right */
+  #menu {
+    position: fixed;
+    top: calc(env(safe-area-inset-top, 0px) + 12px);
+    right: max(16px, env(safe-area-inset-right, 0px));
+    display: flex; gap: 6px; padding: 8px;
+  }
+
+  /* side sheet */
+  #sheet {
+    position: fixed;
+    top: calc(env(safe-area-inset-top, 0px) + 74px);
+    right: max(16px, env(safe-area-inset-right, 0px));
+    width: 320px; max-width: calc(100% - 32px);
+    max-height: calc(100% - 200px); overflow: auto;
+    padding: 14px;
+  }
+  #sheet h3 { font-size: 20px; margin-bottom: 10px; display: flex; justify-content: space-between; align-items: center; }
+  #sheet h3 small { font-family: var(--body); font-size: 13px; color: var(--ink-soft); font-weight: 800; }
+  .skills { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .skill { display: grid; grid-template-columns: 34px 1fr; gap: 2px 8px; align-items: center; background: #fff7e2; border: 2px solid var(--ink); border-radius: 12px; padding: 6px 8px; }
+  .skill img { width: 34px; height: 34px; grid-row: span 2; }
+  .skill .nm { font-size: 12px; font-weight: 800; color: var(--ink-soft); }
+  .skill .lv { font-family: var(--display); font-weight: 700; font-size: 18px; line-height: 1; font-variant-numeric: tabular-nums; }
+  .skill .xp { grid-column: 1 / -1; height: 6px; background: #e3c48a; border-radius: 4px; overflow: hidden; margin-top: 3px; }
+  .skill .xp i { display: block; height: 100%; background: var(--leaf); }
+  .bag { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
+  .slot { aspect-ratio: 1; background: #fff7e2; border: 2px solid var(--ink); border-radius: 12px; position: relative; display: grid; place-items: center; }
+  .slot img { width: 70%; height: 70%; }
+  .slot span { position: absolute; left: 5px; top: 2px; font: 700 13px var(--display); font-variant-numeric: tabular-nums; }
+  .slot.empty { background: rgb(255 247 226 / .45); border-style: dashed; }
+  .hint { font-size: 12.5px; font-weight: 700; color: var(--ink-soft); margin: 10px 0 0; line-height: 1.4; }
+  .quest { background: #fff7e2; border: 2px solid var(--ink); border-radius: 12px; padding: 8px 10px; margin-bottom: 8px; }
+  .quest h4 { margin: 0 0 3px; font-family: var(--display); font-weight: 600; font-size: 16px; }
+  .quest p { margin: 0; font-size: 13px; line-height: 1.4; }
+  .tag { display: inline-block; font: 700 11px var(--body); letter-spacing: .4px; text-transform: uppercase; padding: 1px 7px; border-radius: 8px; border: 1.5px solid var(--ink); margin-left: 6px; vertical-align: 2px; }
+  .tag.todo { background: #ffe39a; } .tag.active { background: #bfe3ff; } .tag.ready { background: #c7f0a8; } .tag.done { background: #e5d9f7; }
+  .opts { display: grid; gap: 8px; }
+
+  /* action button: bottom centre */
+  #actionbar {
+    position: fixed; left: 50%; transform: translateX(-50%);
+    bottom: calc(env(safe-area-inset-bottom, 0px) + 16px);
+    display: flex; align-items: center; gap: 10px; padding: 8px 10px;
+    max-width: calc(100% - 32px);
+  }
+  #action { display: flex; align-items: center; gap: 8px; font-size: 18px; padding: 8px 18px; background: #ff9a6b; min-width: 150px; justify-content: center; }
+  #action img { width: 28px; height: 28px; }
+  #action[disabled] { background: #eadbbb; color: var(--ink-soft); cursor: default; }
+  #action[disabled] img { opacity: .5; }
+  #actionhint { font-size: 12.5px; font-weight: 800; color: var(--ink-soft); max-width: 220px; line-height: 1.3; }
+
+  /* toasts */
+  #toasts { position: fixed; top: calc(env(safe-area-inset-top, 0px) + 14px); left: 50%; transform: translateX(-50%); display: grid; gap: 6px; justify-items: center; pointer-events: none; width: min(420px, calc(100% - 32px)); z-index: 3; }
+  .toast { font: 600 15px var(--display); background: var(--parch); border: 2.5px solid var(--ink); border-radius: 14px; padding: 5px 14px; box-shadow: 0 3px 0 var(--ink); display: flex; align-items: center; gap: 8px; animation: tin .25s ease-out; }
+  .toast img { width: 24px; height: 24px; }
+  .toast.big { font-size: 20px; background: linear-gradient(180deg, #ffe58a, var(--gold)); padding: 8px 18px; }
+  @keyframes tin { from { opacity: 0; transform: translateY(-8px) scale(.95); } }
+
+  /* dialogue */
+  #dialog {
+    position: fixed; left: 50%; transform: translateX(-50%);
+    bottom: calc(env(safe-area-inset-bottom, 0px) + 92px);
+    width: min(520px, calc(100% - 32px)); padding: 14px 16px; z-index: 4;
+  }
+  #dialog h3 { font-size: 20px; }
+  #dialog p { margin: 6px 0 10px; font-size: 15px; line-height: 1.45; font-weight: 700; }
+  #dialog .reward { font-size: 13px; color: var(--ink-soft); font-weight: 800; margin-top: -4px; }
+  #dialog .row { display: flex; gap: 8px; flex-wrap: wrap; }
+
+  /* overlays */
+  .overlay { position: fixed; inset: 0; display: grid; place-items: center; z-index: 6; padding-inline: max(16px, env(safe-area-inset-left, 0px)) max(16px, env(safe-area-inset-right, 0px)); background: radial-gradient(circle at 50% 35%, rgb(59 42 104 / .82), rgb(30 22 54 / .94)); overflow: auto; }
+  #loading { color: var(--parch); font-family: var(--display); font-size: 24px; text-align: center; transition: opacity .6s; z-index: 8; }
+  #loading small { display: block; font-family: var(--body); font-size: 14px; opacity: .85; margin-top: 6px; max-width: 420px; }
+  #pick .wrap { display: grid; gap: 16px; justify-items: center; padding-block: 24px; }
+  #pick h1 { margin: 0; font-family: var(--display); font-weight: 700; font-size: clamp(34px, 7vw, 56px); color: var(--parch); text-shadow: 0 4px 0 var(--ink); letter-spacing: 1px; }
+  #pick .sub { margin: -8px 0 0; color: #f3dfb8; font-weight: 700; text-align: center; }
+  .cards { display: flex; gap: 14px; flex-wrap: wrap; justify-content: center; }
+  .card { width: 210px; padding: 14px; display: grid; gap: 6px; text-align: left; font-family: var(--body); font-size: 14px; }
+  .card h3 { font-size: 24px; display: flex; align-items: center; gap: 8px; }
+  .card h3 img { width: 34px; height: 34px; }
+  .card p { margin: 0; font-weight: 700; line-height: 1.4; color: var(--ink); }
+  .card .perk { font-size: 12.5px; color: var(--ink-soft); }
+  .card:hover { transform: translateY(-3px); }
+
+  .float {
+    position: fixed; pointer-events: none; font-family: var(--display); font-weight: 700;
+    font-size: 24px; color: #ffd84a; -webkit-text-stroke: 2px #4a1d08;
+    text-shadow: 0 3px 0 #4a1d08; transform: translate(-50%, -50%);
+    animation: pop 1s ease-out forwards; white-space: nowrap; z-index: 2;
+  }
+  .float.hurt { color: #ff6b5b; }
+  .float.gain { font-size: 18px; color: #c8ff9a; }
+  .float.miss { color: #d8e6ff; font-size: 20px; }
+  @keyframes pop {
+    0% { opacity: 0; transform: translate(-50%, -30%) scale(.5); }
+    15% { opacity: 1; transform: translate(-50%, -60%) scale(1.2); }
+    100% { opacity: 0; transform: translate(-50%, -170%) scale(1); }
+  }
+  .hpbar { position: fixed; width: 54px; height: 9px; transform: translate(-50%, -50%); border: 2px solid var(--ink); border-radius: 6px; background: #6b3a2a; overflow: hidden; pointer-events: none; }
+  .hpbar i { display: block; height: 100%; background: #7ee05a; }
+
+  @media (max-width: 700px) {
+    #status { width: 200px; padding: 8px 10px; }
+    #status .who h2 { font-size: 18px; }
+    #menu { top: auto; bottom: calc(env(safe-area-inset-bottom, 0px) + 84px); padding: 6px; }
+    #menu button { font-size: 13px; padding: 6px 9px; }
+    #sheet { top: auto; bottom: calc(env(safe-area-inset-bottom, 0px) + 140px); max-height: 52%; }
+    #actionhint { display: none; }
+    #dialog { bottom: calc(env(safe-area-inset-bottom, 0px) + 140px); }
+  }
+  @media (prefers-reduced-motion: reduce) { .float, .toast { animation-duration: .01s; } }
+</style>
+
+<div id="stage"></div>
+
+<section id="status" class="panel" aria-label="Your hero">
+  <div class="who"><h2 id="pname">Hero</h2><span id="pclass">Knight</span></div>
+  <div class="bar" aria-label="Health"><i id="hpfill" style="width:100%"></i><b id="hptext">50 / 50</b></div>
+  <div id="coins"><img id="coinicon" alt=""><span id="coinval">0</span> coins</div>
+  <div id="classes" role="group" aria-label="Switch class"></div>
+  <div id="tracker"></div>
+</section>
+
+<nav id="menu" class="panel" aria-label="Menus">
+  <button id="b-skills" aria-pressed="false">Skills</button>
+  <button id="b-bag" aria-pressed="false">Bag</button>
+  <button id="b-quests" aria-pressed="false">Quests</button>
+  <button id="b-opts" aria-pressed="false">Options</button>
+</nav>
+
+<aside id="sheet" class="panel" hidden></aside>
+
+<div id="actionbar" class="panel">
+  <button id="action" disabled><img id="actionicon" alt=""><span id="actionlabel">Explore</span></button>
+  <div id="actionhint">WASD or tap to move. Walk up to something to use it.</div>
+</div>
+
+<div id="toasts" aria-live="polite"></div>
+<div id="dialog" class="panel" hidden></div>
+
+<div id="pick" class="overlay" hidden>
+  <div class="wrap">
+    <h1>JerryQuest</h1>
+    <p class="sub">Choose a class to start. You can switch any time, and every hero can chop, mine and fish.</p>
+    <div class="cards" id="cards"></div>
+  </div>
+</div>
+
+<div id="loading" class="overlay"><div>Painting the village…<small id="loadmsg">loading heroes</small></div></div>
+
+<script type="importmap">
+{ "imports": {
+  "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js",
+  "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"
+} }
+</script>
+<script type="module" src="game.js"></script>
