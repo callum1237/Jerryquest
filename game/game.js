@@ -12,7 +12,7 @@ let now = 0;
 
 // ---------- rules ----------
 const SKILLS = [
-  ['woodcutting', 'Woodcutting'], ['mining', 'Mining'], ['fishing', 'Fishing'], ['speed', 'Speed'],
+  ['woodcutting', 'Woodcutting'], ['mining', 'Mining'], ['fishing', 'Fishing'], ['crafting', 'Crafting'], ['speed', 'Speed'],
 ];
 const SKILL_NAME = Object.fromEntries(SKILLS);
 const XPT = [0, 0];
@@ -47,13 +47,13 @@ const SPECIALS = {
 const specialOf = (w) => (w.type === 'magic' ? 'nova' : w.type === 'ranged' ? 'volley' : w.heavy ? 'quake' : 'whirl');
 const ITEMS = {
   logs: 'Logs', oak_logs: 'Oak logs', copper_ore: 'Copper ore', iron_ore: 'Iron ore', shrimp: 'Raw shrimp', trout: 'Raw trout', bones: 'Bones',
-  bread: 'Bread', pie: 'Apple pie', stew: 'Hearty stew',
+  bread: 'Bread', pie: 'Apple pie', stew: 'Hearty stew', grilled_shrimp: 'Grilled shrimp', grilled_trout: 'Grilled trout', fish_pie: 'Fish pie',
   bone_dust: 'Bone dust', dark_essence: 'Dark essence',
   dragon_scale: "Gagron's fire scale", silver_ring: 'Silver ring', ruby: 'Ruby', golden_crown: 'Tiny golden crown',
   lucky_sock: "Bonecrusher's lucky sock", gloom_hat: "Gloomcaster's droopy hat", rattle_tooth: "Rattlebones' gold tooth",
 };
 // Food heals; bought from Marta's stall in the market.
-const FOOD = { bread: { heal: 8, price: 8 }, pie: { heal: 20, price: 20 }, stew: { heal: 40, price: 40 } };
+const FOOD = { bread: { heal: 8, price: 8 }, pie: { heal: 20, price: 20 }, stew: { heal: 40, price: 40 }, grilled_shrimp: { heal: 6 }, grilled_trout: { heal: 14 }, fish_pie: { heal: 32 } };
 // Weapons. dmg = base damage (your Attack multiplies it), reach = swing radius for melee or range for
 // magic and crossbows, cd = seconds between attacks (lower is faster). Your weapon decides how you fight.
 const WEAPONS = {
@@ -101,7 +101,7 @@ const gearStats = (g) => (g.slot === 'weapon'
 const BOSS_WEAPON = { boss_gagron: 'k_flame', boss_crusher: 'k_cleaver', boss_gloom: 'm_gloom', boss_rattle: 'a_rattle' };
 const DARK_KING = 'Morgoth the Menacing'; // working name, change it here
 // Everything can be sold. Treasures (rings, rubies, crowns) are rare drops worth a lot.
-const SELL = { dragon_scale: 90, bread: 4, pie: 10, stew: 20, silver_ring: 40, ruby: 120, golden_crown: 400, bone_dust: 3, dark_essence: 15, lucky_sock: 60, gloom_hat: 60, rattle_tooth: 60, logs: 3, oak_logs: 6, copper_ore: 4, iron_ore: 8, shrimp: 3, trout: 8, bones: 2 };
+const SELL = { grilled_shrimp: 5, grilled_trout: 12, fish_pie: 26, dragon_scale: 90, bread: 4, pie: 10, stew: 20, silver_ring: 40, ruby: 120, golden_crown: 400, bone_dust: 3, dark_essence: 15, lucky_sock: 60, gloom_hat: 60, rattle_tooth: 60, logs: 3, oak_logs: 6, copper_ore: 4, iron_ore: 8, shrimp: 3, trout: 8, bones: 2 };
 const NODES = {
   tree: { skill: 'woodcutting', req: 1, xp: 25, item: 'logs', name: 'Tree', verb: 'Chop', doing: 'Chopping', deplete: 0.3, respawn: 14 },
   oak: { skill: 'woodcutting', req: 5, xp: 40, item: 'oak_logs', name: 'Oak tree', verb: 'Chop', doing: 'Chopping', deplete: 0.22, respawn: 20 },
@@ -989,7 +989,7 @@ function buildEnemies() {
 }
 
 // ---------- inventory, xp, quests ----------
-function addItem(id, n = 1) { S.inv[id] = (S.inv[id] || 0) + n; refreshUI(); }
+function addItem(id, n = 1) { S.inv[id] = (S.inv[id] || 0) + n; refreshUI(); if (!$('sheet').hidden && sheetMode === 'craft') renderSheet(); }
 function takeItem(id, n) { S.inv[id] -= n; if (S.inv[id] <= 0) delete S.inv[id]; }
 function giveXp(skill, amount, at) {
   const before = lvl(skill);
@@ -1261,6 +1261,8 @@ function checkDoors() {
 }
 function refreshUI() {
   if (!S.started) return;
+  $('status').classList.toggle('compact', !S.hudOpen); $('status').classList.toggle('pts', freePoints() > 0);
+  $('hudmore').setAttribute('aria-expanded', String(!!S.hudOpen)); $('hudmore').textContent = S.hudOpen ? '▴' : '▾';
   const mh = maxHp();
   $('hpfill').style.width = `${Math.max(0, (S.hp / mh) * 100)}%`;
   $('hptext').textContent = `${Math.max(0, Math.ceil(S.hp))} / ${mh}`;
@@ -1280,6 +1282,7 @@ function refreshUI() {
 
 function renderSheet() {
   const el = $('sheet');
+  if (sheetMode === 'craft') { renderCraft(el); return; }
   if (sheetMode === 'skills') {
     const L = heroLvl(), cur = XPT[L], next = XPT[Math.min(99, L + 1)], free = freePoints();
     const pct = L >= 99 ? 100 : ((S.hero.xp - cur) / (next - cur)) * 100;
@@ -1365,13 +1368,32 @@ let resetting = false;
 function openSheet(mode) {
   if (sheetMode === mode && !$('sheet').hidden) { closeSheet(); return; }
   sheetMode = mode; $('sheet').hidden = false; renderSheet(); document.body.classList.add('sheet-open');
-  for (const m of ['skills', 'bag', 'quests', 'look', 'opts']) $(`b-${m}`).setAttribute('aria-pressed', String(m === mode));
+  for (const m of ['skills', 'bag', 'quests', 'craft', 'look', 'opts']) $(`b-${m}`).setAttribute('aria-pressed', String(m === mode));
 }
-function closeSheet() { document.body.classList.remove('sheet-open'); $('sheet').hidden = true; sheetMode = null; for (const m of ['skills', 'bag', 'quests', 'look', 'opts']) $(`b-${m}`).setAttribute('aria-pressed', 'false'); }
-for (const m of ['skills', 'bag', 'quests', 'look', 'opts']) $(`b-${m}`).addEventListener('click', () => (m === 'look' ? openCreator('edit') : openSheet(m)));
+function closeSheet() { document.body.classList.remove('sheet-open'); $('sheet').hidden = true; sheetMode = null; for (const m of ['skills', 'bag', 'quests', 'craft', 'look', 'opts']) $(`b-${m}`).setAttribute('aria-pressed', 'false'); }
+for (const m of ['skills', 'bag', 'quests', 'craft', 'look', 'opts']) $(`b-${m}`).addEventListener('click', () => (m === 'look' ? openCreator('edit') : openSheet(m)));
 
 // dialogue
 let talking = null;
+// Pick how many to sell: a slider, - and + buttons, and quick picks.
+function sellPicker(box, k, max, each, done, name = ITEMS[k], icon = ICONS[k]) {
+  let n = Math.min(max, Math.max(1, Math.ceil(max / 2)));
+  const draw = () => {
+    box.innerHTML = `<div class="qtyhead"><img src="${icon}" alt=""><b>${name}</b><small>you have ${max} to sell · ${each} each</small></div>
+      <div class="qtyrow"><button data-d="-1" aria-label="One less">−</button><input type="range" min="1" max="${max}" value="${n}" aria-label="How many"><button data-d="1" aria-label="One more">+</button><output>${n}</output></div>
+      <div class="qtyrow quick">${[1, 5, 10].filter((q) => q < max).map((q) => `<button data-q="${q}">${q}</button>`).join('')}<button data-q="${Math.ceil(max / 2)}">Half</button><button data-q="${max}">All ${max}</button></div>
+      <div class="row"><button class="primary" id="qtygo">Sell ${n} for ${n * each} coins</button><button id="qtyno">Cancel</button></div>`;
+    const set = (v) => { n = Math.max(1, Math.min(max, v)); box.querySelector('input').value = n; box.querySelector('output').textContent = n; $('qtygo').textContent = `Sell ${n} for ${n * each} coins`; };
+    box.querySelector('input').oninput = (e) => set(+e.target.value);
+    box.querySelectorAll('[data-d]').forEach((b) => { b.onclick = () => set(n + +b.dataset.d); });
+    box.querySelectorAll('[data-q]').forEach((b) => { b.onclick = () => set(+b.dataset.q); });
+    $('qtygo').onclick = () => done(n);
+    $('qtyno').onclick = () => { box.hidden = true; };
+  };
+  box.hidden = false; draw(); box.scrollIntoView({ block: 'nearest' });
+}
+// The status panel stays small (name, level, health) until you tap it.
+$('status').addEventListener('click', (e) => { if (e.target.closest('#classes button, #tracker button')) return; S.hudOpen = !S.hudOpen; refreshUI(); save(); });
 function openShop(npc) {
   talking = npc;
   const d = $('dialog');
@@ -1384,8 +1406,8 @@ function openShop(npc) {
   const worth = bulk.reduce((a, [k, n]) => a + SELL[k] * n, 0);
   const tavern = npc.id === 'tom';
   d.innerHTML = `<h3>${npc.name}</h3><p>${tavern ? "Welcome to the Sleepy Boar! Pull up a stool. A hot meal mends any bruise. Eat it from your bag, or press H." : 'Fresh from the oven! Food heals you when you eat it from your bag, or press H. And I buy anything you bring me.'}</p>
-    <div class="shop">${Object.entries(FOOD).map(([k, f]) => `<button class="buy" data-food="${k}" ${S.coins < f.price ? 'disabled' : ''}><img src="${ICONS[k]}" alt=""><b>${ITEMS[k]}</b><span>Heals ${f.heal}</span><em>${f.price} coins</em></button>`).join('')}</div>
-    ${goods.length && !tavern ? `<h4 class="sub">Sell to Marta</h4><div class="shop sell">${goods.map(([k, n]) => `<button class="buy" data-sell="${k}"><img src="${ICONS[k]}" alt=""><b>${ITEMS[k]} × ${n}</b><span>${keep[k] ? `keeping ${keep[k]} for a quest` : `${SELL[k]} each`}</span><em>Sell +${SELL[k] * n}</em></button>`).join('')}</div>` : ''}
+    <div class="shop">${Object.entries(FOOD).filter(([, f]) => f.price).map(([k, f]) => `<button class="buy" data-food="${k}" ${S.coins < f.price ? 'disabled' : ''}><img src="${ICONS[k]}" alt=""><b>${ITEMS[k]}</b><span>Heals ${f.heal}</span><em>${f.price} coins</em></button>`).join('')}</div>
+    ${goods.length && !tavern ? `<h4 class="sub">Sell to Marta</h4><div class="shop sell">${goods.map(([k, n]) => `<button class="buy" data-sell="${k}"><img src="${ICONS[k]}" alt=""><b>${ITEMS[k]} × ${n}</b><span>${keep[k] ? `keeping ${keep[k]} for a quest` : `${SELL[k]} each`}</span><em>Sell…</em></button>`).join('')}</div><div class="sellpick" hidden></div>` : ''}
     <p class="hint">You have ${S.coins} coins.${tavern ? ' Marta at the market buys goods, if you have any to sell.' : goods.length ? '' : ' Bring me logs, ore, fish, bones or treasures from monsters and I will buy them.'}</p>
     <div class="row">${worth && !tavern ? `<button id="sellall">Sell all materials (+${worth})</button>` : ''}<button id="shopbye">Goodbye</button></div>`;
   d.querySelectorAll('[data-food]').forEach((b) => { b.onclick = () => {
@@ -1396,11 +1418,13 @@ function openShop(npc) {
     save(); openShop(npc);
   }; });
   d.querySelectorAll('[data-sell]').forEach((b) => { b.onclick = () => {
-    const k = b.dataset.sell, n = spareOf(k), c = SELL[k] * n;
-    if (!n) return;
-    takeItem(k, n); S.coins += c;
-    toast(`Sold ${n} × ${ITEMS[k].toLowerCase()} for ${c} coins.`, ICONS.coins, c >= 100);
-    refreshUI(); save(); openShop(npc);
+    const k = b.dataset.sell, max = spareOf(k);
+    if (!max) return;
+    sellPicker(d.querySelector('.sellpick'), k, max, SELL[k], (n) => {
+      takeItem(k, n); const c = SELL[k] * n; S.coins += c;
+      toast(`Sold ${n} × ${ITEMS[k].toLowerCase()} for ${c} coins.`, ICONS.coins, c >= 100);
+      refreshUI(); save(); openShop(npc);
+    });
   }; });
   if (worth && !tavern) $('sellall').onclick = () => {
     for (const [k, n] of bulk) takeItem(k, n);
@@ -1472,7 +1496,7 @@ function openWeaponShop(npc) {
       return `<button class="buy" data-w="${k}" ${eq || (!own && S.coins < g.price) ? 'disabled' : ''}><img src="${gearIcon(g)}" alt=""><b>${g.name}</b><span>${gearStats(g)}</span><em>${label}</em></button>`;
     }).join('')}</div>
     ${spare.length ? `<h4 class="sub">Sell spare gear</h4><div class="shop sell">${spare.map(([k, g]) => `<button class="buy" data-sellg="${k}"><img src="${gearIcon(g)}" alt=""><b>${g.name}</b><span>${gearStats(g)}</span><em>Sell +${gearValue(g)}</em></button>`).join('')}</div>` : ''}
-    <p class="hint">You have ${S.coins} coins. Damage is the weapon's base: your Attack multiplies it.</p><div class="row"><button id="wbye">Goodbye</button></div>`;
+    <p class="hint">You have ${S.coins} coins. Damage is the weapon's base: your Attack multiplies it.</p><div class="row">${type === 'melee' ? `<button id="wforge" class="primary"><img src="${ICONS.hammer}" alt="">Use the forge</button>` : ''}<button id="wbye">Goodbye</button></div>`;
   d.querySelectorAll('[data-w]').forEach((b) => { b.onclick = () => {
     const k = b.dataset.w, g = GEAR[k];
     if (!S.owned.includes(k)) { if (S.coins < g.price) return; S.coins -= g.price; S.owned.push(k); toast(`You buy the ${g.name}!`, gearIcon(g), true); }
@@ -1487,6 +1511,7 @@ function openWeaponShop(npc) {
     toast(`Sold the ${g.name} for ${gearValue(g)} coins.`, ICONS.coins, g.unique);
     refreshUI(); save(); openWeaponShop(npc);
   }; });
+  if ($('wforge')) $('wforge').onclick = () => { closeDialog(); openSheet('craft'); };
   $('wbye').onclick = closeDialog;
   showDialog(d);
   npc.actor.face(player.pos.x, player.pos.z);
@@ -2335,7 +2360,7 @@ function tick() {
     }
     checkDoors();
     if (now > staminaAt && stamina < 100) stamina = Math.min(100, stamina + dt * 16);
-    $('stamfill').style.width = `${stamina}%`;
+    $('stamfill').style.width = `${stamina}%`; $('status').classList.toggle('tired', stamina < 99);
     if (player.air) {
       pp.y += player.vy * dt; player.vy -= GRAV * dt;
       if (pp.y <= 0) { pp.y = 0; player.air = false; player.vy = 0; burst(pp.clone().setY(0.15), '#f3e2bd', 10, 2.5); if (now > player.busyUntil) player.play(mx || mz ? 'Running_A' : 'Idle', { fade: 0.1 }); }
@@ -2646,7 +2671,80 @@ function creatorCam(dt) {
   creator.light.position.set(p.x + 1.5, ty + 1.2, p.z + 3.5);
 }
 
-window.__jq = { openCreator, closeCreator, creator, rebuildHero, setZoom: (z) => { zoom = z; }, hurtEnemy, goThrough, get where() { return where; }, INTERIORS, equipGear, spendPoint, giveHeroXp, heroLvl, stat, maxHp, defDiv, openWeaponShop, openKing, jump, eat, eatBest, openShop, swing, swingTarget, hitNode, projectiles, timers, get S() { return S; }, get player() { return player; }, enemies, nodes, npcs, startTask, doAction, giveXp, save, openSheet, openDialog };
+// ---------- crafting ----------
+// Turn what you gather into food and gear. Cooking needs a fire, smithing needs Brom's forge,
+// woodwork can be done anywhere. Crafting levels up as you make things and unlocks better recipes.
+const CRAFTS = [
+  { out: 'grilled_shrimp', n: 1, need: { shrimp: 1 }, lvl: 1, xp: 10, at: 'fire', cat: 'Cooking' },
+  { out: 'grilled_trout', n: 1, need: { trout: 1 }, lvl: 5, xp: 22, at: 'fire', cat: 'Cooking' },
+  { out: 'fish_pie', n: 1, need: { trout: 1, shrimp: 2, bread: 1 }, lvl: 10, xp: 45, at: 'fire', cat: 'Cooking' },
+  { out: 'k_dagger', need: { copper_ore: 3, logs: 1 }, lvl: 1, xp: 30, at: 'forge', cat: 'Smithing' },
+  { out: 'k_steel', need: { iron_ore: 4, logs: 1 }, lvl: 4, xp: 55, at: 'forge', cat: 'Smithing' },
+  { out: 'sh_square', need: { iron_ore: 3, oak_logs: 2 }, lvl: 7, xp: 70, at: 'forge', cat: 'Smithing' },
+  { out: 'ar_chain', need: { iron_ore: 8, bones: 4 }, lvl: 10, xp: 110, at: 'forge', cat: 'Smithing' },
+  { out: 'k_axe', need: { iron_ore: 6, oak_logs: 3 }, lvl: 13, xp: 140, at: 'forge', cat: 'Smithing' },
+  { out: 'sh_spike', need: { iron_ore: 6, bone_dust: 4 }, lvl: 16, xp: 170, at: 'forge', cat: 'Smithing' },
+  { out: 'k_gold', need: { golden_crown: 1, iron_ore: 4 }, lvl: 20, xp: 260, at: 'forge', cat: 'Smithing' },
+  { out: 'ar_gold', need: { golden_crown: 2, iron_ore: 6, ruby: 1 }, lvl: 25, xp: 380, at: 'forge', cat: 'Smithing' },
+  { out: 'a_xbow', need: { logs: 4, copper_ore: 2 }, lvl: 2, xp: 35, at: 'any', cat: 'Woodwork' },
+  { out: 'm_wand', need: { logs: 2, dark_essence: 1 }, lvl: 3, xp: 40, at: 'any', cat: 'Woodwork' },
+  { out: 'm_staff', need: { oak_logs: 4 }, lvl: 6, xp: 60, at: 'any', cat: 'Woodwork' },
+  { out: 'ar_leather', need: { logs: 2, bones: 6 }, lvl: 5, xp: 50, at: 'any', cat: 'Woodwork' },
+  { out: 'a_heavy', need: { oak_logs: 5, iron_ore: 3 }, lvl: 12, xp: 130, at: 'any', cat: 'Woodwork' },
+  { out: 'm_crystal', need: { oak_logs: 4, dark_essence: 3, ruby: 1 }, lvl: 18, xp: 220, at: 'any', cat: 'Woodwork' },
+];
+const STATION = { fire: 'a fire (the forge, the tavern or a campfire)', forge: "Brom's forge in the village", any: '' };
+function nearStation(at) {
+  if (at === 'any') return true;
+  const p = player.pos, near = (x, z, r) => Math.hypot(p.x - x, p.z - z) < r;
+  const brom = npcs.find((n) => n.id === 'brom');
+  const forge = where === 'out' && brom && near(brom.actor.pos.x, brom.actor.pos.z, 7);
+  if (at === 'forge') return forge;
+  return forge || where === 'tavern' || (where === 'out' && near(CAMP.x, CAMP.z - 2, 6));
+}
+const craftName = (c) => (GEAR[c.out] ? GEAR[c.out].name : ITEMS[c.out]);
+const craftIcon = (c) => (GEAR[c.out] ? gearIcon(GEAR[c.out]) : ICONS[c.out]);
+function craftState(c) {
+  const lack = Object.entries(c.need).filter(([k, n]) => (S.inv[k] || 0) < n);
+  const times = Math.min(...Object.entries(c.need).map(([k, n]) => Math.floor((S.inv[k] || 0) / n)));
+  if (GEAR[c.out] && S.owned.includes(c.out)) return { ok: false, why: 'You already have one', times: 0 };
+  if (lvl('crafting') < c.lvl) return { ok: false, why: `Needs Crafting level ${c.lvl}`, times: 0 };
+  if (lack.length) return { ok: false, why: 'Missing materials', times: 0 };
+  if (!nearStation(c.at)) return { ok: false, why: `Go to ${STATION[c.at]}`, times };
+  return { ok: true, times };
+}
+function craft(c, times = 1) {
+  const st = craftState(c);
+  if (!st.ok) { toast(st.why + '.', ICONS.hammer); return; }
+  times = Math.max(1, Math.min(times, st.times, GEAR[c.out] ? 1 : 99));
+  for (const [k, n] of Object.entries(c.need)) takeItem(k, n * times);
+  if (GEAR[c.out]) { S.owned.push(c.out); toast(`You made a ${craftName(c)}! Equip it from your bag.`, craftIcon(c), true); }
+  else { addItem(c.out, (c.n || 1) * times); toast(`You made ${times > 1 ? `${times} × ` : ''}${craftName(c).toLowerCase()}.`, craftIcon(c)); }
+  player.play('Interact', { once: true, fade: 0.08, onFinish: () => player.play('Idle') }); player.busyUntil = now + 0.6;
+  burst(player.pos.clone().setY(1.2), c.at === 'forge' ? '#ffb347' : c.at === 'fire' ? '#ff8a3a' : '#e8c890', 24, 4);
+  giveXp('crafting', c.xp * times, player.pos.clone().setY(3.4));
+  refreshUI(); save(); renderSheet();
+}
+function renderCraft(el) {
+  const cats = [...new Set(CRAFTS.map((c) => c.cat))];
+  el.innerHTML = `<h3>Crafting <small>level ${lvl('crafting')}</small></h3>
+    <p class="hint">Cook fish at a fire, smith metal gear at Brom's forge, and carve wood anywhere. Making things levels up Crafting.</p>
+    ${cats.map((cat) => `<h4 class="sub">${cat}${cat === 'Cooking' ? ' <small>at a fire</small>' : cat === 'Smithing' ? " <small>at Brom's forge</small>" : ' <small>anywhere</small>'}</h4><div class="crafts">${CRAFTS.filter((c) => c.cat === cat).map((c) => {
+      const st = craftState(c), i = CRAFTS.indexOf(c), g = GEAR[c.out];
+      const stats = g ? gearStats(g) : FOOD[c.out] ? `Heals ${FOOD[c.out].heal}` : '';
+      return `<div class="craft${st.ok ? ' ready' : ''}${lvl('crafting') < c.lvl ? ' locked' : ''}">
+        <img class="out" src="${craftIcon(c)}" alt="">
+        <div class="cinfo"><b>${craftName(c)}</b><small>${stats}${stats ? ' · ' : ''}Lv ${c.lvl}</small>
+          <div class="need">${Object.entries(c.need).map(([k, n]) => `<span class="${(S.inv[k] || 0) >= n ? 'have' : 'miss'}" title="${ITEMS[k]}"><img src="${ICONS[k]}" alt="">${S.inv[k] || 0}/${n}</span>`).join('')}</div>
+          ${st.ok ? '' : `<em>${st.why}</em>`}</div>
+        <div class="cbtns"><button data-craft="${i}" ${st.ok ? '' : 'disabled'}>Make</button>${!g && st.ok && st.times > 1 ? `<button data-craftall="${i}">All ${st.times}</button>` : ''}</div>
+      </div>`;
+    }).join('')}</div>`).join('')}`;
+  el.querySelectorAll('[data-craft]').forEach((b) => { b.onclick = () => craft(CRAFTS[+b.dataset.craft], 1); });
+  el.querySelectorAll('[data-craftall]').forEach((b) => { b.onclick = () => craft(CRAFTS[+b.dataset.craftall], 99); });
+}
+
+window.__jq = { craft, CRAFTS, openCreator, closeCreator, creator, rebuildHero, setZoom: (z) => { zoom = z; }, hurtEnemy, goThrough, get where() { return where; }, INTERIORS, equipGear, spendPoint, giveHeroXp, heroLvl, stat, maxHp, defDiv, openWeaponShop, openKing, jump, eat, eatBest, openShop, swing, swingTarget, hitNode, projectiles, timers, get S() { return S; }, get player() { return player; }, enemies, nodes, npcs, startTask, doAction, giveXp, save, openSheet, openDialog };
 window.addEventListener('error', (e) => { const m = $('loadmsg'); if (m) m.textContent = `Something went wrong: ${e.message}`; });
 main().catch((err) => {
   console.error(err);

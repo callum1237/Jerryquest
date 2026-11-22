@@ -15,7 +15,9 @@
 - **Every weapon has a basic attack and a special (R):** swords Whirlwind, heavy weapons Ground Slam, magic Starburst, crossbows Volley. Specials hit an area and have a cooldown.
 - **Dash** left or right (Z / C, or double-tap A / D) to dodge attacks.
 - **Bank:** Penny the Banker keeps coins safe. When you are knocked out you drop half the coins in your pocket where you fell, and can go back for them.
-- Woodcutting, Mining and Fishing (and Speed) level by use and have no combat stats.
+- Woodcutting, Mining, Fishing, Crafting (and Speed) level by use and have no combat stats.
+- **Crafting** (Craft menu): cook fish at a fire, smith metal gear at Brom's forge, carve wood gear anywhere. Higher Crafting levels unlock better recipes.
+- **Selling** lets you choose how many of an item to sell.
 - Free aim: actions are never locked onto a target. A swing, chop or shot hits whatever hitbox it reaches in the direction you face. Trees, rocks and monsters all have health bars.
 - One consistent art style. New models come from the KayKit family (or matching CC0 packs) and go through the same toon shading.
 
@@ -51,6 +53,5 @@ World
 
 Skills
 - Done: Marta's food stall (bread, pie, stew heal you; she buys logs, ore, fish and bones), minimap and full map (M), jumping (dodges melee swings)
-- Cooking fish to heal
-- Smithing ore into weapons
+- Done: cooking fish to heal, smithing ore into weapons (Crafting)
 - Rare golden trees and ore spawns that friends race for

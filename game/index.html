@@ -74,6 +74,16 @@
     display: grid; gap: 6px;
   }
   #status .who { display: flex; align-items: center; gap: 10px; }
+  #status { cursor: pointer; transition: width .15s; }
+  #hudmore { margin-left: auto; align-self: flex-start; padding: 0 8px; font-size: 14px; line-height: 22px; border-radius: 9px; }
+  #status.compact { width: 210px; gap: 4px; padding: 7px 10px 9px; }
+  #status.compact .badge { width: 36px; height: 36px; }
+  #status.compact .badge img { width: 22px; height: 22px; }
+  #status.compact .who h2 { font-size: 18px; max-width: 120px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #status.compact #pclass, #status.compact #coins, #status.compact #classes, #status.compact #tracker, #status.compact .stamrow { display: none; }
+  #status.compact.tired .stamrow { display: flex; }
+  #status.compact.pts #classes { display: grid; }
+  #status.compact.pts #classes .classchip, #status.compact.pts #classes .hint { display: none; }
   #status .who > div { display: grid; }
   .badge { position: relative; width: 46px; height: 46px; flex: none; border-radius: 50%; border: 3px solid var(--ink); background: radial-gradient(circle at 35% 30%, #b98cff, #5b2f9c); box-shadow: inset 0 0 0 2.5px #f7d77a, 0 3px 0 var(--ink); display: grid; place-items: center; }
   .badge img { width: 28px; height: 28px; filter: drop-shadow(0 2px 0 rgb(0 0 0 / .3)); }
@@ -288,10 +298,12 @@
 
   @media (max-width: 700px) {
     #status { width: 200px; padding: 8px 10px; }
+    #status.compact { width: 168px; }
     #status .who h2 { font-size: 18px; }
     #menu { top: auto; bottom: calc(env(safe-area-inset-bottom, 0px) + 84px); padding: 6px; }
-    #menu button { font-size: 13px; padding: 5px 7px; gap: 3px; }
-    #menu button img { width: 16px; height: 16px; }
+    #menu { left: max(8px, env(safe-area-inset-left, 0px)); right: max(8px, env(safe-area-inset-right, 0px)); display: flex; gap: 4px; }
+    #menu button { flex: 1; min-width: 0; flex-direction: column; font-size: 11.5px; padding: 4px 2px; gap: 1px; }
+    #menu button img { width: 18px; height: 18px; }
     #sheet { top: auto; bottom: calc(env(safe-area-inset-bottom, 0px) + 140px); max-height: 52%; }
     #actionhint { display: none; }
     #dialog { bottom: calc(env(safe-area-inset-bottom, 0px) + 140px); }
@@ -347,6 +359,36 @@
   .cc-note { font-size: 13px; color: var(--ink-soft); margin: 14px 0 0; }
   .cc-foot { display: flex; gap: 8px; margin-top: 10px; padding-top: 10px; border-top: 2px dashed rgb(74 42 23 / .25); }
   .cc-foot .primary { flex: 1; font-size: 17px; }
+  /* crafting */
+  .crafts { display: grid; gap: 8px; }
+  .craft { display: grid; grid-template-columns: 46px minmax(0, 1fr) auto; gap: 10px; align-items: center; background: rgb(255 250 235 / .7); border: 2px solid rgb(74 42 23 / .25); border-radius: 12px; padding: 7px 9px; }
+  .craft.ready { border-color: var(--leaf); background: #f3fbe2; }
+  .craft.locked { opacity: .62; }
+  .craft .out { width: 46px; height: 46px; }
+  .cinfo { min-width: 0; display: grid; gap: 2px; }
+  .cinfo b { font: 600 15px var(--display); }
+  .cinfo small { font-size: 12px; color: var(--ink-soft); font-weight: 700; }
+  .cinfo em { font-size: 12px; font-style: normal; font-weight: 800; color: var(--berry); }
+  .need { display: flex; flex-wrap: wrap; gap: 6px; }
+  .need span { display: inline-flex; align-items: center; gap: 2px; font-size: 12.5px; font-weight: 800; font-variant-numeric: tabular-nums; }
+  .need span img { width: 20px; height: 20px; }
+  .need .miss { color: var(--berry); }
+  .need .have { color: var(--leaf); }
+  .cbtns { display: grid; gap: 4px; }
+  .cbtns button { font-size: 13px; padding: 5px 9px; }
+  .sub small { font: 700 12px var(--body); color: var(--ink-soft); }
+  /* sell amount picker */
+  .sellpick { margin-top: 10px; padding: 10px; border: 2.5px solid var(--ink); border-radius: 14px; background: #fff7e2; display: grid; gap: 8px; }
+  .qtyhead { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .qtyhead img { width: 32px; height: 32px; }
+  .qtyhead small { font-size: 12px; color: var(--ink-soft); font-weight: 700; }
+  .qtyrow { display: flex; align-items: center; gap: 8px; }
+  .qtyrow input { flex: 1; min-width: 0; accent-color: var(--plum); }
+  .qtyrow output { min-width: 34px; text-align: center; font: 700 20px var(--display); }
+  .qtyrow > button[data-d] { width: 38px; padding: 4px 0; font-size: 18px; }
+  .qtyrow.quick { flex-wrap: wrap; gap: 6px; }
+  .qtyrow.quick button { font-size: 13px; padding: 4px 10px; }
+  #wforge img { width: 18px; height: 18px; vertical-align: -3px; margin-right: 4px; }
   @media (max-width: 759px) {
     #creator { grid-template-columns: minmax(0, 1fr); grid-template-rows: 34% 66%; background: none; }
     .cc-namehint { display: none; }
@@ -364,9 +406,9 @@
 <div id="stage"></div>
 
 <section id="status" class="panel" aria-label="Your hero">
-  <div class="who"><div class="badge"><img id="badgeicon" alt=""><b id="badgelvl">1</b></div><div><h2 id="pname">Hero</h2><span id="pclass">Knight</span></div></div>
+  <div class="who"><div class="badge"><img id="badgeicon" alt=""><b id="badgelvl">1</b></div><div><h2 id="pname">Hero</h2><span id="pclass">Knight</span></div><button id="hudmore" aria-label="Show more" aria-expanded="false">▾</button></div>
   <div class="barrow"><img id="hearticon" alt=""><div class="bar" aria-label="Health"><i id="hpfill" style="width:100%"></i><b id="hptext">50 / 50</b></div></div>
-  <div class="barrow"><img id="booticon" alt=""><div class="bar stam" aria-label="Stamina"><i id="stamfill" style="width:100%"></i></div></div>
+  <div class="barrow stamrow"><img id="booticon" alt=""><div class="bar stam" aria-label="Stamina"><i id="stamfill" style="width:100%"></i></div></div>
   <div id="coins"><img id="coinicon" alt=""><span id="coinval">0</span> coins</div>
   <div id="classes" aria-label="Class"></div>
   <div id="tracker"></div>
@@ -376,6 +418,7 @@
   <button id="b-skills" aria-pressed="false"><img data-icon="star" alt="">Hero</button>
   <button id="b-bag" aria-pressed="false"><img data-icon="bag" alt="">Bag</button>
   <button id="b-quests" aria-pressed="false"><img data-icon="scroll" alt="">Quests</button>
+  <button id="b-craft" aria-pressed="false"><img data-icon="hammer" alt="">Craft</button>
   <button id="b-look" aria-pressed="false"><img data-icon="mirror" alt="">Look</button>
   <button id="b-opts" aria-pressed="false"><img data-icon="gear" alt="">Options</button>
 </nav>

@@ -63,6 +63,27 @@ export const ICONS = {
     shape(g, '#e0444f', () => g.arc(0, -16, 6, 0, 7));
     shine(g, -18, -4, 4);
   }),
+  hammer: make((g) => {
+    g.rotate(-0.6);
+    shape(g, '#a0673a', () => g.roundRect(-5, -6, 10, 42, 4));
+    shape(g, '#9aa6b8', () => g.roundRect(-24, -26, 48, 22, 5));
+    shine(g, -12, -20, 4);
+  }),
+  grilled_shrimp: make((g) => {
+    shape(g, '#e0703a', () => { g.arc(0, 4, 22, Math.PI * 1.05, Math.PI * 2.1); g.arc(2, 6, 10, Math.PI * 2.1, Math.PI * 1.05, true); g.closePath(); });
+    g.save(); g.lineWidth = 4; g.strokeStyle = '#6b2e12'; for (const a of [3.7, 4.4, 5.1]) { g.beginPath(); g.moveTo(Math.cos(a) * 12, 4 + Math.sin(a) * 12); g.lineTo(Math.cos(a) * 20, 4 + Math.sin(a) * 20); g.stroke(); } g.restore();
+    shine(g, -10, -10, 3.5);
+  }),
+  grilled_trout: make((g) => {
+    fish(g, '#c98a4a', '#f6d9b0');
+    g.save(); g.lineWidth = 4; g.strokeStyle = '#6b2e12'; for (const x of [-6, 4, 14]) { g.beginPath(); g.moveTo(x - 4, -10); g.lineTo(x + 4, 8); g.stroke(); } g.restore();
+  }),
+  fish_pie: make((g) => {
+    shape(g, '#c9773a', () => { g.moveTo(-36, 6); g.lineTo(36, 6); g.lineTo(28, 24); g.lineTo(-28, 24); g.closePath(); });
+    shape(g, '#f3cf86', () => g.ellipse(0, 4, 36, 16, 0, Math.PI, 0));
+    g.save(); g.translate(0, -10); g.scale(0.45, 0.45); fish(g, '#7fb36a', '#f6d9b0'); g.restore();
+    shine(g, -20, -2, 4);
+  }),
   stew: make((g) => {
     shape(g, '#8a5a32', () => { g.moveTo(-36, -4); g.lineTo(36, -4); g.quadraticCurveTo(34, 30, 0, 30); g.quadraticCurveTo(-34, 30, -36, -4); g.closePath(); });
     shape(g, '#e08a3a', () => g.ellipse(0, -4, 36, 9, 0, 0, 7));
@@ -163,3 +184,4 @@ export const ICONS = {
   }),
   fishing: make((g) => fish(g, '#5fb3e6', '#e6f6ff')),
 };
+ICONS.crafting = ICONS.hammer;
