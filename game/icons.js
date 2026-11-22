@@ -83,6 +83,13 @@ export const ICONS = {
     shape(g, '#ffcc33', () => { g.moveTo(-18, -24); g.quadraticCurveTo(0, -34, 18, -24); g.quadraticCurveTo(22, 0, 12, 28); g.quadraticCurveTo(6, 32, 2, 8); g.quadraticCurveTo(0, 2, -2, 8); g.quadraticCurveTo(-6, 32, -12, 28); g.quadraticCurveTo(-22, 0, -18, -24); });
     shine(g, -8, -16, 5);
   }),
+  heart: make((g) => { shape(g, '#ff5a6a', () => { g.moveTo(0, 30); g.bezierCurveTo(-40, 4, -30, -30, 0, -14); g.bezierCurveTo(30, -30, 40, 4, 0, 30); }); shine(g, -14, -12, 6); }),
+  boot: make((g) => { shape(g, '#6ec8ff', () => { g.moveTo(-16, -30); g.lineTo(8, -30); g.lineTo(8, 4); g.quadraticCurveTo(32, 6, 32, 24); g.lineTo(-16, 24); g.closePath(); }); shine(g, -6, -18, 4); }),
+  bag: make((g) => { shape(g, '#c98a4a', () => { g.moveTo(-24, -10); g.quadraticCurveTo(-34, 30, 0, 32); g.quadraticCurveTo(34, 30, 24, -10); g.closePath(); }); shape(g, '#a8703a', () => { g.moveTo(-14, -12); g.lineTo(-8, -28); g.lineTo(8, -28); g.lineTo(14, -12); g.closePath(); }); g.save(); g.lineWidth = 4; g.strokeStyle = '#ffd23f'; g.beginPath(); g.moveTo(-18, -10); g.lineTo(18, -10); g.stroke(); g.restore(); shine(g, -10, 6, 5); }),
+  scroll: make((g) => { shape(g, '#fbe6b4', () => g.roundRect(-22, -28, 44, 56, 6)); shape(g, '#d9a560', () => g.roundRect(-28, -34, 56, 12, 6)); shape(g, '#d9a560', () => g.roundRect(-28, 22, 56, 12, 6)); g.save(); g.lineWidth = 3; for (const y of [-12, -2, 8]) { g.beginPath(); g.moveTo(-12, y); g.lineTo(12, y); g.stroke(); } g.restore(); }),
+  mirror: make((g) => { shape(g, '#c98a4a', () => g.roundRect(-4, 14, 8, 22, 3)); shape(g, '#ffd23f', () => g.ellipse(0, -6, 24, 26, 0, 0, 7)); shape(g, '#bfe9ff', () => g.ellipse(0, -6, 16, 18, 0, 0, 7)); shine(g, -6, -14, 6); }),
+  gear: make((g) => { shape(g, '#b9b2c8', () => { for (let i = 0; i < 16; i++) { const r = i % 2 ? 22 : 32, a = (i / 16) * Math.PI * 2; g[i ? 'lineTo' : 'moveTo'](Math.cos(a) * r, Math.sin(a) * r); } g.closePath(); }); shape(g, '#7a6f8e', () => g.arc(0, 0, 9, 0, 7)); }),
+  chest: make((g) => { shape(g, '#c98a4a', () => g.roundRect(-30, -6, 60, 34, 6)); shape(g, '#a8703a', () => { g.moveTo(-30, -6); g.quadraticCurveTo(0, -36, 30, -6); g.closePath(); }); g.save(); g.lineWidth = 5; g.strokeStyle = '#ffd23f'; g.beginPath(); g.moveTo(-30, 6); g.lineTo(30, 6); g.stroke(); g.restore(); shape(g, '#ffd23f', () => g.roundRect(-6, 0, 12, 14, 3)); }),
   // skills
   melee: make((g) => {
     g.rotate(0.78);

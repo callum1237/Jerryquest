@@ -188,12 +188,14 @@ async function main() {
   buildWorld(lib);
   buildInteriors(lib, { tavern: { outside: { x: -4.0, z: -12.3 }, exitTo: { x: -3.4, z: -9.4 } } });
   buildDoors();
+  buildChests();
   buildNodes();
   buildNpcs();
   buildEnemies();
   buildFlowers();
   buildTools();
-  $('coinicon').src = ICONS.coins;
+  $('coinicon').src = ICONS.coins; $('hearticon').src = ICONS.heart; $('booticon').src = ICONS.boot;
+  document.querySelectorAll('[data-icon]').forEach((im) => { im.src = ICONS[im.dataset.icon]; });
   const had = loadSave();
   applyPreset(S.preset || 'day');
   $('loading').style.opacity = '0';
@@ -348,6 +350,8 @@ function switchClass(k) {
 function updateTitle() {
   $('pname').textContent = CLASSES[S.cls].name;
   $('pclass').textContent = `Total level ${totalLevel()}`;
+  $('badgeicon').src = ICONS[CLASSES[S.cls].skill];
+  $('badgelvl').textContent = lvl(CLASSES[S.cls].skill);
 }
 
 // ---------- gathering nodes ----------
@@ -533,6 +537,7 @@ function giveXp(skill, amount, at) {
   if (at) floatText(at, `+${Math.round(amount)} ${SKILL_NAME[skill]}`, 'gain');
   if (after > before) {
     toast(`${SKILL_NAME[skill]} level ${after}!`, ICONS[skill], true);
+    if (skill !== 'speed' || after % 5 === 0) { const el = $('banner'); el.textContent = `Level up! ${SKILL_NAME[skill]} ${after}`; el.classList.add('lvl'); el.classList.remove('show'); void el.offsetWidth; el.classList.add('show'); zoneNow = null; setTimeout(() => el.classList.remove('lvl'), 3300); }
     burst(player.pos.clone().setY(1.5), '#ffd23f', 50, 7, 1.4);
     if (!player.task && now > player.busyUntil && !player.dead) { player.play('Cheer', { once: true, onFinish: () => player.play('Idle') }); player.busyUntil = now + 1.2; }
     if (['melee', 'magic', 'ranged'].includes(skill)) S.hp = Math.min(maxHp(), S.hp + 5);
@@ -592,6 +597,37 @@ function zoneBanner() {
     const el = $('banner'); el.textContent = name; el.classList.remove('show'); void el.offsetWidth; el.classList.add('show');
   }
   if (name) zoneNow = name;
+}
+// ---------- treasure chests (open one and spin your luck!) ----------
+const chests = [];
+const CHEST_SPOTS = [[6, 26], [-30, 22], [36, -26], [-12, -38], [ZONES.glimmer.x + 10, ZONES.glimmer.z - 12], [ZONES.crags.x - 8, ZONES.crags.z + 14],
+  [ZONES.meadow.x - 16, ZONES.meadow.z + 12], [ZONES.hollow.x - 14, ZONES.hollow.z - 6], [70, 60], [-64, 70], [-70, -60], [66, -66]];
+function buildChests() {
+  for (const [x, z] of CHEST_SPOTS) {
+    const m = lib.chest_gold.clone(true); stylize(m); m.position.set(x, 0, z); m.scale.setScalar(1.3); m.rotation.y = rng() * 6; scene.add(m);
+    const glow = new THREE.PointLight('#ffd86b', 6, 6, 1.6); glow.position.set(x, 1.6, z); scene.add(glow);
+    chests.push({ x, z, m, glow, reach: 2.6, open: false, at: 0 });
+    colliders.push({ x, z, r: 0.9 });
+  }
+}
+const LUCK = [
+  [40, 'coins', () => { const c = 15 + Math.floor(rng() * 50); S.coins += c; return [`${c} coins!`, ICONS.coins]; }],
+  [22, 'food', () => { const k = ['bread', 'pie', 'stew'][Math.floor(rng() * 3)]; addItem(k, 2); return [`2 × ${ITEMS[k].toLowerCase()}!`, ICONS[k]]; }],
+  [18, 'xp', () => { const sk = SKILLS[Math.floor(rng() * SKILLS.length)][0]; giveXp(sk, 150); return [`150 ${SKILL_NAME[sk]} XP!`, ICONS[sk]]; }],
+  [8, 'jackpot', () => { S.coins += 150; burst(player.pos.clone().setY(2), '#ffe07a', 90, 9, 1.6); return ['JACKPOT! 150 coins!', ICONS.coins]; }],
+  [12, 'prank', () => { player.air = true; player.vy = 18; hurtPlayer(3); burst(player.pos.clone().setY(1), '#ff9af0', 60, 6, 1.2); return ['Boing! A spring-loaded prank!', ICONS.chest]; }],
+];
+function openChest(c) {
+  if (c.open) return;
+  c.open = true; c.at = now + 180; c.m.visible = false; c.glow.visible = false;
+  burst(new THREE.Vector3(c.x, 1.2, c.z), '#ffe07a', 40, 6, 1.4);
+  let r = rng() * LUCK.reduce((a, l) => a + l[0], 0), pick = LUCK[0];
+  for (const l of LUCK) { if ((r -= l[0]) <= 0) { pick = l; break; } }
+  const [text, icon] = pick[2]();
+  toast(`Treasure: ${text}`, icon, true);
+  const el = $('banner'); el.textContent = pick[1] === 'prank' ? 'Prank!' : pick[1] === 'jackpot' ? 'Jackpot!' : 'Treasure!';
+  el.classList.add('lvl'); el.classList.remove('show'); void el.offsetWidth; el.classList.add('show'); setTimeout(() => el.classList.remove('lvl'), 3300);
+  refreshUI(); save();
 }
 // ---------- doors ----------
 let where = 'out', fading = false;
@@ -744,7 +780,7 @@ function openShop(npc) {
     refreshUI(); save(); openShop(npc);
   };
   $('shopbye').onclick = closeDialog;
-  d.hidden = false;
+  showDialog(d);
   npc.actor.face(player.pos.x, player.pos.z);
 }
 let eatAt = -9;
@@ -777,7 +813,7 @@ function openKing(npc) {
     <div class="row"><button id="kingbye">Farewell</button></div>`;
   d.querySelectorAll('[data-cls]').forEach((b) => { b.onclick = () => { switchClass(b.dataset.cls); closeDialog(); npc.actor.play('Cheer', { once: true, onFinish: () => npcIdle(npc) }); }; });
   $('kingbye').onclick = closeDialog;
-  d.hidden = false;
+  showDialog(d);
   npc.actor.face(player.pos.x, player.pos.z);
 }
 function openWeaponShop(npc) {
@@ -800,7 +836,7 @@ function openWeaponShop(npc) {
     buildClassBar(); refreshUI(); save(); openWeaponShop(npc);
   }; });
   $('wbye').onclick = closeDialog;
-  d.hidden = false;
+  showDialog(d);
   npc.actor.face(player.pos.x, player.pos.z);
 }
 function openTalk(npc) {
@@ -810,7 +846,7 @@ function openTalk(npc) {
   d.querySelector('h3').textContent = npc.name;
   d.querySelector('p').textContent = npc.lines[Math.floor(rng() * npc.lines.length)];
   $('talkbye').onclick = closeDialog;
-  d.hidden = false;
+  showDialog(d);
   npc.actor.face(player.pos.x, player.pos.z);
 }
 function openDialog(npc) {
@@ -848,8 +884,20 @@ function openDialog(npc) {
     const b = document.createElement('button'); b.textContent = label; if (cls) b.className = cls; b.onclick = fn;
     d.querySelector('.row').appendChild(b);
   }
-  d.hidden = false;
+  showDialog(d);
   npc.actor.face(player.pos.x, player.pos.z);
+}
+let typing = null;
+// Dialog text writes itself out letter by letter, storybook style. Tap to skip.
+function showDialog(d) {
+  d.hidden = false;
+  const p = d.querySelector('p');
+  if (!p || matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+  const full = p.textContent; let i = 0;
+  clearInterval(typing);
+  p.textContent = '';
+  typing = setInterval(() => { i += 2; p.textContent = full.slice(0, i); if (i >= full.length) clearInterval(typing); }, 16);
+  p.onclick = () => { clearInterval(typing); p.textContent = full; };
 }
 function closeDialog() { $('dialog').hidden = true; talking = null; }
 
@@ -882,6 +930,7 @@ function targetAt(x, z) {
   let best = null, bd = 1e9;
   const consider = (t, tx, tz, r) => { const d = Math.hypot(tx - x, tz - z); if (d < r && d < bd) { bd = d; best = t; } };
   for (const n of npcs) consider({ type: 'npc', n }, n.x, n.z, 2);
+  for (const c of chests) if (!c.open) consider({ type: 'chest', n: c }, c.x, c.z, 1.8);
   for (const n of nodes) if (n.alive && n.def.skill === 'fishing') consider({ type: 'node', n }, n.x, n.z, 2.2);
   return best;
 }
@@ -945,6 +994,7 @@ const MELEE_REACH = 2.6, TOOL_REACH = 1.7;
 function swingTarget() {
   if (!player) return null;
   const p = player.pos, A = CLASSES[S.cls].atk;
+  for (const c of chests) if (!c.open && Math.hypot(c.x - p.x, c.z - p.z) < c.reach) return { type: 'chest', n: c };
   if (!mouseHeld) for (const n of npcs) if (Math.hypot(n.x - p.x, n.z - p.z) < n.reach + 0.6) return { type: 'npc', n };
   for (const n of nodes) if (n.alive && n.def.skill === 'fishing' && Math.hypot(n.x - p.x, n.z - p.z) < n.reach + 0.6) return { type: 'node', n };
   let foe = null, fd = 1e9;
@@ -959,6 +1009,7 @@ function describe(t) {
   const hint = matchMedia('(pointer: coarse)').matches ? 'Tap here to swing at whatever is in front of you.' : 'Click to attack. Space jumps, Shift sprints.';
   if (!t) return { label: 'Attack', icon: ICONS[CLASSES[S.cls].skill], hint, ok: true };
   if (t.type === 'npc') return { label: 'Talk', icon: ICONS.magic, hint: t.n.name, ok: true };
+  if (t.type === 'chest') return { label: 'Open', icon: ICONS.chest, hint: 'A treasure chest! What could be inside?', ok: true };
   if (t.type === 'attack') return { label: 'Attack', icon: ICONS[CLASSES[S.cls].skill], hint: t.e ? `${t.e.T.name} (${t.e.hp} health)` : hint, ok: true };
   const d = t.n.def, l = lvl(d.skill);
   return { label: d.verb, icon: ICONS[d.skill], hint: l >= d.req ? `${d.name} · ${SKILL_NAME[d.skill]} ${d.req}+` : `${d.name} needs ${SKILL_NAME[d.skill]} level ${d.req}`, ok: l >= d.req };
@@ -989,6 +1040,7 @@ function swing() {
   if (now - aim.at < 2.5) { player.face(aim.x, aim.z); aim.at = -99; }
   const t = swingTarget();
   if (t.type === 'npc') { held = false; player.face(t.n.x, t.n.z); openDialog(t.n); return; }
+  if (t.type === 'chest') { held = false; player.face(t.n.x, t.n.z); openChest(t.n); return; }
   if (t.type === 'node') { held = false; startTask(t); return; }
   moveTarget = null; pending = null; marker.visible = false;
   flashArc();
@@ -1078,6 +1130,7 @@ function startTask(t) {
   pending = null; moveTarget = null; marker.visible = false;
   player.face(p.x, p.z);
   if (t.type === 'npc') { openDialog(t.n); return; }
+  if (t.type === 'chest') { openChest(t.n); return; }
   const def = t.n.def;
   if (lvl(def.skill) < def.req) { toast(`You need ${SKILL_NAME[def.skill]} level ${def.req} for that.`, ICONS[def.skill]); return; }
   player.task = { ...t, next: now + 1.4 };
@@ -1337,6 +1390,7 @@ function drawMap(cv, full) {
   g.fillStyle = '#3f7a3a'; g.fillRect(0, 0, W, W);
   g.drawImage(mapBg, src(cx - half), src(cz - half), src(cx + half) - src(cx - half), src(cz + half) - src(cz - half), 0, 0, W, W);
   const dot = (x, z, r, fill) => { const [u, v] = toPx(x, z); g.beginPath(); g.arc(u, v, r * dpr, 0, 7); g.fillStyle = fill; g.fill(); g.lineWidth = 1.5 * dpr; g.strokeStyle = '#3a2010'; g.stroke(); };
+  for (const c of chests) if (!c.open) dot(c.x, c.z, full ? 3 : 3.5, '#ffd23f');
   for (const e of enemies) if (e.hp > 0 && e.state !== 'rising') dot(e.pos.x, e.pos.z, e.T.boss ? 6 : full ? 2.5 : 3.5, e.T.boss ? '#ff2a6a' : '#ff5a4a');
   for (const n of npcs) {
     const qid = Object.keys(QUESTS).find((q) => QUESTS[q].giver === n.id);
@@ -1437,6 +1491,7 @@ function tick() {
   if (player) player.mixer.update(dt);
   for (const n of npcs) { n.actor.mixer.update(dt); n.marker.position.y = 4.6 + Math.sin(now * 3 + n.x) * 0.15; }
 
+  for (const c of chests) { if (c.open && now > c.at) { c.open = false; c.m.visible = true; c.glow.visible = true; } if (!c.open) c.glow.intensity = 5 + Math.sin(now * 3 + c.x) * 2; }
   for (const r of doorRings) { const ph = (now * 0.7) % 1; r.scale.setScalar(1 + ph * 0.35); r.material.opacity = 0.85 - ph * 0.6; }
   for (const n of nodes) {
     if (!n.alive && now > n.respawnAt) {
