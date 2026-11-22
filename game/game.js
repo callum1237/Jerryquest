@@ -111,7 +111,7 @@ const NODES = {
   trout: { skill: 'fishing', req: 5, xp: 45, item: 'trout', name: 'Trout spot', verb: 'Fish', doing: 'Fishing', deplete: 0, respawn: 0 },
 };
 // How many hits of health each tree/rock has, and the size of its hitbox.
-const NODE_HP = { tree: 8, oak: 14, copper: 7, iron: 11 };
+const NODE_HP = { tree: 5, oak: 9, copper: 5, iron: 8 };
 const ENEMY_TYPES = {
   skel_minion: { name: 'Skeleton', hp: 16, maxHit: 3, weapon: 'Skeleton_Blade', xp: 15 },
   skel_warrior: { name: 'Skeleton Warrior', hp: 28, maxHit: 5, weapon: 'Skeleton_Blade', xp: 30 },
@@ -195,7 +195,7 @@ const fresh = () => ({
   hero: { xp: 0, alloc: { atk: 0, def: 0, hp: 0 } },
   quests: Object.fromEntries(Object.keys(QUESTS).map((k) => [k, { state: 'todo', kills: 0 }])),
   hp: 56, pos: [0, 6], preset: 'day',
-  look: { outfit: 'none', trim: 'none', hat: false, cape: true, hair: 'hero', hairLen: 'short', hairCol: 'chestnut', skin: 'peach', eyes: 'brown', eyeStyle: 'round', head: 'normal', ears: 'human', sex: 'm', mouth: 'smile', mark: 'none' },
+  look: { outfit: 'none', trim: 'none', hat: false, cape: true, hair: 'hero', hairLen: 'short', hairCol: 'chestnut', skin: 'peach', eyes: 'brown', eyeStyle: 'round', head: 'big', ears: 'human', sex: 'm', mouth: 'smile', mark: 'none', beard: 'none' },
   owned: ['k_sword', 'sh_badge', 'ar_cloth'], equip: { weapon: 'k_sword', shield: 'sh_badge', armour: 'ar_cloth' },
 });
 let S = fresh();
@@ -283,7 +283,7 @@ class Actor {
     scene.add(this.root);
     this.mixer.addEventListener('finished', (e) => { if (e.action === this.current && this.onFinish) { const f = this.onFinish; this.onFinish = null; f(); } });
   }
-  play(name, { once = false, fade = 0.18, speed = 1, clamp = false, onFinish = null } = {}) {
+  play(name, { once = false, fade = 0.18, speed = 1, clamp = false, onFinish = null, from = 0 } = {}) {
     const clip = this.clips[name] || (this.alias && this.clips[this.alias[name]]);
     if (!clip) return 0;
     const a = this.mixer.clipAction(clip);
@@ -291,10 +291,10 @@ class Actor {
     a.reset(); a.setEffectiveTimeScale(speed); a.setEffectiveWeight(1);
     a.setLoop(once ? THREE.LoopOnce : THREE.LoopRepeat, Infinity);
     a.clampWhenFinished = clamp;
-    a.play();
+    a.play(); if (from) a.time = Math.min(from, clip.duration * 0.9);
     if (this.current && this.current !== a) this.current.crossFadeTo(a, fade, false);
     this.current = a; this.name = name; this.onFinish = onFinish;
-    return clip.duration / speed;
+    return (clip.duration - Math.min(from, clip.duration * 0.9)) / speed;
   }
   slot() { let s = null; this.root.traverse((o) => { if (!s && /handslotr$/i.test(o.name)) s = o; }); return s; }
   attach(obj) { const s = this.slot(); if (s) s.add(obj); return obj; }
@@ -330,7 +330,7 @@ async function main() {
   buildTools();
   $('coinicon').src = ICONS.coins; $('hearticon').src = ICONS.heart; $('booticon').src = ICONS.boot;
   document.querySelectorAll('[data-icon]').forEach((im) => { im.src = ICONS[im.dataset.icon]; });
-  const had = loadSave();
+  const had = loadSave(); rebuildBinds();
   applyPreset(S.preset || 'day');
   $('loading').style.opacity = '0';
   setTimeout(() => $('loading').remove(), 700);
@@ -393,12 +393,18 @@ const EYE_COLOURS = {
   emerald: ['Emerald', '#1fd18a'], violet: ['Violet', '#9a5ff0'], red: ['Red', '#e0393f'], gold: ['Gold', '#f2b51c'], grey: ['Grey', '#8a96a8'],
 };
 const EYE_STYLES = { round: 'Big and round', sharp: 'Determined', sleepy: 'Sleepy', happy: 'Happy', classic: 'Little dots' };
-const HEAD_SIZES = { normal: ['Normal', 1], big: ['Big', 1.15], chibi: ['Chibi', 1.3] };
-const hairMats = toon('#8a4f2a');
-for (const mat of [hairMats.std, hairMats.toon]) { mat.stencilWrite = true; mat.stencilRef = 1; mat.stencilFunc = THREE.AlwaysStencilFunc; mat.stencilZPass = THREE.ReplaceStencilOp; }
+const HEAD_SIZES = { normal: ['Normal', 1.12], big: ['Big', 1.28], chibi: ['Chibi', 1.42] };
+const BEARDS = { none: 'None', stache: 'Moustache', curly: 'Curly moustache', goatee: 'Goatee', full: 'Big beard', wizard: 'Wizard beard' };
+let hairMatId = 0;
+function hairMatsFor(col) {
+  const m = toon(col); m.uid = ++hairMatId;
+  for (const mat of [m.std, m.toon]) { mat.stencilWrite = true; mat.stencilRef = 1; mat.stencilFunc = THREE.AlwaysStencilFunc; mat.stencilZPass = THREE.ReplaceStencilOp; }
+  return m;
+}
+const HERO_HAIR = hairMatsFor('#8a4f2a'), hairMats = HERO_HAIR;
 const hairCache = new Map();
-function hairGroup(style, len = 'short') {
-  const key = `${style}|${len}`;
+function hairGroup(style, len = 'short', hairMats = HERO_HAIR) {
+  const key = `${style}|${len}|${hairMats.uid || 0}`;
   if (hairCache.has(key)) return hairCache.get(key);
   const g = new THREE.Group();
   const add = (geo, x, y, z, rx = 0, ry = 0, rz = 0, sx = 1, sy = 1, sz = 1) => {
@@ -454,7 +460,7 @@ function hairGroup(style, len = 'short') {
   if (style === 'spiky') { shell(); bangs('spiky'); spikes(10); }
   if (style === 'hero') {
     shell(); bangs('spiky');
-    const sp = [[0, 1.0, 0.55], [0.5, 0.95, 0.5], [-0.5, 0.95, 0.5], [1.1, 0.75, 0.45], [-1.1, 0.75, 0.45], [2.2, 0.6, 0.5], [-2.2, 0.6, 0.5], [Math.PI, 0.6, 0.55], [1.6, 0.4, 0.38], [-1.6, 0.4, 0.38]];
+    const sp = [[0.25, 1.05, 0.42], [-0.3, 1.05, 0.4], [1.0, 0.8, 0.38], [-1.0, 0.8, 0.38], [2.2, 0.6, 0.45], [-2.2, 0.6, 0.45], [Math.PI, 0.6, 0.5], [1.6, 0.45, 0.32], [-1.6, 0.45, 0.32]];
     for (const [az, el, h] of sp) lock(az, el, h, 0.17, 2.45 - el, 0, 0.7, 0.92);
   }
   if (style === 'swept') { shell(0.38); bangs('swept'); lock(-0.8, 0.4, 0.42, 0.12, 0.05, -0.2, 0.6); }
@@ -506,17 +512,17 @@ function measureHead(root) {
   for (let i = 0; i < pos.count; i++) { v.fromBufferAttribute(pos, i); head.applyBoneTransform(i, v); v.applyMatrix4(head.matrixWorld).applyMatrix4(inv); box.expandByPoint(v); }
   return box;
 }
-function headParts() {
-  if (player.headInfo) return player.headInfo;
+function headParts(a = player) {
+  if (a.headInfo) return a.headInfo;
   let head = null, bone = null;
-  player.root.traverse((o) => { if (o.isSkinnedMesh && /_Head(_Hooded)?$/.test(o.name)) head = o; if (o.isBone && o.name === 'head') bone = o; });
+  a.root.traverse((o) => { if (o.isSkinnedMesh && /_Head(_Hooded)?$/.test(o.name)) head = o; if (o.isBone && o.name === 'head') bone = o; });
   if (!bone) return null;
   if (!headRef) {
     const tmp = SkeletonUtils.clone(G.knight.scene); tmp.scale.setScalar(1.3);
     headRef = measureHead(tmp) || new THREE.Box3(new THREE.Vector3(-0.5, 0, -0.45), new THREE.Vector3(0.5, 1.1, 0.5));
   }
-  player.headInfo = { head, bone, box: headRef };
-  return player.headInfo;
+  a.headInfo = { head, bone, box: headRef };
+  return a.headInfo;
 }
 const headGeo = (() => {
   const g = new THREE.SphereGeometry(1, 56, 40), p = g.attributes.position, v = new THREE.Vector3();
@@ -615,8 +621,9 @@ function drawBrow(g, x, y, side, L) {
 function drawMouth(g, x, y, L, state) {
   const ink = '#4a1c12', skin = (SKIN_TONES[L.skin] || SKIN_TONES.peach)[1];
   g.save(); g.translate(x, y); g.lineCap = 'round'; g.lineJoin = 'round'; g.strokeStyle = ink; g.lineWidth = 5;
-  const m = state === 'hurt' ? 'hurt' : L.mouth;
-  if (m === 'hurt') { g.beginPath(); g.moveTo(-14, 4); g.lineTo(-7, -2); g.lineTo(0, 4); g.lineTo(7, -2); g.lineTo(14, 4); g.stroke(); }
+  const m = state === 'hurt' ? 'hurt' : state === 'talk' ? 'talk' : L.mouth;
+  if (m === 'talk') { g.fillStyle = '#7a2a22'; g.beginPath(); g.ellipse(0, 5, 12, 11, 0, 0, Math.PI * 2); g.fill(); g.fillStyle = '#ff8f8f'; g.beginPath(); g.ellipse(0, 10, 7, 4.5, 0, 0, Math.PI * 2); g.fill(); g.beginPath(); g.ellipse(0, 5, 12, 11, 0, 0, Math.PI * 2); g.stroke(); }
+  else if (m === 'hurt') { g.beginPath(); g.moveTo(-14, 4); g.lineTo(-7, -2); g.lineTo(0, 4); g.lineTo(7, -2); g.lineTo(14, 4); g.stroke(); }
   else if (m === 'grin') {
     g.fillStyle = '#7a2a22'; g.beginPath(); g.moveTo(-16, -4); g.quadraticCurveTo(0, -1, 16, -4); g.quadraticCurveTo(14, 18, 0, 19); g.quadraticCurveTo(-14, 18, -16, -4); g.closePath(); g.fill();
     g.fillStyle = '#ff8f8f'; g.beginPath(); g.ellipse(0, 13, 8, 5, 0, 0, Math.PI * 2); g.fill();
@@ -656,7 +663,7 @@ const faceTexCache = new Map();
 function faceTexture(L, state) {
   const key = [L.sex, L.skin, L.eyes, L.eyeStyle, L.mouth, L.mark, L.hairCol, state].join('|');
   if (faceTexCache.has(key)) return faceTexCache.get(key);
-  if (faceTexCache.size > 24) { for (const t of faceTexCache.values()) t.dispose(); faceTexCache.clear(); }
+  if (faceTexCache.size > 90) { for (const t of faceTexCache.values()) t.dispose(); faceTexCache.clear(); }
   const cv = document.createElement('canvas'); cv.width = FW; cv.height = FH;
   paintFace(cv.getContext('2d'), L, state);
   const t = new THREE.CanvasTexture(cv); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 8;
@@ -673,13 +680,33 @@ function facePreview(L, part) {
   out.getContext('2d').drawImage(previewCv, crop[0], crop[1], crop[2], crop[3], 0, 0, out.width, out.height);
   return out.toDataURL();
 }
-function buildFace() {
-  const H = headParts();
+// Facial hair, built in head space from the same head measurements as the face.
+const neckGeo = new THREE.CylinderGeometry(1, 1.1, 1, 16), beardGeo = new THREE.SphereGeometry(1, 20, 14), stacheGeo = new THREE.CapsuleGeometry(0.5, 1.2, 4, 10), goateeGeo = new THREE.ConeGeometry(0.5, 1, 12).rotateX(Math.PI);
+function addBeard(fg, kind, c, rx, ry, rz, mats) {
+  if (!kind || kind === 'none') return;
+  const put = (geo, x, y, z, sx, sy, sz, rxx = 0, ryy = 0, rzz = 0) => { const m = new THREE.Mesh(geo); registerMesh(m, mats); m.castShadow = true; m.position.set(c.x + x * rx, c.y + y * ry, c.z + z * rz); m.scale.set(sx * rx, sy * ry, sz * rz); m.rotation.set(rxx, ryy, rzz); fg.add(m); return m; };
+  if (kind === 'full' || kind === 'wizard') {
+    // a big round beard that wraps the jaw from ear to ear
+    put(beardGeo, 0, -0.78, 0.3, 0.84, 0.46, 0.62);
+    for (const sx of [-1, 1]) put(beardGeo, sx * 0.62, -0.45, 0.12, 0.3, 0.42, 0.42);
+    if (kind === 'wizard') { put(goateeGeo, 0, -1.25, 0.62, 0.95, 0.9, 0.7, -0.35); put(goateeGeo, 0, -1.75, 0.82, 0.55, 0.6, 0.45, -0.5); }
+  }
+  if (kind === 'goatee') put(goateeGeo, 0, -0.98, 0.78, 0.36, 0.42, 0.3, -0.5);
+  if (kind === 'stache' || kind === 'curly' || kind === 'full' || kind === 'wizard') {
+    for (const sx of [-1, 1]) {
+      put(stacheGeo, sx * 0.19, -0.37, 0.94, 0.2, 0.12, 0.11, 0, 0, sx * (kind === 'curly' ? 1.95 : 1.4));
+      if (kind === 'curly') put(beardGeo, sx * 0.47, -0.3, 0.84, 0.1, 0.1, 0.08);
+    }
+  }
+}
+// The code-built chibi head: a round head with a painted face, ears and facial hair.
+// Works for the hero and for every villager (a is any Actor, L a look).
+function buildFace(a = player, L = S.look) {
+  const H = headParts(a);
   if (!H) return;
-  const L = S.look;
   if (H.head) { H.head.visible = false; }
-  if (player.faceGroup) { player.faceGroup.removeFromParent(); player.faceGroup.traverse((o) => { if (o.material && o.material.dispose && !o.userData.keepMat) o.material.dispose(); }); }
-  const fg = new THREE.Group(); player.faceGroup = fg; H.bone.add(fg);
+  if (a.faceGroup) { a.faceGroup.removeFromParent(); a.faceGroup.traverse((o) => { if (o.material && o.material.dispose && !o.userData.keepMat && !o.userData.isInk) o.material.dispose(); }); }
+  const fg = new THREE.Group(); a.faceGroup = fg; H.bone.add(fg);
   const box = H.box, c = box.getCenter(new THREE.Vector3()), sz = box.getSize(new THREE.Vector3());
   const rx = sz.x * 0.5, ry = sz.y * 0.47, rz = sz.z * 0.5;
   const mats = toon('#f6f2f0');
@@ -687,10 +714,11 @@ function buildFace() {
   mats.std.map = faceTexture(L, 'open'); mats.toon.map = mats.std.map;
   for (const mat of [mats.std, mats.toon]) { mat.stencilWrite = true; mat.stencilRef = 1; mat.stencilFunc = THREE.AlwaysStencilFunc; mat.stencilZPass = THREE.ReplaceStencilOp; }
   const head = new THREE.Mesh(headGeo); registerMesh(head, mats); head.castShadow = true;
+  head.userData.stencilled = true;
   head.scale.set(rx, ry, rz); head.position.set(c.x, c.y + sz.y * 0.02, c.z);
   // the sphere's u = 0.25 column, where the face is painted, already points forward (+z)
   fg.add(head);
-  player.faceMats = mats; player.faceState = 'open';
+  a.faceMats = mats; a.faceState = 'open'; a.faceLook = L;
   const skinMat = toon(SKIN_TONES[L.skin][1]);
   for (const sx of [-1, 1]) {
     const e = new THREE.Mesh(L.ears === 'elf' ? earGeo : humanEarGeo); registerMesh(e, skinMat); e.castShadow = true;
@@ -698,25 +726,56 @@ function buildFace() {
     else { e.position.set(sx * rx * 0.97, c.y - ry * 0.08, c.z - rz * 0.06); e.scale.set(rx * 0.13, ry * 0.2, rz * 0.15); }
     fg.add(e);
   }
-  player.headScale = HEAD_SIZES[L.head] ? HEAD_SIZES[L.head][1] : 1;
+  const neck = new THREE.Mesh(neckGeo); registerMesh(neck, skinMat); neck.position.set(c.x, c.y - ry * 0.95, c.z - rz * 0.05); neck.scale.set(rx * 0.42, ry * 0.7, rz * 0.42); fg.add(neck);
+  const hc = new THREE.Color((HAIR_COLOURS[L.hairCol] || HAIR_COLOURS.chestnut)[1]).multiplyScalar(0.78);
+  addBeard(fg, L.beard, c, rx, ry, rz, toon(`#${hc.getHexString()}`));
+  a.headScale = HEAD_SIZES[L.head] ? HEAD_SIZES[L.head][1] : 1.28;
+  markStencil(fg);
+  addInk(fg);
 }
-// Blink every few seconds; wince for a moment when hurt.
-function faceTick() {
-  if (!player || !player.faceMats) return;
+// Blink every few seconds; wince for a moment when hurt; chatter while talking.
+function faceTick(a = player) {
+  if (!a || !a.faceMats) return;
   let st = 'open';
-  if (player.dead || now < (player.hurtFace || 0)) st = 'hurt';
-  else if (now < (player.blinkUntil || 0)) st = 'blink';
-  else if (now > (player.blinkAt || 0)) { player.blinkUntil = now + 0.14; player.blinkAt = now + 2.2 + Math.random() * 3.5; st = 'blink'; }
-  if (st !== player.faceState) {
-    player.faceState = st;
-    const t = faceTexture(S.look, st);
-    player.faceMats.std.map = t; player.faceMats.toon.map = t;
+  if (a.dead || now < (a.hurtFace || 0)) st = 'hurt';
+  else if (now < (a.talkUntil || 0) && Math.sin(now * 26) > -0.2) st = 'talk';
+  else if (now < (a.blinkUntil || 0)) st = 'blink';
+  else if (now > (a.blinkAt || 0)) { a.blinkUntil = now + 0.14; a.blinkAt = now + 2.2 + Math.random() * 3.5; st = 'blink'; }
+  if (st !== a.faceState) {
+    a.faceState = st;
+    const t = faceTexture(a.faceLook || S.look, st);
+    a.faceMats.std.map = t; a.faceMats.toon.map = t;
+  }
+}
+// Bold storybook ink lines around characters: an inverted shell pushed out a fixed number of pixels.
+const inkW = { value: 0.0026 };
+const inkMat = new THREE.MeshBasicMaterial({ color: '#1f1009', side: THREE.BackSide, fog: false });
+inkMat.onBeforeCompile = (sh) => {
+  sh.uniforms.inkW = inkW;
+  sh.vertexShader = 'uniform float inkW;\n' + sh.vertexShader.replace('#include <project_vertex>', `
+    #ifdef USE_SKINNING
+      vec3 inkN = objectNormal;
+    #else
+      vec3 inkN = normal;
+    #endif
+    vec4 mvPosition = modelViewMatrix * vec4(transformed, 1.0);
+    mvPosition.xyz += normalize(normalMatrix * inkN) * inkW * -mvPosition.z;
+    gl_Position = projectionMatrix * mvPosition;`);
+};
+function addInk(root) {
+  const list = [];
+  root.traverse((o) => { if (o.isMesh && o.visible && o.userData.mats && !o.userData.isSil && !o.userData.isInk && !o.userData.hasInk) list.push(o); });
+  for (const o of list) {
+    o.userData.hasInk = true;
+    const h = o.isSkinnedMesh ? new THREE.SkinnedMesh(o.geometry, inkMat) : new THREE.Mesh(o.geometry, inkMat);
+    h.userData.isInk = true; h.frustumCulled = false; h.layers.set(1); h.castShadow = false;
+    o.add(h); if (o.isSkinnedMesh) h.bind(o.skeleton, o.bindMatrix);
   }
 }
 function applyLook() {
   if (!player) return;
   const L = S.look;
-  for (const g of hairCache.values()) g.removeFromParent();
+  for (const [k, g] of hairCache) if (k.endsWith(`|${HERO_HAIR.uid}`)) g.removeFromParent();
   const hc = HAIR_COLOURS[L.hairCol] || HAIR_COLOURS.chestnut;
   // a touch darker than the swatch so sunlight doesn't bleach the top of the hair
   const hcol = new THREE.Color(hc[1]).multiplyScalar(0.72);
@@ -724,7 +783,7 @@ function applyLook() {
   const showHair = L.hair !== 'none' && !L.hat;
   const arm = ARMOUR[S.equip.armour] || ARMOUR.ar_cloth;
   if (showHair) { let head; player.root.traverse((o) => { if (o.isBone && o.name === 'head') head = o; }); if (head) head.add(hairGroup(L.hair, L.hairLen)); }
-  buildFace();
+  buildFace(player, L);
   player.root.traverse((o) => {
     if (!o.isMesh || !o.userData.mats) return;
     const n = o.name;
@@ -743,6 +802,65 @@ function applyLook() {
       for (const mat of [o.userData.mats.std, o.userData.mats.toon]) { colourise(mat, amt); mat.color.set(amt ? mixHex(col, '#ffffff', 0.12) : col); }
     }
   });
+  dressArmour();
+  addInk(player.root);
+}
+// Armour you wear shows on your hero: chunky shoulder pads, a belt, a chest badge. Bigger armour, bigger pads.
+const ARMOUR_LOOK = {
+  ar_leather: { col: '#a8683a', trim: '#6e3f1e', pad: 0.26, belt: true },
+  ar_chain: { col: '#c3cedc', trim: '#7d8796', pad: 0.3, belt: true, layers: 2, gorget: true },
+  ar_gold: { col: '#ffcc33', trim: '#c9821c', pad: 0.36, belt: true, layers: 2, gorget: true, gem: '#e0444f', spike: true },
+};
+const restRigs = new Map();
+const padGeo = new THREE.SphereGeometry(1, 20, 12, 0, Math.PI * 2, 0, Math.PI / 2), ringGeo = new THREE.TorusGeometry(1, 0.16, 8, 28), gemGeo = new THREE.OctahedronGeometry(1, 0), spikeGeo = new THREE.ConeGeometry(1, 2.4, 8);
+function dressArmour() {
+  if (player.armourParts) for (const m of player.armourParts) m.removeFromParent();
+  player.armourParts = [];
+  const A = ARMOUR_LOOK[S.equip.armour];
+  if (!A) return;
+  // measure on an untouched copy of the body in its rest pose, then hang each piece on the
+  // matching bone of the hero, so it sits the same way whatever animation is playing
+  const model = heroModel();
+  if (!restRigs.has(model)) { const r = SkeletonUtils.clone(model.scene); r.scale.setScalar(1.3); r.updateMatrixWorld(true); const b = {}; r.traverse((o) => { if (o.isBone) b[o.name.replace(/[^a-z]/gi, '').toLowerCase()] = o; }); restRigs.set(model, b); }
+  const rest = restRigs.get(model), live = {};
+  player.root.traverse((o) => { if (o.isBone) live[o.name.replace(/[^a-z]/gi, '').toLowerCase()] = o; });
+  const bones = rest;
+  if (!bones.chest || !live.chest) return;
+  const main = toon(A.col, A.gem ? { emissive: '#3a2400' } : {}), trim = toon(A.trim);
+  const W2L = new THREE.Matrix4(), M = new THREE.Matrix4(), q = new THREE.Quaternion(), sc = new THREE.Vector3();
+  const place = (bone, geo, mats, pos, rot, size) => {
+    const m = new THREE.Mesh(geo); registerMesh(m, mats); m.castShadow = true;
+    q.setFromEuler(rot); M.compose(pos, q, sc.copy(size));
+    W2L.copy(bone.matrixWorld).invert().multiply(M);
+    W2L.decompose(m.position, m.quaternion, m.scale);
+    const key = Object.keys(rest).find((k) => rest[k] === bone);
+    live[key].add(m); player.armourParts.push(m); return m;
+  };
+  const wp = (b) => new THREE.Vector3().setFromMatrixPosition(bones[b].matrixWorld);
+  const S1 = 1.3;
+  for (const side of ['l', 'r']) {
+    const arm = bones[`upperarm${side}`]; if (!arm) continue;
+    const sp = wp(`upperarm${side}`), out = Math.sign(sp.x) || (side === 'l' ? 1 : -1);
+    const r = A.pad * S1;
+    for (let i = 0; i < (A.layers || 1); i++) {
+      const k = 1 - i * 0.22;
+      place(arm, padGeo, i ? trim : main, sp.clone().add(new THREE.Vector3(out * (0.06 + i * 0.07) * S1, (0.1 - i * 0.12) * S1, 0)), new THREE.Euler(0, 0, -out * (0.45 + i * 0.25)), new THREE.Vector3(r * k, r * 0.78 * k, r * 1.05 * k));
+    }
+    place(arm, ringGeo, trim, sp.clone().add(new THREE.Vector3(out * 0.06 * S1, 0.1 * S1, 0)), new THREE.Euler(Math.PI / 2, 0, -out * 0.45), new THREE.Vector3(r * 0.98, r * 1.03, r * 0.9));
+    if (A.spike) place(arm, spikeGeo, trim, sp.clone().add(new THREE.Vector3(out * 0.2 * S1, 0.36 * S1, 0)), new THREE.Euler(0, 0, -out * 0.6), new THREE.Vector3(0.06 * S1, 0.07 * S1, 0.06 * S1));
+  }
+  const ch = wp('chest');
+  if (A.gorget) place(bones.chest, ringGeo, main, ch.clone().add(new THREE.Vector3(0, 0.36 * S1, 0.02 * S1)), new THREE.Euler(Math.PI / 2, 0, 0), new THREE.Vector3(0.26 * S1, 0.24 * S1, 0.4 * S1));
+  if (A.gem) {
+    place(bones.chest, gemGeo, toon(A.gem, { emissive: '#400' }), ch.clone().add(new THREE.Vector3(0, 0.12 * S1, 0.36 * S1)), new THREE.Euler(0, 0, 0), new THREE.Vector3(0.09 * S1, 0.12 * S1, 0.05 * S1));
+    place(bones.chest, ringGeo, main, ch.clone().add(new THREE.Vector3(0, 0.12 * S1, 0.33 * S1)), new THREE.Euler(0, 0, 0), new THREE.Vector3(0.12 * S1, 0.14 * S1, 0.12 * S1));
+  }
+  if (A.belt && bones.hips) {
+    const hp = wp('hips');
+    place(bones.hips, ringGeo, trim, hp.clone().add(new THREE.Vector3(0, 0.12 * S1, 0.01 * S1)), new THREE.Euler(Math.PI / 2, 0, 0), new THREE.Vector3(0.4 * S1, 0.34 * S1, 0.55 * S1));
+    place(bones.hips, gemGeo, main, hp.clone().add(new THREE.Vector3(0, 0.12 * S1, 0.36 * S1)), new THREE.Euler(0, 0, Math.PI / 4), new THREE.Vector3(0.08 * S1, 0.08 * S1, 0.04 * S1));
+  }
+  for (const m of player.armourParts) { markStencil(m); addInk(m); }
 }
 function colourise(mat, amt) {
   if (!mat.userData.colourise) {
@@ -796,6 +914,53 @@ function equipGear() {
   // the ground wedge shows how far your weapon reaches
   arcMesh.scale.setScalar(w.type === 'melee' ? (w.reach + 0.6) / (MELEE_REACH + 0.6) : 1);
   applyLook();
+}
+// ---------- hotbar ----------
+// Eight slots along the bottom. Put food or gear on it from the Bag, then press 1-8 (or tap) to eat or equip.
+const HOT_N = 8;
+function hotbar() { if (!Array.isArray(S.hotbar) || S.hotbar.length !== HOT_N) S.hotbar = [...(S.hotbar || []), ...Array(HOT_N).fill(null)].slice(0, HOT_N); return S.hotbar; }
+let hotPick = -1; // a slot the player tapped to fill next
+function pinToHotbar(k) {
+  const hb = hotbar(), at = hb.indexOf(k);
+  if (at >= 0 && hotPick < 0) { hb[at] = null; toast(`Took ${ITEMS[k] || GEAR[k].name} off the hotbar.`); }
+  else {
+    if (at >= 0) hb[at] = null;
+    let i = hotPick >= 0 ? hotPick : hb.indexOf(null);
+    if (i < 0) i = HOT_N - 1;
+    hb[i] = k; hotPick = -1;
+    toast(`${ITEMS[k] || GEAR[k].name} is on hotbar slot ${i + 1}.`, ICONS[k] || gearIcon(GEAR[k]));
+  }
+  save(); renderHotbar();
+}
+function useHotbar(i) {
+  const k = hotbar()[i];
+  const slotEl = $('hotbar').children[i];
+  if (slotEl) { slotEl.classList.remove('used'); void slotEl.offsetWidth; slotEl.classList.add('used'); }
+  if (!k) { hotPick = i; openSheet('bag'); toast(`Pick something in your bag for slot ${i + 1} (press +).`); renderHotbar(); return; }
+  if (FOOD[k]) { if (!S.inv[k]) { toast(`You're out of ${ITEMS[k]}.`, ICONS[k]); return; } eat(k); renderHotbar(); return; }
+  const g = GEAR[k];
+  if (g && S.owned.includes(k)) {
+    if (S.equip[g.slot] === k) { toast(`${g.name} is already equipped.`, gearIcon(g)); return; }
+    S.equip[g.slot] = k; cancelTask(); equipGear(); buildGearBar(); updateTitle(); save();
+    burst(player.pos.clone().setY(1.6), '#ffe07a', 20, 4); toast(`Equipped ${g.name}.`, gearIcon(g));
+    if (sheetMode) renderSheet(); renderHotbar();
+  }
+}
+function renderHotbar() {
+  const el = $('hotbar'); if (!el || !S.started) return;
+  const hb = hotbar(), kb = binds();
+  el.innerHTML = hb.map((k, i) => {
+    const key = keyLabel(kb[`hot${i + 1}`][0] || kb[`hot${i + 1}`][1]);
+    if (!k) return `<button class="hot empty${hotPick === i ? ' picking' : ''}" data-hot="${i}" title="Empty: tap, then press + on something in your bag"><kbd>${key}</kbd></button>`;
+    const food = FOOD[k], g = GEAR[k], n = food ? (S.inv[k] || 0) : null;
+    const on = g && S.equip[g.slot] === k;
+    return `<button class="hot${on ? ' on' : ''}${food && !n ? ' out' : ''}" data-hot="${i}" title="${food ? `Eat ${ITEMS[k]} (heals ${food.heal})` : `Equip ${g.name}`}. Right-click to clear."><img src="${food ? ICONS[k] : gearIcon(g)}" alt=""><kbd>${key}</kbd>${food ? `<span>${n}</span>` : ''}</button>`;
+  }).join('');
+  el.querySelectorAll('[data-hot]').forEach((b) => {
+    const i = +b.dataset.hot;
+    b.onclick = () => useHotbar(i);
+    b.oncontextmenu = (e) => { e.preventDefault(); hotbar()[i] = null; save(); renderHotbar(); };
+  });
 }
 function buildGearBar() {
   const w = W(), free = freePoints();
@@ -920,7 +1085,7 @@ function buildNpcs() {
     { id: 'marta', name: 'Marta the Baker', model: 'barbarian', x: 7.5 * VS, z: 10.2 * VS, hide: [], shop: 'food', tint: '#bfe3ff' },
     { id: 'brom', name: 'Brom the Blacksmith', model: 'barbarian', x: 5.5 * VS, z: -19.8 * VS, hide: [], shop: 'melee', tint: '#ffb38a' },
     { id: 'wisteria', name: 'Madame Wisteria', model: 'mage', x: 18.4 * VS, z: -21.6 * VS, hide: [], shop: 'magic', tint: '#f0b0ff' },
-    { id: 'hazel', name: 'Hazel the Fletcher', model: 'archer', x: -22 * VS, z: 10.5 * VS, hide: [], shop: 'ranged', tint: '#d8f0a0' },
+    { id: 'hazel', name: 'Hazel the Fletcher', model: 'heroine', x: -22 * VS, z: 10.5 * VS, hide: [], shop: 'ranged', tint: '#d8f0a0' },
     { id: 'king', name: 'King Jerrold', model: 'knight', x: INTERIORS.castle.king.x, z: INTERIORS.castle.king.z, hide: ['Knight_Helmet'], king: true, tint: '#b98cff', inside: 'castle' },
     ...INTERIORS.castle.guards.map(([x, z], i) => ({ id: `guard${i}`, name: 'Royal Guard', model: 'knight', x, z, hide: [], inside: 'castle', tint: '#8fb8ff',
       lines: ['Long live King Jerrold!', 'The King grants a new calling to any hero who asks.', 'Mind the carpet. The King had it cleaned this morning.'] })),
@@ -928,10 +1093,10 @@ function buildNpcs() {
     { id: 'pip', name: 'Granny Pip', model: 'mage', x: ZONES.meadow.x - 6, z: ZONES.meadow.z + 1, hide: [], tint: '#ffc0d8',
       lines: ['Back in my day, skeletons said please before they stabbed you.', 'Have you tried my apple pie? Marta in the village sells it. I taught her!', 'The windmill squeaks a little song at night. Listen closely.'] },
     { id: 'crier', name: 'Bertram the Town Crier', model: 'knight', x: -6 * VS, z: 5 * VS, hide: ['Knight_Helmet'], tint: '#ffd08a',
-      lines: ['Hear ye! Four lands lie beyond the woods: Glimmerwood to the east, Grumble Crags to the west, Honeymeadow to the south and Haunted Hollow to the north!', 'Hear ye! Each land has a fearsome boss. Watch for the red glow on the ground and get out of the way!', 'Hear ye! Hold Shift to sprint, press Z or C (or tap A or D twice) to dash, R for your special attack, and M for the map. Hear ye!', 'Hear ye! Coins in the bank are safe. Coins in your pocket? Half of them fall out when you get knocked out!'] },
+      lines: ['Hear ye! Four lands lie beyond the woods: Glimmerwood to the east, Grumble Crags to the west, Honeymeadow to the south and Haunted Hollow to the north!', 'Hear ye! Each land has a fearsome boss. Watch for the red glow on the ground and get out of the way!', 'Hear ye! Hold Shift to sprint, press C (or tap any direction twice) to dash in any direction, J or click to attack, R for your special attack, and M for the map. Hear ye!', 'Hear ye! Coins in the bank are safe. Coins in your pocket? Half of them fall out when you get knocked out!'] },
     { id: 'lumi', name: 'Lumi the Wisp-keeper', model: 'mage', x: ZONES.glimmer.x - 14, z: ZONES.glimmer.z + 4, hide: [], tint: '#9ff0ff',
       lines: ['The Gloomcaster stole the colour from half my mushrooms. The rest glow twice as bright out of spite!', 'Glimmerwood hums at night. Can you hear it? No? Try humming back.'] },
-    { id: 'dot', name: 'Prospector Dot', model: 'archer', x: ZONES.crags.x + 15, z: ZONES.crags.z + 4, hide: [], tint: '#e8b080',
+    { id: 'dot', name: 'Prospector Dot', model: 'heroine', x: ZONES.crags.x + 15, z: ZONES.crags.z + 4, hide: [], tint: '#e8b080',
       lines: ['Bonecrusher sleeps in the middle of the Crags. Well, "sleeps". Mostly he stomps.', 'When the ground glows red, jump! I learned that one the hard way. Twice.'] },
     { id: 'mort', name: 'Gravekeeper Mort', model: 'barbarian', x: ZONES.hollow.x + 12, z: ZONES.hollow.z + 12, hide: [], tint: '#a8a8c0',
       lines: ['Captain Rattlebones keeps getting up. I keep putting him down. It is a living. Well. Sort of.', 'Do not mind the gravestones. Most of them are empty. Most.'] },
@@ -939,7 +1104,11 @@ function buildNpcs() {
     { id: 'tom', name: 'Old Tom the Barkeep', model: 'barbarian', x: INTERIORS.tavern.barkeep.x, z: INTERIORS.tavern.barkeep.z, hide: [], shop: 'food', tint: '#e8c89a', inside: 'tavern', face: 'south' },
   ];
   for (const d of defs) {
-    const a = new Actor(G[d.model], { hide: d.hide, scale: 1.3 });
+    const look = NPC_LOOKS[d.id] || NPC_LOOKS[d.id.replace(/\d+$/, '')];
+    const hide = [...d.hide];
+    if (look && !look.hat) hide.push('Barbarian_Hat', 'Mage_Hat', 'Knight_Helmet');
+    const a = new Actor(G[d.model], { hide, scale: 1.3 });
+    if (look) dressNpc(a, look);
     a.root.position.set(d.x, 0, d.z);
     if (d.inside) a.root.rotation.y = 0; else a.face(0, 0);
     a.play(d.id === 'fenwick' ? 'Spellcasting' : 'Idle');
@@ -954,8 +1123,65 @@ function buildNpcs() {
     });
     const m = markerSprite(); m.position.set(d.x, 4.6, d.z); scene.add(m);
     colliders.push({ x: d.x, z: d.z, r: 0.9 });
-    npcs.push({ ...d, actor: a, marker: m, reach: 3.2 });
+    npcs.push({ ...d, actor: a, marker: m, reach: 3.2, accent: d.king ? '#e0a21c' : d.shop ? '#e8743a' : d.bank ? '#d9a21c' : d.lines ? '#3a9ad9' : '#8f62d8' });
   }
+}
+// Each villager gets a hand-made look in the same chibi style as the hero: big head, painted face, hair.
+const NPC_LOOKS = (() => {
+  const base = { skin: 'peach', eyes: 'brown', eyeStyle: 'round', mouth: 'smile', mark: 'none', hair: 'short', hairLen: 'short', hairCol: 'chestnut', ears: 'human', head: 'big', beard: 'none', hat: false, sex: 'm' };
+  const L = (o) => ({ ...base, ...o });
+  return {
+    bertha: L({ sex: 'f', skin: 'honey', eyes: 'green', eyeStyle: 'happy', mouth: 'grin', hair: 'bun', hairCol: 'ginger', mark: 'rosy' }),
+    rowan: L({ skin: 'tan', eyes: 'blue', eyeStyle: 'sharp', mouth: 'calm', hair: 'swept', hairCol: 'black', mark: 'scar', beard: 'stache' }),
+    fenwick: L({ skin: 'porcelain', eyes: 'grey', eyeStyle: 'sleepy', mouth: 'calm', hair: 'none', hairCol: 'snow', beard: 'wizard', hat: true }),
+    marta: L({ sex: 'f', skin: 'porcelain', eyes: 'sky', eyeStyle: 'happy', mouth: 'grin', hair: 'twin', hairLen: 'shoulder', hairCol: 'blonde', mark: 'freckles' }),
+    brom: L({ skin: 'bronze', eyes: 'gold', eyeStyle: 'sharp', mouth: 'grin', hair: 'none', hairCol: 'ginger', beard: 'full', hat: true }),
+    wisteria: L({ sex: 'f', skin: 'peach', eyes: 'violet', eyeStyle: 'sleepy', mouth: 'cat', hair: 'hime', hairLen: 'long', hairCol: 'pink', mark: 'star', hat: true }),
+    hazel: L({ sex: 'f', skin: 'tan', eyes: 'hazel', eyeStyle: 'round', mouth: 'smile', hair: 'long', hairLen: 'long', hairCol: 'green', mark: 'freckles', ears: 'elf' }),
+    king: L({ skin: 'peach', eyes: 'blue', eyeStyle: 'happy', mouth: 'grin', hair: 'curls', hairCol: 'snow', beard: 'full', head: 'chibi' }),
+    guard: L({ skin: 'honey', eyes: 'brown', eyeStyle: 'sharp', mouth: 'calm', hair: 'none', beard: 'stache', hairCol: 'chestnut', hat: true }),
+    giles: L({ skin: 'tan', eyes: 'brown', eyeStyle: 'happy', mouth: 'grin', hair: 'spiky', hairCol: 'chestnut', mark: 'freckles', beard: 'goatee' }),
+    pip: L({ sex: 'f', skin: 'porcelain', eyes: 'blue', eyeStyle: 'sleepy', mouth: 'smile', hair: 'bun', hairCol: 'snow', mark: 'rosy', head: 'chibi' }),
+    crier: L({ skin: 'peach', eyes: 'green', eyeStyle: 'round', mouth: 'grin', hair: 'curls', hairCol: 'ginger', beard: 'curly' }),
+    lumi: L({ sex: 'f', skin: 'blue', eyes: 'sky', eyeStyle: 'round', mouth: 'cat', hair: 'bob', hairCol: 'snow', mark: 'star', ears: 'elf', hat: true }),
+    dot: L({ sex: 'f', skin: 'bronze', eyes: 'gold', eyeStyle: 'sharp', mouth: 'fang', hair: 'short', hairCol: 'black', mark: 'paint' }),
+    mort: L({ skin: 'green', eyes: 'red', eyeStyle: 'sleepy', mouth: 'calm', hair: 'mohawk', hairCol: 'black', beard: 'goatee' }),
+    penny: L({ sex: 'f', skin: 'ebony', eyes: 'gold', eyeStyle: 'round', mouth: 'smile', hair: 'hime', hairLen: 'shoulder', hairCol: 'black' }),
+    tom: L({ skin: 'peach', eyes: 'brown', eyeStyle: 'happy', mouth: 'grin', hair: 'none', hairCol: 'snow', beard: 'curly', head: 'chibi' }),
+  };
+})();
+function npcLife(n, dt) {
+  const a = n.actor;
+  a.mixer.update(dt);
+  n.marker.position.y = 4.6 + Math.sin(now * 3 + n.x) * 0.15;
+  if (!a.root.visible) return;
+  if (a.headInfo && a.headScale) a.headInfo.bone.scale.setScalar(a.headScale);
+  faceTick(a);
+  // a gentle squash-and-stretch breath, bouncier while chatting
+  const chat = talking === n, hop = Math.max(0, (a.hopUntil || 0) - now);
+  const k = Math.sin(now * (chat ? 7 : 2.4) + (a.phase || 0)) * (chat ? 0.045 : 0.022);
+  a.root.scale.set(1.3 * (1 - k * 0.5), 1.3 * (1 + k), 1.3 * (1 - k * 0.5));
+  a.root.position.y = hop > 0 ? Math.sin((1 - hop / 0.35) * Math.PI) * 0.45 : 0;
+  // turn to look at the hero when they come close
+  if (player && (n.inside || 'out') === where) {
+    const dx = player.pos.x - n.x, dz = player.pos.z - n.z, d = Math.hypot(dx, dz);
+    if (d < 7 || chat) {
+      const want = Math.atan2(dx, dz); let diff = want - a.root.rotation.y; diff = Math.atan2(Math.sin(diff), Math.cos(diff));
+      a.root.rotation.y += diff * Math.min(1, dt * 5);
+      if (!n.greeted && d < 5) { n.greeted = true; a.hopUntil = now + 0.35; if (!n.shop && !chat) a.play('Cheer', { once: true, fade: 0.15, speed: 1.3, onFinish: () => npcIdle(n) }); }
+    } else if (d > 10) n.greeted = false;
+  }
+}
+function dressNpc(a, L) {
+  buildFace(a, L);
+  if (L.hair !== 'none') {
+    const col = new THREE.Color(HAIR_COLOURS[L.hairCol][1]).multiplyScalar(0.72);
+    const mats = hairMatsFor(`#${col.getHexString()}`);
+    const g = hairGroup(L.hair, L.hairLen, mats);
+    a.headInfo.bone.add(g); addInk(g);
+  }
+  addInk(a.root);
+  a.blinkAt = Math.random() * 4; a.phase = Math.random() * 6;
 }
 const npcIdle = (n) => n.actor.play(n.id === 'fenwick' ? 'Spellcasting' : 'Idle');
 
@@ -1008,7 +1234,7 @@ function giveXp(skill, amount, at) {
   if (at) floatText(at, `+${Math.round(amount)} ${SKILL_NAME[skill]}`, 'gain');
   if (after > before) {
     toast(`${SKILL_NAME[skill]} level ${after}!`, ICONS[skill], true);
-    if (skill !== 'speed' || after % 5 === 0) { const el = $('banner'); el.textContent = `Level up! ${SKILL_NAME[skill]} ${after}`; el.classList.add('lvl'); el.classList.remove('show'); void el.offsetWidth; el.classList.add('show'); zoneNow = null; setTimeout(() => el.classList.remove('lvl'), 3300); }
+    if (skill !== 'speed' || after % 5 === 0) { levelFanfare('#9cf0ff'); const el = $('banner'); el.textContent = `Level up! ${SKILL_NAME[skill]} ${after}`; el.classList.add('lvl'); el.classList.remove('show'); void el.offsetWidth; el.classList.add('show'); zoneNow = null; setTimeout(() => el.classList.remove('lvl'), 3300); }
     burst(player.pos.clone().setY(1.5), '#ffd23f', 50, 7, 1.4);
     if (!player.task && now > player.busyUntil && !player.dead) { player.play('Cheer', { once: true, onFinish: () => player.play('Idle') }); player.busyUntil = now + 1.2; }
     updateTitle();
@@ -1027,6 +1253,7 @@ function giveHeroXp(amount, at) {
     const n = after - before;
     S.hp = maxHp();
     toast(`Hero level ${after}! +${n} Attack, Defense and Health, and ${n * FREE_PER_LEVEL} points to spend.`, ICONS.star, true);
+    levelFanfare('#ffd84a');
     const el = $('banner'); el.textContent = `Level up! Hero ${after}`; el.classList.add('lvl'); el.classList.remove('show'); void el.offsetWidth; el.classList.add('show'); zoneNow = null; setTimeout(() => el.classList.remove('lvl'), 3300);
     burst(player.pos.clone().setY(1.5), '#ffd23f', 60, 7, 1.5);
     if (!player.task && now > player.busyUntil && !player.dead) { player.play('Cheer', { once: true, onFinish: () => player.play('Idle') }); player.busyUntil = now + 1.2; }
@@ -1043,10 +1270,89 @@ function spendPoint(k) {
   burst(player.pos.clone().setY(1.6), k === 'hp' ? '#ff7a8a' : k === 'def' ? '#8fc2ff' : '#ffd84a', 16, 4);
   updateTitle(); buildGearBar(); refreshUI(); save(); renderSheet();
 }
+function levelFanfare(col) {
+  if (!player) return;
+  const c = player.pos;
+  for (let i = 0; i < 16; i++) { const a = (i / 16) * Math.PI * 2; burst(new THREE.Vector3(c.x + Math.cos(a) * 1.6, 0.4, c.z + Math.sin(a) * 1.6), i % 2 ? col : '#ffffff', 5, 2.5, 1.2); }
+  burst(c.clone().setY(2.8), col, 40, 6, 1.5);
+  const ring = new THREE.Mesh(new THREE.RingGeometry(0.7, 1, 40), new THREE.MeshBasicMaterial({ color: col, transparent: true, opacity: 0.9, depthWrite: false, fog: false, side: THREE.DoubleSide }));
+  ring.rotation.x = -Math.PI / 2; ring.position.set(c.x, 0.2, c.z); ring.layers.set(1); scene.add(ring);
+  fx.push({ m: ring, t: 0, dur: 0.7, R: 3.2 });
+  if (!player.air) { player.air = true; player.vy = 9; }
+  player.play('Cheer', { once: true, fade: 0.1, speed: 1.2 });
+}
 function questReady(id) {
   const q = QUESTS[id], st = S.quests[id];
   if (st.state !== 'active') return false;
   return Object.entries(q.need).every(([k, n]) => (k === 'kills' ? st.kills : k === 'boss' ? (st.boss || 0) : (S.inv[k] || 0)) >= n);
+}
+// ---------- quest guide arrow ----------
+// The followed quest: the one you picked, or else the first one you're on.
+function trackedQuest() {
+  const ok = (k) => k && QUESTS[k] && S.quests[k] && S.quests[k].state !== 'done' && (!QUESTS[k].story || storyOpen(k));
+  if (ok(S.track)) return S.track;
+  const act = Object.keys(QUESTS).filter((k) => S.quests[k].state === 'active');
+  return act.find((k) => QUESTS[k].story) || act[0] || storyStep().find((k) => S.quests[k].state === 'todo') || null;
+}
+// Where the arrow points for a quest, as { x, z, inside } (inside: which building it is in, or 'out').
+function questTarget(id) {
+  const q = QUESTS[id], st = S.quests[id];
+  const npcAt = (nid) => { const n = npcs.find((m) => m.id === nid); return n && { x: n.x, z: n.z, inside: n.inside || 'out' }; };
+  if (st.state !== 'active' || questReady(id)) return npcAt(q.giver);
+  const P = player.pos;
+  if (q.bossType) {
+    const b = enemies.find((e) => e.type === q.bossType);
+    if (b) return { x: b.home.x, z: b.home.y, inside: b.inside };
+  }
+  if (q.need.kills) {
+    let best = null, bd = 1e9;
+    for (const e of enemies) if (!e.T.boss && e.hp > 0 && e.inside === 'out') { const d = Math.hypot(e.pos.x - P.x, e.pos.z - P.z); if (d < bd) { bd = d; best = e; } }
+    return best ? { x: best.pos.x, z: best.pos.z, inside: 'out' } : { x: CAMP.x, z: CAMP.z, inside: 'out' };
+  }
+  const missing = Object.keys(q.need).find((k) => (S.inv[k] || 0) < q.need[k]);
+  let best = null, bd = 1e9;
+  for (const n of nodes) if (n.alive !== false && n.def.item === missing) { const d = Math.hypot(n.x - P.x, n.z - P.z); if (d < bd) { bd = d; best = n; } }
+  return best ? { x: best.x, z: best.z, inside: 'out' } : npcAt(q.giver);
+}
+let guide = null;
+function buildGuide() {
+  // a chunky golden arrow that circles the hero's feet, and a bouncing star over the spot
+  const g = new THREE.Group(), gold = toon('#ffc93a', { emissive: '#5a3500' });
+  const shape = new THREE.Shape();
+  shape.moveTo(0, 0.75); shape.lineTo(0.55, 0.05); shape.lineTo(0.22, 0.05); shape.lineTo(0.22, -0.55); shape.lineTo(-0.22, -0.55); shape.lineTo(-0.22, 0.05); shape.lineTo(-0.55, 0.05); shape.closePath();
+  const geo = new THREE.ExtrudeGeometry(shape, { depth: 0.16, bevelEnabled: true, bevelSize: 0.05, bevelThickness: 0.05, bevelSegments: 2 }).rotateX(-Math.PI / 2);
+  const arrow = new THREE.Mesh(geo); registerMesh(arrow, gold); arrow.castShadow = false;
+  const pivot = new THREE.Group(); arrow.position.z = -2.5; arrow.rotation.y = Math.PI; pivot.add(arrow); g.add(pivot);
+  addInk(arrow);
+  const starShape = new THREE.Shape();
+  for (let i = 0; i < 10; i++) { const r = i % 2 ? 0.28 : 0.62, a = Math.PI / 2 + i * Math.PI / 5; i ? starShape.lineTo(Math.cos(a) * r, Math.sin(a) * r) : starShape.moveTo(Math.cos(a) * r, Math.sin(a) * r); }
+  const star = new THREE.Mesh(new THREE.ExtrudeGeometry(starShape, { depth: 0.2, bevelEnabled: true, bevelSize: 0.05, bevelThickness: 0.05 })); registerMesh(star, gold);
+  addInk(star); scene.add(star);
+  scene.add(g);
+  guide = { g, pivot, arrow, star };
+}
+function guideTick() {
+  if (!player) return;
+  if (!guide) buildGuide();
+  const id = trackedQuest(), show = S.guideOn !== false && id && !uiLock() && !talking;
+  let t = show && questTarget(id);
+  if (t && t.inside !== where) {
+    // the goal is in another place: lead to the door first
+    if (where !== 'out') { const d = INTERIORS[where].room.door; t = { x: d.x, z: d.z, inside: where }; }
+    else { const I = INTERIORS[t.inside]; t = I && I.outside ? { x: I.outside.x, z: I.outside.z, inside: 'out' } : null; }
+  }
+  const P = player.pos;
+  const d = t ? Math.hypot(t.x - P.x, t.z - P.z) : 0;
+  guide.g.visible = !!t && d > 4.5;
+  guide.star.visible = !!t && d < 45;
+  if (!t) return;
+  guide.g.position.set(P.x, 0.25 + P.y, P.z);
+  const want = Math.atan2(t.x - P.x, t.z - P.z) + Math.PI;
+  let diff = want - guide.pivot.rotation.y; diff = Math.atan2(Math.sin(diff), Math.cos(diff));
+  guide.pivot.rotation.y += diff * 0.2;
+  guide.arrow.position.z = -2.5 - Math.sin(now * 5) * 0.25;
+  guide.star.position.set(t.x, 5.2 + Math.sin(now * 3) * 0.3, t.z);
+  guide.star.rotation.y = now * 2;
 }
 function questProgress(id) {
   const q = QUESTS[id], st = S.quests[id];
@@ -1278,7 +1584,10 @@ function refreshUI() {
   $('hptext').textContent = `${Math.max(0, Math.ceil(S.hp))} / ${mh}`;
   $('coinval').textContent = S.coins;
   const active = Object.keys(QUESTS).filter((k) => S.quests[k].state === 'active');
-  $('tracker').innerHTML = active.map((k) => `<div><b>${QUESTS[k].name}</b><br>${questReady(k) ? `Return to ${npcName(QUESTS[k].giver)}` : questProgress(k)}</div>`).join('');
+  renderHotbar();
+  const tracked = trackedQuest();
+  $('tracker').innerHTML = active.map((k) => `<button class="trk${k === tracked ? ' on' : ''}" data-track="${k}" title="Follow this quest"><b>${k === tracked ? '&#10148; ' : ''}${QUESTS[k].name}</b><br>${questReady(k) ? `Return to ${npcName(QUESTS[k].giver)}` : questProgress(k)}</button>`).join('');
+  $('tracker').querySelectorAll('[data-track]').forEach((b) => { b.onclick = (e) => { e.stopPropagation(); S.track = b.dataset.track; refreshUI(); save(); }; });
   for (const n of npcs) {
     if (n.shop || n.bank) { n.marker.userData.draw('$'); continue; }
     if (n.king) { const st = storyStep(); n.marker.userData.draw(st.some(questReady) ? '?' : st.some((q) => S.quests[q].state === 'todo') ? '!' : '♛'); continue; }
@@ -1315,17 +1624,18 @@ function renderSheet() {
     for (let i = 0; i < Math.max(16, Math.ceil(items.length / 4) * 4); i++) {
       const it = items[i];
       slots.push(!it ? '<div class="slot empty"></div>' : FOOD[it[0]]
-        ? `<button class="slot food" data-eat="${it[0]}" title="Eat ${ITEMS[it[0]]} (heals ${FOOD[it[0]].heal})"><img src="${ICONS[it[0]]}" alt="${ITEMS[it[0]]}"><span>${it[1]}</span></button>`
+        ? `<div class="slotwrap"><button class="slot food" data-eat="${it[0]}" title="Eat ${ITEMS[it[0]]} (heals ${FOOD[it[0]].heal})"><img src="${ICONS[it[0]]}" alt="${ITEMS[it[0]]}"><span>${it[1]}</span></button><button class="pin" data-pin="${it[0]}" title="Put on hotbar" aria-label="Put ${ITEMS[it[0]]} on the hotbar" aria-pressed="${(S.hotbar || []).includes(it[0])}">+</button></div>`
         : `<div class="slot" title="${ITEMS[it[0]]}"><img src="${ICONS[it[0]]}" alt="${ITEMS[it[0]]}"><span>${it[1]}</span></div>`);
     }
     const group = (slot, title) => {
       const mine = S.owned.filter((k) => GEAR[k] && GEAR[k].slot === slot);
-      return `<h4 class="sub">${title}</h4><div class="gearlist">${mine.map((k) => `<button class="gearbtn" data-gear="${k}" aria-pressed="${S.equip[slot] === k}"><b><img src="${gearIcon(GEAR[k])}" alt="">${GEAR[k].name}</b><span>${gearStats(GEAR[k])}${GEAR[k].unique ? ' · boss drop' : ''}</span></button>`).join('')}</div>`;
+      return `<h4 class="sub">${title}</h4><div class="gearlist">${mine.map((k) => `<div class="gearwrap"><button class="gearbtn" data-gear="${k}" aria-pressed="${S.equip[slot] === k}"><b><img src="${gearIcon(GEAR[k])}" alt="">${GEAR[k].name}</b><span>${gearStats(GEAR[k])}${GEAR[k].unique ? ' · boss drop' : ''}</span></button><button class="pin" data-pin="${k}" title="Put on hotbar" aria-label="Put ${GEAR[k].name} on the hotbar" aria-pressed="${(S.hotbar || []).includes(k)}">+</button></div>`).join('')}</div>`;
     };
     el.innerHTML = `<h3>Bag <small>${S.coins} coins${S.bank ? ` · ${S.bank} banked` : ''}</small></h3><div class="bag">${slots.join('')}</div>
       ${group('weapon', 'Weapons')}${group('shield', 'Shields')}${group('armour', 'Armour')}
-      <p class="hint">Your weapon decides how you fight: swords up close, staffs and wands throw magic, crossbows shoot. Tap food to eat it and heal (or press H). Marta at the market buys anything in your bag, and the smiths buy back spare gear.</p>`;
+      <p class="hint">Press + on food or gear to put it on your hotbar, then press its number key to use it. Your weapon decides how you fight: swords up close, staffs and wands throw magic, crossbows shoot. Tap food to eat it and heal (or press H). Marta at the market buys anything in your bag, and the smiths buy back spare gear.</p>`;
     el.querySelectorAll('[data-eat]').forEach((b) => { b.onclick = () => eat(b.dataset.eat); });
+    el.querySelectorAll('[data-pin]').forEach((b) => { b.onclick = () => { pinToHotbar(b.dataset.pin); renderSheet(); }; });
     el.querySelectorAll('[data-gear]').forEach((b) => { b.onclick = () => { const g = GEAR[b.dataset.gear]; S.equip[g.slot] = b.dataset.gear; cancelTask(); equipGear(); buildGearBar(); updateTitle(); save(); renderSheet(); burst(player.pos.clone().setY(1.6), '#ffe07a', 20, 4); }; });
   } else if (sheetMode === 'quests') {
     const order = Object.entries(QUESTS).filter(([k, q]) => !q.story || storyOpen(k) || S.quests[k].state !== 'todo').sort((a, b) => (b[1].story ? 1 : 0) - (a[1].story ? 1 : 0));
@@ -1333,8 +1643,10 @@ function renderSheet() {
       const st = S.quests[k].state, ready = questReady(k);
       const tag = st === 'done' ? '<span class="tag done">Done</span>' : ready ? '<span class="tag ready">Hand in</span>' : st === 'active' ? '<span class="tag active">Active</span>' : '<span class="tag todo">New</span>';
       const body = st === 'todo' ? `Talk to ${npcName(q.giver)}.` : st === 'done' ? 'Completed.' : ready ? `Return to ${npcName(q.giver)}.` : `${q.desc} (${questProgress(k)})`;
-      return `<div class="quest${q.story ? ' story' : ''}">${q.story ? `<small class="chapter">Main story · ${q.chapter}</small>` : ''}<h4>${q.name}${tag}</h4><p>${body}</p></div>`;
+      const canTrack = st !== 'done', on = trackedQuest() === k;
+      return `<div class="quest${q.story ? ' story' : ''}">${q.story ? `<small class="chapter">Main story · ${q.chapter}</small>` : ''}<h4>${q.name}${tag}</h4><p>${body}</p>${canTrack ? `<button class="trackbtn" data-track="${k}" aria-pressed="${on}">${on ? '&#10148; Following' : 'Follow with arrow'}</button>` : ''}</div>`;
     }).join('')}`;
+    el.querySelectorAll('[data-track]').forEach((b) => { b.onclick = () => { S.track = b.dataset.track; refreshUI(); save(); renderSheet(); }; });
   } else if (sheetMode === 'look') {
     const sw = (part, set = LOOK_COLOURS) => Object.entries(set).map(([k, [nm, c]]) => `<button class="swatch" data-part="${part}" data-col="${k}" title="${nm}" aria-label="${nm}" aria-pressed="${S.look[part] === k}" style="background:${c}"></button>`).join('');
     const pick = (part, set) => Object.entries(set).map(([k, nm]) => `<button class="hairbtn" data-opt="${part}" data-val="${k}" aria-pressed="${S.look[part] === k}">${nm}</button>`).join('');
@@ -1363,9 +1675,15 @@ function renderSheet() {
     el.innerHTML = `<h3>Options</h3><div class="opts">
       <button id="o-style" aria-pressed="${styled.on}">Storybook look: ${styled.on ? 'On' : 'Off'}</button>
       <button id="o-tod" aria-pressed="${env.preset === 'golden'}">${env.preset === 'golden' ? 'Switch to daytime' : 'Switch to golden hour'}</button>
-            <button id="o-reset" class="danger">Start over</button>
+      <h4>Controls</h4>
+      <p class="hint">Click a key box, then press the key you want. Backspace clears it, Esc cancels.</p>
+      <div class="binds">${BIND_ACTIONS.map(([a, label]) => `<div class="bind"><span>${label}</span>${[0, 1].map((i) => `<button data-bind="${a}" data-slot="${i}" class="${bindCapture && bindCapture.act === a && bindCapture.slot === i ? 'waiting' : ''}">${bindCapture && bindCapture.act === a && bindCapture.slot === i ? 'Press a key…' : keyLabel(binds()[a][i])}</button>`).join('')}</div>`).join('')}</div>
+      <button id="o-binds">Reset controls to default</button>
+      <button id="o-reset" class="danger">Start over</button>
       <p class="hint">Progress saves in this browser for now. Accounts that save online come in the next step.</p></div>`;
     $('o-style').onclick = () => { setStyled(!styled.on); renderSheet(); };
+    el.querySelectorAll('[data-bind]').forEach((b) => { b.onclick = () => { bindCapture = { act: b.dataset.bind, slot: +b.dataset.slot }; renderSheet(); }; });
+    $('o-binds').onclick = () => { delete S.binds; rebuildBinds(); save(); renderSheet(); };
     $('o-tod').onclick = () => { applyPreset(env.preset === 'golden' ? 'day' : 'golden'); S.preset = env.preset; save(); renderSheet(); };
     $('o-reset').onclick = () => {
       const b = $('o-reset');
@@ -1477,13 +1795,13 @@ function openKing(npc) {
     const q = QUESTS[k], st = S.quests[k];
     let text, btn;
     if (questReady(k)) { text = q.ready; btn = ['Hand it over', () => { finishQuest(k, npc); openKing(npc); }]; }
-    else if (st.state === 'todo') { text = q.intro; btn = ['I will do it', () => { st.state = 'active'; toast(`${q.chapter}: ${q.name}`, ICONS.scroll, true); refreshUI(); save(); closeDialog(); }]; }
+    else if (st.state === 'todo') { text = q.intro; btn = ['I will do it', () => { st.state = 'active'; S.track = k; toast(`${q.chapter}: ${q.name}`, ICONS.scroll, true); refreshUI(); save(); closeDialog(); }]; }
     else { text = `${q.desc} So far: ${questProgress(k)}.`; btn = ['On my way', closeDialog]; }
     d.innerHTML = `<h3>${npc.name}</h3><div class="chapter">${q.chapter} · ${q.name}</div><p></p>${st.state === 'todo' ? `<div class="reward">Reward: ${q.reward.coins} coins and ${Object.values(q.reward.xp)[0]} XP</div>` : ''}
       <div class="row"><button class="primary" id="kq"></button><button id="kingbye">Farewell</button></div>`;
     d.querySelector('p').textContent = text; $('kq').textContent = btn[0]; $('kq').onclick = btn[1];
     $('kingbye').onclick = closeDialog;
-    showDialog(d); npc.actor.face(player.pos.x, player.pos.z);
+    showDialog(d, { talky: true }); npc.actor.face(player.pos.x, player.pos.z);
     return;
   }
   d.innerHTML = `<h3>${npc.name}</h3><p>You have done the kingdom proud. ${DARK_KING}'s shadow still lingers, and I will call on you again soon. Until then, grow strong: the smiths in the village sell fine weapons, shields and armour.</p>
@@ -1567,7 +1885,7 @@ function openTalk(npc) {
   d.querySelector('h3').textContent = npc.name;
   d.querySelector('p').textContent = npc.lines[Math.floor(rng() * npc.lines.length)];
   $('talkbye').onclick = closeDialog;
-  showDialog(d);
+  showDialog(d, { talky: true });
   npc.actor.face(player.pos.x, player.pos.z);
 }
 function finishQuest(id, npc) {
@@ -1594,7 +1912,7 @@ function openDialog(npc) {
   let text, buttons;
   if (st.state === 'todo') {
     text = q.intro;
-    buttons = [['Accept quest', 'primary', () => { st.state = 'active'; toast(`Quest started: ${q.name}`); refreshUI(); save(); closeDialog(); }], ['Not now', '', closeDialog]];
+    buttons = [['Accept quest', 'primary', () => { st.state = 'active'; S.track = qid; toast(`Quest started: ${q.name}`); refreshUI(); save(); closeDialog(); }], ['Not now', '', closeDialog]];
   } else if (questReady(qid)) {
     text = q.ready;
     buttons = [['Hand it over', 'primary', () => { finishQuest(qid, npc); closeDialog(); }]];
@@ -1608,48 +1926,158 @@ function openDialog(npc) {
     const b = document.createElement('button'); b.textContent = label; if (cls) b.className = cls; b.onclick = fn;
     d.querySelector('.row').appendChild(b);
   }
-  showDialog(d);
+  showDialog(d, { talky: true });
   npc.actor.face(player.pos.x, player.pos.z);
 }
-let typing = null;
-// Dialog text writes itself out letter by letter, storybook style. Tap to skip.
-function showDialog(d) {
-  d.hidden = false;
-  const p = d.querySelector('p');
-  if (!p || matchMedia('(prefers-reduced-motion: reduce)').matches) return;
-  const full = p.textContent; let i = 0;
-  clearInterval(typing);
-  p.textContent = '';
-  typing = setInterval(() => { i += 2; p.textContent = full.slice(0, i); if (i >= full.length) clearInterval(typing); }, 16);
-  p.onclick = () => { clearInterval(typing); p.textContent = full; };
+let typing = null, dlg = null;
+// Split long speech into pages that fit the box, breaking between sentences.
+function pagesOf(text, max = 150) {
+  const parts = text.match(/[^.!?]+[.!?]+["')]*\s*|[^.!?]+$/g) || [text], out = [];
+  let cur = '';
+  for (const t of parts) { if (cur && (cur + t).length > max) { out.push(cur.trim()); cur = ''; } cur += t; }
+  if (cur.trim()) out.push(cur.trim());
+  return out;
 }
-function closeDialog() { $('dialog').hidden = true; talking = null; }
+// Storybook speech: letters pop in one by one while the speaker chatters.
+// Press interact (or tap the text) once to finish the line, again to turn the page.
+function showDialog(d, opts = {}) {
+  const fresh = d.hidden || !dlg || dlg.npc !== talking;
+  d.hidden = false;
+  document.body.classList.add('talking');
+  if (fresh) { d.classList.remove('pop'); void d.offsetWidth; d.classList.add('pop'); }
+  d.classList.toggle('talky', !!opts.talky);
+  if (opts.talky && !d.querySelector('.skiphint')) d.insertAdjacentHTML('beforeend', `<span class="skiphint">${keyOf('interact')} to skip</span>`);
+  const p = d.querySelector('p');
+  if (talking && talking.accent) d.style.setProperty('--accent', talking.accent);
+  if (!p) { dlg = { d, npc: talking, done: true, pages: [''], i: 0, talky: false }; return; }
+  const full = p.textContent;
+  const same = !fresh && dlg && dlg.full === full;
+  dlg = { d, p, npc: talking, full, pages: opts.talky ? pagesOf(full) : [full], i: 0, talky: !!opts.talky, done: false };
+  if (same || matchMedia('(prefers-reduced-motion: reduce)').matches) { dlg.pages = [full]; typePage(true); return; }
+  typePage(false);
+  p.onclick = () => advanceDialog();
+}
+function typePage(instant) {
+  const { p, d, pages, i } = dlg, text = pages[i];
+  clearInterval(typing);
+  dlg.done = false; d.classList.remove('ready');
+  d.classList.toggle('more', i < pages.length - 1);
+  // build every letter up front (hidden) so the box never jumps around while it types
+  p.textContent = '';
+  const letters = [];
+  for (const [wi, word] of text.split(' ').entries()) {
+    if (wi) p.appendChild(document.createTextNode(' '));
+    const w = document.createElement('span'); w.className = 'w';
+    for (const ch of word) { const l = document.createElement('span'); l.className = 'l'; l.textContent = ch; w.appendChild(l); letters.push(l); }
+    p.appendChild(w);
+  }
+  const finish = () => { clearInterval(typing); for (const l of letters) l.classList.add('on'); dlg.done = true; d.classList.add('ready'); };
+  dlg.finish = finish;
+  if (instant) { finish(); return; }
+  // time-based, so a slow frame never slows the words down
+  let k = 0; const t0 = performance.now();
+  typing = setInterval(() => {
+    const upto = Math.min(letters.length, Math.floor((performance.now() - t0) / 1000 * 70));
+    for (; k < upto; k++) letters[k].classList.add('on');
+    if (dlg.npc && dlg.npc.actor) dlg.npc.actor.talkUntil = now + 0.12;
+    if (k >= letters.length) finish();
+  }, 24);
+}
+// Returns true when the press was used up by the dialogue.
+function advanceDialog() {
+  if (!dlg || $('dialog').hidden) return false;
+  if (!dlg.done) { dlg.finish(); return true; }
+  if (dlg.i < dlg.pages.length - 1) {
+    dlg.i++; typePage(false);
+    if (dlg.npc && dlg.npc.actor) dlg.npc.actor.hopUntil = now + 0.35;
+    return true;
+  }
+  const btns = [...dlg.d.querySelectorAll('.row button')];
+  if (dlg.talky && btns.length === 1) { btns[0].click(); return true; }
+  if (dlg.talky) { const pr = btns.find((b) => b.classList.contains('primary')); if (pr) { pr.click(); return true; } }
+  return false;
+}
+function closeDialog() { $('dialog').hidden = true; talking = null; dlg = null; clearInterval(typing); document.body.classList.remove('talking'); }
 
 // ---------- input ----------
+// Keybinds: every action has two keys, and the player can change both from Options.
+const BIND_ACTIONS = [
+  ['up', 'Move up', ['KeyW', 'ArrowUp']], ['down', 'Move down', ['KeyS', 'ArrowDown']],
+  ['left', 'Move left', ['KeyA', 'ArrowLeft']], ['right', 'Move right', ['KeyD', 'ArrowRight']],
+  ['sprint', 'Sprint', ['ShiftLeft', 'ShiftRight']], ['attack', 'Attack', ['KeyJ', '']],
+  ['special', 'Special move', ['KeyR', '']], ['dash', 'Dash', ['KeyC', 'KeyZ']],
+  ['jump', 'Jump', ['Space', '']], ['interact', 'Talk / use / skip', ['KeyE', 'KeyF']],
+  ['eat', 'Eat best food', ['KeyH', '']], ['map', 'Map', ['KeyM', '']],
+  ['hero', 'Hero sheet', ['KeyK', '']], ['bag', 'Bag', ['KeyI', 'KeyB']], ['quests', 'Quests', ['KeyQ', '']],
+  ['craft', 'Craft', ['KeyN', '']],
+  ...[1, 2, 3, 4, 5, 6, 7, 8].map((i) => [`hot${i}`, `Hotbar slot ${i}`, [`Digit${i}`, '']]),
+];
+const MOVE_KEY = { up: 'u', down: 'd', left: 'l', right: 'r', sprint: 'sprint' };
+let codeToAct = {};
+function binds() {
+  const b = {};
+  for (const [a, , def] of BIND_ACTIONS) b[a] = (S.binds && S.binds[a]) ? S.binds[a].slice() : def.slice();
+  return b;
+}
+function rebuildBinds() { codeToAct = {}; const b = binds(); for (const a in b) for (const c of b[a]) if (c && !codeToAct[c]) codeToAct[c] = a; }
+function keyLabel(c) {
+  if (!c) return '—';
+  const named = { Space: 'Space', ShiftLeft: 'Shift', ShiftRight: 'R-Shift', ControlLeft: 'Ctrl', ControlRight: 'R-Ctrl', AltLeft: 'Alt', AltRight: 'R-Alt', ArrowUp: '↑', ArrowDown: '↓', ArrowLeft: '←', ArrowRight: '→', Enter: 'Enter', Tab: 'Tab', Backquote: '`', Minus: '-', Equal: '=', BracketLeft: '[', BracketRight: ']', Semicolon: ';', Quote: "'", Comma: ',', Period: '.', Slash: '/', Backslash: '\\', CapsLock: 'Caps' };
+  return named[c] || c.replace(/^Key/, '').replace(/^Digit/, '').replace(/^Numpad/, 'Num ');
+}
+const keyOf = (a) => keyLabel(binds()[a][0] || binds()[a][1]);
+let bindCapture = null; // { act, slot } while waiting for the player to press a key
 const keys = new Set();
-const KEYMAP = { ShiftLeft: 'sprint', ShiftRight: 'sprint', KeyW: 'u', ArrowUp: 'u', KeyS: 'd', ArrowDown: 'd', KeyA: 'l', ArrowLeft: 'l', KeyD: 'r', ArrowRight: 'r' };
+let lastTap = { l: -9, r: -9, u: -9, d: -9 };
 addEventListener('keydown', (e) => {
-  if (creator.open && e.key === 'Escape' && creator.mode !== 'new') { closeCreator(false); return; }
-  if (!player || uiLock()) return;
-  if (KEYMAP[e.code]) {
-    const k = KEYMAP[e.code];
-    // tap left or right twice quickly to dash that way
-    if ((k === 'l' || k === 'r') && !e.repeat) { if (now - lastTap[k] < 0.28) dash(k === 'l' ? -1 : 1); lastTap[k] = now; }
-    keys.add(k); if (k !== 'sprint') { cancelTask(); moveTarget = null; } e.preventDefault();
+  if (bindCapture) {
+    e.preventDefault(); e.stopPropagation();
+    const { act, slot } = bindCapture; bindCapture = null;
+    const b = binds();
+    if (e.code === 'Backspace' || e.code === 'Delete') b[act][slot] = '';
+    else if (e.code !== 'Escape') {
+      for (const a in b) b[a] = b[a].map((c) => (c === e.code ? '' : c)); // a key does one job
+      b[act][slot] = e.code;
+    }
+    S.binds = b; rebuildBinds(); save(); renderSheet(); return;
   }
-  if (e.code === 'KeyZ' && !e.repeat) dash(-1);
-  if (e.code === 'KeyC' && !e.repeat) dash(1);
-  if (e.code === 'KeyR' && !e.repeat) special();
-  if (e.code === 'KeyE' || e.code === 'KeyF') { if (!e.repeat) { held = true; doAction(); } e.preventDefault(); }
-  if (e.code === 'Space') { if (!e.repeat) jump(); e.preventDefault(); }
-  if (e.code === 'KeyH') eatBest();
-  if (e.code === 'KeyM') toggleBigMap();
-  if (e.code === 'KeyK') openSheet('skills');
-  if (e.code === 'KeyI' || e.code === 'KeyB') openSheet('bag');
-  if (e.code === 'KeyQ') openSheet('quests');
+  if (creator.open && e.key === 'Escape' && creator.mode !== 'new') { closeCreator(false); return; }
   if (e.code === 'Escape') { closeSheet(); closeDialog(); }
+  if (!player || uiLock()) return;
+  if (e.target && /INPUT|TEXTAREA|SELECT/.test(e.target.tagName)) return;
+  const act = codeToAct[e.code];
+  if (!act) return;
+  e.preventDefault();
+  const mk = MOVE_KEY[act];
+  if (mk) {
+    // tap a direction twice quickly to dash that way
+    if (mk !== 'sprint' && !e.repeat) { if (now - lastTap[mk] < 0.28) dash({ u: [0, -1], d: [0, 1], l: [-1, 0], r: [1, 0] }[mk]); lastTap[mk] = now; }
+    keys.add(mk); if (mk !== 'sprint') { cancelTask(); moveTarget = null; }
+    return;
+  }
+  if (e.repeat && act !== 'interact') return;
+  if (act === 'attack') attackPress(true);
+  else if (act === 'dash') dash();
+  else if (act === 'special') special();
+  else if (act === 'interact') { if (!e.repeat) { held = true; doAction(); } }
+  else if (act === 'jump') jump();
+  else if (act === 'eat') eatBest();
+  else if (act === 'map') toggleBigMap();
+  else if (act === 'hero') openSheet('skills');
+  else if (act === 'bag') openSheet('bag');
+  else if (act === 'quests') openSheet('quests');
+  else if (act === 'craft') openSheet('craft');
+  else if (act.startsWith('hot') && typeof useHotbar === 'function') useHotbar(+act.slice(3) - 1);
 });
-addEventListener('keyup', (e) => { if (KEYMAP[e.code]) keys.delete(KEYMAP[e.code]); if (e.code === 'KeyE' || e.code === 'KeyF') held = false; });
+addEventListener('keyup', (e) => {
+  const act = codeToAct[e.code];
+  if (act && MOVE_KEY[act]) {
+    // only let go if no other key for this direction is still held
+    keys.delete(MOVE_KEY[act]);
+  }
+  if (act === 'interact') held = false;
+});
+addEventListener('blur', () => { keys.clear(); held = false; });
 addEventListener('blur', () => { keys.clear(); held = false; });
 
 let moveTarget = null, pending = null;
@@ -1692,7 +2120,7 @@ renderer.domElement.addEventListener('pointerdown', (e) => {
     if (t) { cancelTask(); startTask(t); return; }
     aim.x = p.x; aim.z = p.z; aim.at = now; mouseHeld = true;
     if (talking) closeDialog();
-    swing(); return;
+    attackPress(false); return;
   }
   cancelTask();
   const t = targetAt(p.x, p.z);
@@ -1728,7 +2156,7 @@ function swingTarget() {
   if (!player) return null;
   const p = player.pos, w = W(), A = STYLES[w.type];
   for (const c of chests) if (!c.open && Math.hypot(c.x - p.x, c.z - p.z) < c.reach) return { type: 'chest', n: c };
-  if (!mouseHeld) for (const n of npcs) if (Math.hypot(n.x - p.x, n.z - p.z) < n.reach + 0.6) return { type: 'npc', n };
+  if (!mouseHeld && !forceAttack) for (const n of npcs) if (Math.hypot(n.x - p.x, n.z - p.z) < n.reach + 0.6) return { type: 'npc', n };
   for (const n of nodes) if (n.alive && n.def.skill === 'fishing' && Math.hypot(n.x - p.x, n.z - p.z) < n.reach + 0.6) return { type: 'node', n };
   let foe = null, fd = 1e9;
   const reach = w.reach;
@@ -1739,7 +2167,7 @@ function swingTarget() {
   return { type: 'attack', e: foe };
 }
 function describe(t) {
-  const hint = matchMedia('(pointer: coarse)').matches ? 'Tap here to swing at whatever is in front of you.' : 'Click to attack. Space jumps, Shift sprints.';
+  const hint = matchMedia('(pointer: coarse)').matches ? 'Tap here to swing at whatever is in front of you.' : `Click or press ${keyOf('attack')} to attack. ${keyOf('jump')} jumps, ${keyOf('sprint')} sprints, ${keyOf('dash')} dashes.`;
   if (!t) return { label: 'Attack', icon: ICONS[W().type], hint, ok: true };
   if (t.type === 'npc') return { label: 'Talk', icon: ICONS.magic, hint: t.n.name, ok: true };
   if (t.type === 'chest') return { label: 'Open', icon: ICONS.chest, hint: 'A treasure chest! What could be inside?', ok: true };
@@ -1749,18 +2177,28 @@ function describe(t) {
 }
 function doAction() {
   if (!player || player.dead || uiLock()) return;
-  if (talking) { closeDialog(); return; }
+  if (talking) { if (!advanceDialog()) closeDialog(); return; }
+  if (now < player.nextHit) { attackQueued = now; return; }
   swing();
 }
 const GRAV = 34;
 // Dash: a quick sidestep to the left or right of the screen. Brief dodge window, short cooldown.
-let dashUntil = 0, dashReady = 0, dashDir = 0, dashLeft = 0, lastTap = { l: -9, r: -9 };
+let dashUntil = 0, dashReady = 0, dashDir = { x: 0, z: 0 }, dashLeft = 0;
 const dodging = () => player.pos.y > 0.7 || now < dashUntil + 0.08 || dashLeft > 0;
-function dash(side) {
+// dir: [x, z] on screen. Left out, you dash the way you are moving, or the way you face when standing still.
+function dash(dir) {
   if (!player || player.dead || uiLock() || now < dashReady || stamina < 12) return;
   if (talking) closeDialog();
   if (player.task) cancelTask();
-  dashDir = side; dashUntil = now + 0.2; dashReady = now + 0.75; dashLeft = 3.6;
+  if (!dir) {
+    let x = 0, z = 0;
+    if (keys.has('u')) z -= 1; if (keys.has('d')) z += 1; if (keys.has('l')) x -= 1; if (keys.has('r')) x += 1;
+    if (!x && !z && moveTarget) { x = moveTarget.x - player.pos.x; z = moveTarget.y - player.pos.z; }
+    if (!x && !z) { const f = fwdOf(player); x = f.x; z = f.z; }
+    dir = [x, z];
+  }
+  const L = Math.hypot(dir[0], dir[1]) || 1;
+  dashDir = { x: dir[0] / L, z: dir[1] / L }; dashUntil = now + 0.2; dashReady = now + 0.75; dashLeft = 3.6;
   stamina = Math.max(0, stamina - 12); staminaAt = now + 1;
   burst(player.pos.clone().setY(0.4), '#f3e2bd', 12, 3);
 }
@@ -1777,6 +2215,14 @@ function showGear(which) {
   player.weapons.forEach((w) => { w.visible = !which; });
 }
 // One swing: chop, mine, hit with a weapon, or shoot, in the direction you face.
+// One press = one attack. A press during the current swing is remembered for a moment
+// and fires the instant the swing allows, so fast tapping chains the combo in rhythm.
+let attackQueued = -9, forceAttack = false;
+function attackPress(viaKey) {
+  if (!player || player.dead || uiLock() || talking) return;
+  if (now < player.nextHit) { attackQueued = now; return; }
+  forceAttack = !!viaKey; swing(); forceAttack = false;
+}
 function swing() {
   if (!player || player.dead || now < player.nextHit) return;
   if (mouseHeld && now - aim.at < 0.1) { player.face(aim.x, aim.z); }
@@ -1812,14 +2258,16 @@ function swing() {
   if (t.e && A.proj) player.face(t.e.pos.x, t.e.pos.z); // gentle aim help for ranged
   // Combo: keep attacking within a moment of the last swing to chain up to three different moves.
   // The third is a finisher: harder, wider and it sends enemies flying.
-  if (now - lastSwingAt > w.cd + 0.7 || comboStep >= 3) comboStep = 0;
+  if (now - lastSwingAt > w.cd + 0.55 || comboStep >= 3) comboStep = 0;
   comboStep++; lastSwingAt = now;
   const C = comboOf(w)[comboStep - 1], fin = comboStep === 3, spd = sp * C.speed;
-  player.nextHit = now + w.cd * (fin ? 1.25 : 0.82);
-  const dur = player.play(C.anim, { once: true, fade: 0.06, speed: spd });
-  player.busyUntil = now + Math.min(dur * 0.7, w.cd * 0.75);
-  if (fin) { const fw = fwdOf(player); dashLunge = { x: fw.x, z: fw.z, left: A.proj ? 0 : 0.9 }; }
-  later(C.hitAt / spd * 1.15, () => {
+  // the wind-up is skipped so the blow lands right on the keystroke
+  player.nextHit = now + w.cd * (fin ? 0.85 : 0.48);
+  const lead = 0.08 * spd, from = Math.max(0, C.hitAt - lead);
+  const dur = player.play(C.anim, { once: true, fade: 0.04, speed: spd, from });
+  player.busyUntil = now + Math.min(dur * 0.6, w.cd * 0.5);
+  if (fin) { const fw = fwdOf(player); dashLunge = { x: fw.x, z: fw.z, left: A.proj ? 0 : 0.6 }; }
+  later((C.hitAt - from) / spd, () => {
     if (player.dead) return;
     const fwd = fwdOf(player), dmg = () => Math.max(1, Math.round(heroDamage() * C.mult));
     if (A.proj) {
@@ -1928,7 +2376,7 @@ function hitNode(n) {
   burst(at, def.skill === 'mining' ? '#ffe2b0' : '#c9f59a', 10, 3.5);
   if (l < def.req) { floatText(at.clone().setY(3), 'Too tough!', 'miss'); toast(`You need ${SKILL_NAME[def.skill]} level ${def.req} for that.`, ICONS[def.skill]); return; }
   n.lastHit = now;
-  const miss = THREE.MathUtils.clamp(0.28 - (l - def.req) * 0.03, 0.05, 0.28);
+  const miss = THREE.MathUtils.clamp(0.12 - (l - def.req) * 0.03, 0, 0.12);
   if (rng() < miss) { floatText(at.clone().setY(3), 'Miss', 'miss'); return; }
   const dmg = 1 + Math.floor(rng() * (2 + l * 0.3));
   n.hp = Math.max(0, n.hp - dmg);
@@ -1980,9 +2428,9 @@ function startTask(t) {
 function gatherTick(task) {
   const n = task.n, def = n.def;
   if (now < task.next) return;
-  task.next = now + 1.4 + rng() * 0.6;
+  task.next = now + 2.4 + rng() * 1.0;
   const l = lvl(def.skill);
-  const chance = THREE.MathUtils.clamp(0.4 + (l - def.req) * 0.04, 0.25, 0.92);
+  const chance = THREE.MathUtils.clamp(0.32 + (l - def.req) * 0.04, 0.22, 0.85);
   burst(new THREE.Vector3(n.x, 1.5, n.z), '#bff4ff', 8, 3);
   if (rng() > chance) return;
   addItem(def.item);
@@ -2020,10 +2468,10 @@ let hitStopUntil = 0;
 function impact(e, dmg, src, power, killed) {
   const from = src || player.pos, w = W();
   const dx = e.pos.x - from.x, dz = e.pos.z - from.z, d = Math.hypot(dx, dz) || 1;
-  const force = (7 + Math.min(dmg, 30) * 0.5) * (w.heavy ? 1.5 : 1) * power * (killed ? 1.8 : 1);
+  const force = (3.2 + Math.min(dmg, 30) * 0.2) * (w.heavy ? 1.3 : 1) * Math.min(power, 1.8) * (killed ? 1.3 : 1);
   const m = e.mass || 1;
   e.kb.set((dx / d) * force / m, (dz / d) * force / m);
-  if (m < 3) { e.vy = (killed ? 9 : 4.5) * Math.min(1.6, power) / m; e.lift = Math.max(e.lift, 0.01); }
+  if (m < 3) { e.vy = (killed ? 6 : 2.5) * Math.min(1.4, power) / m; e.lift = Math.max(e.lift, 0.01); }
   e.staggerUntil = now + Math.min(0.45, 0.35 / Math.sqrt(m)) * (killed ? 0 : 1);
   e.flashT = now + 0.13;
   hitStopUntil = now + (killed ? 0.12 : w.heavy || power > 1.4 ? 0.08 : 0.05) * (e.T.boss ? 0.7 : 1);
@@ -2039,7 +2487,7 @@ function knockTick(e, dt) {
   const ep = e.pos;
   if (Math.abs(e.kb.x) + Math.abs(e.kb.y) > 0.05) {
     ep.x += e.kb.x * dt; ep.z += e.kb.y * dt;
-    e.kb.multiplyScalar(Math.exp(-7 * dt));
+    e.kb.multiplyScalar(Math.exp(-10 * dt));
     if (e.inside === 'out') pushOut(ep, e.T.boss ? 1.2 : 0.6);
   }
   if (e.lift > 0) { e.vy -= 32 * dt; e.lift = Math.max(0, e.lift + e.vy * dt); if (!e.lift) e.vy = 0; ep.y = e.lift; }
@@ -2320,8 +2768,7 @@ function toggleBigMap(force) {
 }
 mini.addEventListener('click', () => toggleBigMap(true));
 $('jumpbtn').addEventListener('pointerdown', (e) => { e.preventDefault(); jump(); });
-$('dashl').addEventListener('pointerdown', (e) => { e.preventDefault(); dash(-1); });
-$('dashr').addEventListener('pointerdown', (e) => { e.preventDefault(); dash(1); });
+$('dashr').addEventListener('pointerdown', (e) => { e.preventDefault(); dash(); });
 $('specialbtn').addEventListener('pointerdown', (e) => { e.preventDefault(); special(); });
 $('sprintbtn').addEventListener('pointerdown', (e) => { e.preventDefault(); sprintToggle = !sprintToggle; $('sprintbtn').setAttribute('aria-pressed', String(sprintToggle)); });
 bigMap.addEventListener('click', () => toggleBigMap(false));
@@ -2407,8 +2854,8 @@ function tick() {
       else { moveTarget = null; marker.visible = false; if (pending) { const t = pending; pending = null; startTask(t); } }
     }
     if (dashLunge && dashLunge.left > 0) { const st = Math.min(dashLunge.left, 9 * dt); dashLunge.left -= st; pp.x += dashLunge.x * st; pp.z += dashLunge.z * st; collide(pp); }
-    if (dashLeft > 0) { const st = Math.min(dashLeft, 18 * dt); dashLeft -= st; pp.x += dashDir * st; collide(pp); if (dashLeft <= 0) dashUntil = Math.min(dashUntil, now); player.root.rotation.z = -dashDir * 0.25; if (rng() < 0.6) burst(pp.clone().setY(0.9), '#ffffff', 2, 1.5, 0.6); }
-    else if (player.root.rotation.z) player.root.rotation.z = 0;
+    if (dashLeft > 0) { const st = Math.min(dashLeft, 18 * dt); dashLeft -= st; pp.x += dashDir.x * st; pp.z += dashDir.z * st; collide(pp); if (dashLeft <= 0) dashUntil = Math.min(dashUntil, now); player.root.rotation.z = -dashDir.x * 0.25; player.root.rotation.x = dashDir.z * 0.18; if (rng() < 0.6) burst(pp.clone().setY(0.9), '#ffffff', 2, 1.5, 0.6); }
+    else if (player.root.rotation.z || player.root.rotation.x) { player.root.rotation.z = 0; player.root.rotation.x = 0; }
     // you can always move, even mid-swing; while a swing plays you keep facing where you aimed
     if (mx || mz) {
       if (talking) closeDialog();
@@ -2418,12 +2865,29 @@ function tick() {
       const speed = 6.5 * (1 + (lvl('speed') - 1) * 0.006) * (sprinting ? 1.65 : 1);
       const ox = pp.x, oz = pp.z;
       pp.x += mx * speed * dt; pp.z += mz * speed * dt;
-      collide(pp);
+      collide(pp); collide(pp);
+      // blocked head-on? try veering a little left or right so you slide round trees and rocks
+      const step = speed * dt;
+      if (Math.hypot(pp.x - ox, pp.z - oz) < step * 0.5) {
+        // find what we bumped into and walk round its edge, keeping to the side we picked last time
+        let hit = null, hd = 1e9;
+        for (const c of colliders) { const d = Math.hypot(ox - c.x, oz - c.z) - c.r - 0.7; if (d < 0.15 && d < hd) { hd = d; hit = c; } }
+        if (hit) {
+          const nx = ox - hit.x, nz = oz - hit.z, nl = Math.hypot(nx, nz) || 1;
+          let tx = -nz / nl, tz = nx / nl;
+          const along = tx * mx + tz * mz;
+          if (Math.abs(along) < 0.15) { if (!player.steerSide || now - (player.steerAt || 0) > 1) player.steerSide = rng() < 0.5 ? 1 : -1; tx *= player.steerSide; tz *= player.steerSide; }
+          else if (along < 0) { tx = -tx; tz = -tz; }
+          player.steerAt = now;
+          const t = { x: ox + tx * step, z: oz + tz * step }; collide(t); collide(t);
+          pp.x = t.x; pp.z = t.z;
+        }
+      }
       const moved = Math.hypot(pp.x - ox, pp.z - oz);
       if (moved > 0.001) giveXp('speed', moved * (sprinting ? 0.9 : 0.5));
       // give up on a tap target we can't reach
       stuck = moved < speed * dt * 0.2 ? stuck + dt : 0;
-      if (stuck > 0.6 && moveTarget) { moveTarget = null; marker.visible = false; if (pending) { const t = pending; pending = null; startTask(t); } stuck = 0; }
+      if (stuck > 1.2 && moveTarget) { moveTarget = null; marker.visible = false; if (pending) { const t = pending; pending = null; startTask(t); } stuck = 0; }
       if (!busy) {
         const want = Math.atan2(mx, mz);
         let diff = want - player.root.rotation.y; diff = Math.atan2(Math.sin(diff), Math.cos(diff));
@@ -2443,7 +2907,7 @@ function tick() {
       pp.y += player.vy * dt; player.vy -= GRAV * dt;
       if (pp.y <= 0) { pp.y = 0; player.air = false; player.vy = 0; burst(pp.clone().setY(0.15), '#f3e2bd', 10, 2.5); if (now > player.busyUntil) player.play(mx || mz ? 'Running_A' : 'Idle', { fade: 0.1 }); }
     }
-    if ((held || mouseHeld) && now >= player.nextHit && !talking) { if (mouseHeld) aim.at = now; swing(); }
+    if (now >= player.nextHit && !talking) { if (now - attackQueued < 0.4) { attackQueued = -9; forceAttack = true; swing(); forceAttack = false; } else if (held && swingTarget().type !== 'attack') swing(); }
     if (now - lastHurt > 6 && now > regenAt && S.hp < maxHp()) { S.hp = Math.min(maxHp(), S.hp + 1); regenAt = now + 2.5; refreshUI(); }
   }
   if (marker.visible) { marker.scale.setScalar(Math.max(1, marker.scale.x - dt * 2)); marker.material.opacity = 0.6 + 0.3 * Math.sin(now * 8); }
@@ -2461,8 +2925,9 @@ function tick() {
   bossUi();
   zoneBanner();
   for (const [i, c] of dynamic.crystals.entries()) { c.position.y = 2.4 + Math.sin(now * 1.6 + i) * 0.4; c.rotation.y = now * 0.8 + i; }
-  if (player) { player.mixer.update(dt); if (player.headScale && player.headInfo) player.headInfo.bone.scale.setScalar(player.headScale); faceTick(); }
-  for (const n of npcs) { n.actor.mixer.update(dt); n.marker.position.y = 4.6 + Math.sin(now * 3 + n.x) * 0.15; }
+  if (player) { player.mixer.update(dt); if (player.headScale && player.headInfo) player.headInfo.bone.scale.setScalar(player.headScale); faceTick(player); }
+  for (const n of npcs) npcLife(n, dt);
+  guideTick();
 
   for (let i = lootPops.length - 1; i >= 0; i--) {
     const L = lootPops[i]; L.t += dt;
@@ -2559,7 +3024,10 @@ function tick() {
   updateParticles(dt, now, focus);
   const off = new THREE.Vector3(0, 23, 27).multiplyScalar(zoom * (camera.aspect < 1 ? 1.3 : 1));
   if (creator.open && player) creatorCam(dt);
+  else if (player && dlg && dlg.talky && talking && talking.actor && !$('dialog').hidden) talkCam(dt);
   else {
+    if (camera.view && camera.view.enabled) { camera.clearViewOffset(); camera.updateProjectionMatrix(); }
+    if (talkCam.near0 && camera.near !== talkCam.near0) { camera.near = talkCam.near0; camera.updateProjectionMatrix(); }
     camPos.lerp(tmpV.copy(focus).add(off), 1 - Math.pow(0.002, dt));
     camera.position.copy(camPos);
     camera.lookAt(focus.x, 1.2, focus.z - 1);
@@ -2588,12 +3056,13 @@ function randomLook() {
   L.mouth = pickKey(MOUTHS); L.mark = Math.random() < 0.5 ? 'none' : pickKey(MARKS);
   L.outfit = pickKey(LOOK_COLOURS); L.trim = pickKey(LOOK_COLOURS); L.ears = Math.random() < 0.25 ? 'elf' : 'human';
   L.head = pickKey(HEAD_SIZES); L.hat = false;
+  L.beard = L.sex === 'm' && Math.random() < 0.3 ? pickKey(BEARDS, ['none']) : 'none';
 }
 // Swap the hero's body (male knight or female rogue) without losing where they stand.
 function rebuildHero() {
   if (!player) return;
   const pos = player.root.position.clone(), rot = player.root.rotation.y;
-  for (const g of hairCache.values()) g.removeFromParent();
+  for (const [k, g] of hairCache) if (k.endsWith(`|${HERO_HAIR.uid}`)) g.removeFromParent();
   for (const t of [tool, rod, pick]) if (t) t.removeFromParent();
   scene.remove(player.root);
   const hp = S.hp;
@@ -2631,7 +3100,8 @@ function renderCreator() {
     body = field('Eyes', picRow('eyeStyle', EYE_STYLES, 'eyes'))
       + field('Eye colour', swatchRow('eyes', EYE_COLOURS))
       + field('Mouth', picRow('mouth', MOUTHS, 'mouth'))
-      + field('Face marks', picRow('mark', MARKS, 'mark'));
+      + field('Face marks', picRow('mark', MARKS, 'mark'))
+      + field('Facial hair', chipRow('beard', BEARDS), 'matches your hair colour');
   } else if (creator.tab === 'hair') {
     body = field('Hair style', chipRow('hair', HAIR_STYLES))
       + field('Length', chipRow('hairLen', HAIR_LENGTHS), 'how far it falls down your back')
@@ -2727,6 +3197,26 @@ function closeCreator(keep) {
   }
 }
 // While the creator is open the camera frames the hero up close, shifted left of the panel.
+// While someone talks, the camera swoops in on them so you can see their face.
+const tmpT = new THREE.Vector3();
+function talkCam(dt) {
+  const n = talking.actor.pos, pp = player.pos, phone = camera.aspect < 1;
+  let dx = pp.x - n.x, dz = pp.z - n.z; const d = Math.hypot(dx, dz) || 1; dx /= d; dz /= d;
+  // stand off to one side of the pair so the speaker's face is in view and the hero isn't in the way
+  const side = (a) => [dx * Math.cos(a) - dz * Math.sin(a), dx * Math.sin(a) + dz * Math.cos(a)];
+  const A = side(1.25), B = side(-1.25), [cx, cz] = A[1] > B[1] ? A : B;
+  const dist = phone ? 11 : 8.5;
+  const mid = tmpT.set(n.x + (pp.x - n.x) * 0.25, 0, n.z + (pp.z - n.z) * 0.25);
+  camPos.lerp(tmpV.set(mid.x + cx * dist, phone ? 5.2 : 3.9, mid.z + cz * dist), 1 - Math.pow(0.004, dt));
+  camera.position.copy(camPos);
+  camera.lookAt(mid.x, 2.5, mid.z);
+  // slice away walls, rocks and bushes between the camera and the speaker
+  if (!talkCam.near0) talkCam.near0 = camera.near;
+  const near = Math.max(talkCam.near0, camPos.distanceTo(tmpV.set(mid.x, 2.5, mid.z)) - 3.2);
+  if (Math.abs(camera.near - near) > 0.05) { camera.near = near; camera.updateProjectionMatrix(); }
+  const w = innerWidth, h = innerHeight;
+  camera.setViewOffset(w, h, 0, h * (phone ? 0.2 : 0.15), w, h);
+}
 function creatorCam(dt) {
   const p = player.pos, phone = innerWidth < 760;
   if (!creator.drag && now > creator.idleAt) creator.yaw += (Math.sin(now * 0.5) * 0.45 - creator.yaw) * Math.min(1, dt * 1.2);
@@ -2821,7 +3311,7 @@ function renderCraft(el) {
   el.querySelectorAll('[data-craftall]').forEach((b) => { b.onclick = () => craft(CRAFTS[+b.dataset.craftall], 99); });
 }
 
-window.__jq = { craft, CRAFTS, openCreator, closeCreator, creator, rebuildHero, setZoom: (z) => { zoom = z; }, hurtEnemy, goThrough, get where() { return where; }, INTERIORS, equipGear, spendPoint, giveHeroXp, heroLvl, stat, maxHp, defDiv, openWeaponShop, openKing, jump, eat, eatBest, openShop, swing, swingTarget, hitNode, projectiles, timers, get S() { return S; }, get player() { return player; }, enemies, nodes, npcs, startTask, doAction, giveXp, save, openSheet, openDialog };
+window.__jq = { closeDialog, advanceDialog, dash, attackPress, craft, CRAFTS, openCreator, closeCreator, creator, rebuildHero, setZoom: (z) => { zoom = z; }, hurtEnemy, goThrough, get where() { return where; }, INTERIORS, equipGear, spendPoint, giveHeroXp, heroLvl, stat, maxHp, defDiv, openWeaponShop, openKing, jump, eat, eatBest, openShop, swing, swingTarget, hitNode, projectiles, timers, get S() { return S; }, get player() { return player; }, enemies, nodes, npcs, startTask, doAction, giveXp, save, openSheet, openDialog };
 window.addEventListener('error', (e) => { const m = $('loadmsg'); if (m) m.textContent = `Something went wrong: ${e.message}`; });
 main().catch((err) => {
   console.error(err);

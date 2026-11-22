@@ -173,7 +173,7 @@ export function buildWorld(library) {
   const treeAt = (x, z, big) => {
     const k = big ? (rng() > 0.5 ? 'trees_A_large' : 'trees_B_large') : (rng() > 0.5 ? 'trees_A_medium' : 'trees_B_medium');
     kinds[k].push(M(x, 0, z, S_NATURE * (0.85 + rng() * 0.35), rng() * 6));
-    colliders.push({ x, z, r: big ? 3.2 : 2.2 });
+    colliders.push({ x, z, r: big ? 1.35 : 1.0 });
   };
   for (let i = 0; i < 1400; i++) {
     const a = rng() * Math.PI * 2, rr = 48 + rng() * (WORLD_R - 36);
@@ -192,7 +192,7 @@ export function buildWorld(library) {
     const x = Z.x + Math.cos(a) * rr, z = Z.z + Math.sin(a) * rr;
     if (nearRoad(x, z, 4) || Math.hypot(x - Z.x, z - Z.z) < 10 || !isFree(x, z, 1.5)) continue;
     (rng() > 0.5 ? glimmerBig : glimmerTrees).push(M(x, 0, z, S_NATURE * (0.9 + rng() * 0.5), rng() * 6));
-    colliders.push({ x, z, r: 2.2 });
+    colliders.push({ x, z, r: 1.0 });
   }
   // recolour the leaves by rotating the texture's hue (trunks stay brown-ish)
   const tintTrees = (group, hue, sat = 1, bright = 1) => group.traverse((o) => {
@@ -256,7 +256,7 @@ export function buildWorld(library) {
     const a = rng() * Math.PI * 2, rr = 10 + rng() * (W.r + 4);
     const x = W.x + Math.cos(a) * rr, z = W.z + Math.sin(a) * rr;
     if (nearRoad(x, z, 4) || !isFree(x, z, 1.5)) continue;
-    dead.push(M(x, 0, z, S_NATURE * (0.9 + rng() * 0.4), rng() * 6)); colliders.push({ x, z, r: 2 });
+    dead.push(M(x, 0, z, S_NATURE * (0.9 + rng() * 0.4), rng() * 6)); colliders.push({ x, z, r: 1.0 });
   }
   tintTrees(instanced(lib.trees_A_medium, dead), 2.6, 0.2, 0.85);
   const stoneM = toon('#a7a3ad');

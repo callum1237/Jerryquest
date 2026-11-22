@@ -185,6 +185,25 @@
   }
   #dialog h3 { font-size: 20px; margin-top: -2px; position: sticky; top: 0; z-index: 1; }
   #dialog p { margin: 6px 0 10px; font-size: 15px; line-height: 1.45; font-weight: 700; }
+  /* chunky storybook speech box */
+  #dialog { --accent: #8f62d8; }
+  #dialog.pop { animation: dlgpop .32s cubic-bezier(.3, 1.6, .5, 1) both; }
+  @keyframes dlgpop { from { transform: translateX(-50%) translateY(30px) scale(.86); opacity: 0; } }
+  #dialog h3 { background: linear-gradient(180deg, color-mix(in srgb, var(--accent) 85%, #fff), color-mix(in srgb, var(--accent) 70%, #000)); text-shadow: 0 2px 0 color-mix(in srgb, var(--accent) 45%, #000); }
+  #dialog.talky { width: min(700px, calc(100% - 32px)); padding: 18px 22px 14px; background: #fffdf4; border-width: 4px; border-radius: 24px;
+    box-shadow: inset 0 0 0 4px #fff, inset 0 0 0 7px color-mix(in srgb, var(--accent) 55%, #fff), 0 6px 0 var(--ink), 0 16px 34px rgb(30 22 54 / .45); }
+  #dialog.talky h3 { display: flex; width: fit-content; font-size: 22px; padding: 5px 20px; border-radius: 14px; transform: rotate(-2deg); margin: -6px 0 6px -6px; position: static; }
+  #dialog.talky p { font-size: 19px; line-height: 1.5; min-height: 3em; margin: 4px 2px 12px; cursor: pointer; color: #2c1a10; }
+  #dialog p .w { display: inline-block; white-space: nowrap; }
+  #dialog p .l { display: inline-block; opacity: 0; transform: translateY(5px) scale(.6); }
+  #dialog p .l.on { opacity: 1; transform: none; transition: opacity .08s, transform .16s cubic-bezier(.3, 1.8, .5, 1); }
+  #dialog.talky .row { transition: opacity .15s; }
+  #dialog.talky:not(.ready) .row, #dialog.talky.more .row { opacity: .35; pointer-events: none; }
+  #dialog.talky.ready.more::after, #dialog.talky.ready:not(.more) .row button:only-child::after { content: ''; }
+  #dialog.talky.ready.more::before { content: '\25BC'; position: absolute; right: 22px; bottom: 12px; color: var(--accent); font-size: 18px; text-shadow: 0 2px 0 var(--ink); animation: nextbob .6s ease-in-out infinite alternate; }
+  @keyframes nextbob { to { transform: translateY(5px); } }
+  #dialog .skiphint { position: absolute; right: 50px; bottom: 14px; opacity: .8; font: 800 12px/1 var(--display); background: #fff3c4; border: 2px solid var(--ink); border-radius: 10px; padding: 4px 8px; }
+  @media (pointer: coarse) { #dialog .skiphint { display: none; } }
   #dialog .reward { font-size: 13px; color: var(--ink-soft); font-weight: 800; margin-top: -4px; }
   #dialog .row { display: flex; gap: 8px; flex-wrap: wrap; }
 
@@ -244,8 +263,7 @@
   #specialbtn::after { content: ""; position: absolute; inset: 0; background: rgb(40 22 10 / .45); transform-origin: bottom; transform: scaleY(var(--cd)); pointer-events: none; }
   #specialbtn.cooling { filter: saturate(.5); }
   .dash { position: fixed; bottom: calc(env(safe-area-inset-bottom, 0px) + 92px); width: 50px; height: 50px; border-radius: 50%; padding: 0; font: 700 24px/1 var(--display); display: none; }
-  #dashl { right: calc(env(safe-area-inset-right, 0px) + 244px); }
-  #dashr { right: calc(env(safe-area-inset-right, 0px) + 188px); }
+    #dashr { right: calc(env(safe-area-inset-right, 0px) + 188px); }
   .bankrow { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 8px 0; }
   .bankbox { display: grid; justify-items: center; background: #fff7e2; border: 2px solid var(--ink); border-radius: 12px; padding: 8px; }
   .bankbox img { width: 36px; height: 36px; }
@@ -256,7 +274,7 @@
   #bossbar { position: fixed; bottom: calc(env(safe-area-inset-bottom, 0px) + 108px); left: 50%; transform: translateX(-50%); width: min(420px, calc(100% - 32px)); padding: 6px 12px 8px; text-align: center; z-index: 3; }
   #bossbar b { font-family: Fredoka, Trebuchet MS, sans-serif; font-size: 18px; color: #8a1f3a; }
   #bossbar .bar { height: 16px; margin-top: 4px; }
-  #bossbar .bar i { background: linear-gradient(#ff6b7a, #d8324a); }
+  #bossbar .bar i { background-color: #d8324a; }
   #banner { position: fixed; top: 28%; left: 50%; transform: translate(-50%, -50%); font-family: Fredoka, Trebuchet MS, sans-serif; font-weight: 700; font-size: clamp(30px, 6vw, 56px); color: #fff6dc; -webkit-text-stroke: 2px #3a2010; text-shadow: 0 4px 0 #3a2010, 0 8px 24px rgba(0,0,0,.35); opacity: 0; pointer-events: none; white-space: nowrap; z-index: 3; }
   #banner.show { animation: banner 3.2s ease forwards; }
   #banner.lvl { color: #ffe066; font-size: clamp(34px, 7vw, 64px); top: 36%; }
@@ -320,11 +338,11 @@
     #minimap { width: 104px; height: 104px; bottom: auto; top: calc(env(safe-area-inset-top, 0px) + 12px); right: calc(env(safe-area-inset-right, 0px) + 12px); }
     #jumpbtn { right: calc(env(safe-area-inset-right, 0px) + 12px); bottom: calc(env(safe-area-inset-bottom, 0px) + 18px); width: 58px; height: 58px; }
     #sprintbtn { right: auto; left: calc(env(safe-area-inset-left, 0px) + 12px); bottom: calc(env(safe-area-inset-bottom, 0px) + 18px); width: 58px; height: 58px; }
+    body.sheet-open #specialbtn, body.sheet-open .dash, body.sheet-open #jumpbtn, body.sheet-open #sprintbtn { display: none !important; }
     #specialbtn { left: auto; right: calc(env(safe-area-inset-right, 0px) + 12px); bottom: calc(env(safe-area-inset-bottom, 0px) + 142px); width: 62px; height: 62px; }
     #specialbtn span { font-size: 9px; max-width: 50px; }
     #specialbtn img { width: 24px; height: 24px; }
-    #dashl { right: auto; left: calc(env(safe-area-inset-left, 0px) + 12px); bottom: calc(env(safe-area-inset-bottom, 0px) + 142px); }
-    #dashr { right: auto; left: calc(env(safe-area-inset-left, 0px) + 68px); bottom: calc(env(safe-area-inset-bottom, 0px) + 142px); }
+    #dashr { right: auto; left: calc(env(safe-area-inset-left, 0px) + 12px); bottom: calc(env(safe-area-inset-bottom, 0px) + 142px); }
   }
   /* hero creator: the 3D hero on the left (or top on phones), choices on a parchment panel */
   body.creating #status, body.creating #menu, body.creating #actionbar, body.creating #minimap, body.creating #jumpbtn, body.creating #specialbtn,
@@ -409,6 +427,42 @@
     .cc-foot button { padding: 7px 9px; font-size: 14px; }
   }
   @media (prefers-reduced-motion: reduce) { .float, .toast { animation-duration: .01s; } }
+  .binds { display: grid; gap: 4px; margin: 6px 0 10px; max-height: 40vh; overflow-y: auto; padding-right: 4px; }
+  .bind { display: grid; grid-template-columns: minmax(0, 1fr) 76px 76px; gap: 6px; align-items: center; font-weight: 700; font-size: 13px; }
+  .bind button { min-height: 30px; padding: 2px 6px; font: 800 13px/1 var(--display); background: #fff7e2; border: 2px solid rgb(74 42 23 / .35); border-radius: 8px; }
+  .bind button.waiting { background: #ffd66b; border-color: #4a2a17; animation: pulse .7s infinite alternate; }
+  @keyframes pulse { to { transform: scale(1.06); } }
+  .opts h4 { margin: 12px 0 2px; font-family: var(--display); }
+  #tracker .trk { display: block; width: 100%; text-align: left; background: none; border: 0; box-shadow: none; padding: 3px 4px; border-radius: 8px; font: inherit; color: inherit; min-height: 0; cursor: pointer; }
+  #tracker .trk.on { background: rgb(255 201 58 / .28); }
+  #tracker .trk:hover { background: rgb(255 201 58 / .18); }
+  .quest .trackbtn { margin-top: 6px; font-size: 13px; padding: 4px 10px; min-height: 0; }
+  #hotbar { position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(env(safe-area-inset-bottom, 0px) + 92px); display: flex; gap: 5px; padding: 5px 7px; z-index: 2; border-radius: 14px; }
+  #hotbar .hot { position: relative; width: 46px; height: 46px; padding: 0; border-radius: 10px; display: grid; place-items: center; background: #fff7e2; }
+  #hotbar .hot img { width: 30px; height: 30px; }
+  #hotbar .hot kbd { position: absolute; left: 3px; top: 1px; font: 800 10px/1 var(--display); color: var(--ink-soft); }
+  #hotbar .hot span { position: absolute; right: 3px; bottom: 1px; font: 800 11px/1 var(--display); text-shadow: 0 0 2px #fff, 0 0 2px #fff; }
+  #hotbar .hot.empty { background: rgb(255 247 226 / .5); border-style: dashed; }
+  #hotbar .hot.picking { background: #ffd66b; animation: pulse .6s infinite alternate; }
+  #hotbar .hot.on { background: linear-gradient(180deg, #ffe58a, var(--gold)); }
+  #hotbar .hot.out img { filter: grayscale(1); opacity: .45; }
+  #hotbar .hot.used { animation: hotpop .25s cubic-bezier(.3, 1.8, .5, 1); }
+  @keyframes hotpop { 40% { transform: scale(1.18) rotate(-4deg); } }
+  body.sheet-open #hotbar { z-index: 5; }
+  body.talking #hotbar { display: none; }
+  body.creating #hotbar { display: none !important; }
+  .slotwrap, .gearwrap { position: relative; }
+  .slotwrap .slot { width: 100%; }
+  .gearwrap .gearbtn { width: 100%; }
+  .pin { position: absolute; right: -4px; top: -4px; width: 22px; height: 22px; min-height: 0; padding: 0; border-radius: 50%; font: 800 15px/1 var(--display); display: grid; place-items: center; z-index: 1; }
+  .pin[aria-pressed="true"] { background: var(--gold); }
+  @media (max-width: 760px) {
+    #hotbar { bottom: calc(env(safe-area-inset-bottom, 0px) + 136px); gap: 3px; padding: 4px 5px; }
+    #hotbar .hot { width: 38px; height: 38px; }
+    #hotbar .hot img { width: 24px; height: 24px; }
+    #hotbar .hot:nth-child(n+6) { display: none; }
+    #hotbar .hot kbd { display: none; }
+  }
 </style>
 
 <div id="stage"></div>
@@ -433,6 +487,7 @@
 
 <aside id="sheet" class="panel" hidden></aside>
 
+<div id="hotbar" class="panel" aria-label="Hotbar"></div>
 <div id="actionbar" class="panel">
   <button id="action" disabled><img id="actionicon" alt=""><span id="actionlabel">Explore</span></button>
   <div id="actionhint">Space or tap here to swing at whatever is in front of you.</div>
@@ -442,8 +497,7 @@
 <div id="bigmap" class="overlay" hidden><div class="panel mapwrap"><h3>Map of the valley</h3><canvas></canvas><p class="hint">Gold: treasure chest. Yellow: someone with a quest. Green: quest ready to hand in. Red: monsters. Tap anywhere to close.</p></div></div>
 <button id="jumpbtn" class="panel" aria-label="Jump">Jump</button>
 <button id="specialbtn" class="panel" aria-label="Special attack (R)" title="Special attack (R)"><img data-icon="star" alt=""><span>Special</span></button>
-<button id="dashl" class="panel dash" aria-label="Dash left">&laquo;</button>
-<button id="dashr" class="panel dash" aria-label="Dash right">&raquo;</button>
+<button id="dashr" class="panel dash" aria-label="Dash">&raquo;</button>
 <button id="sprintbtn" class="panel" aria-label="Sprint" aria-pressed="false">Run</button>
 <div id="fade"></div>
 <div id="bossbar" class="panel" hidden><b id="bossname">Boss</b><div class="bar"><i id="bossfill" style="width:100%"></i></div></div>

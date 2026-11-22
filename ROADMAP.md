@@ -13,7 +13,13 @@
 - **Items have stats:** weapons have damage, reach/range and swing time; the weapon type decides how you fight (melee swing, magic bolt or crossbow shot). Shields and armour add Defense.
 - **Everything can be sold:** Marta buys anything in your bag, the smiths buy back spare gear. Monsters and bosses sometimes drop valuable treasures (silver rings, rubies, tiny golden crowns).
 - **Every weapon has a basic attack and a special (R):** swords Whirlwind, heavy weapons Ground Slam, magic Starburst, crossbows Volley. Specials hit an area and have a cooldown.
-- **Dash** left or right (Z / C, or double-tap A / D) to dodge attacks.
+- **Attacks follow your key presses:** each press of J (or a click) swings at once, and quick presses chain a 3-hit combo. Hits knock enemies back a short way; bosses barely move.
+- **Dash** in any direction (C, or double-tap a direction) to dodge attacks.
+- **Keybinds:** every control can be changed in Options (two keys per action, with a reset).
+- **Hotbar:** 8 slots (keys 1-8). Put food or gear on it from the Bag; pressing the slot eats or equips.
+- **Quest guide:** a golden arrow points to the quest you follow (pick it from the tracker or the Quests menu); a star bobs over the spot.
+- **Dialogue:** storybook speech box, letters pop in, interact finishes the line then turns the page, and the camera swoops to the speaker.
+- **Look:** Dokapon-inspired (original designs only): chibi heads, painted anime faces, bold ink outlines, saturated colours. Every villager has their own face, hair and beard. Armour shows as shoulder pads, belts and badges.
 - **Bank:** Penny the Banker keeps coins safe. When you are knocked out you drop half the coins in your pocket where you fell, and can go back for them.
 - Woodcutting, Mining, Fishing, Crafting (and Speed) level by use and have no combat stats.
 - **Crafting** (Craft menu): cook fish at a fire, smith metal gear at Brom's forge, carve wood gear anywhere. Higher Crafting levels unlock better recipes.
