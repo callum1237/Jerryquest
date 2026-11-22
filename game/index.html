@@ -191,6 +191,8 @@
   #sprintbtn { position: fixed; right: calc(env(safe-area-inset-right, 0px) + 260px); bottom: calc(env(safe-area-inset-bottom, 0px) + 22px); width: 64px; height: 64px; border-radius: 50%; font-size: 15px; padding: 0; display: none; }
   #sprintbtn[aria-pressed="true"] { background: #6ec8ff; }
   @media (pointer: coarse) { #jumpbtn, #sprintbtn { display: block; } }
+  #fade { position: fixed; inset: 0; background: #1c120c; opacity: 0; pointer-events: none; transition: opacity .3s; z-index: 5; }
+  #fade.on { opacity: 1; }
   .shop.wide { grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); }
   .shop { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin: 10px 0; }
   .shop .buy { display: grid; justify-items: center; gap: 2px; padding: 8px 6px; font-size: 14px; }
@@ -244,6 +246,7 @@
 <div id="bigmap" class="overlay" hidden><div class="panel mapwrap"><h3>Map of the valley</h3><canvas></canvas><p class="hint">Yellow: someone with a quest. Green: quest ready to hand in. Red: monsters. Tap anywhere to close.</p></div></div>
 <button id="jumpbtn" class="panel" aria-label="Jump">Jump</button>
 <button id="sprintbtn" class="panel" aria-label="Sprint" aria-pressed="false">Run</button>
+<div id="fade"></div>
 <div id="toasts" aria-live="polite"></div>
 <div id="dialog" class="panel" hidden></div>
 

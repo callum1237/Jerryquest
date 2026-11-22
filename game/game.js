@@ -4,6 +4,7 @@ import { THREE, scene, camera, renderer, sun, PRESETS, env, applyPreset, styled,
 import * as SkeletonUtils from 'three/addons/utils/SkeletonUtils.js';
 import { buildWorld, buildFlowers, place, colliders, clouds, dynamic, LAKE, CAMP, MINE, S_NATURE, blocked, isFree } from './world.js';
 import { ICONS } from './icons.js';
+import { buildInteriors, INTERIORS } from './interiors.js';
 
 const $ = (id) => document.getElementById(id);
 const clock = new THREE.Clock();
@@ -117,7 +118,7 @@ function loadSave() {
 }
 function save() {
   if (!S.cls || !player) return;
-  S.pos = [player.root.position.x, player.root.position.z];
+  S.pos = where === 'out' ? [player.root.position.x, player.root.position.z] : [INTERIORS[where].exitTo.x, INTERIORS[where].exitTo.z];
   try { localStorage.setItem(SAVE_KEY, JSON.stringify(S)); } catch (e) { /* storage unavailable */ }
 }
 const lvl = (k) => levelOf(S.xp[k]);
@@ -165,14 +166,17 @@ const nodes = [];
 let tool = null, rod = null, pick = null;
 
 // ---------- boot ----------
-const FILES = ['world', 'gear', 'knight', 'mage', 'archer', 'barbarian', 'skel_warrior', 'skel_minion', 'skel_mage'];
+const FILES = ['world', 'gear', 'interior', 'knight', 'mage', 'archer', 'barbarian', 'skel_warrior', 'skel_minion', 'skel_mage'];
 async function main() {
   let n = 0;
   const loaded = await Promise.all(FILES.map((f) => loadModel(f).then((g) => { $('loadmsg').textContent = `${++n} of ${FILES.length} models`; return g; })));
   FILES.forEach((f, i) => { G[f] = loaded[i]; });
   for (const c of G.world.scene.children) lib[c.name] = c;
   for (const c of G.gear.scene.children) lib[c.name] = c;
+  for (const c of G.interior.scene.children) lib[c.name] = c;
   buildWorld(lib);
+  buildInteriors(lib, { tavern: { outside: { x: -4.0, z: -12.3 }, exitTo: { x: -3.4, z: -9.4 } } });
+  buildDoors();
   buildNodes();
   buildNpcs();
   buildEnemies();
@@ -439,19 +443,22 @@ function makeCrown() {
 }
 function buildNpcs() {
   const defs = [
-    { id: 'bertha', name: 'Bertha the Innkeeper', model: 'barbarian', x: -2, z: -10.5, hide: [] },
+    { id: 'bertha', name: 'Bertha the Innkeeper', model: 'barbarian', x: -7.2, z: -11, hide: [] },
     { id: 'rowan', name: 'Captain Rowan', model: 'knight', x: 12, z: -18, hide: [] },
     { id: 'fenwick', name: 'Old Fenwick', model: 'mage', x: 15, z: -4.5, hide: [] },
     { id: 'marta', name: 'Marta the Baker', model: 'barbarian', x: 7.5, z: 10.2, hide: [], shop: 'food', tint: '#bfe3ff' },
     { id: 'brom', name: 'Brom the Blacksmith', model: 'barbarian', x: 5.5, z: -19.8, hide: [], shop: 'knight', tint: '#ffb38a' },
     { id: 'wisteria', name: 'Madame Wisteria', model: 'mage', x: 18.4, z: -21.6, hide: [], shop: 'mage', tint: '#f0b0ff' },
     { id: 'hazel', name: 'Hazel the Fletcher', model: 'archer', x: -22, z: 10.5, hide: [], shop: 'archer', tint: '#d8f0a0' },
-    { id: 'king', name: 'King Jerrold', model: 'knight', x: 4, z: -49, hide: ['Knight_Helmet'], king: true, tint: '#b98cff' },
+    { id: 'king', name: 'King Jerrold', model: 'knight', x: INTERIORS.castle.king.x, z: INTERIORS.castle.king.z, hide: ['Knight_Helmet'], king: true, tint: '#b98cff', inside: 'castle' },
+    ...INTERIORS.castle.guards.map(([x, z], i) => ({ id: `guard${i}`, name: 'Royal Guard', model: 'knight', x, z, hide: [], inside: 'castle', tint: '#8fb8ff',
+      lines: ['Long live King Jerrold!', 'The King grants a new calling to any hero who asks.', 'Mind the carpet. The King had it cleaned this morning.'] })),
+    { id: 'tom', name: 'Old Tom the Barkeep', model: 'barbarian', x: INTERIORS.tavern.barkeep.x, z: INTERIORS.tavern.barkeep.z, hide: [], shop: 'food', tint: '#e8c89a', inside: 'tavern', face: 'south' },
   ];
   for (const d of defs) {
     const a = new Actor(G[d.model], { hide: d.hide, scale: 1.3 });
     a.root.position.set(d.x, 0, d.z);
-    a.face(0, 0);
+    if (d.inside) a.root.rotation.y = 0; else a.face(0, 0);
     a.play(d.id === 'fenwick' ? 'Spellcasting' : 'Idle');
     if (d.id === 'fenwick') a.mixer.timeScale = 0.4;
     if (d.king) a.root.traverse((o) => { if (o.isBone && o.name === 'head') o.add(makeCrown()); });
@@ -539,6 +546,46 @@ function floatText(p, text, cls = '') {
   setTimeout(() => el.remove(), 1000);
 }
 const npcName = (id) => npcs.find((n) => n.id === id).name;
+// ---------- doors ----------
+let where = 'out', fading = false;
+function buildDoors() {
+  const geo = new THREE.RingGeometry(0.9, 1.25, 32);
+  const ring = (x, z) => {
+    const m = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ color: '#ffe9a0', transparent: true, opacity: 0.8, depthWrite: false, fog: false }));
+    m.rotation.x = -Math.PI / 2; m.position.set(x, 0.1, z); m.layers.set(1); scene.add(m); doorRings.push(m);
+  };
+  for (const I of Object.values(INTERIORS)) { ring(I.outside.x, I.outside.z); ring(I.room.door.x, I.room.door.z - 0.6); }
+}
+const doorRings = [];
+function goThrough(to) {
+  fading = true; held = false; mouseHeld = false; moveTarget = null; pending = null; marker.visible = false; cancelTask(); closeDialog();
+  $('fade').classList.add('on');
+  setTimeout(() => {
+    const pp = player.pos;
+    if (to === 'out') {
+      const I = INTERIORS[where];
+      pp.set(I.exitTo.x, 0, I.exitTo.z); player.root.rotation.y = 0;
+    } else {
+      const I = INTERIORS[to];
+      pp.set(I.room.door.x, 0, I.room.door.z - 3); player.root.rotation.y = Math.PI;
+      toast(I.name, null);
+    }
+    where = to;
+    camPos.copy(pp).setY(0).add(new THREE.Vector3(0, 23, 27).multiplyScalar(zoom * (camera.aspect < 1 ? 1.3 : 1)));
+    $('fade').classList.remove('on');
+    setTimeout(() => { fading = false; }, 250);
+  }, 320);
+}
+function checkDoors() {
+  if (fading || !player || player.dead) return;
+  const pp = player.pos;
+  if (where === 'out') {
+    for (const [id, I] of Object.entries(INTERIORS)) if (Math.hypot(pp.x - I.outside.x, pp.z - I.outside.z) < 1.3) { goThrough(id); return; }
+  } else {
+    const d = INTERIORS[where].room.door;
+    if (pp.z > d.z && Math.abs(pp.x - d.x) < 2.6) goThrough('out');
+  }
+}
 function refreshUI() {
   if (!S.cls) return;
   const mh = maxHp();
@@ -550,6 +597,7 @@ function refreshUI() {
   for (const n of npcs) {
     if (n.shop) { n.marker.userData.draw('$'); continue; }
     if (n.king) { n.marker.userData.draw('♛'); continue; }
+    if (n.lines) { n.marker.userData.draw(''); continue; }
     const qid = Object.keys(QUESTS).find((k) => QUESTS[k].giver === n.id);
     const st = S.quests[qid].state;
     n.marker.userData.draw(st === 'todo' ? '!' : questReady(qid) ? '?' : '');
@@ -708,7 +756,18 @@ function openWeaponShop(npc) {
   d.hidden = false;
   npc.actor.face(player.pos.x, player.pos.z);
 }
+function openTalk(npc) {
+  talking = npc;
+  const d = $('dialog');
+  d.innerHTML = '<h3></h3><p></p><div class="row"><button id="talkbye">Goodbye</button></div>';
+  d.querySelector('h3').textContent = npc.name;
+  d.querySelector('p').textContent = npc.lines[Math.floor(rng() * npc.lines.length)];
+  $('talkbye').onclick = closeDialog;
+  d.hidden = false;
+  npc.actor.face(player.pos.x, player.pos.z);
+}
 function openDialog(npc) {
+  if (npc.lines) { openTalk(npc); return; }
   if (npc.king) { openKing(npc); return; }
   if (npc.shop && npc.shop !== 'food') { openWeaponShop(npc); return; }
   if (npc.shop) { openShop(npc); return; }
@@ -1056,7 +1115,7 @@ function hurtPlayer(dmg) {
     player.play('Death_A', { once: true, clamp: true, fade: 0.1 });
     toast('You were knocked out! You wake up by the well.', null, true);
     later(3, () => {
-      player.root.position.set(0, 0, 6); player.air = false; camPos.set(0, 30, 40);
+      player.root.position.set(0, 0, 6); player.air = false; where = 'out'; camPos.set(0, 30, 40);
       S.hp = maxHp(); player.dead = false; player.play('Idle'); refreshUI(); save();
     });
   } else if (!player.task && now > player.busyUntil) {
@@ -1171,6 +1230,13 @@ function drawMap(cv, full) {
   const toPx = (x, z) => [(x - cx + half) * k, (z - cz + half) * k];
   const src = (v) => ((v + MAP_R) / (MAP_R * 2)) * MAP_PX;
   g.clearRect(0, 0, W, W);
+  if (where !== 'out') {
+    g.fillStyle = '#3a2618'; g.fillRect(0, 0, W, W);
+    g.font = `700 ${(full ? 22 : 13) * dpr}px Fredoka, Trebuchet MS, sans-serif`; g.textAlign = 'center'; g.fillStyle = '#ffe9a0';
+    const words = INTERIORS[where].name.split(' ');
+    words.forEach((w2, i) => g.fillText(w2, W / 2, W / 2 + (i - (words.length - 1) / 2) * (full ? 26 : 15) * dpr));
+    return;
+  }
   g.save();
   if (!full) { g.beginPath(); g.arc(W / 2, W / 2, W / 2, 0, 7); g.clip(); }
   g.fillStyle = '#3f7a3a'; g.fillRect(0, 0, W, W);
@@ -1203,6 +1269,7 @@ function collide(p, r = 0.7) {
     const dx = p.x - c.x, dz = p.z - c.z, d = Math.hypot(dx, dz), m = c.r + r;
     if (d < m && d > 0.0001) { p.x = c.x + (dx / d) * m; p.z = c.z + (dz / d) * m; }
   }
+  if (where !== 'out') return;
   const d = Math.hypot(p.x, p.z);
   if (d > 66) { p.x *= 66 / d; p.z *= 66 / d; }
 }
@@ -1251,6 +1318,7 @@ function tick() {
     } else if (!busy && (player.name === 'Running_A' || player.name === 'Idle_Combat')) {
       player.play('Idle', { fade: 0.15 });
     }
+    checkDoors();
     if (now > staminaAt && stamina < 100) stamina = Math.min(100, stamina + dt * 16);
     $('stamfill').style.width = `${stamina}%`;
     if (player.air) {
@@ -1266,6 +1334,7 @@ function tick() {
   if (player) player.mixer.update(dt);
   for (const n of npcs) { n.actor.mixer.update(dt); n.marker.position.y = 4.6 + Math.sin(now * 3 + n.x) * 0.15; }
 
+  for (const r of doorRings) { const ph = (now * 0.7) % 1; r.scale.setScalar(1 + ph * 0.35); r.material.opacity = 0.85 - ph * 0.6; }
   for (const n of nodes) {
     if (!n.alive && now > n.respawnAt) {
       n.alive = true; n.full.visible = true; if (n.cut) n.cut.visible = false; if (n.maxHp) n.hp = n.maxHp;
@@ -1363,7 +1432,7 @@ function tick() {
 }
 addEventListener('pagehide', () => { if (!resetting) save(); });
 
-window.__jq = { switchClass, equipWeapon, openWeaponShop, openKing, jump, eat, eatBest, openShop, drawMinimap: () => drawMinimap(), swing, swingTarget, hitNode, projectiles, timers, get S() { return S; }, get player() { return player; }, enemies, nodes, npcs, startTask, doAction, giveXp, save, openSheet, openDialog };
+window.__jq = { goThrough, get where() { return where; }, INTERIORS, switchClass, equipWeapon, openWeaponShop, openKing, jump, eat, eatBest, openShop, drawMinimap: () => drawMinimap(), swing, swingTarget, hitNode, projectiles, timers, get S() { return S; }, get player() { return player; }, enemies, nodes, npcs, startTask, doAction, giveXp, save, openSheet, openDialog };
 window.addEventListener('error', (e) => { const m = $('loadmsg'); if (m) m.textContent = `Something went wrong: ${e.message}`; });
 main().catch((err) => {
   console.error(err);
