@@ -54,20 +54,20 @@ export const lights = [];
 
 function castle() {
   const cx = 300, cz = 0;
-  const r = room(cx, cz, 5, 7, 'floor_tile_large', { windows: true });
+  const r = room(cx, cz, 7, 9, 'floor_tile_large', { windows: true });
   // royal carpet down the middle
   flat(4.2, r.z1 - r.z0 - 4, '#e8b54a', cx, (r.z0 + r.z1) / 2 + 2, 0.07);
   flat(3.4, r.z1 - r.z0 - 4, '#b8323a', cx, (r.z0 + r.z1) / 2 + 2, 0.08);
   // pillars and banners
-  for (let j = 0; j < 3; j++) {
+  for (let j = 0; j < 4; j++) {
     const z = r.z0 + 8 + j * 7;
     for (const sx of [-1, 1]) {
-      put('pillar_decorated', cx + sx * 6.5, z);
-      colliders.push({ x: cx + sx * 6.5, z, r: 1.1 });
+      put('pillar_decorated', cx + sx * 7.5, z);
+      colliders.push({ x: cx + sx * 7.5, z, r: 1.1 });
     }
   }
-  for (let i = 0; i < 5; i++) if (i !== 2) put(i % 2 ? 'banner_shield_blue' : 'banner_patternA_red', r.x0 + 2 + i * T, r.z0 + 0.15);
-  for (const z of [r.z0 + 6, r.z0 + 16]) { put('torch_mounted', r.x0 + 0.1, z, { ry: Math.PI / 2 }); put('torch_mounted', r.x1 - 0.1, z, { ry: -Math.PI / 2 }); }
+  for (let i = 0; i < 7; i++) if (i !== 3) put(i % 2 ? 'banner_shield_blue' : 'banner_patternA_red', r.x0 + 2 + i * T, r.z0 + 0.15);
+  for (const z of [r.z0 + 6, r.z0 + 16, r.z0 + 26]) { put('torch_mounted', r.x0 + 0.1, z, { ry: Math.PI / 2 }); put('torch_mounted', r.x1 - 0.1, z, { ry: -Math.PI / 2 }); }
   // dais and throne
   boxMesh(10, 0.6, 5, '#a59f97', cx, 0.3, r.z0 + 3);
   boxMesh(7, 0.6, 3.6, '#c4beb4', cx, 0.8, r.z0 + 2.6);
@@ -84,6 +84,9 @@ function castle() {
   put('sword_shield_gold', r.x1 - 0.4, r.z0 + 11, { ry: -Math.PI / 2 });
   addLight(cx, 4, r.z0 + 4, '#ffcf8a', 60, 18);
   addLight(cx, 4, r.z0 + 16, '#ffb070', 40, 18);
+  addLight(cx, 4, r.z0 + 28, '#ffb070', 36, 18);
+  // grand side tables with feasts for the court
+  for (const sx of [-1, 1]) { put('table_long_tablecloth_decorated_A', cx + sx * 11, r.z0 + 20, { ry: Math.PI / 2 }); colliders.push({ x: cx + sx * 11, z: r.z0 + 19, r: 1.4 }, { x: cx + sx * 11, z: r.z0 + 21.5, r: 1.4 }); }
   INTERIORS.castle = { name: 'Castle throne room', room: r, outside: { x: 4, z: -52.4, face: Math.PI }, exitTo: { x: 4, z: -48.2 }, king: { x: cx, z: r.z0 + 7 }, guards: [[cx - 4, r.z1 - 6], [cx + 4, r.z1 - 6]] };
   void throne;
 }

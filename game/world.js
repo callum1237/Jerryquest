@@ -65,7 +65,7 @@ export function place(name, x, z, s, ry = 0, { collide = true, y = 0, shrink = 0
 }
 const faceCenter = (x, z) => Math.atan2(-x, -z);
 export const blocked = (x, z) => Math.hypot(x - LAKE.x, z - LAKE.z) < LAKE.r + 3 || Math.hypot(x - CAMP.x, z - CAMP.z) < 11
-  || Math.hypot(x - 4, z + 62) < 12 || Math.hypot(x - MINE.x, z - MINE.z) < 9;
+  || Math.hypot(x - 4, z + 66) < 18 || Math.hypot(x - MINE.x, z - MINE.z) < 9;
 export const isFree = (x, z, pad = 0) => !colliders.some((c) => Math.hypot(c.x - x, c.z - z) < c.r + pad);
 
 export function buildWorld(library) {
@@ -151,7 +151,7 @@ export function buildWorld(library) {
     ['building_lumbermill_green', -27, 14, S_BUILD], ['building_tower_A_red', 22, -26, 6], ['building_mine_green', MINE.x - 6, MINE.z - 6, 6],
   ];
   for (const [n, x, z, s] of ring) place(n, x, z, s, faceCenter(x, z));
-  place('building_castle_blue', 4, -62, 10, 0);
+  place('building_castle_blue', 4, -66, 14, 0); // big enough to feel like a king lives there
   place('building_grain', 20, 14, S_BUILD, 0.6);
   for (let i = 0; i < 5; i++) place(i === 2 ? 'fence_wood_straight_gate' : 'fence_wood_straight', 16 + i * 3.4, 22, S_PROP + 1.4, 0, { collide: false });
   const props = [
@@ -176,7 +176,7 @@ export function buildWorld(library) {
   for (let i = 0; i < 1400; i++) {
     const a = rng() * Math.PI * 2, rr = 42 + rng() * (WORLD_R - 30);
     const x = Math.cos(a) * rr, z = Math.sin(a) * rr;
-    if (blocked(x, z) || (Math.abs(x) < 4 && z > 0 && z < 40) || Math.hypot(x - 4, z + 48) < 14 || (Math.abs(x - 2) < 5 && z < 0 && z > -50)) continue;
+    if (blocked(x, z) || (Math.abs(x) < 4 && z > 0 && z < 40) || Math.hypot(x - 4, z + 48) < 14 || Math.hypot(x - 4, z + 66) < 22 || (Math.abs(x - 2) < 5 && z < 0 && z > -50)) continue;
     if (nearRoad(x, z, 6) || inZone(x, z, 2)) continue;
     // a dense belt near the valley, thinner woods further out, open glades between
     const belt = rr < 66 ? 1 : 0.38 + 0.3 * Math.sin(x * 0.05) * Math.cos(z * 0.04);

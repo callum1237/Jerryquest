@@ -160,7 +160,7 @@
   #actionhint { font-size: 12.5px; font-weight: 800; color: var(--ink-soft); max-width: 220px; line-height: 1.3; }
 
   /* toasts */
-  #toasts { position: fixed; top: calc(env(safe-area-inset-top, 0px) + 14px); left: 50%; transform: translateX(-50%); display: grid; gap: 6px; justify-items: center; pointer-events: none; width: min(420px, calc(100% - 32px)); z-index: 3; }
+  #toasts { position: fixed; top: calc(env(safe-area-inset-top, 0px) + 84px); left: 50%; transform: translateX(-50%); display: grid; gap: 6px; justify-items: center; pointer-events: none; width: min(420px, calc(100% - 32px)); z-index: 3; }
   .toast { font: 600 15px var(--display); background: linear-gradient(180deg, #fff4d8, var(--parch)); border: 2.5px solid var(--ink); border-radius: 14px; padding: 5px 14px; box-shadow: 0 3px 0 var(--ink); display: flex; align-items: center; gap: 8px; animation: tin .25s ease-out; }
   .toast img { width: 24px; height: 24px; }
   .toast.big { font-size: 20px; background: linear-gradient(180deg, #ffe58a, var(--gold)); padding: 8px 18px; }
@@ -213,13 +213,14 @@
   #minimap { position: fixed; right: calc(env(safe-area-inset-right, 0px) + 16px); bottom: calc(env(safe-area-inset-bottom, 0px) + 16px); width: 160px; height: 160px; border-radius: 50%; padding: 0; border-width: 4px; cursor: pointer; z-index: 2; }
   #bigmap { display: grid; place-items: center; z-index: 6; background: rgba(40,22,10,.45); }
   #bigmap[hidden] { display: none; }
-  #bigmap .mapwrap { padding: 14px; width: min(560px, calc(100vw - 32px)); }
+  #bigmap .mapwrap { padding: 14px; width: min(560px, calc(100vw - 32px), calc(100dvh - 150px)); }
+  body.sheet-open #minimap { display: none; }
   #bigmap canvas { width: 100%; aspect-ratio: 1; border-radius: 12px; border: 3px solid var(--ink); display: block; margin: 8px 0; }
   #jumpbtn { position: fixed; right: calc(env(safe-area-inset-right, 0px) + 188px); bottom: calc(env(safe-area-inset-bottom, 0px) + 22px); width: 64px; height: 64px; border-radius: 50%; font-size: 15px; padding: 0; display: none; }
   #sprintbtn { position: fixed; right: calc(env(safe-area-inset-right, 0px) + 260px); bottom: calc(env(safe-area-inset-bottom, 0px) + 22px); width: 64px; height: 64px; border-radius: 50%; font-size: 15px; padding: 0; display: none; }
   #sprintbtn[aria-pressed="true"] { background: #6ec8ff; }
   @media (pointer: coarse) { #jumpbtn, #sprintbtn { display: block; } }
-  #bossbar { position: fixed; top: calc(env(safe-area-inset-top, 0px) + 86px); left: 50%; transform: translateX(-50%); width: min(420px, calc(100% - 32px)); padding: 6px 12px 8px; text-align: center; z-index: 3; }
+  #bossbar { position: fixed; bottom: calc(env(safe-area-inset-bottom, 0px) + 108px); left: 50%; transform: translateX(-50%); width: min(420px, calc(100% - 32px)); padding: 6px 12px 8px; text-align: center; z-index: 3; }
   #bossbar b { font-family: Fredoka, Trebuchet MS, sans-serif; font-size: 18px; color: #8a1f3a; }
   #bossbar .bar { height: 16px; margin-top: 4px; }
   #bossbar .bar i { background: linear-gradient(#ff6b7a, #d8324a); }
@@ -279,6 +280,8 @@
     #sheet { top: auto; bottom: calc(env(safe-area-inset-bottom, 0px) + 140px); max-height: 52%; }
     #actionhint { display: none; }
     #dialog { bottom: calc(env(safe-area-inset-bottom, 0px) + 140px); }
+    #toasts { top: calc(env(safe-area-inset-top, 0px) + 14px); }
+    #bossbar { bottom: calc(env(safe-area-inset-bottom, 0px) + 140px); }
     #minimap { width: 104px; height: 104px; bottom: auto; top: calc(env(safe-area-inset-top, 0px) + 12px); right: calc(env(safe-area-inset-right, 0px) + 12px); }
     #jumpbtn { right: calc(env(safe-area-inset-right, 0px) + 12px); bottom: calc(env(safe-area-inset-bottom, 0px) + 18px); width: 58px; height: 58px; }
     #sprintbtn { right: auto; left: calc(env(safe-area-inset-left, 0px) + 12px); bottom: calc(env(safe-area-inset-bottom, 0px) + 18px); width: 58px; height: 58px; }

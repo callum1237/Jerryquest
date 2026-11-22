@@ -221,6 +221,37 @@ const dmgMult = () => 1 + ATK_MULT * stat('atk');
 const defDiv = () => 1 + DEF_DIV * totalDef();
 const maxHp = () => HP_BASE + HP_PER * stat('hp');
 
+// ---------- see-through silhouettes ----------
+// When a tree or house hides the hero (or a boss), a soft glowing shape shows through it.
+// The hero's visible pixels mark the stencil, so the glow only appears where they're actually hidden.
+function markStencil(root) {
+  root.traverse((o) => {
+    if (!o.isMesh || !o.userData.mats || o.userData.stencilled) return;
+    const m = { std: o.userData.mats.std.clone(), toon: o.userData.mats.toon.clone() };
+    m.toon.onBeforeCompile = o.userData.mats.toon.onBeforeCompile;
+    for (const mat of [m.std, m.toon]) { mat.stencilWrite = true; mat.stencilRef = 1; mat.stencilFunc = THREE.AlwaysStencilFunc; mat.stencilZPass = THREE.ReplaceStencilOp; }
+    o.userData.stencilled = true;
+    registerMesh(o, m);
+  });
+}
+function silMat(col) {
+  return new THREE.MeshBasicMaterial({ color: col, transparent: true, opacity: 0.5, depthWrite: false, depthFunc: THREE.GreaterDepth, fog: false,
+    stencilWrite: true, stencilRef: 1, stencilFunc: THREE.NotEqualStencilFunc, stencilFail: THREE.KeepStencilOp, stencilZFail: THREE.KeepStencilOp, stencilZPass: THREE.KeepStencilOp });
+}
+const silMats = {};
+function addSilhouette(root, col) {
+  markStencil(root);
+  const mat = silMats[col] || (silMats[col] = silMat(col)), list = [];
+  root.traverse((o) => { if (o.isMesh && o.userData.mats && !o.userData.isSil && !o.userData.hasSil) list.push(o); });
+  for (const o of list) {
+    o.userData.hasSil = true;
+    const sil = o.isSkinnedMesh ? new THREE.SkinnedMesh(o.geometry, mat) : new THREE.Mesh(o.geometry, mat);
+    sil.userData.isSil = true; sil.frustumCulled = false; sil.renderOrder = 20; sil.layers.set(1);
+    // a child with no offset sits exactly on its mesh and hides with it
+    o.add(sil); if (o.isSkinnedMesh) sil.bind(o.skeleton, o.bindMatrix);
+  }
+}
+
 // ---------- characters ----------
 class Actor {
   constructor(gltf, { hide = [], scale = 1.3 } = {}) {
@@ -300,7 +331,7 @@ function showPick() {
     $('pick').hidden = true;
     if (!S.started) { S.started = true; S.hp = maxHp(); }
     startHero(); save();
-    if (!S.welcomed) { S.welcomed = true; toast('Welcome to Greenhollow! Look for villagers with a ! above their heads.', null, true); }
+    if (!S.welcomed) { S.welcomed = true; toast('Welcome to Jerry Village! Look for villagers with a ! above their heads.', null, true); }
   });
   cards.appendChild(b);
   $('pick').hidden = false;
@@ -312,6 +343,7 @@ function startHero() {
   player.base = {};
   player.root.traverse((o) => { if (o.name === '1H_Sword') player.base.weapon = o; if (o.name === 'Badge_Shield') player.base.shield = o; });
   player.weapons = [];
+  addSilhouette(player.root, '#ffe9a0');
   equipGear();
   player.play('Idle');
   player.busyUntil = 0; player.task = null; player.nextHit = 0; player.dead = false;
@@ -333,6 +365,7 @@ const HAIR_COLOURS = {
 };
 const HAIR_STYLES = { none: 'None', short: 'Short', spiky: 'Spiky', long: 'Long', bun: 'Bun', mohawk: 'Mohawk' };
 const hairMats = toon('#8a4f2a');
+for (const mat of [hairMats.std, hairMats.toon]) { mat.stencilWrite = true; mat.stencilRef = 1; mat.stencilFunc = THREE.AlwaysStencilFunc; mat.stencilZPass = THREE.ReplaceStencilOp; }
 const hairCache = new Map();
 function hairGroup(style) {
   if (hairCache.has(style)) return hairCache.get(style);
@@ -414,6 +447,7 @@ function equipGear() {
     if (!lib[item.model]) return;
     const m = lib[item.model].clone(true); stylize(m);
     if (item.tint) tinted(m, item.tint);
+    addSilhouette(m, '#ffe9a0');
     const slot = handSlot(side);
     if (slot) slot.add(m);
     player.customs.push(m); player.weapons.push(m);
@@ -596,6 +630,7 @@ function spawnEnemy(k, x, z) {
   e.hp = T.hp; e.state = 'idle'; e.timer = rng() * 3; e.target = new THREE.Vector2(); e.nextHit = 0; e.swings = 0;
   e.play('Idle');
   if (T.boss) e.root.traverse((o) => { if (o.isMesh && /Body|Head/.test(o.name)) tinted(o, k === 'boss_gloom' ? '#c8a8ff' : k === 'boss_crusher' ? '#ffd0a0' : '#c0ffc8'); });
+  if (T.boss) addSilhouette(e.root, '#ff8a9a');
   if (!T.boss) { const bar = document.createElement('div'); bar.className = 'hpbar'; bar.hidden = true; bar.innerHTML = '<i></i>'; document.body.appendChild(bar); e.bar = bar; }
   else e.bar = { hidden: true, style: {}, firstChild: { style: {} } };
   enemies.push(e);
@@ -693,7 +728,7 @@ function floatText(p, text, cls = '') {
 const npcName = (id) => npcs.find((n) => n.id === id).name;
 function bossUi() {
   if (!player) return;
-  const b = enemies.find((e) => e.T.boss && e.hp > 0 && (e.state === 'chase' || e.state === 'slam'));
+  const b = where === 'out' && $('sheet').hidden ? enemies.find((e) => e.T.boss && e.hp > 0 && (e.state === 'chase' || e.state === 'slam') && Math.hypot(e.pos.x - player.pos.x, e.pos.z - player.pos.z) < 32) : null;
   const bar = $('bossbar');
   bar.hidden = !b;
   if (b) { $('bossname').textContent = b.T.name; $('bossfill').style.width = `${(b.hp / b.T.hp) * 100}%`; }
@@ -702,11 +737,77 @@ let zoneNow = null;
 function zoneBanner() {
   if (!player || where !== 'out') return;
   const z = Object.values(ZONES).find((Z) => Math.hypot(player.pos.x - Z.x, player.pos.z - Z.z) < Z.r + 4);
-  const name = z ? z.name : Math.hypot(player.pos.x, player.pos.z) < 40 ? 'Jerry Village' : null;
+  const name = z ? z.name : Math.hypot(player.pos.x, player.pos.z) < 40 ? 'Jerry Village' : Math.hypot(player.pos.x - 4, player.pos.z + 64) < 28 ? 'Castle grounds' : null;
   if (name && name !== zoneNow) {
     const el = $('banner'); el.textContent = name; el.classList.remove('show'); void el.offsetWidth; el.classList.add('show');
   }
-  if (name) zoneNow = name;
+  zoneNow = name;
+}
+// ---------- bone piles ----------
+// A beaten skeleton falls apart into a little heap of bones, and its skull bounces off the top.
+// When it comes back, the heap rattles and the bones pull themselves together.
+const boneMat = toon('#f1e8d4'), socketMat = toon('#3a2a2a');
+const boneGeo = { shaft: new THREE.CylinderGeometry(0.07, 0.07, 0.7, 6), knob: new THREE.SphereGeometry(0.11, 8, 6),
+  skull: new THREE.SphereGeometry(0.3, 14, 10), jaw: new THREE.BoxGeometry(0.34, 0.14, 0.26), eye: new THREE.SphereGeometry(0.075, 8, 6) };
+const boneMesh = (geo, mat, x, y, z) => { const m = new THREE.Mesh(geo); m.position.set(x, y, z); m.castShadow = true; registerMesh(m, mat); return m; };
+function makeBone() {
+  const g = new THREE.Group();
+  g.add(boneMesh(boneGeo.shaft, boneMat, 0, 0, 0));
+  for (const y of [-0.35, 0.35]) for (const x of [-0.06, 0.06]) g.add(boneMesh(boneGeo.knob, boneMat, x, y, 0));
+  return g;
+}
+function makeSkull() {
+  const g = new THREE.Group();
+  g.add(boneMesh(boneGeo.skull, boneMat, 0, 0.3, 0));
+  g.add(boneMesh(boneGeo.jaw, boneMat, 0, 0.08, 0.1));
+  for (const x of [-0.11, 0.11]) g.add(boneMesh(boneGeo.eye, socketMat, x, 0.34, 0.24));
+  return g;
+}
+const piles = [];
+function collapse(e) {
+  const g = new THREE.Group(), s = e.T.boss ? 2.2 : 1.3;
+  for (let i = 0; i < 6; i++) {
+    const b = makeBone(); const a = (i / 6) * Math.PI * 2 + rng();
+    b.position.set(Math.cos(a) * 0.35 * rng(), 0.08 + (i % 3) * 0.1, Math.sin(a) * 0.35 * rng());
+    b.rotation.set(Math.PI / 2 + (rng() - 0.5) * 0.5, rng() * 6, (rng() - 0.5) * 0.4);
+    b.userData.rest = b.position.clone();
+    g.add(b);
+  }
+  const skull = makeSkull(); skull.position.set(0, 0.3, 0); g.add(skull);
+  g.position.set(e.pos.x, 0, e.pos.z); g.scale.setScalar(s); g.rotation.y = rng() * 6;
+  scene.add(g);
+  e.root.visible = false;
+  burst(e.pos.clone().setY(0.8), '#f1e8d4', 18, 4, 1.1);
+  e.pile = { g, skull, vy: 6, sx: (rng() - 0.5) * 2.2, sz: (rng() - 0.5) * 2.2, rattle: 0 };
+  piles.push(e.pile);
+}
+function reassemble(e) {
+  const P = e.pile;
+  if (!P) { e.root.position.set(e.home.x, 0, e.home.y); e.root.visible = true; return; }
+  P.rattle = 0.9;
+  e.root.position.set(P.g.position.x, 0, P.g.position.z);
+  later(0.9, () => {
+    scene.remove(P.g); piles.splice(piles.indexOf(P), 1); e.pile = null;
+    e.root.visible = true;
+  });
+}
+function pileTick(dt) {
+  for (const P of piles) {
+    const k = P.skull.position;
+    if (P.vy !== null) {
+      // the skull hops off the heap, bounces, and settles beside it
+      P.vy -= 22 * dt; k.y += P.vy * dt; k.x += P.sx * dt; k.z += P.sz * dt; P.skull.rotation.x += P.sx * dt * 3;
+      if (k.y < 0.02) { k.y = 0.02; if (Math.abs(P.vy) < 2) { P.vy = null; P.skull.rotation.x = 0; } else { P.vy = -P.vy * 0.45; P.sx *= 0.6; P.sz *= 0.6; } }
+    }
+    if (P.rattle > 0) {
+      P.rattle -= dt;
+      const t = 1 - Math.max(0, P.rattle) / 0.9;
+      for (const b of P.g.children) {
+        if (b === P.skull) { k.lerp(new THREE.Vector3(0, 0.3 + t * 1.2, 0), t); continue; }
+        b.position.copy(b.userData.rest).add(new THREE.Vector3((rng() - 0.5) * 0.12, t * 0.9 + (rng() - 0.5) * 0.12, (rng() - 0.5) * 0.12));
+      }
+    }
+  }
 }
 // ---------- loot ----------
 const lootPops = [];
@@ -914,10 +1015,10 @@ function renderSheet() {
 let resetting = false;
 function openSheet(mode) {
   if (sheetMode === mode && !$('sheet').hidden) { closeSheet(); return; }
-  sheetMode = mode; $('sheet').hidden = false; renderSheet();
+  sheetMode = mode; $('sheet').hidden = false; renderSheet(); document.body.classList.add('sheet-open');
   for (const m of ['skills', 'bag', 'quests', 'look', 'opts']) $(`b-${m}`).setAttribute('aria-pressed', String(m === mode));
 }
-function closeSheet() { $('sheet').hidden = true; sheetMode = null; for (const m of ['skills', 'bag', 'quests', 'look', 'opts']) $(`b-${m}`).setAttribute('aria-pressed', 'false'); }
+function closeSheet() { document.body.classList.remove('sheet-open'); $('sheet').hidden = true; sheetMode = null; for (const m of ['skills', 'bag', 'quests', 'look', 'opts']) $(`b-${m}`).setAttribute('aria-pressed', 'false'); }
 for (const m of ['skills', 'bag', 'quests', 'look', 'opts']) $(`b-${m}`).addEventListener('click', () => openSheet(m));
 
 // dialogue
@@ -925,14 +1026,19 @@ let talking = null;
 function openShop(npc) {
   talking = npc;
   const d = $('dialog');
-  const goods = Object.entries(S.inv).filter(([k]) => SELL[k]);
+  // keep whatever an active quest still needs, and never bulk-sell treasures or trophies
+  const keep = {};
+  for (const [q, st] of Object.entries(S.quests)) if (st.state === 'active') for (const [k, n] of Object.entries(QUESTS[q].need)) if (ITEMS[k]) keep[k] = (keep[k] || 0) + n;
+  const spareOf = (k) => Math.max(0, (S.inv[k] || 0) - (keep[k] || 0));
+  const goods = Object.entries(S.inv).filter(([k]) => SELL[k] && spareOf(k) > 0).map(([k]) => [k, spareOf(k)]);
   const bulk = goods.filter(([k]) => !FOOD[k] && !['silver_ring', 'ruby', 'golden_crown', 'lucky_sock', 'gloom_hat', 'rattle_tooth'].includes(k));
   const worth = bulk.reduce((a, [k, n]) => a + SELL[k] * n, 0);
-  d.innerHTML = `<h3>${npc.name}</h3><p>Fresh from the oven! Food heals you when you eat it from your bag, or press H. And I buy anything you bring me.</p>
+  const tavern = npc.id === 'tom';
+  d.innerHTML = `<h3>${npc.name}</h3><p>${tavern ? "Welcome to the Sleepy Boar! Pull up a stool. A hot meal mends any bruise. Eat it from your bag, or press H." : 'Fresh from the oven! Food heals you when you eat it from your bag, or press H. And I buy anything you bring me.'}</p>
     <div class="shop">${Object.entries(FOOD).map(([k, f]) => `<button class="buy" data-food="${k}" ${S.coins < f.price ? 'disabled' : ''}><img src="${ICONS[k]}" alt=""><b>${ITEMS[k]}</b><span>Heals ${f.heal}</span><em>${f.price} coins</em></button>`).join('')}</div>
-    ${goods.length ? `<h4 class="sub">Sell to Marta</h4><div class="shop sell">${goods.map(([k, n]) => `<button class="buy" data-sell="${k}"><img src="${ICONS[k]}" alt=""><b>${ITEMS[k]} × ${n}</b><span>${SELL[k]} each</span><em>Sell +${SELL[k] * n}</em></button>`).join('')}</div>` : ''}
-    <p class="hint">You have ${S.coins} coins.${goods.length ? '' : ' Bring me logs, ore, fish, bones or treasures from monsters and I will buy them.'}</p>
-    <div class="row">${worth ? `<button id="sellall">Sell all materials (+${worth})</button>` : ''}<button id="shopbye">Goodbye</button></div>`;
+    ${goods.length && !tavern ? `<h4 class="sub">Sell to Marta</h4><div class="shop sell">${goods.map(([k, n]) => `<button class="buy" data-sell="${k}"><img src="${ICONS[k]}" alt=""><b>${ITEMS[k]} × ${n}</b><span>${keep[k] ? `keeping ${keep[k]} for a quest` : `${SELL[k]} each`}</span><em>Sell +${SELL[k] * n}</em></button>`).join('')}</div>` : ''}
+    <p class="hint">You have ${S.coins} coins.${tavern ? ' Marta at the market buys goods, if you have any to sell.' : goods.length ? '' : ' Bring me logs, ore, fish, bones or treasures from monsters and I will buy them.'}</p>
+    <div class="row">${worth && !tavern ? `<button id="sellall">Sell all materials (+${worth})</button>` : ''}<button id="shopbye">Goodbye</button></div>`;
   d.querySelectorAll('[data-food]').forEach((b) => { b.onclick = () => {
     const k = b.dataset.food, f = FOOD[k];
     if (S.coins < f.price) return;
@@ -941,14 +1047,14 @@ function openShop(npc) {
     save(); openShop(npc);
   }; });
   d.querySelectorAll('[data-sell]').forEach((b) => { b.onclick = () => {
-    const k = b.dataset.sell, n = S.inv[k] || 0, c = SELL[k] * n;
+    const k = b.dataset.sell, n = spareOf(k), c = SELL[k] * n;
     if (!n) return;
-    delete S.inv[k]; S.coins += c;
+    takeItem(k, n); S.coins += c;
     toast(`Sold ${n} × ${ITEMS[k].toLowerCase()} for ${c} coins.`, ICONS.coins, c >= 100);
     refreshUI(); save(); openShop(npc);
   }; });
-  if (worth) $('sellall').onclick = () => {
-    for (const [k] of bulk) delete S.inv[k];
+  if (worth && !tavern) $('sellall').onclick = () => {
+    for (const [k, n] of bulk) takeItem(k, n);
     S.coins += worth; toast(`Sold your materials for ${worth} coins.`, ICONS.coins);
     refreshUI(); save(); openShop(npc);
   };
@@ -1386,6 +1492,7 @@ function hurtEnemy(e, dmg) {
   if (e.hp <= 0) {
     e.state = 'dead'; e.bar.hidden = true;
     e.play('Death_A', { once: true, clamp: true, fade: 0.1 });
+    later(0.75, () => { if (e.state === 'dead') collapse(e); });
     giveHeroXp(e.T.xp, e.pos.clone().setY(4));
     const coins = e.T.coins ? e.T.coins[0] + Math.floor(rng() * (e.T.coins[1] - e.T.coins[0])) : 3 + Math.floor(rng() * 9);
     S.coins += coins; addItem('bones');
@@ -1402,12 +1509,12 @@ function hurtEnemy(e, dmg) {
     refreshUI();
     later(e.T.boss ? 90 : 16, () => {
       e.hp = e.T.hp; e.state = 'rising';
-      e.root.position.set(e.home.x, 0, e.home.y);
+      reassemble(e);
       const ok = e.play('Spawn_Ground_Skeletons', { once: true, clamp: true, onFinish: () => { e.state = 'idle'; e.play('Idle'); } });
       if (!ok) { e.state = 'idle'; e.play('Idle'); }
       burst(e.pos.clone().setY(0.5), '#b9ff8a', 30, 4);
     });
-  } else if (e.name !== '1H_Melee_Attack_Chop' && e.name !== 'Spellcast_Shoot') {
+  } else if (e.state !== 'slam' && !['1H_Melee_Attack_Chop', '2H_Melee_Attack_Chop', 'Spellcast_Shoot', 'Spellcasting'].includes(e.name)) {
     e.play('Hit_A', { once: true, fade: 0.05, onFinish: () => e.play('Idle_Combat') });
   }
 }
@@ -1481,7 +1588,8 @@ function enemyTick(e, dt) {
   const big = e.T.boss, reach = e.T.ranged ? (big ? 10 : 8) : big ? 3.6 : 2.4;
   if (player.dead && (e.state === 'chase')) e.state = 'return';
   if (where !== 'out' && e.state === 'chase') e.state = 'return';
-  if ((e.state === 'idle' || e.state === 'walk') && toP < (big ? 11 : 7.5) && !player.dead && $('pick').hidden && where === 'out') e.state = 'chase';
+  if ((e.state === 'idle' || e.state === 'walk') && toP < (big ? 11 : 6.5) && !player.dead && $('pick').hidden && where === 'out'
+    && (big || enemies.filter((o) => o.state === 'chase' && !o.T.boss).length < 3)) e.state = 'chase';
   if (e.state === 'slam') return;
   if (e.state === 'chase') {
     if (fromHome > (big ? 28 : 20)) { e.state = 'return'; return; }
@@ -1514,21 +1622,23 @@ function enemyTick(e, dt) {
         });
       }
     } else if (e.name === 'Running_A' || e.name === 'Idle' || e.name === 'Walking_A') e.play('Idle_Combat');
+    pushOut(ep, big ? 1.3 : 0.6);
   } else if (e.state === 'return') {
     const dx = e.home.x - ep.x, dz = e.home.y - ep.z, d = Math.hypot(dx, dz);
     if (d < 0.5) { e.state = 'idle'; e.hp = e.T.hp; e.swings = 0; e.play('Idle'); }
-    else { ep.x += (dx / d) * 4 * dt; ep.z += (dz / d) * 4 * dt; e.face(e.home.x, e.home.y); e.play('Walking_A'); }
+    else { ep.x += (dx / d) * 4 * dt; ep.z += (dz / d) * 4 * dt; pushOut(ep, big ? 1.3 : 0.6); e.face(e.home.x, e.home.y); e.play('Walking_A'); }
+    if (d >= 0.5 && now - (e.stuckAt || 0) > 6) { e.stuckAt = now; if (Math.hypot(ep.x - (e.lastX || 0), ep.z - (e.lastZ || 0)) < 1) { ep.x = e.home.x; ep.z = e.home.y; } e.lastX = ep.x; e.lastZ = ep.z; }
   } else {
     e.timer -= dt;
     if (e.timer < 0) {
       e.timer = 2 + rng() * 4;
       const a = rng() * 6.28, r = rng() * 5;
       e.target.set(e.home.x + Math.cos(a) * r, e.home.y + Math.sin(a) * r);
-      e.state = 'walk';
+      e.state = 'walk'; e.walkAt = now;
     }
     if (e.state === 'walk') {
       const tx = e.target.x - ep.x, tz = e.target.y - ep.z, d = Math.hypot(tx, tz);
-      if (d > 0.3) { ep.x += (tx / d) * 1.6 * dt; ep.z += (tz / d) * 1.6 * dt; e.root.rotation.y = Math.atan2(tx, tz); e.play(e.clips.Walking_D_Skeletons ? 'Walking_D_Skeletons' : 'Walking_A'); }
+      if (d > 0.3) { ep.x += (tx / d) * 1.6 * dt; ep.z += (tz / d) * 1.6 * dt; pushOut(ep, 0.6); if (now - (e.walkAt || 0) > 4) { e.walkAt = now; e.state = 'idle'; } e.root.rotation.y = Math.atan2(tx, tz); e.play(e.clips.Walking_D_Skeletons ? 'Walking_D_Skeletons' : 'Walking_A'); }
       else { e.state = 'idle'; e.play('Idle'); }
     }
   }
@@ -1619,6 +1729,14 @@ function drawMap(cv, full) {
 // ---------- main loop ----------
 const camPos = new THREE.Vector3(0, 30, 40);
 const tmpV = new THREE.Vector3(), tmpF = new THREE.Vector3();
+function pushOut(p, r) {
+  for (const c of colliders) {
+    const dx = p.x - c.x, dz = p.z - c.z, m = c.r + r;
+    if (Math.abs(dx) > m || Math.abs(dz) > m) continue;
+    const d = Math.hypot(dx, dz);
+    if (d < m && d > 0.0001) { p.x = c.x + (dx / d) * m; p.z = c.z + (dz / d) * m; }
+  }
+}
 function collide(p, r = 0.7) {
   for (const c of colliders) {
     const dx = p.x - c.x, dz = p.z - c.z, d = Math.hypot(dx, dz), m = c.r + r;
@@ -1691,6 +1809,7 @@ function tick() {
     if (near) e.mixer.update(dt);
   }
   slamTick(dt);
+  pileTick(dt);
   bossUi();
   zoneBanner();
   for (const [i, c] of dynamic.crystals.entries()) { c.position.y = 2.4 + Math.sin(now * 1.6 + i) * 0.4; c.rotation.y = now * 0.8 + i; }
@@ -1803,7 +1922,7 @@ function tick() {
 }
 addEventListener('pagehide', () => { if (!resetting) save(); });
 
-window.__jq = { hurtEnemy, goThrough, get where() { return where; }, INTERIORS, equipGear, spendPoint, giveHeroXp, heroLvl, stat, maxHp, defDiv, openWeaponShop, openKing, jump, eat, eatBest, openShop, drawMinimap: () => drawMinimap(), swing, swingTarget, hitNode, projectiles, timers, get S() { return S; }, get player() { return player; }, enemies, nodes, npcs, startTask, doAction, giveXp, save, openSheet, openDialog };
+window.__jq = { hurtEnemy, goThrough, get where() { return where; }, INTERIORS, equipGear, spendPoint, giveHeroXp, heroLvl, stat, maxHp, defDiv, openWeaponShop, openKing, jump, eat, eatBest, openShop, swing, swingTarget, hitNode, projectiles, timers, get S() { return S; }, get player() { return player; }, enemies, nodes, npcs, startTask, doAction, giveXp, save, openSheet, openDialog };
 window.addEventListener('error', (e) => { const m = $('loadmsg'); if (m) m.textContent = `Something went wrong: ${e.message}`; });
 main().catch((err) => {
   console.error(err);

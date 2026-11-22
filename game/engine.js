@@ -6,7 +6,7 @@ export { THREE };
 
 // ---------- renderer / scene ----------
 export const PR = Math.min(window.devicePixelRatio || 1, 1.75);
-export const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
+export const renderer = new THREE.WebGLRenderer({ antialias: true, stencil: true, powerPreference: 'high-performance' });
 renderer.setPixelRatio(PR);
 renderer.setSize(innerWidth, innerHeight);
 renderer.shadowMap.enabled = true;
@@ -236,7 +236,7 @@ export function updateParticles(dt, t, center) {
 // ---------- post-processing: ink outlines + storybook grade ----------
 function makeTargets() {
   const w = Math.floor(innerWidth * PR), h = Math.floor(innerHeight * PR);
-  const color = new THREE.WebGLRenderTarget(w, h, { samples: renderer.capabilities.isWebGL2 ? 4 : 0 });
+  const color = new THREE.WebGLRenderTarget(w, h, { samples: renderer.capabilities.isWebGL2 ? 4 : 0, stencilBuffer: true });
   const normal = new THREE.WebGLRenderTarget(w, h);
   normal.depthTexture = new THREE.DepthTexture(w, h);
   return { color, normal };
