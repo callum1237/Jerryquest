@@ -108,6 +108,11 @@
   .tag { display: inline-block; font: 700 11px var(--body); letter-spacing: .4px; text-transform: uppercase; padding: 1px 7px; border-radius: 8px; border: 1.5px solid var(--ink); margin-left: 6px; vertical-align: 2px; }
   .tag.todo { background: #ffe39a; } .tag.active { background: #bfe3ff; } .tag.ready { background: #c7f0a8; } .tag.done { background: #e5d9f7; }
   .opts { display: grid; gap: 8px; }
+  .look h4 { margin: 12px 0 6px; font: 600 15px var(--display); }
+  .swatches { display: flex; flex-wrap: wrap; gap: 8px; }
+  .swatch { width: 40px; height: 40px; padding: 0; border-radius: 50%; }
+  .swatch[aria-pressed="true"] { outline: 3px solid var(--plum); outline-offset: 2px; }
+  .toggles { display: flex; gap: 8px; flex-wrap: wrap; }
 
   /* action button: bottom centre */
   #actionbar {
@@ -171,6 +176,7 @@
   }
   .hpbar { position: fixed; width: 54px; height: 9px; transform: translate(-50%, -50%); border: 2px solid var(--ink); border-radius: 6px; background: #6b3a2a; overflow: hidden; pointer-events: none; }
   .hpbar i { display: block; height: 100%; background: #7ee05a; }
+  .hpbar.node i { background: #ffc94a; }
 
   @media (max-width: 700px) {
     #status { width: 200px; padding: 8px 10px; }
@@ -198,6 +204,7 @@
   <button id="b-skills" aria-pressed="false">Skills</button>
   <button id="b-bag" aria-pressed="false">Bag</button>
   <button id="b-quests" aria-pressed="false">Quests</button>
+  <button id="b-look" aria-pressed="false">Look</button>
   <button id="b-opts" aria-pressed="false">Options</button>
 </nav>
 
@@ -205,7 +212,7 @@
 
 <div id="actionbar" class="panel">
   <button id="action" disabled><img id="actionicon" alt=""><span id="actionlabel">Explore</span></button>
-  <div id="actionhint">WASD or tap to move. Walk up to something to use it.</div>
+  <div id="actionhint">Space or tap here to swing at whatever is in front of you.</div>
 </div>
 
 <div id="toasts" aria-live="polite"></div>

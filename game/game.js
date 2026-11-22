@@ -47,6 +47,8 @@ const NODES = {
   shrimp: { skill: 'fishing', req: 1, xp: 12, item: 'shrimp', name: 'Shrimp spot', verb: 'Fish', doing: 'Fishing', deplete: 0, respawn: 0 },
   trout: { skill: 'fishing', req: 5, xp: 45, item: 'trout', name: 'Trout spot', verb: 'Fish', doing: 'Fishing', deplete: 0, respawn: 0 },
 };
+// How many hits of health each tree/rock has, and the size of its hitbox.
+const NODE_HP = { tree: 8, oak: 14, copper: 7, iron: 11 };
 const ENEMY_TYPES = {
   skel_minion: { name: 'Skeleton', hp: 16, maxHit: 3, weapon: 'Skeleton_Blade', xp: 15 },
   skel_warrior: { name: 'Skeleton Warrior', hp: 28, maxHit: 5, weapon: 'Skeleton_Blade', xp: 30 },
@@ -79,12 +81,13 @@ const fresh = () => ({
   cls: null, xp: Object.fromEntries(SKILLS.map(([k]) => [k, 0])), inv: {}, coins: 0,
   quests: Object.fromEntries(Object.keys(QUESTS).map((k) => [k, { state: 'todo', kills: 0 }])),
   hp: 50, pos: [0, 6], preset: 'day',
+  look: { outfit: 'none', trim: 'none', hat: true, cape: true, hair: 'none', hairCol: 'chestnut' },
 });
 let S = fresh();
 function loadSave() {
   try {
     const raw = localStorage.getItem(SAVE_KEY);
-    if (raw) { const d = JSON.parse(raw); const f = fresh(); S = { ...f, ...d, xp: { ...f.xp, ...d.xp }, quests: { ...f.quests, ...d.quests } }; return true; }
+    if (raw) { const d = JSON.parse(raw); const f = fresh(); S = { ...f, ...d, xp: { ...f.xp, ...d.xp }, quests: { ...f.quests, ...d.quests }, look: { ...f.look, ...d.look } }; return true; }
   } catch (e) { /* storage unavailable */ }
   return false;
 }
@@ -135,7 +138,7 @@ let player = null;
 const npcs = [];
 const enemies = [];
 const nodes = [];
-let tool = null, rod = null;
+let tool = null, rod = null, pick = null;
 
 // ---------- boot ----------
 const FILES = ['world', 'knight', 'mage', 'archer', 'barbarian', 'skel_warrior', 'skel_minion', 'skel_mage'];
@@ -191,9 +194,79 @@ function startAs(k) {
   S.hp = Math.min(S.hp > 0 ? S.hp : maxHp(), maxHp());
   if (tool) { tool.removeFromParent(); player.attach(tool); tool.visible = false; }
   if (rod) { rod.removeFromParent(); player.attach(rod); rod.visible = false; }
+  if (pick) { pick.removeFromParent(); player.attach(pick); pick.visible = false; }
   updateTitle();
   buildClassBar();
+  applyLook();
   refreshUI();
+}
+const LOOK_COLOURS = {
+  none: ['Original', '#ffffff'], ruby: ['Ruby', '#ff8f8f'], ocean: ['Ocean', '#8fc2ff'], meadow: ['Meadow', '#a8ec8a'],
+  plum: ['Plum', '#d0a4ff'], sunny: ['Sunny', '#ffe27a'], rose: ['Rose', '#ffb8e0'], shadow: ['Shadow', '#9a93a8'],
+};
+const HAIR_COLOURS = {
+  chestnut: ['Chestnut', '#8a4f2a'], black: ['Black', '#2e2630'], blonde: ['Blonde', '#f2c75c'], ginger: ['Ginger', '#e0742f'],
+  snow: ['Snow', '#f1ece4'], pink: ['Pink', '#ff8fc8'], blue: ['Blue', '#5f9ef0'], green: ['Green', '#66c46a'],
+};
+const HAIR_STYLES = { none: 'None', short: 'Short', spiky: 'Spiky', long: 'Long', bun: 'Bun', mohawk: 'Mohawk' };
+const hairMats = toon('#8a4f2a');
+const hairCache = new Map();
+function hairGroup(style) {
+  if (hairCache.has(style)) return hairCache.get(style);
+  const g = new THREE.Group();
+  const add = (geo, x, y, z, rx = 0, ry = 0, rz = 0, sx = 1, sy = 1, sz = 1) => {
+    const m = new THREE.Mesh(geo); m.position.set(x, y, z); m.rotation.set(rx, ry, rz); m.scale.set(sx, sy, sz);
+    m.castShadow = true; registerMesh(m, hairMats); g.add(m); return m;
+  };
+  const cap = () => add(new THREE.SphereGeometry(1, 20, 12, 0, Math.PI * 2, 0, Math.PI * 0.52), 0, HAIR_Y, -0.03, -0.25, 0, 0, HAIR_R * 1.07, HAIR_R * 0.72, HAIR_R * 1.05);
+  if (style === 'short') cap();
+  if (style === 'spiky') {
+    cap();
+    for (let i = 0; i < 9; i++) {
+      const a = (i / 9) * Math.PI * 2, r = i % 2 ? 0.28 : 0.12;
+      add(new THREE.ConeGeometry(0.16, 0.42, 6), Math.cos(a) * r, HAIR_Y + HAIR_R * 0.62, Math.sin(a) * r - 0.05, Math.sin(a) * 0.7, 0, -Math.cos(a) * 0.7);
+    }
+  }
+  if (style === 'long') {
+    cap();
+    add(new THREE.CapsuleGeometry(0.3, 0.55, 4, 10), 0, HAIR_Y - 0.25, -HAIR_R * 0.62, 0.15, 0, 0, 1.9, 1, 0.75);
+  }
+  if (style === 'bun') {
+    cap();
+    add(new THREE.SphereGeometry(0.24, 14, 10), 0, HAIR_Y + HAIR_R * 0.72, -HAIR_R * 0.55);
+  }
+  if (style === 'mohawk') {
+    for (let i = 0; i < 5; i++) add(new THREE.ConeGeometry(0.13, 0.5, 5), 0, HAIR_Y + HAIR_R * 0.82 - Math.abs(i - 1.5) * 0.06, 0.32 - i * 0.2, -0.35 + i * 0.18, 0, 0, 1, 1, 1.6);
+  }
+  hairCache.set(style, g);
+  return g;
+}
+const HAIR_Y = 0.62, HAIR_R = 0.56;
+function applyLook() {
+  if (!player) return;
+  const L = S.look;
+  for (const g of hairCache.values()) g.removeFromParent();
+  const hc = HAIR_COLOURS[L.hairCol] || HAIR_COLOURS.chestnut;
+  hairMats.std.color.set(hc[1]); hairMats.toon.color.set(hc[1]);
+  const showHair = L.hair !== 'none' && S.cls !== 'archer' && !L.hat;
+  if (showHair) { let head; player.root.traverse((o) => { if (o.isBone && o.name === 'head') head = o; }); if (head) head.add(hairGroup(L.hair)); }
+  player.root.traverse((o) => {
+    if (!o.isMesh || !o.userData.mats) return;
+    const n = o.name;
+    const isCape = /_Cape$/.test(n), isBody = /_Body$/.test(n), isHat = /_(Helmet|Hat)$/.test(n);
+    if (isHat) o.visible = L.hat;
+    if (isCape) o.visible = L.cape;
+    if (isCape || isBody) {
+      if (!o.userData.ownMats) {
+        o.userData.ownMats = { std: o.userData.mats.std.clone(), toon: o.userData.mats.toon.clone() };
+        o.userData.ownMats.toon.onBeforeCompile = o.userData.mats.toon.onBeforeCompile;
+        o.userData.mats = o.userData.ownMats;
+        o.material = styled.on ? o.userData.mats.toon : o.userData.mats.std;
+      }
+      const col = LOOK_COLOURS[isCape ? L.trim : L.outfit][1];
+      o.userData.mats.std.color.set(col); o.userData.mats.toon.color.set(col);
+    }
+  });
 }
 function buildClassBar() {
   const bar = $('classes');
@@ -219,6 +292,12 @@ function updateTitle() {
 
 // ---------- gathering nodes ----------
 const crystalGeo = new THREE.OctahedronGeometry(0.5, 0);
+function hpNode(n) {
+  n.maxHp = n.hp = NODE_HP[n.kind]; n.lastHit = -99;
+  const bar = document.createElement('div'); bar.className = 'hpbar node'; bar.hidden = true; bar.innerHTML = '<i></i>';
+  document.body.appendChild(bar); n.bar = bar;
+  return n;
+}
 function buildNodes() {
   const addTree = (x, z, kind) => {
     if (blocked(x, z) || !isFree(x, z, 2.5) || Math.hypot(x, z) < 12) return;
@@ -227,7 +306,7 @@ function buildNodes() {
     const full = place(`tree_single_${v}`, x, z, s, rng() * 6, { shrink: 0.35 });
     const cut = place(`tree_single_${v}_cut`, x, z, s, full.rotation.y, { collide: false });
     cut.visible = false;
-    nodes.push({ kind, def: NODES[kind], x, z, full, cut, alive: true, respawnAt: 0, reach: 2.6 });
+    nodes.push(hpNode({ kind, def: NODES[kind], x, z, full, cut, alive: true, respawnAt: 0, reach: 2.6, r: 1.1 }));
   };
   for (let i = 0; i < 80 && nodes.length < 18; i++) { const a = rng() * Math.PI * 2, r = 16 + rng() * 20; addTree(Math.cos(a) * r, Math.sin(a) * r, 'tree'); }
   for (let i = 0; i < 60 && nodes.filter((n) => n.kind === 'oak').length < 8; i++) addTree(6 + rng() * 26, 30 + rng() * 14, 'oak');
@@ -245,7 +324,7 @@ function buildNodes() {
       c.castShadow = true; registerMesh(c, mats); gems.add(c);
     }
     gems.position.set(x, 0, z); scene.add(gems);
-    nodes.push({ kind, def: NODES[kind], x, z, full: gems, alive: true, respawnAt: 0, reach: 2.6 });
+    nodes.push(hpNode({ kind, def: NODES[kind], x, z, full: gems, alive: true, respawnAt: 0, reach: 2.6, r: 1.3 }));
   };
   const rockSpots = [[-4, 2, 'copper'], [2, 4, 'copper'], [5, -2, 'copper'], [-2, -5, 'copper'], [-7, -3, 'iron'], [7, 4, 'iron'], [1, 9, 'iron'], [-6, 7, 'copper']];
   for (const [dx, dz, k] of rockSpots) addRock(MINE.x + dx, MINE.z + dz, k);
@@ -263,6 +342,12 @@ function buildNodes() {
 
 function buildTools() {
   tool = lib.axe_1handed.clone(true); stylize(tool); tool.visible = false;
+  pick = new THREE.Group();
+  const handle = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.07, 1.5, 6));
+  handle.position.y = 0.5; registerMesh(handle, toon('#8a5a32')); pick.add(handle);
+  const head = new THREE.Mesh(new THREE.TorusGeometry(0.55, 0.08, 6, 14, Math.PI * 0.9));
+  head.position.y = 0.95; head.rotation.z = Math.PI * 0.05; head.scale.set(1, 0.55, 1.4); registerMesh(head, toon('#c3cad3')); pick.add(head);
+  pick.visible = false;
   rod = new THREE.Group();
   const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.05, 2.6, 6));
   pole.position.y = 1.1; registerMesh(pole, toon('#8a5a32')); rod.add(pole);
@@ -390,7 +475,7 @@ function refreshUI() {
     const st = S.quests[qid].state;
     n.marker.userData.draw(st === 'todo' ? '!' : questReady(qid) ? '?' : '');
   }
-  if (!$('sheet').hidden && sheetMode !== 'opts') renderSheet();
+  if (!$('sheet').hidden && sheetMode !== 'opts' && sheetMode !== 'look') renderSheet();
 }
 
 function renderSheet() {
@@ -416,6 +501,24 @@ function renderSheet() {
       const body = st === 'todo' ? `Talk to ${npcName(q.giver)}.` : st === 'done' ? 'Completed.' : ready ? `Return to ${npcName(q.giver)}.` : `${q.desc} (${questProgress(k)})`;
       return `<div class="quest"><h4>${q.name}${tag}</h4><p>${body}</p></div>`;
     }).join('')}`;
+  } else if (sheetMode === 'look') {
+    const sw = (part, set = LOOK_COLOURS) => Object.entries(set).map(([k, [nm, c]]) => `<button class="swatch" data-part="${part}" data-col="${k}" title="${nm}" aria-label="${nm}" aria-pressed="${S.look[part] === k}" style="background:${c}"></button>`).join('');
+    const styles = Object.entries(HAIR_STYLES).map(([k, nm]) => `<button class="hairbtn" data-hair="${k}" aria-pressed="${S.look.hair === k}">${nm}</button>`).join('');
+    const hasHat = S.cls !== 'archer';
+    el.innerHTML = `<h3>Look</h3><div class="look">
+      <h4>Outfit colour</h4><div class="swatches">${sw('outfit')}</div>
+      <h4>Cape colour</h4><div class="swatches">${sw('trim')}</div>
+      <h4>Hair</h4><div class="toggles">${styles}</div>
+      <div class="swatches">${sw('hairCol', HAIR_COLOURS)}</div>
+      <p class="hint">${S.cls === 'archer' ? 'Your hood covers your hair. Switch to Knight or Mage to see it.' : S.look.hat ? `Take off your ${S.cls === 'knight' ? 'helmet' : 'hat'} to show your hair.` : ''}</p>
+      <h4>Show</h4><div class="toggles">
+        ${hasHat ? `<button id="l-hat" aria-pressed="${S.look.hat}">${S.cls === 'knight' ? 'Helmet' : 'Hat'}</button>` : ''}
+        <button id="l-cape" aria-pressed="${S.look.cape}">Cape</button></div>
+      <p class="hint">Your look belongs to your character and carries across classes. More outfits, faces, hats and gear are on the roadmap.</p></div>`;
+    el.querySelectorAll('.swatch').forEach((b) => { b.onclick = () => { S.look[b.dataset.part] = b.dataset.col; applyLook(); save(); renderSheet(); }; });
+    el.querySelectorAll('.hairbtn').forEach((b) => { b.onclick = () => { S.look.hair = b.dataset.hair; if (S.look.hair !== 'none') S.look.hat = false; applyLook(); save(); renderSheet(); }; });
+    if (hasHat) $('l-hat').onclick = () => { S.look.hat = !S.look.hat; applyLook(); save(); renderSheet(); };
+    $('l-cape').onclick = () => { S.look.cape = !S.look.cape; applyLook(); save(); renderSheet(); };
   } else if (sheetMode === 'opts') {
     el.innerHTML = `<h3>Options</h3><div class="opts">
       <button id="o-style" aria-pressed="${styled.on}">Storybook look: ${styled.on ? 'On' : 'Off'}</button>
@@ -435,10 +538,10 @@ let resetting = false;
 function openSheet(mode) {
   if (sheetMode === mode && !$('sheet').hidden) { closeSheet(); return; }
   sheetMode = mode; $('sheet').hidden = false; renderSheet();
-  for (const m of ['skills', 'bag', 'quests', 'opts']) $(`b-${m}`).setAttribute('aria-pressed', String(m === mode));
+  for (const m of ['skills', 'bag', 'quests', 'look', 'opts']) $(`b-${m}`).setAttribute('aria-pressed', String(m === mode));
 }
-function closeSheet() { $('sheet').hidden = true; sheetMode = null; for (const m of ['skills', 'bag', 'quests', 'opts']) $(`b-${m}`).setAttribute('aria-pressed', 'false'); }
-for (const m of ['skills', 'bag', 'quests', 'opts']) $(`b-${m}`).addEventListener('click', () => openSheet(m));
+function closeSheet() { $('sheet').hidden = true; sheetMode = null; for (const m of ['skills', 'bag', 'quests', 'look', 'opts']) $(`b-${m}`).setAttribute('aria-pressed', 'false'); }
+for (const m of ['skills', 'bag', 'quests', 'look', 'opts']) $(`b-${m}`).addEventListener('click', () => openSheet(m));
 
 // dialogue
 let talking = null;
@@ -484,14 +587,14 @@ const KEYMAP = { KeyW: 'u', ArrowUp: 'u', KeyS: 'd', ArrowDown: 'd', KeyA: 'l', 
 addEventListener('keydown', (e) => {
   if (!player || !$('pick').hidden) return;
   if (KEYMAP[e.code]) { keys.add(KEYMAP[e.code]); cancelTask(); moveTarget = null; e.preventDefault(); }
-  if (e.code === 'Space' || e.code === 'KeyE') { doAction(); e.preventDefault(); }
+  if (e.code === 'Space' || e.code === 'KeyE' || e.code === 'KeyF') { if (!e.repeat) { held = true; doAction(); } e.preventDefault(); }
   if (e.code === 'KeyK') openSheet('skills');
   if (e.code === 'KeyI' || e.code === 'KeyB') openSheet('bag');
   if (e.code === 'KeyQ') openSheet('quests');
   if (e.code === 'Escape') { closeSheet(); closeDialog(); }
 });
-addEventListener('keyup', (e) => { if (KEYMAP[e.code]) keys.delete(KEYMAP[e.code]); });
-addEventListener('blur', () => keys.clear());
+addEventListener('keyup', (e) => { if (KEYMAP[e.code]) keys.delete(KEYMAP[e.code]); if (e.code === 'Space' || e.code === 'KeyE' || e.code === 'KeyF') held = false; });
+addEventListener('blur', () => { keys.clear(); held = false; });
 
 let moveTarget = null, pending = null;
 const ray = new THREE.Raycaster();
@@ -500,19 +603,31 @@ const marker = new THREE.Mesh(new THREE.RingGeometry(0.5, 0.8, 32), new THREE.Me
 marker.rotation.x = -Math.PI / 2; marker.layers.set(1); marker.visible = false; scene.add(marker);
 
 function targetAt(x, z) {
+  // Tapping only walks somewhere; it never locks on. People and fishing spots are the exceptions.
   let best = null, bd = 1e9;
   const consider = (t, tx, tz, r) => { const d = Math.hypot(tx - x, tz - z); if (d < r && d < bd) { bd = d; best = t; } };
-  for (const e of enemies) if (e.hp > 0) consider({ type: 'enemy', e }, e.pos.x, e.pos.z, 2);
   for (const n of npcs) consider({ type: 'npc', n }, n.x, n.z, 2);
-  for (const n of nodes) if (n.alive) consider({ type: 'node', n }, n.x, n.z, n.def.skill === 'fishing' ? 2.2 : 2.4);
+  for (const n of nodes) if (n.alive && n.def.skill === 'fishing') consider({ type: 'node', n }, n.x, n.z, 2.2);
   return best;
 }
-renderer.domElement.addEventListener('pointerdown', (e) => {
-  if (!player || player.dead) return;
-  const v = new THREE.Vector2((e.clientX / innerWidth) * 2 - 1, -(e.clientY / innerHeight) * 2 + 1);
+const aim = { x: 0, z: 0, at: -99 };
+const groundAt = (cx, cy) => {
+  const v = new THREE.Vector2((cx / innerWidth) * 2 - 1, -(cy / innerHeight) * 2 + 1);
   ray.setFromCamera(v, camera);
   const p = new THREE.Vector3();
-  if (!ray.ray.intersectPlane(groundPlane, p)) return;
+  return ray.ray.intersectPlane(groundPlane, p) ? p : null;
+};
+renderer.domElement.addEventListener('pointermove', (e) => {
+  if (e.pointerType !== 'mouse') return;
+  const p = groundAt(e.clientX, e.clientY);
+  if (p) { aim.x = p.x; aim.z = p.z; aim.at = now; }
+});
+renderer.domElement.addEventListener('contextmenu', (e) => e.preventDefault());
+renderer.domElement.addEventListener('pointerdown', (e) => {
+  if (!player || player.dead) return;
+  const p = groundAt(e.clientX, e.clientY);
+  if (!p) return;
+  if (e.button === 2) { aim.x = p.x; aim.z = p.z; aim.at = now; swing(); return; }
   cancelTask();
   const t = targetAt(p.x, p.z);
   pending = t;
@@ -521,44 +636,143 @@ renderer.domElement.addEventListener('pointerdown', (e) => {
 });
 let zoom = 1;
 renderer.domElement.addEventListener('wheel', (e) => { zoom = THREE.MathUtils.clamp(zoom + e.deltaY * 0.001, 0.6, 1.5); e.preventDefault(); }, { passive: false });
-$('action').addEventListener('click', () => {
+let held = false;
+$('action').addEventListener('pointerdown', (e) => {
+  e.preventDefault();
   if (player && player.task && player.task.type === 'node') { cancelTask(); return; }
-  doAction();
+  held = true; doAction();
 });
+for (const ev of ['pointerup', 'pointerleave', 'pointercancel']) $('action').addEventListener(ev, () => { held = false; });
 
-const targetPos = (t) => (t.type === 'enemy' ? t.e.pos : { x: t.n.x, z: t.n.z });
-const reachOf = (t) => (t.type === 'enemy' ? CLASSES[S.cls].atk.range : t.n.reach);
+const targetPos = (t) => ({ x: t.n.x, z: t.n.z });
+const reachOf = (t) => t.n.reach;
 
-function nearest() {
+// ---------- free aim ----------
+const fwdOf = (a) => new THREE.Vector3(Math.sin(a.root.rotation.y), 0, Math.cos(a.root.rotation.y));
+// Is a round hitbox at (x, z) with radius r inside the swing in front of the player?
+function inArc(x, z, r, reach, half = 0.95) {
+  const p = player.pos, dx = x - p.x, dz = z - p.z, d = Math.hypot(dx, dz);
+  if (d - r > reach) return -1;
+  if (d < r + 0.3) return d;
+  let diff = Math.atan2(dx, dz) - player.root.rotation.y; diff = Math.abs(Math.atan2(Math.sin(diff), Math.cos(diff)));
+  return diff <= half + Math.atan2(r, d) ? d : -1;
+}
+const MELEE_REACH = 2.6, TOOL_REACH = 1.7;
+function swingTarget() {
   if (!player) return null;
-  const p = player.pos;
-  let best = null, bd = 1e9;
-  const take = (t, x, z, r) => { const d = Math.hypot(x - p.x, z - p.z); if (d < r && d < bd) { bd = d; best = t; } };
-  for (const n of npcs) take({ type: 'npc', n }, n.x, n.z, n.reach + 0.6);
-  for (const n of nodes) if (n.alive) take({ type: 'node', n }, n.x, n.z, n.reach + 0.6);
-  for (const e of enemies) if (e.hp > 0) take({ type: 'enemy', e }, e.pos.x, e.pos.z, Math.max(5, CLASSES[S.cls].atk.range));
-  return best;
+  const p = player.pos, A = CLASSES[S.cls].atk;
+  for (const n of npcs) if (Math.hypot(n.x - p.x, n.z - p.z) < n.reach + 0.6) return { type: 'npc', n };
+  for (const n of nodes) if (n.alive && n.def.skill === 'fishing' && Math.hypot(n.x - p.x, n.z - p.z) < n.reach + 0.6) return { type: 'node', n };
+  let foe = null, fd = 1e9;
+  const reach = A.proj ? A.range : MELEE_REACH;
+  for (const e of enemies) if (e.hp > 0 && e.state !== 'rising') { const d = inArc(e.pos.x, e.pos.z, 0.8, reach, A.proj ? 0.3 : 0.95); if (d >= 0 && d < fd) { fd = d; foe = e; } }
+  let node = null, nd = 1e9;
+  for (const n of nodes) if (n.alive && n.def.skill !== 'fishing') { const d = inArc(n.x, n.z, n.r, TOOL_REACH, 0.8); if (d >= 0 && d < nd) { nd = d; node = n; } }
+  if (node && (!foe || fd > 5)) return { type: 'gather', n: node };
+  return { type: 'attack', e: foe };
 }
 function describe(t) {
-  if (!t) return { label: 'Explore', icon: ICONS.speed, hint: 'WASD or tap to move. Walk up to something to use it.', ok: false };
+  const hint = 'Space or tap here to swing at whatever is in front of you.';
+  if (!t) return { label: 'Attack', icon: ICONS[CLASSES[S.cls].skill], hint, ok: true };
   if (t.type === 'npc') return { label: 'Talk', icon: ICONS.magic, hint: t.n.name, ok: true };
-  if (t.type === 'enemy') return { label: 'Attack', icon: ICONS[CLASSES[S.cls].skill], hint: `${t.e.T.name} (${t.e.hp} health)`, ok: true };
+  if (t.type === 'attack') return { label: 'Attack', icon: ICONS[CLASSES[S.cls].skill], hint: t.e ? `${t.e.T.name} (${t.e.hp} health)` : hint, ok: true };
   const d = t.n.def, l = lvl(d.skill);
   return { label: d.verb, icon: ICONS[d.skill], hint: l >= d.req ? `${d.name} · ${SKILL_NAME[d.skill]} ${d.req}+` : `${d.name} needs ${SKILL_NAME[d.skill]} level ${d.req}`, ok: l >= d.req };
 }
 function doAction() {
   if (!player || player.dead || !$('pick').hidden) return;
   if (talking) { closeDialog(); return; }
-  const t = nearest();
-  if (t) startTask(t);
+  swing();
 }
+function showGear(which) {
+  tool.visible = which === 'axe'; pick.visible = which === 'pick'; rod.visible = which === 'rod';
+  player.weapons.forEach((w) => { w.visible = !which; });
+}
+// One swing: chop, mine, hit with a weapon, or shoot, in the direction you face.
+function swing() {
+  if (!player || player.dead || now < player.nextHit) return;
+  if (player.task) cancelTask();
+  if (now - aim.at < 2.5) { player.face(aim.x, aim.z); aim.at = -99; }
+  const t = swingTarget();
+  if (t.type === 'npc') { held = false; player.face(t.n.x, t.n.z); openDialog(t.n); return; }
+  if (t.type === 'node') { held = false; startTask(t); return; }
+  moveTarget = null; pending = null; marker.visible = false;
+  flashArc();
+  if (t.type === 'gather') {
+    const n = t.n, def = n.def;
+    player.face(n.x, n.z);
+    player.nextHit = now + 0.95;
+    showGear(def.skill === 'mining' ? 'pick' : 'axe');
+    player.play('1H_Melee_Attack_Chop', { once: true, fade: 0.06, speed: 1.3 });
+    player.busyUntil = now + 0.5;
+    later(0.36, () => {
+      if (player.dead) return;
+      // re-check the hitbox at the moment of impact: step away and you miss
+      if (n.alive && inArc(n.x, n.z, n.r, TOOL_REACH + 0.4, 1.0) >= 0) hitNode(n);
+      else burst(player.pos.clone().setY(1).addScaledVector(fwdOf(player), 1.3), '#e8dcc0', 6, 2);
+    });
+    const stamp = player.nextHit;
+    later(1.3, () => { if (player.nextHit === stamp && !player.task) showGear(null); });
+    return;
+  }
+  const A = CLASSES[S.cls].atk, skill = CLASSES[S.cls].skill;
+  showGear(null);
+  if (t.e && A.proj) player.face(t.e.pos.x, t.e.pos.z); // gentle aim help for ranged
+  player.nextHit = now + A.cd * 0.85;
+  const dur = player.play(A.anim, { once: true, fade: 0.08, speed: 1.15 });
+  player.busyUntil = now + Math.min(dur * 0.7, A.cd * 0.6);
+  later(A.hitAt, () => {
+    if (player.dead) return;
+    const fwd = fwdOf(player);
+    if (A.proj) {
+      shoot(player.pos.clone().add(new THREE.Vector3(0, 1.8, 0)).addScaledVector(fwd, 0.8), fwd, A.proj, A.range, 'player',
+        (e) => hurtEnemy(e, rollDamage(skill, A.bonus || 0), skill));
+      return;
+    }
+    burst(player.pos.clone().setY(1.5).addScaledVector(fwd, 1.4), '#fff2a8', 14, 5);
+    let hit = false;
+    for (const e of enemies) if (e.hp > 0 && e.state !== 'rising' && inArc(e.pos.x, e.pos.z, 0.8, MELEE_REACH + 0.3) >= 0) { hurtEnemy(e, rollDamage(skill), skill); hit = true; }
+    if (!hit) for (const n of nodes) if (n.alive && n.def.skill !== 'fishing' && inArc(n.x, n.z, n.r, MELEE_REACH) >= 0) { burst(new THREE.Vector3(n.x, 1.4, n.z), '#ffe9a8', 6, 3); break; }
+  });
+}
+function hitNode(n) {
+  if (!n.alive) return;
+  const def = n.def, l = lvl(def.skill);
+  const at = new THREE.Vector3(n.x, 1.6, n.z);
+  burst(at, def.skill === 'mining' ? '#ffe2b0' : '#c9f59a', 10, 3.5);
+  if (l < def.req) { floatText(at.clone().setY(3), 'Too tough!', 'miss'); toast(`You need ${SKILL_NAME[def.skill]} level ${def.req} for that.`, ICONS[def.skill]); return; }
+  n.lastHit = now;
+  const miss = THREE.MathUtils.clamp(0.28 - (l - def.req) * 0.03, 0.05, 0.28);
+  if (rng() < miss) { floatText(at.clone().setY(3), 'Miss', 'miss'); return; }
+  const dmg = 1 + Math.floor(rng() * (2 + l * 0.3));
+  n.hp = Math.max(0, n.hp - dmg);
+  floatText(at.clone().setY(3), String(dmg));
+  giveXp(def.skill, Math.round(def.xp * 0.15 * dmg));
+  if (n.hp > 0) { n.full.rotation.z = 0.05; later(0.12, () => { n.full.rotation.z = 0; }); return; }
+  // broken: tree falls / rock cracks, hand out the haul
+  const count = 2 + (rng() < 0.4 + l * 0.01 ? 1 : 0);
+  addItem(def.item, count);
+  giveXp(def.skill, def.xp * count, player.pos.clone().setY(3.2));
+  toast(`You get ${count} ${ITEMS[def.item].toLowerCase()}.`, ICONS[def.item]);
+  n.alive = false; n.respawnAt = now + def.respawn; n.bar.hidden = true;
+  n.full.visible = false; if (n.cut) n.cut.visible = true;
+  if (n.full.userData.collider) n.full.userData.collider.r = 0.6;
+  burst(at, '#ffe9a8', 30, 6);
+  refreshUI();
+}
+// a soft wedge on the ground showing where you are facing
+const arcMat = new THREE.MeshBasicMaterial({ color: '#fff6d0', transparent: true, opacity: 0.16, depthWrite: false, fog: false });
+const arcMesh = new THREE.Mesh(new THREE.CircleGeometry(MELEE_REACH + 0.6, 24, Math.PI / 2 - 0.95, 1.9), arcMat);
+arcMesh.rotation.x = -Math.PI / 2; arcMesh.layers.set(1);
+const arcHolder = new THREE.Group(); arcHolder.add(arcMesh); arcMesh.position.y = 0.07; arcMesh.rotation.z = Math.PI; scene.add(arcHolder);
+let arcFlash = 0;
+function flashArc() { arcFlash = 1; }
 
-// ---------- tasks ----------
+// ---------- tasks (fishing) ----------
 function cancelTask() {
   if (player && player.task) {
     player.task = null;
-    tool.visible = false; rod.visible = false;
-    player.weapons.forEach((w) => { w.visible = true; });
+    showGear(null);
     if (now > player.busyUntil && !player.dead) player.play('Idle');
   }
   pending = null;
@@ -570,45 +784,31 @@ function startTask(t) {
   pending = null; moveTarget = null; marker.visible = false;
   player.face(p.x, p.z);
   if (t.type === 'npc') { openDialog(t.n); return; }
-  if (t.type === 'node') {
-    const def = t.n.def;
-    if (lvl(def.skill) < def.req) { toast(`You need ${SKILL_NAME[def.skill]} level ${def.req} for that.`, ICONS[def.skill]); return; }
-    player.task = { ...t, next: now + 1.4 };
-    player.weapons.forEach((w) => { w.visible = false; });
-    if (def.skill === 'fishing') { rod.visible = true; player.play('1H_Ranged_Aiming'); }
-    else { tool.visible = true; player.play('1H_Melee_Attack_Chop', { speed: 0.9 }); }
-    return;
-  }
-  player.task = { ...t };
+  const def = t.n.def;
+  if (lvl(def.skill) < def.req) { toast(`You need ${SKILL_NAME[def.skill]} level ${def.req} for that.`, ICONS[def.skill]); return; }
+  player.task = { ...t, next: now + 1.4 };
+  showGear('rod'); player.play('1H_Ranged_Aiming');
 }
 
 function gatherTick(task) {
   const n = task.n, def = n.def;
-  if (!n.alive) { cancelTask(); return; }
   if (now < task.next) return;
   task.next = now + 1.4 + rng() * 0.6;
   const l = lvl(def.skill);
   const chance = THREE.MathUtils.clamp(0.4 + (l - def.req) * 0.04, 0.25, 0.92);
-  const at = new THREE.Vector3(n.x, 1.5, n.z);
-  burst(at, def.skill === 'fishing' ? '#bff4ff' : def.skill === 'mining' ? '#ffe2b0' : '#c9f59a', 8, 3);
+  burst(new THREE.Vector3(n.x, 1.5, n.z), '#bff4ff', 8, 3);
   if (rng() > chance) return;
   addItem(def.item);
   giveXp(def.skill, def.xp, player.pos.clone().setY(3.2));
   toast(`You get some ${ITEMS[def.item].toLowerCase()}.`, ICONS[def.item]);
-  if (def.deplete && rng() < def.deplete) {
-    n.alive = false; n.respawnAt = now + def.respawn;
-    n.full.visible = false; if (n.cut) n.cut.visible = true;
-    if (n.full.userData.collider) n.full.userData.collider.r = 0.6;
-    burst(at, '#ffe9a8', 24, 5);
-    cancelTask();
-  }
   refreshUI();
 }
 
 // ---------- combat ----------
 const projectiles = [];
 const orbGeo = new THREE.IcosahedronGeometry(0.4, 1);
-function shoot(from, target, kind, onHit) {
+// Projectiles fly in a straight line and hit whatever hitbox they pass through.
+function shoot(from, dir, kind, range, owner, onHit) {
   let mesh;
   if (kind === 'bolt') {
     mesh = lib.arrow.clone(true); stylize(mesh); mesh.scale.setScalar(2.2);
@@ -618,33 +818,14 @@ function shoot(from, target, kind, onHit) {
     mesh.add(new THREE.PointLight(kind === 'dark' ? '#b066ff' : '#6fe9ff', 12, 8, 1.5));
   }
   mesh.position.copy(from);
+  mesh.lookAt(from.clone().add(dir));
   scene.add(mesh);
-  projectiles.push({ mesh, target, kind, onHit, speed: kind === 'bolt' ? 30 : 18, life: 2 });
+  projectiles.push({ mesh, dir: dir.clone().setY(0).normalize(), kind, owner, onHit, speed: kind === 'bolt' ? 26 : kind === 'dark' ? 11 : 17, left: range + 1 });
 }
 function rollDamage(skill, bonus = 0) {
   const maxHit = 2 + Math.floor(lvl(skill) * 0.55) + bonus;
   if (rng() < 0.12) return 0;
   return 1 + Math.floor(rng() * maxHit);
-}
-function combatTick(task) {
-  const e = task.e, A = CLASSES[S.cls].atk;
-  if (e.hp <= 0) { cancelTask(); return; }
-  const d = Math.hypot(e.pos.x - player.pos.x, e.pos.z - player.pos.z);
-  if (d > A.range + 0.5) { player.task = null; pending = task; moveTarget = new THREE.Vector2(e.pos.x, e.pos.z); return; }
-  player.face(e.pos.x, e.pos.z);
-  if (now < player.nextHit) { if (player.name !== 'Idle_Combat') player.play(player.clips.Idle_Combat ? 'Idle_Combat' : 'Idle'); return; }
-  player.nextHit = now + A.cd;
-  const dur = player.play(A.anim, { once: true, fade: 0.08, speed: 1.15 });
-  player.busyUntil = now + Math.min(dur * 0.8, A.cd * 0.9);
-  later(A.hitAt, () => {
-    if (e.hp <= 0 || player.dead) return;
-    const skill = CLASSES[S.cls].skill;
-    const dmg = rollDamage(skill, A.bonus || 0);
-    const land = () => { if (e.hp > 0) hurtEnemy(e, dmg, skill); };
-    const fwd = new THREE.Vector3(Math.sin(player.root.rotation.y), 0, Math.cos(player.root.rotation.y));
-    if (A.proj) shoot(player.pos.clone().add(new THREE.Vector3(0, 1.8, 0)).addScaledVector(fwd, 0.8), e, A.proj, land);
-    else { burst(player.pos.clone().setY(1.5).addScaledVector(fwd, 1.4), '#fff2a8', 14, 5); land(); }
-  });
 }
 function hurtEnemy(e, dmg, skill) {
   const head = e.pos.clone().setY(3.4);
@@ -663,7 +844,6 @@ function hurtEnemy(e, dmg, skill) {
     floatText(e.pos.clone().setY(2.4), `+${coins} coins`, 'gain');
     for (const k of Object.keys(QUESTS)) if (S.quests[k].state === 'active' && QUESTS[k].need.kills !== undefined) S.quests[k].kills++;
     refreshUI();
-    if (player.task && player.task.e === e) cancelTask();
     later(16, () => {
       e.hp = e.T.hp; e.state = 'rising';
       e.root.position.set(e.home.x, 0, e.home.y);
@@ -720,7 +900,11 @@ function enemyTick(e, dt) {
       const dmg = rng() < 0.3 ? 0 : 1 + Math.floor(rng() * e.T.maxHit);
       if (e.T.ranged) {
         e.play('Spellcast_Shoot', { once: true, fade: 0.08, onFinish: () => e.play('Idle_Combat') });
-        later(0.35, () => { if (e.hp > 0 && !player.dead) shoot(ep.clone().setY(1.8), player, 'dark', () => hurtPlayer(dmg)); });
+        later(0.35, () => {
+          if (e.hp <= 0 || player.dead) return;
+          const dir = new THREE.Vector3(player.pos.x - ep.x, 0, player.pos.z - ep.z);
+          shoot(ep.clone().setY(1.8).addScaledVector(dir.clone().normalize(), 0.6), dir, 'dark', 12, 'enemy', () => hurtPlayer(dmg));
+        });
       } else {
         e.play('1H_Melee_Attack_Chop', { once: true, fade: 0.08, onFinish: () => e.play('Idle_Combat') });
         later(0.4, () => { if (e.hp > 0 && Math.hypot(player.pos.x - ep.x, player.pos.z - ep.z) < reach + 1) hurtPlayer(dmg); });
@@ -769,7 +953,6 @@ function tick() {
     if (keys.has('u')) mz -= 1; if (keys.has('d')) mz += 1; if (keys.has('l')) mx -= 1; if (keys.has('r')) mx += 1;
     const pp = player.pos;
     if (!mx && !mz && moveTarget) {
-      if (pending && pending.type === 'enemy') moveTarget.set(pending.e.pos.x, pending.e.pos.z);
       const tx = moveTarget.x - pp.x, tz = moveTarget.y - pp.z, d = Math.hypot(tx, tz);
       const stopAt = pending ? reachOf(pending) : 0.3;
       if (d > stopAt) { mx = tx / d; mz = tz / d; }
@@ -792,11 +975,11 @@ function tick() {
       player.root.rotation.y += diff * Math.min(1, dt * 14);
       player.play('Running_A', { fade: 0.12 });
     } else if (!busy && player.task) {
-      if (player.task.type === 'node') gatherTick(player.task);
-      else if (player.task.type === 'enemy') combatTick(player.task);
+      gatherTick(player.task);
     } else if (!busy && (player.name === 'Running_A' || player.name === 'Idle_Combat')) {
       player.play('Idle', { fade: 0.15 });
     }
+    if (held && now >= player.nextHit && !talking) swing();
     if (now - lastHurt > 6 && now > regenAt && S.hp < maxHp()) { S.hp = Math.min(maxHp(), S.hp + 1); regenAt = now + 2.5; refreshUI(); }
   }
   if (marker.visible) { marker.scale.setScalar(Math.max(1, marker.scale.x - dt * 2)); marker.material.opacity = 0.6 + 0.3 * Math.sin(now * 8); }
@@ -807,7 +990,7 @@ function tick() {
 
   for (const n of nodes) {
     if (!n.alive && now > n.respawnAt) {
-      n.alive = true; n.full.visible = true; if (n.cut) n.cut.visible = false;
+      n.alive = true; n.full.visible = true; if (n.cut) n.cut.visible = false; if (n.maxHp) n.hp = n.maxHp;
       if (n.full.userData.collider) n.full.userData.collider.r = 1.2;
     }
     if (n.ring) {
@@ -819,19 +1002,38 @@ function tick() {
 
   for (let i = projectiles.length - 1; i >= 0; i--) {
     const pr = projectiles[i];
-    const tp = pr.target.pos.clone().setY(1.6);
-    const dir = tp.sub(pr.mesh.position);
-    const dist = dir.length();
-    pr.life -= dt;
-    if (dist < 0.7 || pr.life <= 0) {
-      if (pr.life > 0) pr.onHit();
-      burst(pr.mesh.position, pr.kind === 'dark' ? '#d6a8ff' : pr.kind === 'bolt' ? '#fff2c0' : '#8ff7ff', 20, 5);
+    const step = pr.speed * dt;
+    pr.mesh.position.addScaledVector(pr.dir, step); pr.left -= step;
+    const pp = pr.mesh.position;
+    let hitSomething = false;
+    if (pr.owner === 'player') {
+      for (const e of enemies) if (e.hp > 0 && e.state !== 'rising' && Math.hypot(e.pos.x - pp.x, e.pos.z - pp.z) < 0.95) { pr.onHit(e); hitSomething = true; break; }
+    } else if (player && !player.dead && Math.hypot(player.pos.x - pp.x, player.pos.z - pp.z) < 0.8) { pr.onHit(); hitSomething = true; }
+    if (!hitSomething) for (const c of colliders) if (c.r > 0.9 && Math.hypot(c.x - pp.x, c.z - pp.z) < c.r * 0.8) { hitSomething = true; break; }
+    if (hitSomething || pr.left <= 0) {
+      burst(pp, pr.kind === 'dark' ? '#d6a8ff' : pr.kind === 'bolt' ? '#fff2c0' : '#8ff7ff', hitSomething ? 20 : 8, hitSomething ? 5 : 2);
       scene.remove(pr.mesh); projectiles.splice(i, 1); continue;
     }
-    dir.normalize();
-    pr.mesh.position.addScaledVector(dir, Math.min(dist, pr.speed * dt));
-    pr.mesh.lookAt(pr.mesh.position.clone().add(dir));
-    if (pr.kind !== 'bolt' && rng() < 0.6) burst(pr.mesh.position, pr.kind === 'dark' ? '#d6a8ff' : '#bffaff', 1, 1);
+    if (pr.kind !== 'bolt' && rng() < 0.6) burst(pp, pr.kind === 'dark' ? '#d6a8ff' : '#bffaff', 1, 1);
+  }
+
+  for (const n of nodes) {
+    if (!n.bar) continue;
+    if (n.alive && n.hp < n.maxHp && now - n.lastHit > 10) n.hp = n.maxHp;
+    const show = n.alive && n.hp < n.maxHp;
+    n.bar.hidden = !show;
+    if (show) {
+      const v = tmpV.set(n.x, n.cut ? 4.2 : 2.6, n.z).project(camera);
+      n.bar.style.left = `${(v.x * 0.5 + 0.5) * innerWidth}px`;
+      n.bar.style.top = `${(-v.y * 0.5 + 0.5) * innerHeight}px`;
+      n.bar.firstChild.style.width = `${(n.hp / n.maxHp) * 100}%`;
+    }
+  }
+  if (player) {
+    arcHolder.position.set(player.pos.x, 0, player.pos.z); arcHolder.rotation.y = player.root.rotation.y;
+    arcHolder.visible = !player.dead && $('pick').hidden;
+    arcFlash = Math.max(0, arcFlash - dt * 4);
+    arcMat.opacity = 0.12 + arcFlash * 0.3;
   }
 
   for (const e of enemies) {
@@ -850,7 +1052,7 @@ function tick() {
     const gathering = player.task && player.task.type === 'node';
     const info = gathering
       ? { label: 'Stop', icon: ICONS[player.task.n.def.skill], hint: `${player.task.n.def.doing}…`, ok: true }
-      : describe(player.task || nearest());
+      : describe(swingTarget());
     const key = info.label + info.hint + info.ok;
     if (key !== lastAct) {
       lastAct = key;
@@ -880,7 +1082,7 @@ function tick() {
 }
 addEventListener('pagehide', () => { if (!resetting) save(); });
 
-window.__jq = { projectiles, timers, get S() { return S; }, get player() { return player; }, enemies, nodes, npcs, startTask, doAction, giveXp, save, openSheet, openDialog };
+window.__jq = { swing, swingTarget, hitNode, projectiles, timers, get S() { return S; }, get player() { return player; }, enemies, nodes, npcs, startTask, doAction, giveXp, save, openSheet, openDialog };
 window.addEventListener('error', (e) => { const m = $('loadmsg'); if (m) m.textContent = `Something went wrong: ${e.message}`; });
 main().catch((err) => {
   console.error(err);
