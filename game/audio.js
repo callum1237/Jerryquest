@@ -191,6 +191,7 @@ const FX = {
   bighit: (t) => { tone(sfxBus, t, 140, 0.14, { type: 'square', gain: 0.32, slide: 0.3, filter: 1400 }); noise(sfxBus, t, 0.12, { gain: 0.35, freq: 1800, q: 0.6 }); tone(sfxBus, t + 0.02, 60, 0.18, { type: 'sine', gain: 0.4, slide: 0.5 }); },
   kill: (t) => { [0, 4, 7, 12].forEach((n, i) => tone(sfxBus, t + i * 0.05, midi(76 + n), 0.08, { type: 'square', gain: 0.12, filter: 4000 })); noise(sfxBus, t, 0.2, { gain: 0.2, freq: 600, sweep: 0.3 }); },
   hurt: (t) => { tone(sfxBus, t, 330, 0.16, { type: 'sawtooth', gain: 0.16, slide: 0.5, filter: 1800 }); },
+  equip: (t) => { tone(sfxBus, t, midi(76), 0.06, { type: 'triangle', gain: 0.12 }); tone(sfxBus, t + 0.05, midi(83), 0.14, { type: 'triangle', gain: 0.1 }); },
   coin: (t) => { tone(sfxBus, t, midi(88), 0.05, { type: 'square', gain: 0.1 }); tone(sfxBus, t + 0.06, midi(95), 0.14, { type: 'square', gain: 0.1 }); },
   chop: (t) => { tone(sfxBus, t, 260, 0.06, { type: 'triangle', gain: 0.35, slide: 0.6 }); noise(sfxBus, t, 0.06, { gain: 0.2, freq: 900, q: 2 }); },
   mine: (t) => { tone(sfxBus, t, 1400, 0.12, { type: 'square', gain: 0.12, filter: 5000 }); tone(sfxBus, t, 2100, 0.2, { type: 'sine', gain: 0.1 }); noise(sfxBus, t, 0.05, { gain: 0.25, freq: 4000 }); },

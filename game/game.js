@@ -475,9 +475,9 @@ const W = () => {
 };
 const gearDef = () => ['shield', 'armour'].reduce((a, sl) => a + (ARMOUR[S.equip[sl]] ? Math.round(ARMOUR[S.equip[sl]].def * plusMult(S.equip[sl]) * 10) / 10 : 0), 0);
 const totalDef = () => stat('def') + gearDef();
-const dmgMult = () => 1 + ATK_MULT * stat('atk');
+const dmgMult = () => (1 + ATK_MULT * stat('atk')) * renown();
 const defDiv = () => (1 + DEF_DIV * totalDef()) * pathDef();
-const maxHp = () => Math.round((HP_BASE + HP_PER * stat('hp')) * pathHp());
+const maxHp = () => Math.round((HP_BASE + HP_PER * stat('hp')) * pathHp() * renown());
 
 // ---------- see-through silhouettes ----------
 // When a tree or house hides the hero (or a boss), a soft glowing shape shows through it.
@@ -699,7 +699,7 @@ function titleCam() {
   camera.lookAt(0, 3, -4);
 }
 let profileKey = '';
-function profile() { return { name: heroName(), lvl: heroLvl(), look: { ...S.look, path: S.path || '' }, w: where, x: player ? player.pos.x : 0, z: player ? player.pos.z : 0 }; }
+function profile() { const C = cosState(), t = heroTitle(); return { name: heroName(), lvl: heroLvl(), look: { ...S.look, path: S.path || '', cos: { ...C.eq }, ti: t ? t.name : '', tc: t ? t.col : '' }, w: where, x: player ? player.pos.x : 0, z: player ? player.pos.z : 0 }; }
 function goOnline() {
   net.onTowns = syncTowns;
   net.onPeerGone = (id) => { dropPeer(id); partyPeerGone(id); };
@@ -716,6 +716,9 @@ function makePeer(id, p) {
   const a = new Actor(look.sex === 'f' ? G.heroine : G.knight, { hide: look.hat ? [] : PEER_HATS });
   dressNpc(a, pathLook(look, look.path));
   pathDecor(a, look.path);
+  const cos = look.cos || {};
+  setFlair(a, { rank: rankOf(p.lvl || 1), aura: cos.aura, trail: cos.trail, hat: cos.hat, helmet: look.hat });
+  if (cos.cape && COS.cape[cos.cape]) capeColour(a, COS.cape[cos.cape].col);
   a.root.position.set(p.x || 0, 0, p.z || 0);
   a.play('Idle');
   const tag = document.createElement('div'); tag.className = 'herotag peer'; tag.innerHTML = '<b></b>'; document.body.appendChild(tag);
@@ -732,7 +735,7 @@ const ONE_SHOT = /Attack|Hit_|Death|Jump|Dodge|Use_Item|Interact|Cheer|Spellcast
 function peersTick(dt) {
   if (!net.on || !player) return;
   sendPos(player.pos.x, player.pos.z, player.root.rotation.y, player.name || 'Idle', where, `${Math.max(0, Math.round(S.hp))}/${maxHp()}`);
-  const key = `${heroName()}|${heroLvl()}|${JSON.stringify(S.look)}|${S.path || ''}`;
+  const key = `${heroName()}|${heroLvl()}|${JSON.stringify(S.look)}|${S.path || ''}|${JSON.stringify(cosState().eq)}|${S.title || ''}`;
   if (key !== profileKey) { profileKey = key; updateProfile(profile()); }
   for (const [id, p] of net.peers) {
     let pa = peerActors.get(id);
@@ -750,12 +753,13 @@ function peersTick(dt) {
     pa.a.root.rotation.y += dr * k;
     if (p.a && p.a !== pa.anim) { pa.anim = p.a; pa.a.play(p.a, { once: ONE_SHOT.test(p.a), clamp: /Death/.test(p.a) }); }
     pa.a.mixer.update(dt); headPose(pa.a);
+    flairTick(pa.a, dt, /Running|Walking/.test(pa.anim));
     const v = tmpV.set(p.x, 4.4, p.z).project(camera);
     if (v.z > 1 || bossIntro) { pa.tag.hidden = true; continue; }
     pa.tag.hidden = false;
     pa.tag.style.left = `${(v.x * 0.5 + 0.5) * innerWidth}px`; pa.tag.style.top = `${(-v.y * 0.5 + 0.5) * innerHeight}px`;
-    const txt = `${p.name || 'Friend'} · Lv ${p.lvl || 1}`, col = tagColour(p.lvl || 1);
-    if (pa.tag.dataset.t !== txt + col) { pa.tag.dataset.t = txt + col; pa.tag.firstChild.textContent = txt; pa.tag.style.setProperty('--tc', col); }
+    const txt = `${p.name || 'Friend'} · Lv ${p.lvl || 1}`, col = tagColour(p.lvl || 1), tt = (p.look && p.look.ti) || '';
+    if (pa.tag.dataset.t !== txt + col + tt) { pa.tag.dataset.t = txt + col + tt; pa.tag.querySelector('b').textContent = txt; pa.tag.style.setProperty('--tc', col); setTagTitle(pa.tag, tt, p.look && p.look.tc); }
   }
 }
 
@@ -1646,13 +1650,26 @@ function applyLook() {
     }
   });
   dressArmour();
+  const capeC = cosState().eq.cape; if (capeC && COS.cape[capeC]) capeColour(player, COS.cape[capeC].col);
   addInk(player.root);
+  heroFlair();
+}
+// paint a hero's cape (cosmetic capes)
+function capeColour(a, col) {
+  a.root.traverse((o) => {
+    if (!o.isMesh || !o.userData.mats || !/_Cape$/.test(o.name) || Array.isArray(o.userData.mats.toon)) return;
+    if (!o.userData.ownMats) { o.userData.ownMats = { std: o.userData.mats.std.clone(), toon: o.userData.mats.toon.clone() }; o.userData.ownMats.toon.onBeforeCompile = o.userData.mats.toon.onBeforeCompile; o.userData.mats = o.userData.ownMats; o.material = styled.on ? o.userData.mats.toon : o.userData.mats.std; }
+    for (const m of [o.userData.mats.std, o.userData.mats.toon]) { colourise(m, 1); m.color.set(col); if (m.emissive) m.emissive.set(col).multiplyScalar(0.12); }
+  });
 }
 // Armour you wear shows on your hero: chunky shoulder pads, a belt, a chest badge. Bigger armour, bigger pads.
 const ARMOUR_LOOK = {
   ar_leather: { col: '#a8683a', trim: '#6e3f1e', pad: 0.26, belt: true },
   ar_chain: { col: '#c3cedc', trim: '#7d8796', pad: 0.3, belt: true, layers: 2, gorget: true },
   ar_gold: { col: '#ffcc33', trim: '#c9821c', pad: 0.36, belt: true, layers: 2, gorget: true, gem: '#e0444f', spike: true },
+  ar_frost: { col: '#cfefff', trim: '#5aa8d8', pad: 0.38, belt: true, layers: 2, gorget: true, gem: '#7fe8ff', spike: true },
+  ar_mire: { col: '#9adf7a', trim: '#3a6a2a', pad: 0.41, belt: true, layers: 3, gorget: true, gem: '#c8ff9a', spike: true, glow: '#1a4a10' },
+  ar_sun: { col: '#ffd27a', trim: '#c87a1a', pad: 0.45, belt: true, layers: 3, gorget: true, gem: '#ff6a2a', spike: true, glow: '#6a3a00' },
 };
 const restRigs = new Map();
 const padGeo = new THREE.SphereGeometry(1, 20, 12, 0, Math.PI * 2, 0, Math.PI / 2), ringGeo = new THREE.TorusGeometry(1, 0.16, 8, 28), gemGeo = new THREE.OctahedronGeometry(1, 0), spikeGeo = new THREE.ConeGeometry(1, 2.4, 8);
@@ -1669,7 +1686,7 @@ function dressArmour() {
   player.root.traverse((o) => { if (o.isBone) live[o.name.replace(/[^a-z]/gi, '').toLowerCase()] = o; });
   const bones = rest;
   if (!bones.chest || !live.chest) return;
-  const main = toon(A.col, A.gem ? { emissive: '#3a2400' } : {}), trim = toon(A.trim);
+  const main = toon(A.col, A.glow ? { emissive: A.glow } : A.gem ? { emissive: '#3a2400' } : {}), trim = toon(A.trim);
   const W2L = new THREE.Matrix4(), M = new THREE.Matrix4(), q = new THREE.Quaternion(), sc = new THREE.Vector3();
   const place = (bone, geo, mats, pos, rot, size) => {
     const m = new THREE.Mesh(geo); registerMesh(m, mats); m.castShadow = true;
@@ -1753,6 +1770,9 @@ function equipGear() {
   };
   hold(w, player.base.weapon, 'r');
   hold(sh, player.base.shield, 'l');
+  // higher tier weapons glow
+  const wm = player.customs.find((m) => player.weapons.includes(m)); if (wm && w.model) glowMesh(wm, w.tint || '#ffe9a0', gearGlow(w, S.equip.weapon));
+  heroFlair();
   for (const g of player.weapons) g.visible = !player.task;
   // the ground wedge shows how far your weapon reaches
   arcMesh.scale.setScalar(w.type === 'melee' ? (w.reach + 0.6) / (MELEE_REACH + 0.6) : 1);
@@ -2702,7 +2722,8 @@ function renderSheet() {
       return `<div class="skill" title="${Math.floor(S.xp[k])} XP"><img src="${ICONS[k]}" alt=""><span class="nm">${nm}</span><span class="lv">${l}</span><div class="xp"><i style="width:${pc}%"></i></div></div>`;
     }).join('')}</div><p class="hint">Gathering skills level up as you use them. Speed rises as you travel and makes you run faster.</p>${worthHtml()}`;
     el.querySelectorAll('[data-stat]').forEach((b) => { b.onclick = () => spendPoint(b.dataset.stat); });
-  } else if (sheetMode === 'bag') {
+  } else if (sheetMode === 'bag') { renderBag(el); return;
+  } else if (sheetMode === 'bagOld') {
     const items = Object.entries(S.inv);
     const slots = [];
     for (let i = 0; i < Math.max(16, Math.ceil(items.length / 4) * 4); i++) {
@@ -3478,7 +3499,7 @@ function special() {
   if (now - aim.at < 2.5) { player.face(aim.x, aim.z); aim.at = -99; }
   const w = W(), key = specialOf(w), SP = SPECIALS[key];
   specialReady = now + SP.cd; player.nextHit = now + 0.6; sfx('special');
-  const big = w.unique ? 1.25 : 1;
+  const big = (w.unique ? 1.25 : 1) * (1 + 0.05 * rankOf(heroLvl()));
   const fwd = fwdOf(player), pp = player.pos;
   const hitIn = (cx, cz, R, mult) => { let n = 0; for (const e of enemies) if (e.hp > 0 && e.state !== 'rising' && e.inside === where && Math.hypot(e.pos.x - cx, e.pos.z - cz) < R + (e.T.boss ? 1.2 : 0.5)) { hurtEnemy(e, Math.round(heroDamage() * mult) || 1, { x: cx, z: cz }, 1.7); n++; } if (net.on) n += hitPeers((x, z) => Math.hypot(x - cx, z - cz) < R + 0.5, Math.round(heroDamage() * mult) || 1); return n; };
   const ring = (cx, cz, R, col) => {
@@ -3487,6 +3508,7 @@ function special() {
     fx.push({ m, t: 0, dur: 0.45, R });
   };
   floatText(pp.clone().setY(4.2), SP.name + '!', 'gain');
+  rankFlourish(pp.x, pp.z, ring);
   if (key === 'whirl') {
     const R = (w.reach + 1.4) * big;
     player.play('1H_Melee_Attack_Slice_Diagonal', { once: true, fade: 0.05, speed: 1.6 }); player.busyUntil = now + 0.45;
@@ -3702,7 +3724,7 @@ function hurtEnemy(e, dmg, src = null, power = 1) {
     S.coins += coins; addItem('bones'); later(0.25, () => sfx('coin'));
     rollLoot(e);
     if (e.T.boss) {
-      bossCleanup(e); queueLetter(e.type);
+      bossCleanup(e); queueLetter(e.type); S.beat = { ...(S.beat || {}), [e.type]: ((S.beat || {})[e.type] || 0) + 1 };
       if (e.type === 'boss_gagron' && !S.gagronFree) { S.gagronFree = true; later(4, makeGagronFriend); }
       if (e.type === 'boss_sogg' && !S.soggFree) { S.soggFree = true; later(4, makeSoggFriend); }
       if (e.type === 'boss_pomp' && !S.pompFree) { S.pompFree = true; later(4, makePompFriend); }
@@ -5164,7 +5186,7 @@ function tick() {
   regionTick(); lightTick();
   if (player) { spotTick(); goldenTick(); tinyTick(dt); pompTick(dt); }
 
-  if (player) { gulpTick(); lanternTick(dt); wingTick(); stormTick(dt); castleTick(dt); colossusTick(dt); }
+  if (player) { gulpTick(); lanternTick(dt); wingTick(); stormTick(dt); castleTick(dt); colossusTick(dt); cosTick(); weaponSparkle(); flairTick(player, dt, player.name === 'Running_A' || player.name === 'Walking_A' || (player.name || '').startsWith('Running')); }
   if (player && !player.dead && !uiLock() && !gulped) {
     const busy = now < player.busyUntil;
     let mx = 0, mz = 0;
@@ -6299,6 +6321,11 @@ function crewNeutral(c, dt) {
 // Grey up to level 30, green past 30, blue from 50 and red from 100. When accounts go live it shows the account name.
 const tagColour = (l) => (l >= 100 ? '#d8324a' : l >= 50 ? '#3a7ae8' : l > 30 ? '#3aa860' : '#8a8a94');
 let heroTagEl = null;
+function setTagTitle(tag, text, col) {
+  let em = tag.querySelector('em');
+  if (!em) { em = document.createElement('em'); tag.insertBefore(em, tag.firstChild); }
+  em.textContent = text || ''; em.hidden = !text; em.style.setProperty('--ttc', col || '#e8a93a');
+}
 function heroTag() {
   if (!heroTagEl) { heroTagEl = document.createElement('div'); heroTagEl.className = 'herotag'; heroTagEl.innerHTML = '<b></b>'; document.body.appendChild(heroTagEl); }
   const show = player && S.started && !player.dead && !creator.open && !bossIntro && S.nameTag !== false;
@@ -6307,8 +6334,8 @@ function heroTag() {
   if (v.z > 1) { heroTagEl.hidden = true; return; }
   heroTagEl.hidden = false;
   heroTagEl.style.left = `${(v.x * 0.5 + 0.5) * innerWidth}px`; heroTagEl.style.top = `${(-v.y * 0.5 + 0.5) * innerHeight}px`;
-  const l = heroLvl(), txt = `${heroName()} · Lv ${l}`, col = tagColour(l);
-  if (heroTagEl.dataset.t !== txt + col) { heroTagEl.dataset.t = txt + col; heroTagEl.firstChild.textContent = txt; heroTagEl.style.setProperty('--tc', col); }
+  const l = heroLvl(), txt = `${heroName()} · Lv ${l}`, col = tagColour(l), t = heroTitle(), tt = t ? t.name : '';
+  if (heroTagEl.dataset.t !== txt + col + tt) { heroTagEl.dataset.t = txt + col + tt; heroTagEl.querySelector('b').textContent = txt; heroTagEl.style.setProperty('--tc', col); setTagTitle(heroTagEl, tt, t ? t.col : ''); }
 }
 
 // ---------- emotes ----------
@@ -6532,13 +6559,298 @@ function goldenRun(e, dt) {
   return true;
 }
 function goldenCaught(e) {
-  setGolden(e, false);
+  setGolden(e, false); S.goldenN = (S.goldenN || 0) + 1;
   const c = 120 + heroLvl() * 10; S.coins += c; giveHeroXp(e.T.xp * 4, e.pos.clone().setY(4));
   burst(e.pos.clone().setY(2), '#ffe07a', 90, 8, 1.6); sfx('jackpot');
   floatText(e.pos.clone().setY(3), `+${c} coins`, 'gain');
   toast(`You caught the golden ${e.T.name}! ${c} coins!`, ICONS.coins, true);
   if (rng() < 0.2) { addItem('dark_omen'); later(0.6, () => toast('It dropped a DARK OMEN! Take it to a freed town to call the monsters back.', ICONS.dark_omen, true)); }
   later(1.2, () => { if (!roulette && !player.dead) spinWheel('Golden Roulette!'); });
+}
+
+// ===================== v36: renown ranks, glowing gear, auras, titles and cosmetics =====================
+// The more you play, the more your hero shows it: a rank every few levels (with a small power bonus),
+// glowing weapons by tier, a ground aura that grows with rank, flashier specials, titles, and cosmetics
+// you earn only by playing (beating bosses, reaching ranks, catching golden monsters, freeing towns).
+const RANKS = [
+  { min: 1, name: 'Noob', col: '#9a9aa8' },
+  { min: 10, name: 'Adventurer', col: '#5fbf6a' },
+  { min: 25, name: 'Veteran', col: '#4f9ae8' },
+  { min: 45, name: 'Champion', col: '#b06ae8' },
+  { min: 70, name: 'Legend', col: '#ffb02e' },
+  { min: 90, name: 'Mythic', col: '#ff4a6a' },
+];
+function rankOf(l) { let r = 0; for (let i = 0; i < RANKS.length; i++) if (l >= RANKS[i].min) r = i; return r; }
+// each rank: +5% damage and +5% max health
+function renown() { return 1 + 0.05 * rankOf(heroLvl()); }
+const COS = {
+  hat: {
+    crown: { name: 'Royal crown', how: 'Reach level 70 (Legend)' }, wizard: { name: 'Starry wizard hat', how: 'Defeat the Gloomcaster' },
+    horns: { name: 'Viking horns', how: 'Defeat Bonecrusher' }, tricorn: { name: 'Pirate tricorn', how: 'Defeat Rattlebones' },
+    tiara: { name: 'Ice tiara', how: 'Defeat Queen Frostwhisker' }, frog: { name: 'Frog hat', how: 'Defeat the Gobbler' },
+    tophat: { name: 'Dapper top hat', how: 'Defeat Pompington' }, goggles: { name: 'Brass goggles', how: 'Defeat the Brassbolt Colossus' },
+    flowers: { name: 'Flower crown', how: 'Free a monster town' },
+  },
+  cape: {
+    royal: { name: 'Royal purple cape', col: '#7a3ac8', how: 'Reach level 25 (Veteran)' }, ember: { name: 'Ember cape', col: '#ff6a2a', how: 'Defeat Gagron' },
+    midnight: { name: 'Midnight cape', col: '#2a2a6a', how: 'Defeat Sir Soggington' }, gold: { name: 'Cloth-of-gold cape', col: '#ffc83a', how: 'Reach level 70 (Legend)' },
+  },
+  aura: {
+    frost: { name: 'Frost aura', col: '#7fe8ff', how: 'Defeat Queen Frostwhisker' }, royal: { name: 'Royal aura', col: '#b06ae8', how: 'Reach level 45 (Champion)' },
+    rose: { name: 'Rose aura', col: '#ff7ab0', how: 'Be worth 100,000 coins' }, sun: { name: 'Sunfire aura', col: '#ffb02e', how: 'Defeat the Brassbolt Colossus' },
+    void: { name: 'Void aura', col: '#7a3aff', how: 'Reach level 90 (Mythic)' },
+  },
+  trail: {
+    sparkle: { name: 'Sparkle trail', col: '#fff2a0', how: 'Reach level 10' }, ember: { name: 'Ember trail', col: '#ff8a3a', how: 'Defeat Gagron' },
+    frost: { name: 'Snowflake trail', col: '#dff6ff', how: 'Defeat Grumblefrost' }, bubbles: { name: 'Bubble trail', col: '#b8ffd8', how: 'Defeat Mother Mire' },
+    hearts: { name: 'Heart trail', col: '#ff8ac8', how: 'Catch a golden monster' }, shadow: { name: 'Shadow trail', col: '#6a3aa8', how: 'Reach level 90 (Mythic)' },
+  },
+};
+const COS_SLOTS = { hat: 'Hat', cape: 'Cape', aura: 'Aura', trail: 'Trail' };
+const COS_BOSS = { boss_gagron: ['cape:ember', 'trail:ember'], boss_crusher: ['hat:horns'], boss_gloom: ['hat:wizard'], boss_rattle: ['hat:tricorn'], boss_frost: ['hat:tiara', 'aura:frost'], boss_grumble: ['trail:frost'], boss_mire: ['trail:bubbles'], boss_sogg: ['cape:midnight'], boss_gobbler: ['hat:frog'], boss_pomp: ['hat:tophat'], boss_colossus: ['hat:goggles', 'aura:sun'] };
+const beaten = (t) => !!((S.beat || {})[t] || (S.letters || {})[t]);
+function cosEarned() {
+  const out = new Set(), l = heroLvl();
+  for (const [t, ids] of Object.entries(COS_BOSS)) if (beaten(t)) ids.forEach((i) => out.add(i));
+  if (l >= 10) out.add('trail:sparkle');
+  if (l >= 25) out.add('cape:royal');
+  if (l >= 45) out.add('aura:royal');
+  if (l >= 70) { out.add('hat:crown'); out.add('cape:gold'); }
+  if (l >= 90) { out.add('aura:void'); out.add('trail:shadow'); }
+  if ((S.goldenN || 0) > 0) out.add('trail:hearts');
+  if (Object.keys(S.towns || {}).length) out.add('hat:flowers');
+  if (S.started && netWorth() >= 100000) out.add('aura:rose');
+  return out;
+}
+const cosState = () => (S.cos = S.cos || { got: {}, eq: {} });
+let cosAt = 0;
+function cosTick() {
+  if (!player || now < cosAt) return;
+  cosAt = now + 2;
+  const C = cosState();
+  for (const id of cosEarned()) {
+    if (C.got[id]) continue;
+    C.got[id] = 1;
+    const [slot, k] = id.split(':');
+    toast(`New look unlocked: ${COS[slot][k].name}! Wear it from your Bag (Style tab).`, ICONS.star, true);
+    burst(player.pos.clone().setY(2), '#ffe07a', 40, 6, 1.2);
+    save();
+  }
+}
+// titles shown over your name tag
+function titleList() {
+  const l = heroLvl(), T = [];
+  RANKS.forEach((r, i) => T.push({ id: `rank${i}`, name: r.name, how: `Reach level ${r.min}`, ok: l >= r.min, col: r.col }));
+  const extra = [
+    ['dragon', 'Dragon Tamer', 'Defeat Gagron', beaten('boss_gagron')], ['frostbane', 'Frostbane', 'Defeat Queen Frostwhisker', beaten('boss_frost')],
+    ['gulper', 'Gobbler Gulper', 'Defeat the Gobbler', beaten('boss_gobbler')], ['riddler', 'Riddle Master', 'Answer the Sphinx Engine', S.quests.st_sphinx && S.quests.st_sphinx.state === 'done'],
+    ['nemesis', "Pompington's Nemesis", 'Defeat Pompington', beaten('boss_pomp')], ['breaker', 'Colossus Breaker', 'Defeat the Brassbolt Colossus', beaten('boss_colossus')],
+    ['night', 'Child of the Night', 'Choose the Vampire path', S.path === 'vampire'], ['halo', 'Halo Bearer', 'Choose the Angel path', S.path === 'angel'], ['stubborn', 'The Stubborn One', 'Choose the Human path', S.path === 'human'],
+    ['mayor', 'The Mayor', 'Free a monster town', Object.keys(S.towns || {}).length > 0], ['tycoon', 'Tycoon', 'Be worth 100,000 coins', S.started && netWorth() >= 100000],
+    ['gatherer', 'Master Gatherer', 'Reach level 50 in any gathering skill', SKILLS.some(([k]) => lvl(k) >= 50)],
+  ];
+  for (const [id, name, how, ok] of extra) T.push({ id, name, how, ok: !!ok, col: '#e8a93a' });
+  return T;
+}
+function heroTitle() {
+  const T = titleList(), pick = S.title && T.find((t) => t.id === S.title && t.ok);
+  return pick || T.filter((t) => t.id.startsWith('rank') && t.ok).pop();
+}
+
+// ---------- hats ----------
+function makeHat(id) {
+  const g = new THREE.Group(), M = (geo, col, opts) => { const m = new THREE.Mesh(geo); registerMesh(m, toon(col, opts)); m.castShadow = true; g.add(m); return m; };
+  if (id === 'crown') return makeCrown();
+  if (id === 'wizard') {
+    M(new THREE.CylinderGeometry(0.86, 0.86, 0.07, 24), '#4a2a9a').position.y = 1.0;
+    const c = M(new THREE.ConeGeometry(0.5, 1.25, 16), '#5a3ab8'); c.position.set(0, 1.62, -0.05); c.rotation.x = -0.18;
+    const st = M(new THREE.OctahedronGeometry(0.12), '#ffe27a', { emissive: '#a87a00' }); st.position.set(0, 1.5, 0.42);
+  } else if (id === 'horns') {
+    M(new THREE.SphereGeometry(0.56, 18, 10, 0, Math.PI * 2, 0, Math.PI / 2), '#9aa4b0').position.y = 0.88;
+    for (const s of [-1, 1]) { const h = M(new THREE.ConeGeometry(0.12, 0.6, 10), '#fff6e0'); h.position.set(s * 0.6, 1.2, 0); h.rotation.z = -s * 0.7; }
+  } else if (id === 'tricorn') {
+    const b = M(new THREE.CylinderGeometry(0.85, 0.85, 0.1, 3), '#2a2230'); b.position.y = 1.02; b.rotation.y = Math.PI / 6;
+    M(new THREE.CylinderGeometry(0.42, 0.5, 0.42, 16), '#2a2230').position.y = 1.24;
+    const sk = M(new THREE.SphereGeometry(0.09, 10, 8), '#fff6e0'); sk.position.set(0, 1.25, 0.47);
+  } else if (id === 'tiara') {
+    M(new THREE.TorusGeometry(0.5, 0.04, 8, 28), '#dff6ff', { emissive: '#3a7aa8' }).rotation.x = Math.PI / 2;
+    g.children[0].position.y = 1.0;
+    for (let i = 0; i < 5; i++) { const a = Math.PI / 2 + (i - 2) * 0.42, c = M(new THREE.OctahedronGeometry(i === 2 ? 0.16 : 0.1), '#9fe6ff', { emissive: '#2a8ab0' }); c.position.set(Math.cos(a) * 0.5, 1.12 + (i === 2 ? 0.08 : 0), Math.sin(a) * 0.5); c.scale.y = 1.6; }
+  } else if (id === 'frog') {
+    M(new THREE.SphereGeometry(0.6, 18, 12, 0, Math.PI * 2, 0, Math.PI / 2), '#6ac04a').position.y = 0.86;
+    for (const s of [-1, 1]) { const e = M(new THREE.SphereGeometry(0.17, 12, 10), '#ffffff'); e.position.set(s * 0.26, 1.38, 0.24); const p = M(new THREE.SphereGeometry(0.08, 8, 6), '#1a1a1a'); p.position.set(s * 0.26, 1.4, 0.39); }
+  } else if (id === 'tophat') {
+    M(new THREE.CylinderGeometry(0.66, 0.66, 0.06, 24), '#1a1a22').position.y = 1.02;
+    M(new THREE.CylinderGeometry(0.38, 0.38, 0.82, 20), '#1a1a22').position.y = 1.44;
+    M(new THREE.CylinderGeometry(0.39, 0.39, 0.12, 20), '#d8324a').position.y = 1.13;
+  } else if (id === 'goggles') {
+    M(new THREE.TorusGeometry(0.55, 0.06, 8, 28), '#8a5a2a').rotation.x = Math.PI / 2;
+    g.children[0].position.y = 1.0;
+    for (const s of [-1, 1]) { const l = M(new THREE.CylinderGeometry(0.16, 0.16, 0.12, 16), '#d8a850'); l.rotation.x = Math.PI / 2; l.position.set(s * 0.2, 1.08, 0.5); const gl = M(new THREE.CircleGeometry(0.12, 16), '#7fe8ff', { emissive: '#2a8ab0' }); gl.position.set(s * 0.2, 1.08, 0.565); }
+  } else if (id === 'flowers') {
+    M(new THREE.TorusGeometry(0.5, 0.05, 8, 28), '#5a9a3a').rotation.x = Math.PI / 2;
+    g.children[0].position.y = 1.02;
+    const cols = ['#ff8ac8', '#fff27a', '#ffffff', '#ffb0d8'];
+    for (let i = 0; i < 9; i++) { const a = (i / 9) * Math.PI * 2, f = M(new THREE.SphereGeometry(0.1, 10, 8), cols[i % 4]); f.position.set(Math.cos(a) * 0.5, 1.06, Math.sin(a) * 0.5); }
+  }
+  return g;
+}
+
+// ---------- the flair kit on any hero (you or a friend): aura ring, hat, trail ----------
+const auraGeo = new THREE.RingGeometry(0.78, 1, 48);
+function setFlair(a, { rank = 0, aura = null, trail = null, hat = null, helmet = false } = {}) {
+  const F = a.flair || (a.flair = {});
+  const col = aura && COS.aura[aura] ? COS.aura[aura].col : RANKS[rank].col;
+  const show = rank >= 2 || !!aura;
+  if (!F.ring) {
+    F.ring = new THREE.Mesh(auraGeo, new THREE.MeshBasicMaterial({ color: col, transparent: true, opacity: 0.4, depthWrite: false, fog: false, side: THREE.DoubleSide }));
+    F.ring.rotation.x = -Math.PI / 2; F.ring.position.y = 0.06; F.ring.layers.set(1); a.root.add(F.ring);
+    F.ring2 = F.ring.clone(); F.ring2.material = F.ring.material.clone(); a.root.add(F.ring2);
+  }
+  F.ring.visible = show; F.ring2.visible = show && (rank >= 4 || !!aura);
+  F.ring.material.color.set(col); F.ring2.material.color.set(col);
+  F.rank = rank; F.col = col; F.rainbow = rank >= 5 && !aura;
+  F.trail = trail && COS.trail[trail] ? COS.trail[trail].col : null; F.trailAt = 0; F.moteAt = 0;
+  if (F.hatKey !== `${hat}|${helmet}` && (a.headInfo || !hat)) {
+    if (F.hat) F.hat.removeFromParent();
+    F.hat = null; F.hatKey = `${hat}|${helmet}`;
+    if (hat && COS.hat[hat] && !helmet && a.headInfo) {
+      // hats are modelled on a head of radius 0.5 whose top is at y = 1.12; fit them to this hero's head
+      const box = a.headInfo.box, c = box.getCenter(new THREE.Vector3()), sz = box.getSize(new THREE.Vector3());
+      const k = (sz.x * 0.5 * 1.08) / 0.5, top = c.y + sz.y * 0.49;
+      F.hat = makeHat(hat); F.hat.scale.setScalar(k); F.hat.position.set(c.x, top - 1.12 * k, c.z - sz.z * 0.04);
+      a.headInfo.bone.add(F.hat); addInk(F.hat);
+    }
+  }
+}
+const _fx = new THREE.Vector3();
+function flairTick(a, dt, moving) {
+  const F = a.flair; if (!F || !a.root.visible) return;
+  if (F.ring.visible) {
+    const k = 1 + Math.sin(now * 2.4) * 0.06;
+    F.ring.scale.setScalar(1.25 * k); F.ring.material.opacity = 0.28 + 0.1 * F.rank / 5 + Math.sin(now * 3) * 0.06;
+    if (F.ring2.visible) { F.ring2.scale.setScalar(1.9 - ((now * 0.6) % 1) * 0.7); F.ring2.material.opacity = 0.3 * ((now * 0.6) % 1); }
+    if (F.rainbow) { const c = new THREE.Color().setHSL((now * 0.15) % 1, 0.8, 0.62); F.ring.material.color.copy(c); F.ring2.material.color.copy(c); F.col = `#${c.getHexString()}`; }
+    if (F.rank >= 3 && now > F.moteAt) {
+      F.moteAt = now + (F.rank >= 4 ? 0.12 : 0.25);
+      const ang = rng() * 6.28; _fx.set(a.root.position.x + Math.cos(ang) * 1.1, 0.3, a.root.position.z + Math.sin(ang) * 1.1);
+      burst(_fx, F.col, 1, 1.5, 0.9);
+    }
+  }
+  if (F.trail && moving && now > F.trailAt) { F.trailAt = now + 0.06; burst(_fx.copy(a.root.position).setY(0.3), F.trail, 2, 1.6, 0.7); }
+}
+function heroFlair() {
+  if (!player) return;
+  const C = cosState();
+  setFlair(player, { rank: rankOf(heroLvl()), aura: C.eq.aura, trail: C.eq.trail, hat: C.eq.hat, helmet: S.look.hat });
+}
+// glowing weapons: brighter for higher tiers, boss uniques and smith upgrades
+function gearGlow(g, k) {
+  if (!g) return 0;
+  return Math.min(0.75, (g.unique ? 0.55 : g.tier === 4 ? 0.5 : g.tier === 3 ? 0.32 : g.tier === 2 ? 0.16 : 0) + plusOf(k) * 0.04);
+}
+function glowMesh(m, col, k) {
+  if (k <= 0) return;
+  m.traverse((o) => {
+    if (!o.isMesh || !o.userData.mats || Array.isArray(o.userData.mats.toon)) return;
+    const mm = { std: o.userData.mats.std.clone(), toon: o.userData.mats.toon.clone() }; mm.toon.onBeforeCompile = o.userData.mats.toon.onBeforeCompile;
+    for (const x of [mm.std, mm.toon]) if (x.emissive) x.emissive.set(col).multiplyScalar(k);
+    registerMesh(o, mm);
+  });
+}
+let sparkAt = 0;
+function weaponSparkle() {
+  if (!player || !player.weapons || now < sparkAt) return;
+  const k = gearGlow(W(), S.equip.weapon); if (k < 0.3) return;
+  sparkAt = now + (k >= 0.5 ? 0.08 : 0.18);
+  const m = player.weapons.find((w) => w.visible); if (!m) return;
+  m.getWorldPosition(_fx); _fx.x += (rng() - 0.5) * 0.6; _fx.y += rng() * 0.8; _fx.z += (rng() - 0.5) * 0.6;
+  burst(_fx, W().tint || '#ffe9a0', 1, 1.2, 0.5);
+}
+// flashier specials: a rank-coloured shockwave on top, bigger for higher ranks
+function rankFlourish(x, z, ringFn) {
+  const rk = rankOf(heroLvl()); if (rk < 2) return;
+  const col = RANKS[rk].col;
+  later(0.35, () => {
+    ringFn(x, z, 3 + rk * 0.8, col);
+    burst(new THREE.Vector3(x, 1, z), col, 16 * rk, 5 + rk, 1.3);
+    if (rk >= 4) {
+      const p = new THREE.Mesh(new THREE.CylinderGeometry(0.9, 0.9, 14, 16, 1, true), new THREE.MeshBasicMaterial({ color: col, transparent: true, opacity: 0.5, depthWrite: false, fog: false, side: THREE.DoubleSide }));
+      p.position.set(x, 7, z); p.layers.set(1); scene.add(p);
+      tween(0.6, (k) => { p.material.opacity = 0.5 * (1 - k); p.scale.set(1 + k, 1, 1 + k); }, () => { scene.remove(p); p.geometry.dispose(); p.material.dispose(); });
+    }
+  });
+}
+
+// ---------- the inventory: a paper doll of what you wear, your bag, and your style ----------
+const itemRarity = (k) => { const v = SELL[k] || 0; return v >= 800 ? ['legendary', 'Legendary'] : v >= 250 ? ['epic', 'Epic'] : v >= 40 ? ['rare', 'Rare'] : v >= 10 ? ['fine', 'Uncommon'] : ['common', 'Common']; };
+const gearRarity = (g) => (g.unique ? ['legendary', 'Boss treasure'] : g.tier === 4 ? ['epic', 'Epic'] : g.tier === 3 ? ['rare', 'Rare'] : g.tier === 2 ? ['fine', 'Uncommon'] : ['common', 'Common']);
+let bagTab = 'gear', dollSlot = 'weapon', bagPick = null;
+const SLOT_NAMES = { weapon: 'Weapon', shield: 'Shield', armour: 'Armour', gadget: 'Gadget' };
+function gearDelta(g, cur) {
+  if (g.slot === 'weapon') { const d = Math.round((g.dmg - (cur ? cur.dmg : 0)) * 10) / 10; return d ? `<em class="${d > 0 ? 'up' : 'down'}">${d > 0 ? '+' : ''}${d} dmg</em>` : ''; }
+  if (g.slot === 'gadget') return '';
+  const d = Math.round((g.def - (cur ? cur.def : 0)) * 10) / 10; return d ? `<em class="${d > 0 ? 'up' : 'down'}">${d > 0 ? '+' : ''}${d} def</em>` : '';
+}
+function dollList() {
+  const C = cosState();
+  if (dollSlot.startsWith('cos:')) {
+    const sl = dollSlot.slice(4), got = C.got;
+    const rows = Object.entries(COS[sl]).map(([k, c]) => {
+      const have = got[`${sl}:${k}`], on = C.eq[sl] === k;
+      return `<button class="cosrow ${have ? '' : 'locked'}" data-cos="${sl}:${k}" aria-pressed="${on}" ${have ? '' : 'disabled'}><span class="swatch" style="--sw:${c.col || '#e8a93a'}"></span><b>${c.name}</b><small>${have ? (on ? 'Wearing' : 'Tap to wear') : `Locked: ${c.how}`}</small></button>`;
+    }).join('');
+    return `<h4 class="sub">${COS_SLOTS[sl]}s <small>${Object.keys(COS[sl]).filter((k) => got[`${sl}:${k}`]).length} of ${Object.keys(COS[sl]).length} found</small></h4><div class="coslist">${C.eq[sl] ? `<button class="cosrow" data-cos="${sl}:">Take it off</button>` : ''}${rows}</div><p class="hint">Looks never change your stats. You earn them only by playing: beating bosses, reaching new ranks, catching golden monsters and freeing towns.</p>`;
+  }
+  const cur = GEAR[S.equip[dollSlot]];
+  const mine = S.owned.filter((k) => GEAR[k] && GEAR[k].slot === dollSlot);
+  if (!mine.length) return `<h4 class="sub">${SLOT_NAMES[dollSlot]}</h4><p class="hint">${dollSlot === 'gadget' ? 'Gadgets are clockwork trinkets from Gizmo the Gearsmith in Brassbolt Sands. Each gives a small bonus.' : 'Nothing here yet. The smiths sell gear, and bosses sometimes drop their own.'}</p>`;
+  return `<h4 class="sub">${SLOT_NAMES[dollSlot]}</h4><div class="gearlist">${mine.map((k) => { const g = GEAR[k], on = S.equip[dollSlot] === k, [rc, rn] = gearRarity(g);
+    return `<div class="gearwrap"><button class="gearbtn ${rc}" data-gear="${k}" aria-pressed="${on}"><b><img src="${gearIcon(g)}" alt="">${plusOf(k) ? plusName(k) : g.name}</b><span>${gearStats(g)} · <i class="rar">${rn}</i>${on ? '' : ` ${gearDelta(g, cur)}`}</span></button><button class="pin" data-pin="${k}" title="Put on hotbar" aria-label="Put ${g.name} on the hotbar" aria-pressed="${(S.hotbar || []).includes(k)}">+</button></div>`; }).join('')}</div>${dollSlot === 'gadget' && S.equip.gadget ? '<p class="hint">Tap your gadget again to take it off.</p>' : ''}`;
+}
+function renderBag(el) {
+  const tabs = { gear: 'Gear', items: 'Bag', style: 'Style' };
+  let body = '';
+  if (bagTab === 'gear') {
+    const rk = rankOf(heroLvl()), R = RANKS[rk], t = heroTitle(), C = cosState(), w = W();
+    const slot = (sl) => { const k = S.equip[sl], g = GEAR[k]; return `<button class="dslot ${g ? gearRarity(g)[0] : 'empty'}" data-dslot="${sl}" aria-pressed="${dollSlot === sl}">${g ? `<img src="${gearIcon(g)}" alt="">` : '<i></i>'}<small>${g ? g.name : SLOT_NAMES[sl]}</small>${g && plusOf(k) ? `<b>+${plusOf(k)}</b>` : ''}</button>`; };
+    const cslot = (sl) => { const id = C.eq[sl], c = id && COS[sl][id]; return `<button class="dslot cos ${c ? 'cosy' : 'empty'}" data-dslot="cos:${sl}" aria-pressed="${dollSlot === `cos:${sl}`}">${c ? `<span class="swatch" style="--sw:${c.col || '#e8a93a'}"></span>` : '<i></i>'}<small>${c ? c.name : COS_SLOTS[sl]}</small></button>`; };
+    body = `<div class="doll" style="--rank:${R.col}">
+      <div class="dcol">${slot('weapon')}${slot('shield')}${slot('gadget')}${cslot('trail')}</div>
+      <div class="dfig"><div class="dport${rk >= 2 ? ' glow' : ''}"><img src="${portrait(S.look)}" alt=""></div><b>${esc(heroName())}</b><span class="drank">${R.name} · Lv ${heroLvl()}</span>${t && !t.id.startsWith('rank') ? `<em>${esc(t.name)}</em>` : ''}</div>
+      <div class="dcol">${slot('armour')}${cslot('hat')}${cslot('cape')}${cslot('aura')}</div></div>
+      <div class="dstats"><div><img src="${ICONS[w.type]}" alt=""><span>Hit</span><b>${Math.round(w.dmg * dmgMult() * pathDmg())}</b></div><div><img src="${ICONS.shield}" alt=""><span>Defense</span><b>${totalDef()}</b></div><div><img src="${ICONS.heart}" alt=""><span>Health</span><b>${maxHp()}</b></div><div><img src="${ICONS.star}" alt=""><span>Renown</span><b>+${Math.round((renown() - 1) * 100)}%</b></div></div>
+      ${dollList()}`;
+  } else if (bagTab === 'items') {
+    const items = Object.entries(S.inv), slots = [];
+    for (let i = 0; i < Math.max(20, Math.ceil(items.length / 5) * 5); i++) {
+      const it = items[i];
+      if (!it) { slots.push('<div class="slot empty"></div>'); continue; }
+      const [rc] = itemRarity(it[0]);
+      slots.push(`<button class="slot ${rc}${bagPick === it[0] ? ' on' : ''}" data-item="${it[0]}" title="${ITEMS[it[0]]}"><img src="${ICONS[it[0]]}" alt="${ITEMS[it[0]]}"><span>${it[1]}</span></button>`);
+    }
+    let info = '<p class="hint">Tap an item to see what it is worth. Marta at the market buys anything, and food heals you.</p>';
+    if (bagPick && S.inv[bagPick]) {
+      const k = bagPick, [rc, rn] = itemRarity(k), f = FOOD[k];
+      info = `<div class="iteminfo ${rc}"><img src="${ICONS[k]}" alt=""><div><b>${ITEMS[k]}</b><small><i class="rar">${rn}</i> · ${S.inv[k]} in your bag${SELL[k] ? ` · sells for ${fmt(SELL[k])} each` : ''}${f ? ` · heals ${f.heal}` : ''}</small></div><div class="row">${f ? `<button class="primary" data-eat="${k}">Eat</button><button data-pin="${k}" aria-pressed="${(S.hotbar || []).includes(k)}">Hotbar</button>` : ''}</div></div>`;
+    }
+    body = `<div class="bag five">${slots.join('')}</div>${info}`;
+  } else {
+    const C = cosState(), T = titleList(), cur = heroTitle();
+    const total = Object.values(COS).reduce((a, s) => a + Object.keys(s).length, 0), have = Object.keys(C.got).length;
+    body = `<h4 class="sub">Title <small>shown over your name</small></h4><div class="titles">${T.map((t) => `<button class="titlebtn${t.ok ? '' : ' locked'}" data-title="${t.id}" aria-pressed="${cur && cur.id === t.id}" ${t.ok ? '' : 'disabled'} style="--tc:${t.col}" title="${t.how}">${t.name}${t.ok ? '' : `<small>${t.how}</small>`}</button>`).join('')}</div>
+      <h4 class="sub">Looks <small>${have} of ${total} found</small></h4><div class="cosgrid">${Object.entries(COS_SLOTS).map(([sl, nm]) => `<button class="dslot cos ${C.eq[sl] ? 'cosy' : 'empty'}" data-dslot="cos:${sl}"><span class="swatch" style="--sw:${C.eq[sl] ? COS[sl][C.eq[sl]].col || '#e8a93a' : '#d8c8a8'}"></span><small>${nm}</small></button>`).join('')}</div>
+      <p class="hint">Ranks: ${RANKS.map((r) => `<b style="color:${r.col}">${r.name}</b> (${r.min})`).join(' · ')}. Every rank gives +5% damage and health, a bigger aura and flashier specials.</p>`;
+  }
+  el.innerHTML = `<h3>Inventory <small>${fmt(S.coins)} coins${S.bank ? ` · ${fmt(S.bank)} banked` : ''}</small></h3><div class="bagtabs">${Object.entries(tabs).map(([k, n]) => `<button data-btab="${k}" aria-pressed="${bagTab === k}">${n}</button>`).join('')}</div>${body}`;
+  el.querySelectorAll('[data-btab]').forEach((b) => { b.onclick = () => { bagTab = b.dataset.btab; renderSheet(); }; });
+  el.querySelectorAll('[data-dslot]').forEach((b) => { b.onclick = () => { dollSlot = b.dataset.dslot; bagTab = 'gear'; renderSheet(); }; });
+  el.querySelectorAll('[data-item]').forEach((b) => { b.onclick = () => { bagPick = bagPick === b.dataset.item ? null : b.dataset.item; renderSheet(); }; });
+  el.querySelectorAll('[data-eat]').forEach((b) => { b.onclick = () => { eat(b.dataset.eat); renderSheet(); }; });
+  el.querySelectorAll('[data-pin]').forEach((b) => { b.onclick = () => { pinToHotbar(b.dataset.pin); renderSheet(); }; });
+  el.querySelectorAll('[data-gear]').forEach((b) => { b.onclick = () => { const g = GEAR[b.dataset.gear]; S.equip[g.slot] = g.slot === 'gadget' && S.equip.gadget === b.dataset.gear ? null : b.dataset.gear; cancelTask(); equipGear(); buildGearBar(); updateTitle(); save(); renderSheet(); burst(player.pos.clone().setY(1.6), '#ffe07a', 20, 4); sfx('equip'); }; });
+  el.querySelectorAll('[data-cos]').forEach((b) => { b.onclick = () => { const [sl, k] = b.dataset.cos.split(':'); const C = cosState(); C.eq[sl] = k && C.eq[sl] !== k ? k : null; if (sl === 'cape') applyLook(); heroFlair(); save(); renderSheet(); burst(player.pos.clone().setY(1.6), '#ffe07a', 24, 4); }; });
+  el.querySelectorAll('[data-title]').forEach((b) => { b.onclick = () => { S.title = b.dataset.title; save(); renderSheet(); }; });
 }
 
 // ---------- Sir Percival Pompington, the glory thief ----------
