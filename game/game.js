@@ -793,13 +793,12 @@ const peerActors = new Map();
 const PEER_HATS = ['Barbarian_Hat', 'Mage_Hat', 'Knight_Helmet'];
 function makePeer(id, p) {
   const look = { ...fresh().look, ...(p.look || {}) };
-  const a = new Actor(look.sex === 'f' ? G.heroine : G.knight, { hide: look.hat ? [] : PEER_HATS });
-  dressNpc(a, pathLook(look, look.path));
-  pathDecor(a, look.path);
-  const cos = look.cos || {};
+  const cos = look.cos || {}, skel = isSkel(cos);
+  const a = skel ? new Actor(G.skel_minion, { hide: SKEL_HIDE }) : new Actor(look.sex === 'f' ? G.heroine : G.knight, { hide: look.hat ? [] : PEER_HATS });
+  if (skel) skelPaint(a); else { dressNpc(a, pathLook(look, look.path)); pathDecor(a, look.path); }
   setFlair(a, { rank: rankOf(p.lvl || 1), aura: cos.aura, trail: cos.trail, hat: cos.hat, helmet: look.hat });
-  if (cos.outfit && COS.outfit[cos.outfit]) { paintOutfit(a, COS.outfit[cos.outfit]); dressOutfit(a, COS.outfit[cos.outfit], look.sex === 'f' ? G.heroine : G.knight); }
-  a.root.scale.setScalar(heroScale(look));
+  if (!skel && cos.outfit && COS.outfit[cos.outfit]) { paintOutfit(a, COS.outfit[cos.outfit]); dressOutfit(a, COS.outfit[cos.outfit], look.sex === 'f' ? G.heroine : G.knight); }
+  setHeroScale(a, heroScale(look));
   if (cos.cape && COS.cape[cos.cape]) capeColour(a, COS.cape[cos.cape].col, COS.cape[cos.cape].glow);
   a.root.position.set(p.x || 0, 0, p.z || 0);
   a.play('Idle');
@@ -1121,8 +1120,9 @@ let wb = null, wbSlot = -1, wbWarned = -1, wbDmg = 0, wbAt = 0, wbRemote = false
 const wbInfo = (t = Date.now()) => { const slot = Math.floor(t / WB_EVERY), into = t - slot * WB_EVERY; return { slot, spot: WB_SPOTS[slot % WB_SPOTS.length], live: into < WB_LIVE, left: WB_LIVE - into, next: (slot + 1) * WB_EVERY - t }; };
 const landName = (w) => (w === 'out' ? 'the Valley' : w === 'frost' ? 'Frostwhisker Peaks' : w === 'marsh' ? 'Gobbler Marsh' : 'Brassbolt Sands');
 const landOpen = (w) => w === 'out' || where === w || Object.keys(QUESTS).some((k) => QUESTS[k].land === w && S.quests[k] && S.quests[k].state !== 'todo');
+const WB_ON = false; // Callum asked to take the golden jelly world boss out
 function wbTick() {
-  if (!player || now < wbAt) return;
+  if (!WB_ON || !player || now < wbAt) return;
   wbAt = now + 1;
   const I = wbInfo();
   if (I.next < 60000 && wbWarned !== I.slot + 1 && !creator.open && heroLvl() >= 3) {
@@ -1373,7 +1373,7 @@ net.onChat = (m) => {
 };
 
 function startHero() {
-  player = new Actor(heroModel());
+  player = new Actor(heroModel(), { hide: heroSkel() ? SKEL_HIDE : [] });
   player.root.position.set(S.pos[0], 0, S.pos[1]);
   if (S.land && LANDS[S.land]) where = S.land;
   player.base = {};
@@ -1414,9 +1414,13 @@ const EYE_COLOURS = {
   pink: ['Pink', '#ff6fb0'], teal: ['Teal', '#1fb8b0'], amber: ['Amber', '#e08a1a'],
 };
 const EYE_STYLES = { round: 'Big and round', sharp: 'Determined', sleepy: 'Sleepy', happy: 'Happy', classic: 'Little dots' };
-const HEAD_SIZES = { normal: ['Normal', 1.1], big: ['Big', 1.28], chibi: ['Chibi', 1.43] };
+const HEAD_SIZES = { normal: ['Normal', 1.02], big: ['Big', 1.17], chibi: ['Chibi', 1.34] };
 // height slider: -1 (short) to 1 (tall); everyone is a touch bigger than before so outfits read clearly
-const heroScale = (L) => 1.3 * 1.04 * (1 + Math.max(-1, Math.min(1, +(L && L.height) || 0)) * 0.1);
+const heroScale = (L) => 1.3 * 1.05 * (1 + Math.max(-1, Math.min(1, +(L && L.height) || 0)) * 0.1);
+// heroes stand a little taller than the chunky models: still chibi, a bit closer to regular people.
+// The head is scaled back so it stays round.
+const TALL = 1.1;
+function setHeroScale(a, s) { a.tall = TALL; a.root.scale.set(s, s * TALL, s); }
 // a lower, closer camera than a straight top-down view, so you can see everyone's faces
 const CAM_OFF = new THREE.Vector3(0, 15, 26);
 const BEARDS = { none: 'None', stache: 'Moustache', curly: 'Curly moustache', goatee: 'Goatee', full: 'Big beard', wizard: 'Wizard beard' };
@@ -1580,7 +1584,7 @@ function headParts(a = player) {
 const NECK_DROP = 0.2;
 function headPose(a) {
   if (!a || !a.headInfo || !a.headScale) return;
-  const b = a.headInfo.bone; b.scale.setScalar(a.headScale);
+  const b = a.headInfo.bone; b.scale.setScalar(a.headScale); if (a.tall) b.scale.y /= a.tall;
   if (b.position.y !== a.headY) a.headBase = b.position.y;
   b.position.y = a.headBase - NECK_DROP * a.headScale; a.headY = b.position.y;
 }
@@ -1862,7 +1866,7 @@ function buildFace(a = player, L = S.look) {
     fg.add(e);
   }
   // the face group grows with the head bone, so shrink the neck by the head size or it pokes out of the collar
-  const hsz = HEAD_SIZES[L.head] ? HEAD_SIZES[L.head][1] : 1.28, nk = 1.4 / hsz;
+  const hsz = HEAD_SIZES[L.head] ? HEAD_SIZES[L.head][1] : 1.17, nk = 1.4 / hsz;
   const neck = new THREE.Mesh(neckGeo); registerMesh(neck, skinMat); neck.position.set(c.x, c.y - ry * (0.78 + 0.12 * nk), c.z - rz * 0.05); neck.scale.set(rx * 0.42 * Math.min(1, nk * 1.1), ry * 0.45 * nk, rz * 0.42 * Math.min(1, nk * 1.1)); fg.add(neck);
   // lift the knight helmet so its visor clears the big eyes and the chin guard stops hanging over the chest
   a.root.traverse((o) => {
@@ -1872,7 +1876,7 @@ function buildFace(a = player, L = S.look) {
   });
   const hc = new THREE.Color(hairOf(L)).multiplyScalar(0.78);
   addBeard(fg, L.beard, c, rx, ry, rz, toon(`#${hc.getHexString()}`));
-  a.headScale = HEAD_SIZES[L.head] ? HEAD_SIZES[L.head][1] : 1.28;
+  a.headScale = HEAD_SIZES[L.head] ? HEAD_SIZES[L.head][1] : 1.17;
   markStencil(fg);
   addInk(fg);
 }
@@ -1926,8 +1930,9 @@ function applyLook() {
   hairMats.std.color.copy(hcol); hairMats.toon.color.copy(hcol);
   const showHair = L.hair !== 'none' && !L.hat;
   const arm = ARMOUR[S.equip.armour] || ARMOUR.ar_cloth;
-  if (showHair) { let head; player.root.traverse((o) => { if (o.isBone && o.name === 'head') head = o; }); if (head) head.add(hairGroup(L.hair, L.hairLen)); }
-  buildFace(player, pathLook(L, S.path));
+  const skel = heroSkel();
+  if (showHair && !skel) { let head; player.root.traverse((o) => { if (o.isBone && o.name === 'head') head = o; }); if (head) head.add(hairGroup(L.hair, L.hairLen)); }
+  if (!skel) buildFace(player, pathLook(L, S.path));
   pathDecor(player, S.path);
   player.root.traverse((o) => {
     if (!o.isMesh || !o.userData.mats) return;
@@ -1948,8 +1953,8 @@ function applyLook() {
     }
   });
   dressArmour();
-  const ofC = cosState().eq.outfit; if (ofC && COS.outfit[ofC]) paintOutfit(player, COS.outfit[ofC]);
-  player.baseScale = heroScale(L); if (!tinyUntil) player.root.scale.setScalar(player.baseScale);
+  const ofC = cosState().eq.outfit; if (skel) skelPaint(player); else if (ofC && COS.outfit[ofC]) paintOutfit(player, COS.outfit[ofC]);
+  player.baseScale = heroScale(L); if (!tinyUntil) setHeroScale(player, player.baseScale);
   const capeC = cosState().eq.cape; if (capeC && COS.cape[capeC]) capeColour(player, COS.cape[capeC].col, COS.cape[capeC].glow);
   addInk(player.root);
   heroFlair();
@@ -1981,7 +1986,7 @@ const sashGeo = new THREE.TorusGeometry(1, 0.1, 6, 32), collarGeo = new THREE.To
 function dressOutfit(a, c, model, armour = null) {
   if (a.outfitParts) for (const m of a.outfitParts) m.removeFromParent();
   a.outfitParts = [];
-  if (!c || !model) return;
+  if (!c || !model || c.skin) return;
   if (!restRigs.has(model)) { const r = SkeletonUtils.clone(model.scene); r.scale.setScalar(1.3); r.updateMatrixWorld(true); const b = {}; r.traverse((o) => { if (o.isBone) b[o.name.replace(/[^a-z]/gi, '').toLowerCase()] = o; }); restRigs.set(model, b); }
   const rest = restRigs.get(model), live = {};
   a.root.traverse((o) => { if (o.isBone) live[o.name.replace(/[^a-z]/gi, '').toLowerCase()] = o; });
@@ -5077,7 +5082,7 @@ function lanternTick(dt) {
 
 // ---------- Light or Dark: the path choice ----------
 const PATHS = {
-  vampire: { name: 'Vampire', icon: 'fang', blurb: 'Take in the dark half. +12% damage, +6% speed, and you heal twice as fast. Small fangs and red eyes.' },
+  vampire: { name: 'Vampire', icon: 'fang', blurb: 'Take in the dark half. +12% damage, +6% speed, and you heal twice as fast. Little fangs, bat wings and a high dark collar (keep any eye colour you like).' },
   angel: { name: 'Angel', icon: 'halo', blurb: 'Take in the light half. +15% defense. A soft glowing halo and little feathered wings.' },
   human: { name: 'Human', icon: 'human', blurb: 'Touch neither. +15% max health. The villagers will call you "the stubborn one".' },
 };
@@ -5107,9 +5112,38 @@ function choosePath(k) {
   rebuildHero(); refreshUI(); save();
 }
 // fangs, red eyes, a halo and wings: built on the hero (and on other players) from their path
+// Vampires get folded bat wings with a blood-red lining, a tall dark collar and a faint crimson mist.
+const batWingGeo = (() => {
+  const sh = new THREE.Shape(); sh.moveTo(0, 0); sh.lineTo(0.95, 0.5); sh.lineTo(0.85, 0.12); sh.quadraticCurveTo(0.72, -0.02, 0.62, -0.18);
+  sh.quadraticCurveTo(0.5, -0.05, 0.4, -0.22); sh.quadraticCurveTo(0.28, -0.08, 0.16, -0.2); sh.lineTo(0, 0);
+  return new THREE.ShapeGeometry(sh, 6);
+})();
+function vampDecor(a) {
+  let head = null, chest = null;
+  a.root.traverse((o) => { if (o.isBone && o.name === 'head') head = o; if (o.isBone && o.name === 'chest') chest = o; });
+  const outer = toon('#2a1830'), inner = toon('#8a1424', { emissive: '#2a0006' });
+  for (const m of [outer, inner]) for (const k of ['std', 'toon']) m[k].side = THREE.DoubleSide;
+  if (chest) for (const sx of [-1, 1]) {
+    const w = new THREE.Group();
+    const o = new THREE.Mesh(batWingGeo); registerMesh(o, outer); o.scale.set(sx * 0.62, 0.62, 1);
+    const i = new THREE.Mesh(batWingGeo); registerMesh(i, inner); i.scale.set(sx * 0.5, 0.5, 1); i.position.set(sx * 0.04, 0.03, -0.01);
+    w.add(o, i); w.position.set(sx * 0.14, 0.3, -0.34); w.rotation.set(0.15, sx * 0.55, sx * 0.1); w.userData.bat = sx;
+    chest.add(w); a.pathDecor.push(w);
+  }
+  if (head && a.headInfo) {
+    // a high collar that flares up behind the jaw
+    const H = a.headInfo, y = H.box.min.y + 0.02;
+    const col = new THREE.Mesh(new THREE.CylinderGeometry(0.47, 0.3, 0.4, 20, 1, true, Math.PI * 0.42, Math.PI * 1.16)); registerMesh(col, outer);
+    col.position.set(0, y + 0.08, -0.04); col.rotation.x = -0.12; head.add(col); a.pathDecor.push(col);
+    const lin = new THREE.Mesh(new THREE.CylinderGeometry(0.44, 0.28, 0.38, 20, 1, true, Math.PI * 0.44, Math.PI * 1.12)); registerMesh(lin, inner);
+    lin.position.copy(col.position); lin.rotation.copy(col.rotation); head.add(lin); a.pathDecor.push(lin);
+  }
+  for (const o of a.pathDecor) addInk(o);
+}
 function pathDecor(a, path) {
   if (a.pathDecor) { for (const o of a.pathDecor) o.removeFromParent(); }
   a.pathDecor = [];
+  if (path === 'vampire') { vampDecor(a); return; }
   if (path !== 'angel') return;
   let head = null, chest = null;
   a.root.traverse((o) => { if (o.isBone && o.name === 'head') head = o; if (o.isBone && o.name === 'chest') chest = o; });
@@ -5126,10 +5160,13 @@ function pathDecor(a, path) {
   }
   for (const o of a.pathDecor) addInk(o);
 }
-const pathLook = (L, path) => (path === 'vampire' ? { ...L, eyes: 'red', mouth: 'fang' } : L);
+const pathLook = (L, path) => (path === 'vampire' ? { ...L, mouth: 'fang' } : L); // vampires keep whatever eye colour they chose
 function wingTick() {
   if (!player || !player.pathDecor) return;
-  for (const w of player.pathDecor) if (w.isGroup) w.rotation.z = Math.sin(now * 3) * 0.12 * Math.sign(w.position.x);
+  for (const w of player.pathDecor) if (w.isGroup) {
+    if (w.userData.bat) { w.rotation.y = w.userData.bat * (0.55 + Math.sin(now * 2.2) * 0.12); if (rng() < 0.02) burst(player.pos.clone().setY(0.4 + rng()), '#b0203a', 1, 0.8); }
+    else w.rotation.z = Math.sin(now * 3) * 0.12 * Math.sign(w.position.x);
+  }
 }
 // Sir Soggington dries out in Lilypad Landing once he's beaten, and drills the tadpoles.
 let soggFriend = null;
@@ -6396,10 +6433,27 @@ function rebuildHero() {
   startHero();
   S.hp = hp; player.root.position.copy(pos); player.root.rotation.y = rot;
 }
-function heroModel() { return S.look.sex === 'f' ? G.heroine : G.knight; }
+// the Mythic Dark Skeleton look swaps your whole body for a skeleton's
+const isSkel = (cos) => { const c = cos && cos.outfit && COS.outfit[cos.outfit]; return !!(c && c.skin === 'skeleton'); };
+const heroSkel = () => isSkel(cosState().eq);
+function heroModel() { return heroSkel() ? G.skel_minion : S.look.sex === 'f' ? G.heroine : G.knight; }
+const SKEL_HIDE = ['Skeleton_Blade_1'];
+// dark bones, a tattered violet cloak and glowing eyes
+function skelPaint(a) {
+  a.root.traverse((o) => {
+    if (!o.isMesh || !o.userData.mats || Array.isArray(o.userData.mats.toon) || !/^Skeleton_/.test(o.name)) return;
+    if (!o.userData.ownMats) { o.userData.ownMats = { std: o.userData.mats.std.clone(), toon: o.userData.mats.toon.clone() }; o.userData.ownMats.toon.onBeforeCompile = o.userData.mats.toon.onBeforeCompile; o.userData.mats = o.userData.ownMats; o.material = styled.on ? o.userData.mats.toon : o.userData.mats.std; }
+    const eyes = /_Eyes$/.test(o.name), cloak = /_Cloak$/.test(o.name);
+    for (const m of [o.userData.mats.std, o.userData.mats.toon]) {
+      if (eyes) { m.color.set('#d9a8ff'); if (m.emissive) m.emissive.set('#a050ff').multiplyScalar(1.2); continue; }
+      colourise(m, cloak ? 0.9 : 0.55); m.color.set(cloak ? '#3a2458' : '#5a5470');
+      if (m.emissive) m.emissive.set(cloak ? '#1a0830' : '#120c22');
+    }
+  });
+}
 // The female body has no sword, shield or helmet of its own, so it borrows the knight's.
 function borrowKnightGear() {
-  if (S.look.sex !== 'f') return;
+  if (heroModel() === G.knight) return;
   const src = {}; G.knight.scene.traverse((o) => { if (['1H_Sword', 'Badge_Shield', 'Knight_Helmet'].includes(o.name)) src[o.name] = o; });
   const bones = {}; player.root.traverse((o) => { if (o.isBone) bones[o.name] = o; });
   for (const [nm, o] of Object.entries(src)) {
@@ -7301,13 +7355,13 @@ function spotEffect(kind, s) {
 var tinyUntil = 0;
 function setTiny(sec) {
   if (!sec) return;
-  if (!player.baseScale) player.baseScale = player.root.scale.x;
-  tinyUntil = now + sec; player.root.scale.setScalar(player.baseScale * 0.55);
+  if (!player.baseScale) player.baseScale = heroScale(S.look);
+  tinyUntil = now + sec; setHeroScale(player, player.baseScale * 0.55);
   burst(player.pos.clone().setY(1), '#ff9af0', 40, 5);
 }
 function tinyTick(dt) {
   if (player && player.spinUntil && now < player.spinUntil) player.root.rotation.y += dt * 16;
-  if (tinyUntil && now > tinyUntil) { tinyUntil = 0; player.root.scale.setScalar(player.baseScale); burst(player.pos.clone().setY(1), '#ffffff', 30, 4); toast('Pop! Back to full size.'); }
+  if (tinyUntil && now > tinyUntil) { tinyUntil = 0; setHeroScale(player, player.baseScale); burst(player.pos.clone().setY(1), '#ffffff', 30, 4); toast('Pop! Back to full size.'); }
 }
 function removeEnemy(e) {
   scene.remove(e.root);
@@ -7324,8 +7378,9 @@ function setGolden(e, on) {
   if (on) { e.golden = true; e.goldUntil = now + 45; e.goldCols = e.flashMats.map((m) => m.color.clone()); e.flashMats.forEach((m) => m.color.set('#ffe066')); }
   else { e.golden = false; if (e.goldCols) e.flashMats.forEach((m, i) => m.color.copy(e.goldCols[i])); if (goldenE === e) goldenE = null; }
 }
+const GOLDEN_ON = false; // golden monsters are switched off (Callum's call)
 function goldenTick() {
-  if (!player || player.dead || where !== 'out') return;
+  if (!GOLDEN_ON || !player || player.dead || where !== 'out') return;
   if (goldenE) {
     const e = goldenE;
     if (e.hp > 0 && rng() < 0.25) burst(e.pos.clone().setY(1 + rng() * 2), '#ffe07a', 2, 1.5);
@@ -7398,6 +7453,7 @@ const COS = {
     paladin: { name: 'Paladin white', r: 3, body: '#fbf8ef', trim: '#ffc22e', glow: 0.18, how: 'drop' }, bog: { name: 'Bog witch', r: 3, body: '#5a8a4a', trim: '#b06ae8', glow: 0.12, how: 'drop' },
     dragon: { name: 'Dragonscale', r: 4, body: '#c8361a', trim: '#ffb02e', glow: 0.3, how: 'drop' },
     starlight: { name: 'Starlight regalia', r: 5, body: '#2a2a78', trim: '#ffe27a', glow: 0.35, shimmer: true, how: 'drop' },
+    skeleton: { name: 'Dark Skeleton', r: 5, body: '#5a5470', trim: '#a050ff', skin: 'skeleton', how: 'drop' },
   },
   cape: {
     crimson: { name: 'Crimson cape', r: 0, col: '#c8323a', how: 'drop' }, sky: { name: 'Sky cape', r: 0, col: '#6ab4f0', how: 'drop' },
@@ -7410,7 +7466,7 @@ const COS = {
   },
   aura: {
     leaf: { name: 'Leafy aura', r: 0, col: '#8ad86a', how: 'drop' }, bubble: { name: 'Bubble aura', r: 1, col: '#9ae8ff', how: 'drop' },
-    gold: { name: 'Golden harvest aura', r: 2, col: '#ffe08a', how: 'Gather from 10 golden trees or rocks' }, sakura: { name: 'Sakura aura', r: 2, col: '#ff9ac8', how: 'drop' }, jelly: { name: 'Royal jelly aura', r: 2, col: '#ffd84a', how: 'Help beat King Wobblegut' },
+    gold: { name: 'Golden harvest aura', r: 2, col: '#ffe08a', how: 'Gather from 10 golden trees or rocks' }, sakura: { name: 'Sakura aura', r: 2, col: '#ff9ac8', how: 'drop' }, jelly: { name: 'Royal jelly aura', r: 2, col: '#ffd84a', how: 'drop' },
     frost: { name: 'Frost aura', r: 3, col: '#7fe8ff', how: 'Defeat Queen Frostwhisker' }, royal: { name: 'Royal aura', r: 3, col: '#b06ae8', how: 'Reach level 45 (Champion)' }, storm: { name: 'Storm aura', r: 3, col: '#a8c8ff', how: 'drop' },
     rose: { name: 'Rose aura', r: 4, col: '#ff5a9a', how: 'Be worth 100,000 coins' }, sun: { name: 'Sunfire aura', r: 4, col: '#ffa02e', how: 'Defeat the Brassbolt Colossus' }, inferno: { name: 'Inferno aura', r: 4, col: '#ff5a1a', how: 'drop' },
     void: { name: 'Void aura', r: 5, col: '#7a3aff', how: 'Reach level 90 (Mythic)' }, prism: { name: 'Prism aura', r: 5, col: '#ff6ad5', shimmer: true, how: 'drop' },
@@ -7418,7 +7474,7 @@ const COS = {
   trail: {
     leaves: { name: 'Leaf trail', r: 0, col: '#8ad86a', how: 'drop' }, sparkle: { name: 'Sparkle trail', r: 1, col: '#fff2a0', how: 'Reach level 10' }, petals: { name: 'Petal trail', r: 1, col: '#ffb0d8', how: 'drop' },
     ember: { name: 'Ember trail', r: 2, col: '#ff8a3a', how: 'Defeat Gagron' }, frost: { name: 'Snowflake trail', r: 2, col: '#dff6ff', how: 'Defeat Grumblefrost' }, bubbles: { name: 'Bubble trail', r: 2, col: '#b8ffd8', how: 'Defeat Mother Mire' },
-    hearts: { name: 'Heart trail', r: 3, col: '#ff8ac8', how: 'Catch a golden monster' }, stars: { name: 'Star trail', r: 3, col: '#ffe27a', how: 'drop' },
+    hearts: { name: 'Heart trail', r: 3, col: '#ff8ac8', how: 'drop' }, stars: { name: 'Star trail', r: 3, col: '#ffe27a', how: 'drop' },
     shadow: { name: 'Shadow trail', r: 4, col: '#6a3aa8', how: 'Reach level 90 (Mythic)' }, rainbow: { name: 'Rainbow trail', r: 5, col: '#ff6ad5', shimmer: true, how: 'drop' },
   },
 };
@@ -7492,7 +7548,7 @@ function titleList() {
     ['nemesis', "Pompington's Nemesis", 'Defeat Pompington', beaten('boss_pomp')], ['breaker', 'Colossus Breaker', 'Defeat the Brassbolt Colossus', beaten('boss_colossus')],
     ['night', 'Child of the Night', 'Choose the Vampire path', S.path === 'vampire'], ['halo', 'Halo Bearer', 'Choose the Angel path', S.path === 'angel'], ['stubborn', 'The Stubborn One', 'Choose the Human path', S.path === 'human'],
     ['mayor', 'The Mayor', 'Free a monster town', Object.keys(S.towns || {}).length > 0], ['tycoon', 'Tycoon', 'Be worth 100,000 coins', S.started && netWorth() >= 100000],
-    ['worldbreaker', 'Worldbreaker', 'Help beat King Wobblegut', (S.wbKills || 0) > 0],
+    ['worldbreaker', 'Worldbreaker', 'Helped beat King Wobblegut (retired)', (S.wbKills || 0) > 0],
     ['gatherer', 'Master Gatherer', 'Reach level 50 in any gathering skill', SKILLS.some(([k]) => lvl(k) >= 50)],
   ];
   for (const [id, name, how, ok] of extra) T.push({ id, name, how, ok: !!ok, col: '#e8a93a' });
@@ -7759,7 +7815,7 @@ function dollList() {
       const have = got[`${sl}:${k}`], on = C.eq[sl] === k, R = RARITY[c.r || 0];
       return `<button class="cosrow ${R.id} ${have ? '' : 'locked'}" data-cos="${sl}:${k}" aria-pressed="${on}" ${have ? '' : 'disabled'}><span class="swatch" style="--sw:${c.col || c.body || '#e8a93a'}${c.trim ? `;--sw2:${c.trim}` : ''}"></span><b>${c.name}</b><i class="rar">${R.name}</i><small>${have ? (on ? 'Wearing' : 'Tap to wear') : `Locked: ${cosLabel(c)}`}</small></button>`;
     }).join('');
-    return `<h4 class="sub">${COS_SLOTS[sl]}s <small>${Object.keys(COS[sl]).filter((k) => got[`${sl}:${k}`]).length} of ${Object.keys(COS[sl]).length} found</small></h4><div class="coslist">${C.eq[sl] ? `<button class="cosrow" data-cos="${sl}:">Take it off</button>` : ''}${rows}</div><p class="hint">Looks never change your stats. You earn them only by playing: beating bosses, reaching new ranks, catching golden monsters and freeing towns.</p>`;
+    return `<h4 class="sub">${COS_SLOTS[sl]}s <small>${Object.keys(COS[sl]).filter((k) => got[`${sl}:${k}`]).length} of ${Object.keys(COS[sl]).length} found</small></h4><div class="coslist">${C.eq[sl] ? `<button class="cosrow" data-cos="${sl}:">Take it off</button>` : ''}${rows}</div><p class="hint">Looks never change your stats. You earn them only by playing: beating bosses, reaching new ranks and freeing towns.</p>`;
   }
   const cur = GEAR[S.equip[dollSlot]];
   const mine = S.owned.filter((k) => GEAR[k] && GEAR[k].slot === dollSlot);
@@ -7889,7 +7945,7 @@ function renderBag(el) {
   el.querySelectorAll('[data-bagsort]').forEach((b) => { b.onclick = () => { bagSort(b.dataset.bagsort); renderSheet(); }; });
   el.querySelectorAll('[data-pin]').forEach((b) => { b.onclick = () => { pinToHotbar(b.dataset.pin); renderSheet(); }; });
   el.querySelectorAll('[data-gear]').forEach((b) => { b.onclick = () => { const g = GEAR[b.dataset.gear]; S.equip[g.slot] = g.slot === 'gadget' && S.equip.gadget === b.dataset.gear ? null : b.dataset.gear; cancelTask(); equipGear(); buildGearBar(); updateTitle(); save(); renderSheet(); burst(player.pos.clone().setY(1.6), '#ffe07a', 20, 4); sfx('equip'); }; });
-  el.querySelectorAll('[data-cos]').forEach((b) => { b.onclick = () => { const [sl, k] = b.dataset.cos.split(':'); const C = cosState(); C.eq[sl] = k && C.eq[sl] !== k ? k : null; if (sl === 'cape' || sl === 'outfit') applyLook(); heroFlair(); save(); renderSheet(); burst(player.pos.clone().setY(1.6), '#ffe07a', 24, 4); }; });
+  el.querySelectorAll('[data-cos]').forEach((b) => { b.onclick = () => { const [sl, k] = b.dataset.cos.split(':'); const C = cosState(); const wasSkel = heroSkel(); C.eq[sl] = k && C.eq[sl] !== k ? k : null; if (sl === 'outfit' && wasSkel !== heroSkel()) { rebuildHero(); if (net.on) profileKey = ''; } else if (sl === 'cape' || sl === 'outfit') applyLook(); heroFlair(); save(); renderSheet(); burst(player.pos.clone().setY(1.6), '#ffe07a', 24, 4); }; });
   el.querySelectorAll('[data-title]').forEach((b) => { b.onclick = () => { S.title = b.dataset.title; save(); renderSheet(); }; });
 }
 
@@ -8077,7 +8133,7 @@ function openMayor(npc) {
     const dd = $('dialog'), omen0 = (S.inv.dark_omen || 0) > 0;
     dd.innerHTML = `<h3>${T0.name} town hall</h3><p>Welcome, traveller! Our town is run by Mayor ${r.mayor_name || 'a friend'}. Taxes go to them every game week.</p>
       <div class="mayorgrid"><div><small>Mayor</small><b>${r.mayor_name || '?'}</b></div><div><small>Town</small><b>${TOWN_LEVELS[r.lvl || 0].name}</b></div><div><small>Weekly taxes</small><b>${fmt(weeklyTax(T0))}</b></div><div><small>Town worth</small><b>${fmt(townValue(T0))}</b></div></div>
-      <p class="mnote">${omen0 ? 'You carry a Dark Omen. Use it here and the monsters return. Beat their tyrant and the town is yours.' : 'Want this town? Find a Dark Omen (bosses and golden monsters drop them), bring it here, then beat the monsters it releases.'}</p>
+      <p class="mnote">${omen0 ? 'You carry a Dark Omen. Use it here and the monsters return. Beat their tyrant and the town is yours.' : 'Want this town? Find a Dark Omen (bosses drop them), bring it here, then beat the monsters it releases.'}</p>
       <div class="row wrap">${omen0 ? '<button id="m-omen" class="danger">Use a Dark Omen here</button>' : ''}<button id="m-bye">Goodbye</button></div>`;
     if ($('m-omen')) $('m-omen').onclick = () => {
       const btn = $('m-omen');
