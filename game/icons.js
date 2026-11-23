@@ -182,6 +182,15 @@ export const ICONS = {
     for (const x of [-16, 0, 16]) shape(g, '#7fd3ff', () => g.arc(x, 12, 4.5, 0, 7));
     shine(g, -20, -2, 4);
   }),
+  dark_omen: make((g) => {
+    // a cracked purple orb with a glowing eye inside
+    shape(g, '#5a2a8a', () => g.arc(0, 2, 30, 0, 7));
+    shape(g, '#9a5ae0', () => g.arc(-4, -2, 20, 0, 7));
+    shape(g, '#ffe066', () => g.ellipse(0, 2, 14, 8, 0, 0, 7));
+    shape(g, '#2a0a3a', () => g.ellipse(0, 2, 4, 7, 0, 0, 7));
+    g.strokeStyle = '#2a0a3a'; g.lineWidth = 3; g.beginPath(); g.moveTo(10, -26); g.lineTo(4, -14); g.lineTo(12, -8); g.stroke();
+    shine(g, -16, -14, 5);
+  }),
   dragon_scale: make((g) => {
     shape(g, '#e0452a', () => { g.moveTo(0, -32); g.quadraticCurveTo(30, -20, 26, 6); g.quadraticCurveTo(18, 26, 0, 34); g.quadraticCurveTo(-18, 26, -26, 6); g.quadraticCurveTo(-30, -20, 0, -32); });
     shape(g, '#ffb347', () => { g.moveTo(0, -18); g.quadraticCurveTo(16, -10, 13, 6); g.quadraticCurveTo(8, 18, 0, 22); g.quadraticCurveTo(-8, 18, -13, 6); g.quadraticCurveTo(-16, -10, 0, -18); });

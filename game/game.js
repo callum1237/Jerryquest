@@ -3,7 +3,7 @@ import { THREE, scene, camera, renderer, sun, sky, PRESETS, env, applyPreset, bl
   loadModel, burst, updateParticles, render, rng } from './engine.js';
 import * as SkeletonUtils from 'three/addons/utils/SkeletonUtils.js';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
-import { buildWorld, buildFlowers, place, colliders, clouds, dynamic, LAKE, CAMP, MINE, S_NATURE, blocked, isFree, ZONES, WORLD_R, VS, TOWNS, ROADS } from './world.js';
+import { buildWorld, buildFlowers, place, tentAt, S_PROP, S_BUILD, colliders, clouds, dynamic, LAKE, CAMP, MINE, S_NATURE, blocked, isFree, ZONES, WORLD_R, VS, TOWNS, ROADS } from './world.js';
 import { LANDS, VALLEY_DOCK, buildLands, makeSnow } from './lands.js';
 import { ICONS } from './icons.js';
 import { buildInteriors, INTERIORS, lavaPools } from './interiors.js';
@@ -59,6 +59,7 @@ const ITEMS = {
   bone_dust: 'Bone dust', dark_essence: 'Dark essence',
   dragon_scale: "Gagron's fire scale", silver_ring: 'Silver ring', ruby: 'Ruby', golden_crown: 'Tiny golden crown',
   lucky_sock: "Bonecrusher's lucky sock", frost_crown: "Queen Frostwhisker's ice crown", gloom_hat: "Gloomcaster's droopy hat", rattle_tooth: "Rattlebones' gold tooth",
+  dark_omen: 'Dark Omen',
 };
 // Food heals; bought from Marta's stall in the market.
 const FOOD = { bread: { heal: 8, price: 8 }, pie: { heal: 20, price: 20 }, stew: { heal: 40, price: 40 }, grilled_shrimp: { heal: 6 }, grilled_trout: { heal: 14 }, fish_pie: { heal: 32 } };
@@ -109,7 +110,7 @@ const gearStats = (g) => (g.slot === 'weapon'
 const BOSS_WEAPON = { boss_gagron: 'k_flame', boss_crusher: 'k_cleaver', boss_gloom: 'm_gloom', boss_rattle: 'a_rattle' };
 const DARK_KING = 'Morgoth the Menacing'; // working name, change it here
 // Everything can be sold. Treasures (rings, rubies, crowns) are rare drops worth a lot.
-const SELL = { grilled_shrimp: 5, grilled_trout: 12, fish_pie: 26, dragon_scale: 90, bread: 4, pie: 10, stew: 20, silver_ring: 40, ruby: 120, golden_crown: 400, bone_dust: 3, dark_essence: 15, lucky_sock: 60, frost_crown: 300, gloom_hat: 60, rattle_tooth: 60, logs: 3, oak_logs: 6, copper_ore: 4, iron_ore: 8, shrimp: 3, trout: 8, bones: 2 };
+const SELL = { grilled_shrimp: 5, grilled_trout: 12, fish_pie: 26, dragon_scale: 90, bread: 4, pie: 10, stew: 20, silver_ring: 40, ruby: 120, golden_crown: 400, bone_dust: 3, dark_essence: 15, lucky_sock: 60, frost_crown: 300, gloom_hat: 60, rattle_tooth: 60, dark_omen: 500, logs: 3, oak_logs: 6, copper_ore: 4, iron_ore: 8, shrimp: 3, trout: 8, bones: 2 };
 const NODES = {
   tree: { skill: 'woodcutting', req: 1, xp: 25, item: 'logs', name: 'Tree', verb: 'Chop', doing: 'Chopping', deplete: 0.3, respawn: 14 },
   oak: { skill: 'woodcutting', req: 5, xp: 40, item: 'oak_logs', name: 'Oak tree', verb: 'Chop', doing: 'Chopping', deplete: 0.22, respawn: 20 },
@@ -1699,6 +1700,7 @@ function rollLoot(e) {
   if (e.T.boss) {
     give('dark_essence', 3);
     if (rng() < 0.4) give('ruby');
+    if (rng() < 0.06) { give('dark_omen'); toast('A DARK OMEN! Take it to a freed town to call the monsters back.', ICONS.dark_omen, true); }
     if (rng() < 0.12) { give('golden_crown'); toast('A tiny golden crown! Marta will pay a fortune for that.', ICONS.golden_crown, true); }
     const wk = BOSS_WEAPON[e.type];
     if (wk && !S.owned.includes(wk) && rng() < 0.35) { S.owned.push(wk); popLoot(at, 'chest', 0.6); toast(`RARE DROP: ${WEAPONS[wk].name} (${gearStats(WEAPONS[wk])})! Equip it from your bag.`, ICONS[WEAPONS[wk].type], true); }
@@ -1924,7 +1926,7 @@ function renderSheet() {
       const l = lvl(k), c0 = XPT[l], n0 = XPT[Math.min(99, l + 1)];
       const pc = l >= 99 ? 100 : ((S.xp[k] - c0) / (n0 - c0)) * 100;
       return `<div class="skill" title="${Math.floor(S.xp[k])} XP"><img src="${ICONS[k]}" alt=""><span class="nm">${nm}</span><span class="lv">${l}</span><div class="xp"><i style="width:${pc}%"></i></div></div>`;
-    }).join('')}</div><p class="hint">Gathering skills level up as you use them. Speed rises as you travel and makes you run faster.</p>`;
+    }).join('')}</div><p class="hint">Gathering skills level up as you use them. Speed rises as you travel and makes you run faster.</p>${worthHtml()}`;
     el.querySelectorAll('[data-stat]').forEach((b) => { b.onclick = () => spendPoint(b.dataset.stat); });
   } else if (sheetMode === 'bag') {
     const items = Object.entries(S.inv);
@@ -2216,6 +2218,7 @@ function finishQuest(id, npc) {
 function openDialog(npc) {
   if (npc.crew) { openCrewTalk(npc); return; }
   if (npc.sail) { openSail(npc); return; }
+  if (npc.clerk) { openMayor(npc); return; }
   if (npc.lines) { openTalk(npc); return; }
   if (npc.king) { openKing(npc); return; }
   if (npc.bank) { openBank(npc); return; }
@@ -3248,6 +3251,15 @@ function drawMap(cv, full) {
       g.beginPath(); g.roundRect(u - w / 2, v - h * 0.72, w, h, 6 * dpr); g.fill(); g.stroke();
       g.fillStyle = '#fff3c4'; g.fillText(name, u, v + 1 * dpr);
     }
+    // under each town: who is mayor, or that monsters hold it
+    if (!Lm) {
+      g.font = `700 ${fs * 0.82 * dpr}px Fredoka, Trebuchet MS, sans-serif`;
+      for (const T of TOWNS) {
+        const [u, v] = toPx(T.x, T.z - 9), txt = townFree(T.id) ? `Mayor ${mayorName(T)}` : 'Monsters!';
+        g.lineWidth = 3 * dpr; g.strokeStyle = '#3a2010'; g.strokeText(txt, u, v + fs * 1.45 * dpr); g.fillStyle = townFree(T.id) ? '#bfe6ff' : '#ffb0b8'; g.fillText(txt, u, v + fs * 1.45 * dpr);
+      }
+      g.font = `700 ${fs * dpr}px Fredoka, Trebuchet MS, sans-serif`;
+    }
     // compass
     const cxp = W - 30 * dpr, cyp = 34 * dpr;
     g.beginPath(); g.arc(cxp, cyp, 18 * dpr, 0, 7); g.fillStyle = '#fff3c4'; g.fill(); g.lineWidth = 2.5 * dpr; g.strokeStyle = '#3a2010'; g.stroke();
@@ -3303,6 +3315,7 @@ const DAY_KEYS = [[0, 'day'], [0.46, 'day'], [0.54, 'golden'], [0.6, 'golden'], 
 let dayLast = '', dayPhase = '';
 function dayTick(dt, force) {
   const mode = S.tod || 'cycle';
+  S.gameDays = (S.gameDays || 0) + dt / DAY_LEN;
   if (mode === 'cycle') S.dayT = ((S.dayT || 0) + dt / DAY_LEN) % 1;
   const indoors = where !== 'out' && !LANDS[where];
   let a = 'day', b = 'day', k = 0;
@@ -3321,7 +3334,7 @@ function dayTick(dt, force) {
   blendPresets(a, b, k);
   const phase = a + '>' + b;
   if (!force && phase !== dayPhase && !indoors) {
-    if (phase === 'night>golden') toast('The sun is coming up. Good morning!');
+    if (phase === 'night>golden') toast(`The sun is coming up. Good morning! Day ${dayOfWeek()} of the week.`);
     if (phase === 'golden>night') toast('Night falls. The fireflies come out.');
   }
   dayPhase = phase;
@@ -4189,7 +4202,7 @@ const TOWN_MIX = {
   3: ['skel_warrior', 'skel_warrior', 'skel_mage', 'skel_mage', 'skel_warrior', 'skel_minion', 'skel_mage'],
 };
 const TOWN_FOLK = {
-  thornbury: [{ name: 'Mayor Tuppence', model: 'barbarian', look: { skin: 'tan', eyes: 'brown', eyeStyle: 'happy', mouth: 'grin', hair: 'none', beard: 'curly', hairCol: 'snow', head: 'chibi' }, tint: '#ffd9a8' },
+  thornbury: [{ name: 'Tuppence', model: 'barbarian', look: { skin: 'tan', eyes: 'brown', eyeStyle: 'happy', mouth: 'grin', hair: 'none', beard: 'curly', hairCol: 'snow', head: 'chibi' }, tint: '#ffd9a8' },
     { name: 'Clover', model: 'heroine', look: { sex: 'f', skin: 'peach', eyes: 'green', eyeStyle: 'round', mouth: 'smile', hair: 'twin', hairLen: 'shoulder', hairCol: 'ginger', mark: 'freckles' }, tint: '#c8f0a0' }],
   mossbrook: [{ name: 'Elder Willow', model: 'mage', look: { sex: 'f', skin: 'porcelain', eyes: 'sky', eyeStyle: 'sleepy', mouth: 'calm', hair: 'bun', hairCol: 'snow', mark: 'rosy' }, tint: '#a8e0c8' },
     { name: 'Pebble', model: 'knight', look: { skin: 'bronze', eyes: 'gold', eyeStyle: 'round', mouth: 'grin', hair: 'spiky', hairCol: 'black' }, tint: '#ffe08a' }],
@@ -4216,10 +4229,12 @@ function buildTownMonsters() {
 }
 // after loading a save: towns you already freed stay free
 function applyTowns() {
-  for (const T of TOWNS) if (townFree(T.id)) liberateTown(T, true);
+  for (const T of TOWNS) if (!T.signTex) buildTownSign(T);
+  for (const T of TOWNS) { if (townFree(T.id)) liberateTown(T, true); else applyTownLooks(T); }
 }
 function liberateTown(T, quiet = false) {
-  S.towns = S.towns || {}; S.towns[T.id] = true;
+  S.towns = S.towns || {}; if (!S.towns[T.id]) S.towns[T.id] = heroName();
+  for (const n of T.folk || []) { n.inside = undefined; n.actor.root.visible = true; }
   T.flagRed.visible = false; T.flagBlue.visible = true;
   for (const o of T.junk) o.visible = false;
   for (const o of T.homely) o.visible = true;
@@ -4237,29 +4252,22 @@ function liberateTown(T, quiet = false) {
     T.folk = (TOWN_FOLK[T.id] || []).map((f, i) => {
       const a = (i ? -0.9 : 0.9) + Math.atan2(-T.z, -T.x);
       return makeNpc({ id: `${T.id}_folk${i}`, name: f.name, model: f.model, x: T.x + Math.cos(a) * 4, z: T.z + Math.sin(a) * 4, hide: [], tint: f.tint, look: f.look,
-        lines: [`Thank you, hero! ${T.name} is ours again!`, `We send a share of our coins to your bank every few minutes. It is the least we can do.`, `The monsters left an awful mess. And they never once wiped their feet.`] });
+        clerk: i === 0 ? T.id : undefined,
+        lines: [`Thank you, Mayor! ${T.name} is ours again!`, `We pay our taxes into your bank every game week. Talk to the town clerk to spend them on the town!`, `The monsters left an awful mess. And they never once wiped their feet.`] });
     });
+    T.folk[0].name = `${T.folk[0].name}, town clerk`;
   }
+  applyTownLooks(T);
   if (quiet) return;
   const coins = 120 * T.stars, xp = 600 * T.stars;
   S.coins += coins; giveHeroXp(xp, new THREE.Vector3(T.x, 5, T.z));
-  later(1.2, () => { sfx('win'); toast(`${T.name} is free! The townsfolk cheer and give you ${coins} coins. From now on they send coins to your bank.`, ICONS.coins, true); });
+  later(1.2, () => { sfx('win'); toast(`${T.name} is free, and you are its new Mayor! The citizens give you ${coins} coins and will pay taxes every game week. Talk to the town clerk to upgrade the town.`, ICONS.coins, true); });
   burst(new THREE.Vector3(T.x, 4, T.z), '#8fd0ff', 90, 9, 1.8);
   burst(new THREE.Vector3(T.x, 2, T.z), '#ffe07a', 60, 6, 1.4);
   floatText(new THREE.Vector3(T.x, 6, T.z), `${T.name} freed!`, 'gain');
   refreshUI(); save();
 }
-let taxAt = 240;
-function townTick() {
-  if (!player || now < taxAt) return;
-  taxAt = now + 240;
-  const freed = TOWNS.filter((T) => townFree(T.id));
-  if (!freed.length) return;
-  const amount = freed.reduce((a, T) => a + 15 * T.stars, 0);
-  S.bank = (S.bank || 0) + amount; sfx('coin');
-  toast(`${freed.map((T) => T.name).join(' and ')} sent ${amount} coins to your bank.`, ICONS.coins);
-  refreshUI(); save();
-}
+function townTick() { mayorTick(); }
 
 // ---------- crew ----------
 // Adventurers who live around the valley. Talk to them (or open the Crew menu) to set each one as:
@@ -4778,6 +4786,7 @@ function goldenCaught(e) {
   burst(e.pos.clone().setY(2), '#ffe07a', 90, 8, 1.6); sfx('jackpot');
   floatText(e.pos.clone().setY(3), `+${c} coins`, 'gain');
   toast(`You caught the golden ${e.T.name}! ${c} coins!`, ICONS.coins, true);
+  if (rng() < 0.2) { addItem('dark_omen'); later(0.6, () => toast('It dropped a DARK OMEN! Take it to a freed town to call the monsters back.', ICONS.dark_omen, true)); }
   later(1.2, () => { if (!roulette && !player.dead) spinWheel('Golden Roulette!'); });
 }
 
@@ -4822,7 +4831,210 @@ function pompTick(dt) {
   faceTick(pomp);
 }
 
-window.__jq = { renderer, scene, spots, spotEffect, setGolden, goldenCaught, pompArrive, get goldenE() { return goldenE; }, spinWheel, dayTick, get bossIntro() { return bossIntro; }, bossSkip, startBossScene, sailTo, regions, closeSheet, renderHotbar, crew, setCrewMode, TOWNS, liberateTown, chests, openChest, stopRoulette, enemies, startBossIntro, closeDialog, advanceDialog, dash, attackPress, craft, CRAFTS, openCreator, closeCreator, creator, rebuildHero, setZoom: (z) => { zoom = z; }, hurtEnemy, goThrough, get where() { return where; }, INTERIORS, equipGear, spendPoint, giveHeroXp, heroLvl, stat, maxHp, defDiv, openWeaponShop, openKing, jump, eat, eatBest, openShop, swing, swingTarget, hitNode, projectiles, timers, get S() { return S; }, get player() { return player; }, enemies, nodes, npcs, startTask, doAction, giveXp, save, openSheet, openDialog };
+// ===================== v29: mayors, taxes, net worth and the Dark Omen =====================
+// Free a town and you become its mayor. Citizens pay taxes once every game week (7 in-game days,
+// so about 2 hours 48 minutes of play), straight into your bank. Spend coins on upgrades to make
+// the town grander and the taxes bigger. Upgrades take in-game time to build.
+const WEEK_DAYS = 7;
+const TOWN_LEVELS = [
+  { name: 'Freed town' },
+  { name: 'Market town', cost: 250, days: 0.5, what: 'a market with stalls and crates' },
+  { name: 'Busy town', cost: 700, days: 1, what: 'a watchtower and a grain store' },
+  { name: 'Grand town', cost: 1600, days: 2, what: 'a golden fountain with your statue' },
+];
+const townLvl = (T) => (S.townLvl && S.townLvl[T.id]) || 0;
+const townBuild = (T) => S.townBuild && S.townBuild[T.id];
+const mayorName = (T) => (typeof (S.towns || {})[T.id] === 'string' ? S.towns[T.id] : heroName());
+const weeklyTax = (T) => Math.round(400 * T.stars * (1 + 0.75 * townLvl(T)));
+const upgradeCost = (T, l) => TOWN_LEVELS[l].cost * T.stars;
+function townValue(T) {
+  let v = 1000 * T.stars + weeklyTax(T) * 2;
+  for (let l = 1; l <= townLvl(T); l++) v += upgradeCost(T, l);
+  return v;
+}
+const fmt = (n) => Math.round(n).toLocaleString('en-GB');
+const gameDay = () => Math.floor(S.gameDays || 0) + 1;
+const dayOfWeek = () => (Math.floor(S.gameDays || 0) % WEEK_DAYS) + 1;
+function untilTax() { const d = WEEK_DAYS - ((S.gameDays || 0) % WEEK_DAYS); return d; }
+function daysText(d) {
+  const hrs = Math.max(1, Math.round(d * 24)), dd = Math.floor(hrs / 24), hh = hrs % 24;
+  return [dd ? `${dd} day${dd === 1 ? '' : 's'}` : '', hh ? `${hh} hour${hh === 1 ? '' : 's'}` : ''].filter(Boolean).join(' ');
+}
+
+// the town sign: a painted board at the gate saying who runs the place and what it is worth
+function signTexture(T) {
+  const c = T.signCanvas || (T.signCanvas = document.createElement('canvas')); c.width = 512; c.height = 256;
+  const g = c.getContext('2d');
+  g.fillStyle = '#7a4a26'; g.fillRect(0, 0, 512, 256);
+  g.fillStyle = '#f6e2b8'; g.fillRect(14, 14, 484, 228);
+  g.strokeStyle = '#4a2a17'; g.lineWidth = 6; g.strokeRect(14, 14, 484, 228);
+  g.textAlign = 'center'; g.fillStyle = '#4a2a17';
+  g.font = '800 54px Fredoka, Trebuchet MS, sans-serif'; g.fillText(T.name, 256, 78);
+  g.font = '700 30px Fredoka, Trebuchet MS, sans-serif'; g.fillStyle = '#c8901c'; g.fillText(stars(T.stars), 256, 116);
+  g.fillStyle = '#4a2a17'; g.font = '700 34px Fredoka, Trebuchet MS, sans-serif';
+  if (townFree(T.id)) { g.fillText(`Mayor: ${mayorName(T)}`, 256, 166); g.fillText(`Worth ${fmt(townValue(T))} coins`, 256, 212); }
+  else { g.fillStyle = '#a8243a'; g.fillText('Held by monsters!', 256, 166); g.font = '600 26px Fredoka, Trebuchet MS, sans-serif'; g.fillText('Beat the tyrant to become mayor', 256, 208); }
+  if (T.signTex) T.signTex.needsUpdate = true;
+  if (T.signBack) T.signBack.needsUpdate = true;
+  return c;
+}
+function buildTownSign(T) {
+  const a0 = Math.atan2(-T.z, -T.x), x = T.x + Math.cos(a0) * 9.5, z = T.z + Math.sin(a0) * 9.5;
+  const g = new THREE.Group(); g.position.set(x, 0, z); g.rotation.y = Math.atan2(Math.cos(a0), Math.sin(a0));
+  const wood = toon('#7a4a26');
+  for (const sx of [-1.25, 1.25]) { const p = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.14, 2.6, 8)); p.position.set(sx, 1.3, 0); registerMesh(p, wood); p.castShadow = true; g.add(p); }
+  T.signTex = new THREE.CanvasTexture(signTexture(T)); T.signTex.colorSpace = THREE.SRGBColorSpace; T.signTex.anisotropy = 4;
+  const face = new THREE.MeshBasicMaterial({ map: T.signTex });
+  // the back of the board shows the same words, so it reads from either side of the road
+  const backTex = T.signTex.clone(); backTex.wrapS = THREE.RepeatWrapping; backTex.repeat.x = -1; backTex.offset.x = 1; T.signBack = backTex;
+  const back = new THREE.MeshBasicMaterial({ map: backTex });
+  const board = new THREE.Mesh(new THREE.BoxGeometry(3.2, 1.6, 0.14));
+  registerMesh(board, { std: [wood.std, wood.std, wood.std, wood.std, face, back], toon: [wood.toon, wood.toon, wood.toon, wood.toon, face, back] });
+  board.position.y = 2.1; board.castShadow = true; g.add(board);
+  scene.add(g); colliders.push({ x, z, r: 0.6 });
+}
+function refreshSign(T) { if (T.signTex) signTexture(T); }
+
+// what each upgrade adds to the town, so you can see it from the road
+function townExtras(T, lvl) {
+  T.extras = T.extras || {};
+  if (T.extras[lvl]) return;
+  const a0 = Math.atan2(-T.z, -T.x), at = (a, r) => [T.x + Math.cos(a) * r, T.z + Math.sin(a) * r], objs = [];
+  const put = (name, a, r, s, opt) => { const [x, z] = at(a, r); const o = place(name, x, z, s, Math.atan2(T.x - x, T.z - z), opt); if (o) objs.push(o); };
+  if (lvl === 1) {
+    for (const [da, col] of [[2.3, '#e8743a'], [-2.3, '#3a8fe8']]) { const [x, z] = at(a0 + da, 7.6); const t = tentAt(x, z, Math.atan2(T.x - x, T.z - z), col); if (t) objs.push(t); }
+    put('crate_A_big', a0 + 2.75, 8.4, S_PROP); put('barrel', a0 - 2.75, 8.4, S_PROP); put('sack', a0 + 1.95, 8.6, S_PROP, { collide: false });
+  } else if (lvl === 2) {
+    put('building_tower_A_red', a0 + Math.PI, 17.5, S_BUILD * 0.9);
+    put('building_grain', a0 + Math.PI + 0.75, 17.5, S_BUILD * 0.8);
+    put('flag_blue', a0 + 0.55, 10.5, S_PROP * 1.6, { collide: false }); put('flag_blue', a0 - 0.55, 10.5, S_PROP * 1.6, { collide: false });
+  } else if (lvl === 3) {
+    const [x, z] = at(a0 + Math.PI, 6.2), g = new THREE.Group(); g.position.set(x, 0, z);
+    const stone = toon('#d8d0c0'), gold = toon('#ffd23f', { emissive: '#7a5a00', emissiveIntensity: 0.25 });
+    const basin = new THREE.Mesh(new THREE.CylinderGeometry(2.1, 2.3, 0.7, 24)); basin.position.y = 0.35; registerMesh(basin, stone); basin.castShadow = true; g.add(basin);
+    const water = new THREE.Mesh(new THREE.CylinderGeometry(1.85, 1.85, 0.1, 24), new THREE.MeshBasicMaterial({ color: '#7fd0ff' })); water.position.y = 0.66; g.add(water);
+    const ped = new THREE.Mesh(new THREE.CylinderGeometry(0.45, 0.6, 1.4, 12)); ped.position.y = 1.3; registerMesh(ped, stone); g.add(ped);
+    const body = new THREE.Mesh(new THREE.CylinderGeometry(0.32, 0.5, 1.1, 12)); body.position.y = 2.55; registerMesh(body, gold); body.castShadow = true; g.add(body);
+    const head = new THREE.Mesh(new THREE.SphereGeometry(0.5, 16, 12)); head.position.y = 3.45; registerMesh(head, gold); head.castShadow = true; g.add(head);
+    const sword = new THREE.Mesh(new THREE.BoxGeometry(0.12, 1.4, 0.12)); sword.position.set(0.55, 3.2, 0); sword.rotation.z = -0.3; registerMesh(sword, gold); g.add(sword);
+    scene.add(g); objs.push(g); colliders.push({ x, z, r: 2.2 });
+    T.fountain = { x, z };
+  }
+  T.extras[lvl] = objs;
+}
+function buildSite(T, on) {
+  if (T.site) { T.site.forEach((o) => scene.remove(o)); T.site = null; }
+  if (!on) return;
+  const b = townBuild(T), a0 = Math.atan2(-T.z, -T.x), a = b.lvl === 1 ? a0 + 2.3 : b.lvl === 2 ? a0 + Math.PI : a0 + Math.PI;
+  const r = b.lvl === 2 ? 15.5 : 7, x = T.x + Math.cos(a) * r, z = T.z + Math.sin(a) * r;
+  T.site = [place('resource_lumber', x, z, S_PROP, 0.4, { collide: false }), place('resource_stone', x + 1.6, z + 0.8, S_PROP, 1.1, { collide: false }), place('wheelbarrow', x - 1.4, z + 1.1, S_PROP, 2.2, { collide: false })].filter(Boolean);
+  T.siteAt = { x, z };
+}
+function applyTownLooks(T) {
+  for (let l = 1; l <= townLvl(T); l++) townExtras(T, l);
+  buildSite(T, !!townBuild(T));
+  refreshSign(T);
+}
+
+// taxes and builds both run on in-game time, so they only move while you play
+let mayorCheckAt = 0;
+function mayorTick() {
+  if (!player || now < mayorCheckAt) return;
+  mayorCheckAt = now + 1;
+  const week = Math.floor((S.gameDays || 0) / WEEK_DAYS);
+  if (S.taxWeek === undefined) S.taxWeek = week;
+  if (week > S.taxWeek) {
+    const weeks = week - S.taxWeek; S.taxWeek = week;
+    const mine = TOWNS.filter((T) => townFree(T.id));
+    if (mine.length) {
+      const amount = weeks * mine.reduce((a, T) => a + weeklyTax(T), 0);
+      S.bank = (S.bank || 0) + amount; sfx('jackpot');
+      toast(`Tax day! ${mine.map((T) => T.name).join(' and ')} paid ${fmt(amount)} coins into your bank.`, ICONS.coins, true);
+      refreshUI(); save();
+    }
+  }
+  for (const T of TOWNS) {
+    const b = townBuild(T);
+    if (b && S.gameDays >= b.done) {
+      S.townLvl = { ...(S.townLvl || {}), [T.id]: b.lvl }; delete S.townBuild[T.id];
+      buildSite(T, false); townExtras(T, b.lvl); refreshSign(T);
+      burst(new THREE.Vector3(T.x, 4, T.z), '#ffe07a', 70, 7, 1.6); sfx('win');
+      toast(`${T.name} is now a ${TOWN_LEVELS[b.lvl].name}! Weekly taxes rise to ${fmt(weeklyTax(T))} coins.`, ICONS.coins, true);
+      save();
+    } else if (b && T.siteAt && where === 'out' && rng() < 0.5 && Math.hypot(player.pos.x - T.x, player.pos.z - T.z) < 40) burst(new THREE.Vector3(T.siteAt.x, 0.6, T.siteAt.z), '#e8d8b0', 8, 2.5);
+  }
+}
+
+// The town clerk runs the Mayor's office: taxes, upgrades and the Dark Omen.
+function openMayor(npc) {
+  talking = npc;
+  const T = TOWNS.find((t) => t.id === npc.clerk), d = $('dialog'), lvl = townLvl(T), b = townBuild(T), next = TOWN_LEVELS[lvl + 1];
+  const omen = (S.inv.dark_omen || 0) > 0;
+  let up = '';
+  if (b) up = `<div class="mayorbuild"><b>Building: ${TOWN_LEVELS[b.lvl].name}</b><div class="bar"><i style="width:${Math.round(100 * (1 - (b.done - S.gameDays) / TOWN_LEVELS[b.lvl].days))}%"></i></div><small>Ready in ${daysText(Math.max(0, b.done - S.gameDays))} of game time</small></div>`;
+  else if (next) up = `<button id="m-up" class="primary" ${S.coins + (S.bank || 0) < upgradeCost(T, lvl + 1) ? 'disabled' : ''}>Build ${next.what}: ${fmt(upgradeCost(T, lvl + 1))} coins</button><small class="mnote">Takes ${daysText(next.days)} of game time. Taxes go up to ${fmt(Math.round(400 * T.stars * (1 + 0.75 * (lvl + 1))))} a week. Paid from your pocket first, then your bank.</small>`;
+  else up = '<p class="mnote">This is as grand as a town gets. Splendid work, Mayor!</p>';
+  d.innerHTML = `<h3>${T.name} town hall</h3><p>Good day, Mayor ${mayorName(T)}! ${lvl ? `The citizens love the new ${TOWN_LEVELS[lvl].name.toLowerCase()}.` : 'The citizens are so happy to be free.'}</p>
+    <div class="mayorgrid"><div><small>Town</small><b>${TOWN_LEVELS[lvl].name}</b></div><div><small>Weekly taxes</small><b>${fmt(weeklyTax(T))}</b></div><div><small>Town worth</small><b>${fmt(townValue(T))}</b></div><div><small>Next tax day</small><b>${daysText(untilTax())}</b></div></div>
+    ${up}
+    <div class="row wrap">${omen ? '<button id="m-omen" class="danger">Use a Dark Omen here</button>' : ''}<button id="m-bye">Goodbye</button></div>`;
+  if ($('m-up')) $('m-up').onclick = () => {
+    const cost = upgradeCost(T, lvl + 1); let left = cost;
+    const fromPocket = Math.min(S.coins, left); S.coins -= fromPocket; left -= fromPocket; S.bank -= left;
+    S.townBuild = { ...(S.townBuild || {}), [T.id]: { lvl: lvl + 1, done: (S.gameDays || 0) + TOWN_LEVELS[lvl + 1].days } };
+    buildSite(T, true); sfx('coin'); toast(`The builders get to work on ${T.name}!`, ICONS.hammer); refreshUI(); save(); openMayor(npc);
+  };
+  if ($('m-omen')) $('m-omen').onclick = () => {
+    const btn = $('m-omen');
+    if (!btn.dataset.sure) { btn.dataset.sure = '1'; btn.textContent = 'Are you sure? Monsters will take the town back. Tap again.'; return; }
+    S.inv.dark_omen--; closeDialog(); darkOmen(T);
+  };
+  $('m-bye').onclick = closeDialog;
+  showDialog(d);
+  npc.actor.face(player.pos.x, player.pos.z);
+}
+// A Dark Omen calls the monsters back. The town loses its mayor (the buildings stay), and whoever
+// beats the tyrant again becomes the new mayor. With friends online, this is how you steal a town.
+function darkOmen(T) {
+  if (S.towns) delete S.towns[T.id];
+  T.flagRed.visible = true; T.flagBlue.visible = false;
+  for (const o of T.junk) o.visible = true;
+  for (const o of T.homely) o.visible = false;
+  for (const n of T.folk || []) { n.inside = 'gone'; n.actor.root.visible = false; }
+  for (const e of enemies) {
+    if (e.T.town !== T.id) continue;
+    e.hp = e.T.hp; e.state = 'rising'; e.introAt = 0;
+    reassemble(e);
+    later(0.3, () => { const ok = e.play('Spawn_Ground_Skeletons', { once: true, clamp: true, onFinish: () => { e.state = 'idle'; e.play('Idle'); } }); if (!ok) { e.state = 'idle'; e.play('Idle'); } });
+  }
+  burst(new THREE.Vector3(T.x, 3, T.z), '#8a3ad8', 120, 9, 1.8); sfx('slam');
+  toast(`The Dark Omen cracks open! Monsters pour back into ${T.name}. Beat the tyrant to claim it.`, ICONS.dark_omen, true);
+  refreshSign(T); refreshUI(); save();
+}
+
+// ---------- net worth ----------
+function itemsValue() { let v = 0; for (const [k, n] of Object.entries(S.inv || {})) v += (SELL[k] || 0) * n; return v; }
+function netWorth() {
+  const towns = TOWNS.filter((T) => townFree(T.id)).reduce((a, T) => a + townValue(T), 0);
+  return { coins: S.coins, bank: S.bank || 0, items: itemsValue(), towns, total: S.coins + (S.bank || 0) + itemsValue() + towns };
+}
+// Until accounts go live, you race the valley's other adventurers. They get richer as the days go by.
+const RIVAL_WORTH = [['Sir Percival Pompington', 2400, 420], ['Big Gus', 900, 160], ['Saffy Quickshot', 650, 190], ['Sir Bramble', 800, 140], ['Nyx', 500, 230]];
+function richList() {
+  const d = S.gameDays || 0;
+  const rows = RIVAL_WORTH.map(([n, base, per]) => ({ name: n, worth: Math.round(base + per * d) }));
+  rows.push({ name: heroName(), worth: netWorth().total, me: true });
+  return rows.sort((a, b) => b.worth - a.worth);
+}
+function worthHtml() {
+  const w = netWorth(), list = richList();
+  return `<h4>Net worth <small>${fmt(w.total)} coins</small></h4>
+    <div class="worthgrid"><span>Pocket <b>${fmt(w.coins)}</b></span><span>Bank <b>${fmt(w.bank)}</b></span><span>Items <b>${fmt(w.items)}</b></span><span>Towns <b>${fmt(w.towns)}</b></span></div>
+    <h4>Richest in the kingdom</h4><ol class="richlist">${list.map((r) => `<li class="${r.me ? 'me' : ''}"><span>${r.name}</span><b>${fmt(r.worth)}</b></li>`).join('')}</ol>
+    <p class="hint">Friends join this list when online accounts arrive.</p>`;
+}
+
+window.__jq = { renderer, scene, openMayor, darkOmen, netWorth, liberateTown, spots, spotEffect, setGolden, goldenCaught, pompArrive, get goldenE() { return goldenE; }, spinWheel, dayTick, get bossIntro() { return bossIntro; }, bossSkip, startBossScene, sailTo, regions, closeSheet, renderHotbar, crew, setCrewMode, TOWNS, liberateTown, chests, openChest, stopRoulette, enemies, startBossIntro, closeDialog, advanceDialog, dash, attackPress, craft, CRAFTS, openCreator, closeCreator, creator, rebuildHero, setZoom: (z) => { zoom = z; }, hurtEnemy, goThrough, get where() { return where; }, INTERIORS, equipGear, spendPoint, giveHeroXp, heroLvl, stat, maxHp, defDiv, openWeaponShop, openKing, jump, eat, eatBest, openShop, swing, swingTarget, hitNode, projectiles, timers, get S() { return S; }, get player() { return player; }, enemies, nodes, npcs, startTask, doAction, giveXp, save, openSheet, openDialog };
 window.addEventListener('error', (e) => { const m = $('loadmsg'); if (m) m.textContent = `Something went wrong: ${e.message}`; });
 main().catch((err) => {
   console.error(err);

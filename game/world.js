@@ -488,7 +488,7 @@ function pumpkin(lantern = false) {
 }
 
 // A striped A-frame tent with a dark doorway.
-function tentAt(x, z, ry = 0, col = '#d8433a') {
+export function tentAt(x, z, ry = 0, col = '#d8433a') {
   const g = new THREE.Group();
   const tri = (w, h) => { const sh = new THREE.Shape(); sh.moveTo(-w / 2, 0); sh.lineTo(w / 2, 0); sh.lineTo(0, h); sh.closePath(); return sh; };
   const prism = (w, h, d) => { const geo = new THREE.ExtrudeGeometry(tri(w, h), { depth: d, bevelEnabled: false }); geo.translate(0, 0, -d / 2); return geo; };
