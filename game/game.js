@@ -128,6 +128,10 @@ const WEAPONS = {
   p_cog: { type: 'melee', tier: 4, path: 'human', name: 'Clockwork greatsword', dmg: 66, reach: 3.8, cd: 1.2, price: 15000, model: 'sword_2handed_color', tint: '#d8a850', heavy: true },
   k_colossus: { type: 'melee', name: 'Colossus Fist', dmg: 72, reach: 3.9, cd: 1.35, price: 0, unique: true, model: 'axe_2handed', tint: '#ffd23f', heavy: true },
   a_pomp: { type: 'ranged', name: "Pompington's Popgun", dmg: 30, reach: 16, cd: 0.42, price: 0, unique: true, model: 'crossbow_2handed', tint: '#ffe28a' },
+  // MYTHIC: the rarest things in the game. A tiny chance from Chapter 4 bosses and the world boss.
+  my_star: { type: 'melee', name: 'Starfall Blade', dmg: 96, reach: 3.7, cd: 0.85, price: 0, unique: true, mythic: true, model: 'sword_2handed_color', tint: '#ff6ab0', heavy: true },
+  my_root: { type: 'magic', name: 'Worldroot Staff', dmg: 90, reach: 19, cd: 0.95, price: 0, unique: true, mythic: true, model: 'staff', tint: '#7affc8' },
+  my_dawn: { type: 'ranged', name: 'Dawnbreaker', dmg: 82, reach: 20, cd: 0.5, price: 0, unique: true, mythic: true, model: 'crossbow_2handed', tint: '#fff6d0' },
   a_rattle: { type: 'ranged', name: "Rattlebones' Repeater", dmg: 12, reach: 14, cd: 0.55, price: 0, unique: true, model: 'crossbow_2handed', tint: '#9effa8' },
 };
 // Shields and armour add Defense on top of your Defense points.
@@ -154,7 +158,24 @@ const ARMOUR = {
 for (const w of Object.values(WEAPONS)) w.slot = 'weapon';
 const GEAR = { ...WEAPONS, ...ARMOUR };
 // spare gear sells back to the smiths for half price; boss weapons are worth a fortune
-const gearValue = (g) => (g.unique ? 250 : Math.floor(g.price / 2));
+// ---------- rarity: Common, Uncommon, Rare, Epic, Legendary, Mythic ----------
+// The top three barely show up before the late game. Mythics are a handful of things in the whole world.
+const RARITY = [
+  { id: 'common', name: 'Common', col: '#a89c88', sell: 1 }, { id: 'fine', name: 'Uncommon', col: '#4cb35a', sell: 1.3 },
+  { id: 'rare', name: 'Rare', col: '#3a86e0', sell: 1.8 }, { id: 'epic', name: 'Epic', col: '#a04ae0', sell: 2.6 },
+  { id: 'legendary', name: 'Legendary', col: '#ff9a1a', sell: 4 }, { id: 'mythic', name: 'Mythic', col: '#ff3a7a', sell: 8 },
+];
+const RAR_IX = Object.fromEntries(RARITY.map((r, i) => [r.id, i]));
+function gearRarIx(g) {
+  if (!g) return 0;
+  if (g.mythic) return 5;
+  if (g.unique) return g.dmg >= 60 || g.def >= 30 ? 4 : g.dmg >= 28 || g.def >= 15 ? 3 : 2;
+  if (g.tier === 4) return g.path ? 4 : 3;
+  if (g.tier === 3) return 2;
+  if (g.tier === 2) return 1;
+  return g.price >= 150 ? 1 : 0;
+}
+const gearValue = (g) => Math.floor((g.unique ? [100, 200, 400, 1500, 6000, 40000][gearRarIx(g)] : g.price / 2) * (g.unique ? 1 : RARITY[gearRarIx(g)].sell / 1.3 + 0.25));
 const gearIcon = (g) => (g.slot === 'weapon' ? ICONS[g.type] : ICONS[g.slot]);
 const gearStats = (g) => (g.slot === 'weapon'
   ? `${g.dmg} dmg · ${g.type === 'melee' ? 'reach' : 'range'} ${g.reach} · ${g.cd}s · ${SPECIALS[specialOf(g)].name}${g.sun ? ' · +15% by day' : ''}`
@@ -732,7 +753,8 @@ function makePeer(id, p) {
   pathDecor(a, look.path);
   const cos = look.cos || {};
   setFlair(a, { rank: rankOf(p.lvl || 1), aura: cos.aura, trail: cos.trail, hat: cos.hat, helmet: look.hat });
-  if (cos.cape && COS.cape[cos.cape]) capeColour(a, COS.cape[cos.cape].col);
+  if (cos.outfit && COS.outfit[cos.outfit]) paintOutfit(a, COS.outfit[cos.outfit]);
+  if (cos.cape && COS.cape[cos.cape]) capeColour(a, COS.cape[cos.cape].col, COS.cape[cos.cape].glow);
   a.root.position.set(p.x || 0, 0, p.z || 0);
   a.play('Idle');
   const tag = document.createElement('div'); tag.className = 'herotag peer'; tag.innerHTML = '<b></b>'; document.body.appendChild(tag);
@@ -1876,16 +1898,41 @@ function applyLook() {
     }
   });
   dressArmour();
-  const capeC = cosState().eq.cape; if (capeC && COS.cape[capeC]) capeColour(player, COS.cape[capeC].col);
+  const ofC = cosState().eq.outfit; if (ofC && COS.outfit[ofC]) paintOutfit(player, COS.outfit[ofC]);
+  const capeC = cosState().eq.cape; if (capeC && COS.cape[capeC]) capeColour(player, COS.cape[capeC].col, COS.cape[capeC].glow);
   addInk(player.root);
   heroFlair();
 }
 // paint a hero's cape (cosmetic capes)
-function capeColour(a, col) {
+function capeColour(a, col, glow = 0) {
   a.root.traverse((o) => {
     if (!o.isMesh || !o.userData.mats || !/_Cape$/.test(o.name) || Array.isArray(o.userData.mats.toon)) return;
     if (!o.userData.ownMats) { o.userData.ownMats = { std: o.userData.mats.std.clone(), toon: o.userData.mats.toon.clone() }; o.userData.ownMats.toon.onBeforeCompile = o.userData.mats.toon.onBeforeCompile; o.userData.mats = o.userData.ownMats; o.material = styled.on ? o.userData.mats.toon : o.userData.mats.std; }
-    for (const m of [o.userData.mats.std, o.userData.mats.toon]) { colourise(m, 1); m.color.set(col); if (m.emissive) m.emissive.set(col).multiplyScalar(0.12); }
+    for (const m of [o.userData.mats.std, o.userData.mats.toon]) { colourise(m, 1); m.color.set(col); if (m.emissive) m.emissive.set(col).multiplyScalar(0.12 + glow); }
+  });
+}
+// outfits: recolour the hero's tunic and trim (cosmetic only)
+function paintOutfit(a, c) {
+  a.root.traverse((o) => {
+    if (!o.isMesh || !o.userData.mats || Array.isArray(o.userData.mats.toon)) return;
+    const body = /_Body$/.test(o.name), cape = /_Cape$/.test(o.name); if (!body && !cape) return;
+    if (!o.userData.ownMats) { o.userData.ownMats = { std: o.userData.mats.std.clone(), toon: o.userData.mats.toon.clone() }; o.userData.ownMats.toon.onBeforeCompile = o.userData.mats.toon.onBeforeCompile; o.userData.mats = o.userData.ownMats; o.material = styled.on ? o.userData.mats.toon : o.userData.mats.std; }
+    const col = body ? c.body : c.trim;
+    for (const m of [o.userData.mats.std, o.userData.mats.toon]) { colourise(m, body ? 0.9 : 1); m.color.set(col); if (m.emissive) m.emissive.set(col).multiplyScalar(c.glow || 0); }
+  });
+}
+// shimmering looks (mythic outfits, prism cape) slowly cycle through the colours
+const _shim = new THREE.Color();
+let shimAt = 0;
+function shimmerTick(a, cos) {
+  if (!a || !cos) return;
+  const of = cos.outfit && COS.outfit[cos.outfit], cp = cos.cape && COS.cape[cos.cape];
+  if (!(of && of.shimmer) && !(cp && cp.shimmer)) return;
+  a.root.traverse((o) => {
+    if (!o.isMesh || !o.userData.ownMats) return;
+    const body = /_Body$/.test(o.name), cape = /_Cape$/.test(o.name);
+    if (cape && cp && cp.shimmer) { _shim.setHSL((now * 0.12) % 1, 0.75, 0.6); for (const m of [o.userData.mats.std, o.userData.mats.toon]) { m.color.copy(_shim); if (m.emissive) m.emissive.copy(_shim).multiplyScalar(0.35); } }
+    else if (body && of && of.shimmer) { const k = 0.5 + 0.5 * Math.sin(now * 2.2); for (const m of [o.userData.mats.std, o.userData.mats.toon]) if (m.emissive) m.emissive.set(of.body).lerp(_shim.set(of.trim), 0.25 * k).multiplyScalar(0.35 + 0.15 * k); }
   });
 }
 // Armour you wear shows on your hero: chunky shoulder pads, a belt, a chest badge. Bigger armour, bigger pads.
@@ -2238,6 +2285,11 @@ function buildNpcs() {
       look: { skin: 'tan', eyes: 'blue', eyeStyle: 'happy', mouth: 'grin', hair: 'short', beard: 'full', hairCol: 'ginger' } },
     { id: 'elder', name: 'Elder Mittens', model: 'mage', x: LANDS.frost.elder.x, z: LANDS.frost.elder.z, hide: [], tint: '#9fd0ff', inside: 'frost',
       look: { sex: 'f', skin: 'porcelain', eyes: 'sky', eyeStyle: 'happy', mouth: 'smile', hair: 'bun', hairCol: 'snow', mark: 'rosy', hat: true } },
+    // travelling merchants: one in every land village. They sell food and buy anything, gear included.
+    { id: 'trader_frost', name: 'Pip the Peddler', model: 'heroine', x: LANDS.frost.village.x + 5, z: LANDS.frost.village.z - 7, hide: [], shop: 'food', tint: '#ffd0a0', inside: 'frost' },
+    { id: 'trader_marsh', name: 'Moss the Merchant', model: 'barbarian', x: LANDS.marsh.village.x + 5, z: LANDS.marsh.village.z - 7, hide: [], shop: 'food', tint: '#b8e0a0', inside: 'marsh' },
+    { id: 'trader_sands', name: 'Saffi the Trader', model: 'mage', x: LANDS.sands.village.x + 5, z: LANDS.sands.village.z - 7, hide: [], shop: 'food', tint: '#ffcf8a', inside: 'sands' },
+    { id: 'trader_out', name: 'Wandering Wim', model: 'barbarian', x: CAMP.x + 9, z: CAMP.z - 6, hide: [], shop: 'food', tint: '#d8c0ff' },
     { id: 'frida', name: 'Frida the Frostsmith', model: 'barbarian', x: LANDS.frost.village.x - 7, z: LANDS.frost.village.z + 6, hide: [], shop: 'frost', tint: '#9fd8ff', inside: 'frost',
       look: { sex: 'f', skin: 'tan', eyes: 'sky', eyeStyle: 'sharp', mouth: 'grin', hair: 'braid', hairLen: 'long', hairCol: 'snow' } },
     { id: 'snowkid', name: 'Pip Snowdrift', model: 'heroine', x: LANDS.frost.village.x + 6, z: LANDS.frost.village.z + 5, hide: [], tint: '#ff9ab8', inside: 'frost',
@@ -2810,8 +2862,13 @@ function rollLoot(e) {
     if (rng() < 0.4) give('ruby');
     if (rng() < 0.06) { give('dark_omen'); toast('A DARK OMEN! Take it to a freed town to call the monsters back.', ICONS.dark_omen, true); }
     if (rng() < 0.12) { give('golden_crown'); toast('A tiny golden crown! Marta will pay a fortune for that.', ICONS.golden_crown, true); }
+    // mythic: about one in a hundred Chapter 4 boss kills, one in two hundred world bosses
+    const myth = Object.keys(WEAPONS).filter((k) => WEAPONS[k].mythic && !S.owned.includes(k));
+    const mChance = e.T.world ? 0.005 : e.inside === 'sands' ? 0.01 : 0;
+    if (myth.length && rng() < mChance) { const mk = myth[Math.floor(rng() * myth.length)]; S.owned.push(mk); popLoot(at, 'chest', 0.8); toast(`MYTHIC DROP!!! ${WEAPONS[mk].name}! Almost nobody has one of these.`, gearIcon(WEAPONS[mk]), true); burst(at.clone().setY(2), '#ff3a7a', 80, 9, 1.8); if (net.on) sendChat(`I just found a MYTHIC ${WEAPONS[mk].name}!`); }
+    cosDrop(e, at, true);
     const wk = BOSS_WEAPON[e.type];
-    if (wk && !S.owned.includes(wk) && rng() < 0.35) { S.owned.push(wk); popLoot(at, 'chest', 0.6); toast(`RARE DROP: ${WEAPONS[wk].name} (${gearStats(WEAPONS[wk])})! Equip it from your bag.`, ICONS[WEAPONS[wk].type], true); }
+    if (wk && !S.owned.includes(wk) && rng() < 0.35) { S.owned.push(wk); popLoot(at, 'chest', 0.6); toast(`${gearRarity(WEAPONS[wk])[1].toUpperCase()} DROP: ${WEAPONS[wk].name} (${gearStats(WEAPONS[wk])})! Equip it from your bag.`, ICONS[WEAPONS[wk].type], true); }
   } else {
     if (rng() < 0.5) give('bone_dust');
     if (rng() < (e.type === 'skel_minion' ? 0.08 : 0.15)) give('dark_essence');
@@ -2819,6 +2876,7 @@ function rollLoot(e) {
     // treasures: rare, and worth selling
     if (rng() < (e.type === 'skel_minion' ? 0.03 : 0.06)) give('silver_ring');
     if (rng() < (e.type === 'skel_minion' ? 0.006 : 0.015)) { give('ruby'); toast('A ruby! That will sell for a lot.', ICONS.ruby, true); }
+    cosDrop(e, at, false);
     // very rare: a shop weapon you don't own yet
     if (rng() < 0.025) {
       const pool = Object.keys(GEAR).filter((k) => !GEAR[k].unique && GEAR[k].price > 0 && GEAR[k].price <= 160 && !S.owned.includes(k));
@@ -3192,10 +3250,13 @@ function openShop(npc) {
   const goods = Object.entries(S.inv).filter(([k]) => SELL[k] && spareOf(k) > 0).map(([k]) => [k, spareOf(k)]);
   const bulk = goods.filter(([k]) => !FOOD[k] && !['silver_ring', 'ruby', 'golden_crown', 'lucky_sock', 'gloom_hat', 'rattle_tooth'].includes(k));
   const worth = bulk.reduce((a, [k, n]) => a + SELL[k] * n, 0);
-  const tavern = npc.id === 'tom';
-  d.innerHTML = `<h3>${npc.name}</h3><p>${tavern ? "Welcome to the Sleepy Boar! Pull up a stool. A hot meal mends any bruise. Eat it from your bag, or press H." : 'Fresh from the oven! Food heals you when you eat it from your bag, or press H. And I buy anything you bring me.'}</p>
+  const tavern = npc.id === 'tom', who = npc.name.split(' ')[0], trader = npc.id.startsWith('trader');
+  // gear you own but aren't using: merchants buy it, and rarer gear is worth far more
+  const spareGear = S.owned.filter((k) => GEAR[k] && !Object.values(S.equip).includes(k) && gearValue(GEAR[k]) > 0 && k !== 'k_sword');
+  d.innerHTML = `<h3>${npc.name}</h3><p>${tavern ? "Welcome to the Sleepy Boar! Pull up a stool. A hot meal mends any bruise. Eat it from your bag, or press H." : trader ? 'Travelling goods! Snacks for the road, and I buy anything: treasures, materials, spare weapons and armour. The rarer it is, the more I pay.' : 'Fresh from the oven! Food heals you when you eat it from your bag, or press H. And I buy anything you bring me, gear too.'}</p>
     <div class="shop">${Object.entries(FOOD).filter(([, f]) => f.price).map(([k, f]) => `<button class="buy" data-food="${k}" ${S.coins < f.price ? 'disabled' : ''}><img src="${ICONS[k]}" alt=""><b>${ITEMS[k]}</b><span>Heals ${f.heal}</span><em>${f.price} coins</em></button>`).join('')}</div>
-    ${goods.length && !tavern ? `<h4 class="sub">Sell to Marta</h4><div class="shop sell">${goods.map(([k, n]) => `<button class="buy" data-sell="${k}"><img src="${ICONS[k]}" alt=""><b>${ITEMS[k]} × ${n}</b><span>${keep[k] ? `keeping ${keep[k]} for a quest` : `${SELL[k]} each`}</span><em>Sell…</em></button>`).join('')}</div><div class="sellpick" hidden></div>` : ''}
+    ${goods.length && !tavern ? `<h4 class="sub">Sell to ${who}</h4><div class="shop sell">${goods.map(([k, n]) => `<button class="buy" data-sell="${k}"><img src="${ICONS[k]}" alt=""><b>${ITEMS[k]} × ${n}</b><span>${keep[k] ? `keeping ${keep[k]} for a quest` : `${SELL[k]} each`}</span><em>Sell…</em></button>`).join('')}</div><div class="sellpick" hidden></div>` : ''}
+    ${spareGear.length && !tavern ? `<h4 class="sub">Sell spare gear</h4><div class="shop sell">${spareGear.map((k) => { const g = GEAR[k], [rc, rn] = gearRarity(g); return `<button class="buy ${rc}" data-sellgear="${k}"><img src="${gearIcon(g)}" alt=""><b>${g.name}</b><span><i class="rar">${rn}</i></span><em>${fmt(gearValue(g))} coins</em></button>`; }).join('')}</div>` : ''}
     <p class="hint">You have ${S.coins} coins.${tavern ? ' Marta at the market buys goods, if you have any to sell.' : goods.length ? '' : ' Bring me logs, ore, fish, bones or treasures from monsters and I will buy them.'}</p>
     <div class="row">${worth && !tavern ? `<button id="sellall">Sell all materials (+${worth})</button>` : ''}<button id="shopbye">Goodbye</button></div>`;
   d.querySelectorAll('[data-food]').forEach((b) => { b.onclick = () => {
@@ -3213,6 +3274,14 @@ function openShop(npc) {
       toast(`Sold ${n} × ${ITEMS[k].toLowerCase()} for ${c} coins.`, ICONS.coins, c >= 100);
       refreshUI(); save(); openShop(npc);
     });
+  }; });
+  d.querySelectorAll('[data-sellgear]').forEach((b) => { b.onclick = () => {
+    const k = b.dataset.sellgear, g = GEAR[k], v = gearValue(g);
+    // rare things ask twice, so nobody sells a treasure by accident
+    if (gearRarIx(g) >= 2 && b.dataset.sure !== '1') { b.dataset.sure = '1'; b.querySelector('em').textContent = `Sure? ${fmt(v)}`; return; }
+    S.owned = S.owned.filter((x) => x !== k); S.hotbar = (S.hotbar || []).map((x) => (x === k ? null : x));
+    S.coins += v; toast(`Sold ${g.name} for ${fmt(v)} coins.`, ICONS.coins, v >= 1000);
+    refreshUI(); save(); openShop(npc);
   }; });
   if (worth && !tavern) $('sellall').onclick = () => {
     for (const [k, n] of bulk) takeItem(k, n);
@@ -5822,6 +5891,7 @@ function tick() {
   for (const n of npcs) npcLife(n, dt);
   crewTick(dt); crewTags(); heroTag(); peersTick(dt); partyTick(); emoteTick(); bossShoutTick(); townTick(); letterTick(); if (snowFx) { snowFx.visible = where === 'frost'; if (snowFx.visible && player) snowFx.userData.tick(dt, player.pos.x, player.pos.z); } if (now > 45 && !document.body.classList.contains('nohint')) document.body.classList.add('nohint'); occluderTick(dt);
   guideTick(); chargeTick(); musicTick();
+  if (now > shimAt) { shimAt = now + 0.1; shimmerTick(player, cosState().eq); }
 
   for (let i = lootPops.length - 1; i >= 0; i--) {
     const L = lootPops[i]; L.t += dt;
@@ -5956,6 +6026,7 @@ function tick() {
   sun.target.position.set(focus.x, 0, focus.z);
   cullActors();
   render();
+  previewTick();
   for (const r of culled) r.visible = true;
   culled.length = 0;
 }
@@ -7164,30 +7235,67 @@ function rankOf(l) { let r = 0; for (let i = 0; i < RANKS.length; i++) if (l >= 
 function renown() { return 1 + 0.05 * rankOf(heroLvl()); }
 const COS = {
   hat: {
-    crown: { name: 'Royal crown', how: 'Reach level 70 (Legend)' }, wizard: { name: 'Starry wizard hat', how: 'Defeat the Gloomcaster' },
-    horns: { name: 'Viking horns', how: 'Defeat Bonecrusher' }, tricorn: { name: 'Pirate tricorn', how: 'Defeat Rattlebones' },
-    tiara: { name: 'Ice tiara', how: 'Defeat Queen Frostwhisker' }, frog: { name: 'Frog hat', how: 'Defeat the Gobbler' },
-    tophat: { name: 'Dapper top hat', how: 'Defeat Pompington' }, goggles: { name: 'Brass goggles', how: 'Defeat the Brassbolt Colossus' },
-    flowers: { name: 'Flower crown', how: 'Free a monster town' },
+    beanie: { name: 'Cosy beanie', r: 0, how: 'drop' }, bandana: { name: 'Red bandana', r: 0, how: 'drop' },
+    flowers: { name: 'Flower crown', r: 1, how: 'Free a monster town' }, chef: { name: 'Chef hat', r: 1, how: 'drop' }, mushroom: { name: 'Mushroom cap', r: 1, how: 'drop' }, catears: { name: 'Cat ears', r: 1, how: 'drop' },
+    horns: { name: 'Viking horns', r: 2, how: 'Defeat Bonecrusher' }, tricorn: { name: 'Pirate tricorn', r: 2, how: 'Defeat Rattlebones' }, wizard: { name: 'Starry wizard hat', r: 2, how: 'Defeat the Gloomcaster' },
+    witch: { name: 'Witch hat', r: 2, how: 'drop' }, plume: { name: 'Knight plume', r: 2, how: 'drop' },
+    tiara: { name: 'Ice tiara', r: 3, how: 'Defeat Queen Frostwhisker' }, frog: { name: 'Frog hat', r: 3, how: 'Defeat the Gobbler' }, tophat: { name: 'Dapper top hat', r: 3, how: 'Defeat Pompington' }, halo: { name: 'Golden halo', r: 3, how: 'drop' },
+    goggles: { name: 'Brass goggles', r: 4, how: 'Defeat the Brassbolt Colossus' }, crown: { name: 'Royal crown', r: 4, how: 'Reach level 70 (Legend)' }, flame: { name: 'Crown of flames', r: 4, how: 'drop' },
+    star: { name: 'Starfall diadem', r: 5, how: 'drop' },
+  },
+  outfit: {
+    ranger: { name: 'Ranger greens', r: 0, body: '#5f9a46', trim: '#3a5a2a', how: 'drop' }, sailor: { name: 'Sailor blues', r: 0, body: '#4a78d0', trim: '#ffffff', how: 'drop' },
+    guard: { name: 'Royal guard', r: 1, body: '#2f4fb0', trim: '#ffcc33', how: 'drop' }, pirate: { name: 'Pirate captain', r: 1, body: '#c0343c', trim: '#2a2230', how: 'drop' }, bloom: { name: 'Bubblegum', r: 1, body: '#ff9ad0', trim: '#ffffff', how: 'drop' },
+    shadow: { name: 'Shadow assassin', r: 2, body: '#2e2c3c', trim: '#8a4aff', how: 'drop' }, frostk: { name: 'Frost knight', r: 2, body: '#d8f2ff', trim: '#4aa0d8', how: 'drop' }, nomad: { name: 'Desert nomad', r: 2, body: '#e0bc7a', trim: '#a8501a', how: 'drop' },
+    paladin: { name: 'Paladin white', r: 3, body: '#fbf8ef', trim: '#ffc22e', glow: 0.18, how: 'drop' }, bog: { name: 'Bog witch', r: 3, body: '#5a8a4a', trim: '#b06ae8', glow: 0.12, how: 'drop' },
+    dragon: { name: 'Dragonscale', r: 4, body: '#c8361a', trim: '#ffb02e', glow: 0.3, how: 'drop' },
+    starlight: { name: 'Starlight regalia', r: 5, body: '#2a2a78', trim: '#ffe27a', glow: 0.35, shimmer: true, how: 'drop' },
   },
   cape: {
-    royal: { name: 'Royal purple cape', col: '#7a3ac8', how: 'Reach level 25 (Veteran)' }, ember: { name: 'Ember cape', col: '#ff6a2a', how: 'Defeat Gagron' },
-    midnight: { name: 'Midnight cape', col: '#2a2a6a', how: 'Defeat Sir Soggington' },
-    wood: { name: "Woodcutter's cape", col: '#3f9a3e', how: 'Reach Woodcutting 50' }, mine: { name: "Miner's cape", col: '#c8733a', how: 'Reach Mining 50' }, fish: { name: "Angler's cape", col: '#3a8ae0', how: 'Reach Fishing 50' }, gold: { name: 'Cloth-of-gold cape', col: '#ffc83a', how: 'Reach level 70 (Legend)' },
+    crimson: { name: 'Crimson cape', r: 0, col: '#c8323a', how: 'drop' }, sky: { name: 'Sky cape', r: 0, col: '#6ab4f0', how: 'drop' },
+    royal: { name: 'Royal purple cape', r: 1, col: '#7a3ac8', how: 'Reach level 25 (Veteran)' }, sunset: { name: 'Sunset cape', r: 1, col: '#ff8a5a', how: 'drop' }, lavender: { name: 'Lavender cape', r: 1, col: '#c8a4ff', how: 'drop' },
+    wood: { name: "Woodcutter's cape", r: 2, col: '#3f9a3e', how: 'Reach Woodcutting 50' }, mine: { name: "Miner's cape", r: 2, col: '#c8733a', how: 'Reach Mining 50' }, fish: { name: "Angler's cape", r: 2, col: '#3a8ae0', how: 'Reach Fishing 50' },
+    ember: { name: 'Ember cape', r: 2, col: '#ff6a2a', how: 'Defeat Gagron' }, obsidian: { name: 'Obsidian cape', r: 2, col: '#22202c', how: 'drop' },
+    midnight: { name: 'Midnight cape', r: 3, col: '#2a2a6a', glow: 0.15, how: 'Defeat Sir Soggington' }, starry: { name: 'Starry night cape', r: 3, col: '#1e2a6a', glow: 0.35, how: 'drop' },
+    gold: { name: 'Cloth-of-gold cape', r: 4, col: '#ffc83a', glow: 0.25, how: 'Reach level 70 (Legend)' }, phoenix: { name: 'Phoenix cape', r: 4, col: '#ff7a1a', glow: 0.45, how: 'drop' },
+    prism: { name: 'Prism cape', r: 5, col: '#ff6ad5', glow: 0.4, shimmer: true, how: 'drop' },
   },
   aura: {
-    frost: { name: 'Frost aura', col: '#7fe8ff', how: 'Defeat Queen Frostwhisker' }, royal: { name: 'Royal aura', col: '#b06ae8', how: 'Reach level 45 (Champion)' },
-    rose: { name: 'Rose aura', col: '#ff7ab0', how: 'Be worth 100,000 coins' }, sun: { name: 'Sunfire aura', col: '#ffb02e', how: 'Defeat the Brassbolt Colossus' },
-    void: { name: 'Void aura', col: '#7a3aff', how: 'Reach level 90 (Mythic)' },
-    jelly: { name: 'Royal jelly aura', col: '#ffd84a', how: 'Help beat King Wobblegut' }, gold: { name: 'Golden harvest aura', col: '#ffe9a0', how: 'Gather from 10 golden trees or rocks' },
+    leaf: { name: 'Leafy aura', r: 0, col: '#8ad86a', how: 'drop' }, bubble: { name: 'Bubble aura', r: 1, col: '#9ae8ff', how: 'drop' },
+    gold: { name: 'Golden harvest aura', r: 2, col: '#ffe08a', how: 'Gather from 10 golden trees or rocks' }, sakura: { name: 'Sakura aura', r: 2, col: '#ff9ac8', how: 'drop' }, jelly: { name: 'Royal jelly aura', r: 2, col: '#ffd84a', how: 'Help beat King Wobblegut' },
+    frost: { name: 'Frost aura', r: 3, col: '#7fe8ff', how: 'Defeat Queen Frostwhisker' }, royal: { name: 'Royal aura', r: 3, col: '#b06ae8', how: 'Reach level 45 (Champion)' }, storm: { name: 'Storm aura', r: 3, col: '#a8c8ff', how: 'drop' },
+    rose: { name: 'Rose aura', r: 4, col: '#ff5a9a', how: 'Be worth 100,000 coins' }, sun: { name: 'Sunfire aura', r: 4, col: '#ffa02e', how: 'Defeat the Brassbolt Colossus' }, inferno: { name: 'Inferno aura', r: 4, col: '#ff5a1a', how: 'drop' },
+    void: { name: 'Void aura', r: 5, col: '#7a3aff', how: 'Reach level 90 (Mythic)' }, prism: { name: 'Prism aura', r: 5, col: '#ff6ad5', shimmer: true, how: 'drop' },
   },
   trail: {
-    sparkle: { name: 'Sparkle trail', col: '#fff2a0', how: 'Reach level 10' }, ember: { name: 'Ember trail', col: '#ff8a3a', how: 'Defeat Gagron' },
-    frost: { name: 'Snowflake trail', col: '#dff6ff', how: 'Defeat Grumblefrost' }, bubbles: { name: 'Bubble trail', col: '#b8ffd8', how: 'Defeat Mother Mire' },
-    hearts: { name: 'Heart trail', col: '#ff8ac8', how: 'Catch a golden monster' }, shadow: { name: 'Shadow trail', col: '#6a3aa8', how: 'Reach level 90 (Mythic)' },
+    leaves: { name: 'Leaf trail', r: 0, col: '#8ad86a', how: 'drop' }, sparkle: { name: 'Sparkle trail', r: 1, col: '#fff2a0', how: 'Reach level 10' }, petals: { name: 'Petal trail', r: 1, col: '#ffb0d8', how: 'drop' },
+    ember: { name: 'Ember trail', r: 2, col: '#ff8a3a', how: 'Defeat Gagron' }, frost: { name: 'Snowflake trail', r: 2, col: '#dff6ff', how: 'Defeat Grumblefrost' }, bubbles: { name: 'Bubble trail', r: 2, col: '#b8ffd8', how: 'Defeat Mother Mire' },
+    hearts: { name: 'Heart trail', r: 3, col: '#ff8ac8', how: 'Catch a golden monster' }, stars: { name: 'Star trail', r: 3, col: '#ffe27a', how: 'drop' },
+    shadow: { name: 'Shadow trail', r: 4, col: '#6a3aa8', how: 'Reach level 90 (Mythic)' }, rainbow: { name: 'Rainbow trail', r: 5, col: '#ff6ad5', shimmer: true, how: 'drop' },
   },
 };
-const COS_SLOTS = { hat: 'Hat', cape: 'Cape', aura: 'Aura', trail: 'Trail' };
+// how cosmetics drop: monsters rarely, bosses often. Better lands roll better rarities.
+const COS_ODDS = { out: [70, 24, 5, 1, 0, 0], frost: [50, 32, 13, 4.5, 0.5, 0], marsh: [35, 33, 20, 10, 1.8, 0.2], sands: [22, 30, 25, 17, 5.2, 0.8] };
+function cosDrop(e, at, boss) {
+  const land = ['frost', 'marsh', 'sands'].includes(e.inside) ? e.inside : 'out';
+  if (rng() > (boss ? 0.3 : e.temp ? 0.002 : 0.012)) return;
+  const odds = COS_ODDS[land].slice(); if (boss) { odds[0] *= 0.4; odds[3] *= 1.6; odds[4] *= 2; odds[5] *= 2; }
+  let roll = rng() * odds.reduce((a, b) => a + b, 0), r = 0;
+  while (r < 5 && roll > odds[r]) { roll -= odds[r]; r++; }
+  const C = cosState();
+  for (let rr = r; rr >= 0; rr--) {
+    const pool = []; for (const [sl, list] of Object.entries(COS)) for (const [k, c] of Object.entries(list)) if (c.how === 'drop' && c.r === rr && !C.got[`${sl}:${k}`]) pool.push([sl, k]);
+    if (!pool.length) continue;
+    const [sl, k] = pool[Math.floor(rng() * pool.length)], c = COS[sl][k], R = RARITY[rr];
+    C.got[`${sl}:${k}`] = 1; popLoot(at, 'chest', 0.5);
+    toast(`${R.name.toUpperCase()} LOOK: ${c.name}! Wear it from your Bag.`, ICONS.star, rr >= 2);
+    if (rr >= 3) burst(at.clone().setY(2), R.col, 30 + rr * 10, 6, 1.4);
+    if (rr >= 4 && net.on) sendChat(`I found a ${R.name} look: ${c.name}!`);
+    save(); return;
+  }
+}
+const cosLabel = (c) => (c.how === 'drop' ? 'Drops from monsters (better lands, rarer looks)' : c.how);
+const COS_SLOTS = { hat: 'Hat', outfit: 'Outfit', cape: 'Cape', aura: 'Aura', trail: 'Trail' };
 const COS_BOSS = { boss_gagron: ['cape:ember', 'trail:ember'], boss_crusher: ['hat:horns'], boss_gloom: ['hat:wizard'], boss_rattle: ['hat:tricorn'], boss_frost: ['hat:tiara', 'aura:frost'], boss_grumble: ['trail:frost'], boss_mire: ['trail:bubbles'], boss_sogg: ['cape:midnight'], boss_gobbler: ['hat:frog'], boss_pomp: ['hat:tophat'], boss_colossus: ['hat:goggles', 'aura:sun'] };
 const beaten = (t) => !!((S.beat || {})[t] || (S.letters || {})[t]);
 function cosEarned() {
@@ -7276,6 +7384,38 @@ function makeHat(id) {
     M(new THREE.TorusGeometry(0.55, 0.06, 8, 28), '#8a5a2a').rotation.x = Math.PI / 2;
     g.children[0].position.y = 1.0;
     for (const s of [-1, 1]) { const l = M(new THREE.CylinderGeometry(0.16, 0.16, 0.12, 16), '#d8a850'); l.rotation.x = Math.PI / 2; l.position.set(s * 0.2, 1.08, 0.5); const gl = M(new THREE.CircleGeometry(0.12, 16), '#7fe8ff', { emissive: '#2a8ab0' }); gl.position.set(s * 0.2, 1.08, 0.565); }
+  } else if (id === 'beanie') {
+    M(new THREE.SphereGeometry(0.58, 20, 12, 0, Math.PI * 2, 0, Math.PI / 2), '#e0574a').position.y = 0.9;
+    M(new THREE.TorusGeometry(0.55, 0.09, 8, 28), '#f4e8d0').rotation.x = Math.PI / 2; g.children[1].position.y = 0.92;
+    M(new THREE.SphereGeometry(0.16, 12, 10), '#f4e8d0').position.y = 1.5;
+  } else if (id === 'bandana') {
+    M(new THREE.SphereGeometry(0.565, 20, 12, 0, Math.PI * 2, 0, Math.PI / 2.4), '#d8323a').position.y = 0.88;
+    const k1 = M(new THREE.ConeGeometry(0.12, 0.34, 8), '#d8323a'); k1.position.set(0.12, 1.0, -0.58); k1.rotation.x = 1.9;
+    const k2 = M(new THREE.ConeGeometry(0.1, 0.3, 8), '#d8323a'); k2.position.set(-0.12, 0.96, -0.58); k2.rotation.set(2.1, 0, 0.4);
+  } else if (id === 'chef') {
+    M(new THREE.CylinderGeometry(0.5, 0.5, 0.3, 20), '#ffffff').position.y = 1.05;
+    for (const [x, z] of [[0, 0], [0.22, 0.1], [-0.22, 0.1], [0, -0.2]]) M(new THREE.SphereGeometry(0.32, 14, 10), '#ffffff').position.set(x, 1.38, z);
+  } else if (id === 'mushroom') {
+    M(new THREE.SphereGeometry(0.78, 22, 12, 0, Math.PI * 2, 0, Math.PI / 2), '#e8324a').position.y = 0.95;
+    for (let i = 0; i < 6; i++) { const a2 = (i / 6) * Math.PI * 2, sp = M(new THREE.SphereGeometry(0.1, 8, 6), '#ffffff'); sp.position.set(Math.cos(a2) * 0.5, 1.4, Math.sin(a2) * 0.5); sp.scale.y = 0.5; }
+    M(new THREE.SphereGeometry(0.12, 8, 6), '#ffffff').position.y = 1.73;
+  } else if (id === 'catears') {
+    for (const sd of [-1, 1]) { const e = M(new THREE.ConeGeometry(0.2, 0.42, 4), '#3a3040'); e.position.set(sd * 0.34, 1.22, 0); e.rotation.z = -sd * 0.25; const inn = M(new THREE.ConeGeometry(0.11, 0.26, 4), '#ff9ac8'); inn.position.set(sd * 0.34, 1.2, 0.06); inn.rotation.z = -sd * 0.25; }
+  } else if (id === 'witch') {
+    M(new THREE.CylinderGeometry(0.95, 0.95, 0.06, 26), '#2a2240').position.y = 1.0;
+    const c = M(new THREE.ConeGeometry(0.52, 1.4, 16), '#2a2240'); c.position.set(0, 1.68, -0.1); c.rotation.x = -0.3;
+    M(new THREE.CylinderGeometry(0.53, 0.55, 0.12, 18), '#8a4aff').position.y = 1.08;
+  } else if (id === 'plume') {
+    M(new THREE.SphereGeometry(0.6, 20, 12, 0, Math.PI * 2, 0, Math.PI / 2), '#c3cedc', { emissive: '#1a2230' }).position.y = 0.86;
+    for (let i = 0; i < 5; i++) { const f = M(new THREE.SphereGeometry(0.16, 10, 8), '#e0343c'); f.position.set(0, 1.45 + i * 0.05, 0.2 - i * 0.16); f.scale.set(0.7, 1.2, 1); }
+  } else if (id === 'halo') {
+    const h = M(new THREE.TorusGeometry(0.42, 0.06, 10, 32), '#ffe27a', { emissive: '#c89a00' }); h.rotation.x = Math.PI / 2; h.position.y = 1.55;
+  } else if (id === 'flame') {
+    M(new THREE.TorusGeometry(0.5, 0.06, 8, 28), '#ffb02e', { emissive: '#a84a00' }).rotation.x = Math.PI / 2; g.children[0].position.y = 1.02;
+    for (let i = 0; i < 7; i++) { const a2 = (i / 7) * Math.PI * 2, f = M(new THREE.ConeGeometry(0.12, 0.42 + (i % 2) * 0.16, 8), i % 2 ? '#ffd23f' : '#ff5a1a', { emissive: i % 2 ? '#c89a00' : '#a82a00' }); f.position.set(Math.cos(a2) * 0.5, 1.26, Math.sin(a2) * 0.5); }
+  } else if (id === 'star') {
+    M(new THREE.TorusGeometry(0.5, 0.045, 8, 32), '#fff6d0', { emissive: '#ff6ab0' }).rotation.x = Math.PI / 2; g.children[0].position.y = 1.04;
+    for (let i = 0; i < 5; i++) { const a2 = (i / 5) * Math.PI * 2, st = M(new THREE.OctahedronGeometry(0.13), '#ffe27a', { emissive: '#ff6ab0' }); st.position.set(Math.cos(a2) * 0.62, 1.42 + (i % 2) * 0.12, Math.sin(a2) * 0.62); st.scale.y = 1.5; }
   } else if (id === 'flowers') {
     M(new THREE.TorusGeometry(0.5, 0.05, 8, 28), '#5a9a3a').rotation.x = Math.PI / 2;
     g.children[0].position.y = 1.02;
@@ -7287,8 +7427,52 @@ function makeHat(id) {
 
 // ---------- the flair kit on any hero (you or a friend): aura ring, hat, trail ----------
 const auraGeo = new THREE.RingGeometry(0.78, 1, 48);
+// Cosmetic auras: a glowing rune circle that turns under your feet, motes that spiral up around you,
+// and for the rarest ones a soft pillar of light. Rarer auras get more of everything.
+const runeTex = (() => {
+  const c = document.createElement('canvas'); c.width = c.height = 256; const g = c.getContext('2d');
+  g.translate(128, 128); g.strokeStyle = '#fff'; g.fillStyle = '#fff'; g.lineCap = 'round';
+  const ring = (r, w, a = 1) => { g.globalAlpha = a; g.lineWidth = w; g.beginPath(); g.arc(0, 0, r, 0, Math.PI * 2); g.stroke(); };
+  ring(120, 5); ring(104, 2, 0.8); ring(62, 3, 0.9); ring(52, 1.5, 0.6);
+  g.globalAlpha = 0.95;
+  for (let i = 0; i < 12; i++) { g.save(); g.rotate((i / 12) * Math.PI * 2); g.lineWidth = 3; g.beginPath(); g.moveTo(0, -100); g.lineTo(8, -86); g.lineTo(0, -72); g.lineTo(-8, -86); g.closePath(); g.stroke(); g.beginPath(); g.arc(0, -112, 3, 0, Math.PI * 2); g.fill(); g.restore(); }
+  g.lineWidth = 2.5; g.globalAlpha = 0.7; g.beginPath(); for (let i = 0; i <= 6; i++) { const a = (i / 6) * Math.PI * 2 * 2 - Math.PI / 2; const x = Math.cos(a) * 62, y = Math.sin(a) * 62; i ? g.lineTo(x, y) : g.moveTo(x, y); } g.stroke();
+  const grd = g.createRadialGradient(0, 0, 0, 0, 0, 128); grd.addColorStop(0, 'rgba(255,255,255,.35)'); grd.addColorStop(0.5, 'rgba(255,255,255,.08)'); grd.addColorStop(1, 'rgba(255,255,255,0)');
+  g.globalAlpha = 1; g.fillStyle = grd; g.beginPath(); g.arc(0, 0, 128, 0, Math.PI * 2); g.fill();
+  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return t;
+})();
+const pillarTex = (() => { const c = document.createElement('canvas'); c.width = 4; c.height = 128; const g = c.getContext('2d'); const grd = g.createLinearGradient(0, 128, 0, 0); grd.addColorStop(0, 'rgba(255,255,255,.9)'); grd.addColorStop(1, 'rgba(255,255,255,0)'); g.fillStyle = grd; g.fillRect(0, 0, 4, 128); return new THREE.CanvasTexture(c); })();
+const moteGeo = new THREE.SphereGeometry(0.09, 8, 6);
+function auraKit(a, c) {
+  const F = a.flair;
+  if (F.kit) { F.kit.removeFromParent(); F.kit.traverse((o) => { if (o.material) o.material.dispose(); }); F.kit = null; }
+  if (!c) return;
+  const r = c.r || 0, kit = new THREE.Group(), add = (m) => { m.layers.set(1); kit.add(m); return m; };
+  const blend = { transparent: true, depthWrite: false, fog: false, blending: THREE.AdditiveBlending };
+  const disc = add(new THREE.Mesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshBasicMaterial({ map: runeTex, color: c.col, opacity: 0.55 + r * 0.06, side: THREE.DoubleSide, ...blend })));
+  disc.rotation.x = -Math.PI / 2; disc.position.y = 0.07; disc.scale.setScalar(2.6 + r * 0.25);
+  const motes = [];
+  for (let i = 0; i < 4 + r * 3; i++) { const m = add(new THREE.Mesh(moteGeo, new THREE.MeshBasicMaterial({ color: i % 3 ? c.col : '#ffffff', opacity: 0.9, ...blend }))); m.userData.o = { ph: i / (4 + r * 3), sp: 0.35 + rng() * 0.25, rad: 0.8 + rng() * 0.5, s: 0.7 + rng() * 0.8 }; motes.push(m); }
+  let pillar = null;
+  if (r >= 3) { pillar = add(new THREE.Mesh(new THREE.CylinderGeometry(1.0, 1.15, 3.4, 24, 1, true), new THREE.MeshBasicMaterial({ map: pillarTex, color: c.col, opacity: 0.18 + (r - 3) * 0.08, side: THREE.DoubleSide, ...blend }))); pillar.position.y = 1.7; }
+  a.root.add(kit); F.kit = kit; F.kitParts = { disc, motes, pillar, r, shimmer: !!c.shimmer, col: new THREE.Color(c.col) };
+}
+function auraKitTick(F) {
+  const P = F.kitParts; if (!P) return;
+  P.disc.rotation.z = now * (0.4 + P.r * 0.08);
+  P.disc.material.opacity = (0.5 + P.r * 0.06) * (0.85 + 0.15 * Math.sin(now * 3));
+  if (P.shimmer) { _shim.setHSL((now * 0.15) % 1, 0.85, 0.62); P.disc.material.color.copy(_shim); if (P.pillar) P.pillar.material.color.copy(_shim); }
+  for (const m of P.motes) {
+    const o = m.userData.o, t = (now * o.sp + o.ph) % 1, ang = o.ph * 6.283 + now * (0.8 + o.sp);
+    m.position.set(Math.cos(ang) * o.rad * (1 - t * 0.35), 0.15 + t * 2.6, Math.sin(ang) * o.rad * (1 - t * 0.35));
+    m.scale.setScalar(o.s * (t < 0.15 ? t / 0.15 : 1 - (t - 0.15) / 0.85));
+    if (P.shimmer) m.material.color.setHSL((now * 0.15 + o.ph) % 1, 0.85, 0.65);
+  }
+  if (P.pillar) P.pillar.material.opacity = (0.16 + (P.r - 3) * 0.08) * (0.8 + 0.2 * Math.sin(now * 2));
+}
 function setFlair(a, { rank = 0, aura = null, trail = null, hat = null, helmet = false } = {}) {
   const F = a.flair || (a.flair = {});
+  if (F.auraKey !== aura) { F.auraKey = aura; auraKit(a, aura && COS.aura[aura] ? COS.aura[aura] : null); }
   const col = aura && COS.aura[aura] ? COS.aura[aura].col : RANKS[rank].col;
   const show = rank >= 2 || !!aura;
   if (!F.ring) {
@@ -7296,10 +7480,10 @@ function setFlair(a, { rank = 0, aura = null, trail = null, hat = null, helmet =
     F.ring.rotation.x = -Math.PI / 2; F.ring.position.y = 0.06; F.ring.layers.set(1); a.root.add(F.ring);
     F.ring2 = F.ring.clone(); F.ring2.material = F.ring.material.clone(); a.root.add(F.ring2);
   }
-  F.ring.visible = show; F.ring2.visible = show && (rank >= 4 || !!aura);
+  F.ring.visible = show && !F.kit; F.ring2.visible = show && !F.kit && rank >= 4;
   F.ring.material.color.set(col); F.ring2.material.color.set(col);
   F.rank = rank; F.col = col; F.rainbow = rank >= 5 && !aura;
-  F.trail = trail && COS.trail[trail] ? COS.trail[trail].col : null; F.trailAt = 0; F.moteAt = 0;
+  F.trail = trail && COS.trail[trail] ? COS.trail[trail].col : null; F.trailShimmer = !!(trail && COS.trail[trail] && COS.trail[trail].shimmer); F.trailAt = 0; F.moteAt = 0;
   if (F.hatKey !== `${hat}|${helmet}` && (a.headInfo || !hat)) {
     if (F.hat) F.hat.removeFromParent();
     F.hat = null; F.hatKey = `${hat}|${helmet}`;
@@ -7315,6 +7499,7 @@ function setFlair(a, { rank = 0, aura = null, trail = null, hat = null, helmet =
 const _fx = new THREE.Vector3();
 function flairTick(a, dt, moving) {
   const F = a.flair; if (!F || !a.root.visible) return;
+  if (F.kit) auraKitTick(F);
   if (F.ring.visible) {
     const k = 1 + Math.sin(now * 2.4) * 0.06;
     F.ring.scale.setScalar(1.25 * k); F.ring.material.opacity = 0.28 + 0.1 * F.rank / 5 + Math.sin(now * 3) * 0.06;
@@ -7326,7 +7511,7 @@ function flairTick(a, dt, moving) {
       burst(_fx, F.col, 1, 1.5, 0.9);
     }
   }
-  if (F.trail && moving && now > F.trailAt) { F.trailAt = now + 0.06; burst(_fx.copy(a.root.position).setY(0.3), F.trail, 2, 1.6, 0.7); }
+  if (F.trail && moving && now > F.trailAt) { F.trailAt = now + 0.06; burst(_fx.copy(a.root.position).setY(0.3), F.trailShimmer ? `#${_shim.setHSL((now * 0.4) % 1, 0.85, 0.65).getHexString()}` : F.trail, 2, 1.6, 0.7); }
 }
 function heroFlair() {
   if (!player) return;
@@ -7372,9 +7557,40 @@ function rankFlourish(x, z, ringFn) {
 }
 
 // ---------- the inventory: a paper doll of what you wear, your bag, and your style ----------
-const itemRarity = (k) => { const v = SELL[k] || 0; return v >= 800 ? ['legendary', 'Legendary'] : v >= 250 ? ['epic', 'Epic'] : v >= 40 ? ['rare', 'Rare'] : v >= 10 ? ['fine', 'Uncommon'] : ['common', 'Common']; };
-const gearRarity = (g) => (g.unique ? ['legendary', 'Boss treasure'] : g.tier === 4 ? ['epic', 'Epic'] : g.tier === 3 ? ['rare', 'Rare'] : g.tier === 2 ? ['fine', 'Uncommon'] : ['common', 'Common']);
+const itemRarIx = (k) => { const v = SELL[k] || 0; return v >= 5000 ? 5 : v >= 800 ? 4 : v >= 250 ? 3 : v >= 40 ? 2 : v >= 10 ? 1 : 0; };
+const itemRarity = (k) => { const r = RARITY[itemRarIx(k)]; return [r.id, r.name]; };
+const gearRarity = (g) => { const r = RARITY[gearRarIx(g)]; return [r.id, r.name]; };
 let bagTab = 'gear', dollSlot = 'weapon', bagPick = null;
+// ---------- live preview: your actual hero, drawn in the loadout window, wearing what you pick ----------
+const prev = { cv: null, r: null, scene: null, cam: null, yaw: 0.5, drag: null, at: 0 };
+function previewMount() {
+  const slot = document.querySelector('#sheet .dprev'); if (!slot) return;
+  if (!prev.cv) {
+    prev.cv = document.createElement('canvas'); prev.cv.className = 'prevcv';
+    try { prev.r = new THREE.WebGLRenderer({ canvas: prev.cv, alpha: true, antialias: true }); } catch (e) { prev.r = null; }
+    if (prev.r) { prev.r.setPixelRatio(Math.min(devicePixelRatio || 1, 2)); prev.r.outputColorSpace = renderer.outputColorSpace; prev.r.toneMapping = renderer.toneMapping; prev.r.toneMappingExposure = renderer.toneMappingExposure; }
+    prev.scene = new THREE.Scene();
+    prev.scene.add(new THREE.HemisphereLight('#fff6e8', '#8a7a6a', 2.2));
+    const sun = new THREE.DirectionalLight('#ffffff', 2.4); sun.position.set(3, 6, 5); prev.scene.add(sun);
+    prev.cam = new THREE.PerspectiveCamera(30, 0.8, 0.1, 50); prev.cam.layers.enableAll();
+    prev.cv.addEventListener('pointerdown', (e) => { prev.drag = e.clientX; prev.cv.setPointerCapture(e.pointerId); });
+    prev.cv.addEventListener('pointermove', (e) => { if (prev.drag !== null) { prev.yaw += (e.clientX - prev.drag) * 0.012; prev.drag = e.clientX; } });
+    prev.cv.addEventListener('pointerup', () => { prev.drag = null; });
+  }
+  slot.appendChild(prev.cv);
+}
+function previewTick() {
+  if (!prev.r || !player || !prev.cv || !prev.cv.isConnected || $('sheet').hidden || now < prev.at) return;
+  prev.at = now + 1 / 30;
+  const w = prev.cv.clientWidth, h = prev.cv.clientHeight; if (!w || !h) return;
+  if (prev.cv.width !== Math.round(w * prev.r.getPixelRatio())) { prev.r.setSize(w, h, false); prev.cam.aspect = w / h; prev.cam.updateProjectionMatrix(); }
+  if (prev.drag === null) prev.yaw += 0.006;
+  // borrow the real hero for one quick draw, then put everything back exactly where it was
+  const R = player.root, parent = R.parent, px = R.position.x, py = R.position.y, pz = R.position.z, ry = R.rotation.y;
+  prev.scene.add(R); R.position.set(0, 0, 0); R.rotation.y = prev.yaw;
+  prev.cam.position.set(0, 2.2, 7.4); prev.cam.lookAt(0, 1.45, 0);
+  try { prev.r.render(prev.scene, prev.cam); } finally { if (parent) parent.add(R); R.position.set(px, py, pz); R.rotation.y = ry; }
+}
 const SLOT_NAMES = { weapon: 'Weapon', shield: 'Shield', armour: 'Armour', gadget: 'Gadget' };
 function gearDelta(g, cur) {
   if (g.slot === 'weapon') { const d = Math.round((g.dmg - (cur ? cur.dmg : 0)) * 10) / 10; return d ? `<em class="${d > 0 ? 'up' : 'down'}">${d > 0 ? '+' : ''}${d} dmg</em>` : ''; }
@@ -7385,9 +7601,9 @@ function dollList() {
   const C = cosState();
   if (dollSlot.startsWith('cos:')) {
     const sl = dollSlot.slice(4), got = C.got;
-    const rows = Object.entries(COS[sl]).map(([k, c]) => {
-      const have = got[`${sl}:${k}`], on = C.eq[sl] === k;
-      return `<button class="cosrow ${have ? '' : 'locked'}" data-cos="${sl}:${k}" aria-pressed="${on}" ${have ? '' : 'disabled'}><span class="swatch" style="--sw:${c.col || '#e8a93a'}"></span><b>${c.name}</b><small>${have ? (on ? 'Wearing' : 'Tap to wear') : `Locked: ${c.how}`}</small></button>`;
+    const rows = Object.entries(COS[sl]).sort((x, y) => (y[1].r || 0) - (x[1].r || 0)).map(([k, c]) => {
+      const have = got[`${sl}:${k}`], on = C.eq[sl] === k, R = RARITY[c.r || 0];
+      return `<button class="cosrow ${R.id} ${have ? '' : 'locked'}" data-cos="${sl}:${k}" aria-pressed="${on}" ${have ? '' : 'disabled'}><span class="swatch" style="--sw:${c.col || c.body || '#e8a93a'}${c.trim ? `;--sw2:${c.trim}` : ''}"></span><b>${c.name}</b><i class="rar">${R.name}</i><small>${have ? (on ? 'Wearing' : 'Tap to wear') : `Locked: ${cosLabel(c)}`}</small></button>`;
     }).join('');
     return `<h4 class="sub">${COS_SLOTS[sl]}s <small>${Object.keys(COS[sl]).filter((k) => got[`${sl}:${k}`]).length} of ${Object.keys(COS[sl]).length} found</small></h4><div class="coslist">${C.eq[sl] ? `<button class="cosrow" data-cos="${sl}:">Take it off</button>` : ''}${rows}</div><p class="hint">Looks never change your stats. You earn them only by playing: beating bosses, reaching new ranks, catching golden monsters and freeing towns.</p>`;
   }
@@ -7403,11 +7619,11 @@ function renderBag(el) {
   if (bagTab === 'gear') {
     const rk = rankOf(heroLvl()), R = RANKS[rk], t = heroTitle(), C = cosState(), w = W();
     const slot = (sl) => { const k = S.equip[sl], g = GEAR[k]; return `<button class="dslot ${g ? gearRarity(g)[0] : 'empty'}" data-dslot="${sl}" aria-pressed="${dollSlot === sl}">${g ? `<img src="${gearIcon(g)}" alt="">` : '<i></i>'}<small>${g ? g.name : SLOT_NAMES[sl]}</small>${g && plusOf(k) ? `<b>+${plusOf(k)}</b>` : ''}</button>`; };
-    const cslot = (sl) => { const id = C.eq[sl], c = id && COS[sl][id]; return `<button class="dslot cos ${c ? 'cosy' : 'empty'}" data-dslot="cos:${sl}" aria-pressed="${dollSlot === `cos:${sl}`}">${c ? `<span class="swatch" style="--sw:${c.col || '#e8a93a'}"></span>` : '<i></i>'}<small>${c ? c.name : COS_SLOTS[sl]}</small></button>`; };
+    const cslot = (sl) => { const id = C.eq[sl], c = id && COS[sl][id]; return `<button class="dslot cos ${c ? RARITY[c.r || 0].id : 'empty'}" data-dslot="cos:${sl}" aria-pressed="${dollSlot === `cos:${sl}`}">${c ? `<span class="swatch" style="--sw:${c.col || c.body || '#e8a93a'}"></span>` : '<i></i>'}<small>${c ? c.name : COS_SLOTS[sl]}</small></button>`; };
     body = `<div class="doll" style="--rank:${R.col}">
-      <div class="dcol">${slot('weapon')}${slot('shield')}${slot('gadget')}${cslot('trail')}</div>
-      <div class="dfig"><div class="dport${rk >= 2 ? ' glow' : ''}"><img src="${portrait(S.look)}" alt=""></div><b>${esc(heroName())}</b><span class="drank">${R.name} · Lv ${heroLvl()}</span>${t && !t.id.startsWith('rank') ? `<em>${esc(t.name)}</em>` : ''}</div>
-      <div class="dcol">${slot('armour')}${cslot('hat')}${cslot('cape')}${cslot('aura')}</div></div>
+      <div class="dcol">${slot('weapon')}${slot('shield')}${slot('armour')}${slot('gadget')}${cslot('trail')}</div>
+      <div class="dfig"><div class="dprev" title="Drag to turn your hero"></div><b>${esc(heroName())}</b><span class="drank">${R.name} · Lv ${heroLvl()}</span>${t && !t.id.startsWith('rank') ? `<em>${esc(t.name)}</em>` : ''}</div>
+      <div class="dcol">${cslot('hat')}${cslot('outfit')}${cslot('cape')}${cslot('aura')}</div></div>
       <div class="dstats"><div><img src="${ICONS[w.type]}" alt=""><span>Hit</span><b>${Math.round(w.dmg * dmgMult() * pathDmg())}</b></div><div><img src="${ICONS.shield}" alt=""><span>Defense</span><b>${totalDef()}</b></div><div><img src="${ICONS.heart}" alt=""><span>Health</span><b>${maxHp()}</b></div><div><img src="${ICONS.star}" alt=""><span>Renown</span><b>+${Math.round((renown() - 1) * 100)}%</b></div></div>
       ${dollList()}`;
   } else if (bagTab === 'items') {
@@ -7428,17 +7644,18 @@ function renderBag(el) {
     const C = cosState(), T = titleList(), cur = heroTitle();
     const total = Object.values(COS).reduce((a, s) => a + Object.keys(s).length, 0), have = Object.keys(C.got).length;
     body = `<h4 class="sub">Title <small>shown over your name</small></h4><div class="titles">${T.map((t) => `<button class="titlebtn${t.ok ? '' : ' locked'}" data-title="${t.id}" aria-pressed="${cur && cur.id === t.id}" ${t.ok ? '' : 'disabled'} style="--tc:${t.col}" title="${t.how}">${t.name}${t.ok ? '' : `<small>${t.how}</small>`}</button>`).join('')}</div>
-      <h4 class="sub">Looks <small>${have} of ${total} found</small></h4><div class="cosgrid">${Object.entries(COS_SLOTS).map(([sl, nm]) => `<button class="dslot cos ${C.eq[sl] ? 'cosy' : 'empty'}" data-dslot="cos:${sl}"><span class="swatch" style="--sw:${C.eq[sl] ? COS[sl][C.eq[sl]].col || '#e8a93a' : '#d8c8a8'}"></span><small>${nm}</small></button>`).join('')}</div>
+      <h4 class="sub">Looks <small>${have} of ${total} found</small></h4><div class="cosgrid">${Object.entries(COS_SLOTS).map(([sl, nm]) => { const c = C.eq[sl] && COS[sl][C.eq[sl]]; return `<button class="dslot cos ${c ? RARITY[c.r || 0].id : 'empty'}" data-dslot="cos:${sl}"><span class="swatch" style="--sw:${c ? c.col || c.body || '#e8a93a' : '#d8c8a8'}"></span><small>${nm}</small></button>`; }).join('')}</div>
       <p class="hint">Ranks: ${RANKS.map((r) => `<b style="color:${r.col}">${r.name}</b> (${r.min})`).join(' · ')}. Every rank gives +5% damage and health, a bigger aura and flashier specials.</p>`;
   }
   el.innerHTML = `<h3>Inventory <small>${fmt(S.coins)} coins${S.bank ? ` · ${fmt(S.bank)} banked` : ''}</small></h3><div class="bagtabs">${Object.entries(tabs).map(([k, n]) => `<button data-btab="${k}" aria-pressed="${bagTab === k}">${n}</button>`).join('')}</div>${body}`;
+  previewMount();
   el.querySelectorAll('[data-btab]').forEach((b) => { b.onclick = () => { bagTab = b.dataset.btab; renderSheet(); }; });
   el.querySelectorAll('[data-dslot]').forEach((b) => { b.onclick = () => { dollSlot = b.dataset.dslot; bagTab = 'gear'; renderSheet(); }; });
   el.querySelectorAll('[data-item]').forEach((b) => { b.onclick = () => { bagPick = bagPick === b.dataset.item ? null : b.dataset.item; renderSheet(); }; });
   el.querySelectorAll('[data-eat]').forEach((b) => { b.onclick = () => { eat(b.dataset.eat); renderSheet(); }; });
   el.querySelectorAll('[data-pin]').forEach((b) => { b.onclick = () => { pinToHotbar(b.dataset.pin); renderSheet(); }; });
   el.querySelectorAll('[data-gear]').forEach((b) => { b.onclick = () => { const g = GEAR[b.dataset.gear]; S.equip[g.slot] = g.slot === 'gadget' && S.equip.gadget === b.dataset.gear ? null : b.dataset.gear; cancelTask(); equipGear(); buildGearBar(); updateTitle(); save(); renderSheet(); burst(player.pos.clone().setY(1.6), '#ffe07a', 20, 4); sfx('equip'); }; });
-  el.querySelectorAll('[data-cos]').forEach((b) => { b.onclick = () => { const [sl, k] = b.dataset.cos.split(':'); const C = cosState(); C.eq[sl] = k && C.eq[sl] !== k ? k : null; if (sl === 'cape') applyLook(); heroFlair(); save(); renderSheet(); burst(player.pos.clone().setY(1.6), '#ffe07a', 24, 4); }; });
+  el.querySelectorAll('[data-cos]').forEach((b) => { b.onclick = () => { const [sl, k] = b.dataset.cos.split(':'); const C = cosState(); C.eq[sl] = k && C.eq[sl] !== k ? k : null; if (sl === 'cape' || sl === 'outfit') applyLook(); heroFlair(); save(); renderSheet(); burst(player.pos.clone().setY(1.6), '#ffe07a', 24, 4); }; });
   el.querySelectorAll('[data-title]').forEach((b) => { b.onclick = () => { S.title = b.dataset.title; save(); renderSheet(); }; });
 }
 
