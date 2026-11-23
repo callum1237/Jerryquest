@@ -496,7 +496,7 @@ function showAccount(had, begin) {
     const r = await signIn($('a-name').value, $('a-pass').value, create);
     if (r.error) { msg.textContent = r.error; msg.classList.add('bad'); busy(false); return; }
     let d = null;
-    try { d = await loadCloud(); } catch (e) { msg.textContent = 'Logged in, but your save could not load. Try again in a moment.'; msg.classList.add('bad'); busy(false); return; }
+    try { d = await loadCloud(); } catch (e) { msg.textContent = `Logged in, but your save could not load. (${(e && (e.message || e.code)) || 'unknown error'})`; msg.classList.add('bad'); busy(false); return; }
     if (d) parseSave(d);
     else if (!(create && had)) S = fresh(); // a hero already saved in this browser moves into a brand new account
     net.on = true;
