@@ -1872,7 +1872,7 @@ function buildFace(a = player, L = S.look) {
   a.root.traverse((o) => {
     if (o.name !== 'Knight_Helmet') return;
     if (!o.userData.base) o.userData.base = { y: o.position.y, s: o.scale.x };
-    o.position.y = o.userData.base.y + 0.17; o.scale.setScalar(o.userData.base.s * 1.13);
+    const hk = (HEAD_SIZES[L.head] ? HEAD_SIZES[L.head][1] : 1.17) / 1.4; o.position.y = o.userData.base.y + 0.17 * hk; o.scale.setScalar(o.userData.base.s * 1.13 * Math.max(0.8, hk));
   });
   const hc = new THREE.Color(hairOf(L)).multiplyScalar(0.78);
   addBeard(fg, L.beard, c, rx, ry, rz, toon(`#${hc.getHexString()}`));
@@ -1928,7 +1928,8 @@ function applyLook() {
   // a touch darker than the swatch so sunlight doesn't bleach the top of the hair
   const hcol = new THREE.Color(hairOf(L)).multiplyScalar(0.72);
   hairMats.std.color.copy(hcol); hairMats.toon.color.copy(hcol);
-  const showHair = L.hair !== 'none' && !L.hat;
+  const ofc0 = COS.outfit[cosState().eq.outfit || ''], helmOn = !!(ofc0 && ofc0.helm && !L.helmOff);
+  const showHair = L.hair !== 'none' && !L.hat && !helmOn;
   const arm = ARMOUR[S.equip.armour] || ARMOUR.ar_cloth;
   const skel = heroSkel();
   if (showHair && !skel) { let head; player.root.traverse((o) => { if (o.isBone && o.name === 'head') head = o; }); if (head) head.add(hairGroup(L.hair, L.hairLen)); }
@@ -1938,7 +1939,7 @@ function applyLook() {
     if (!o.isMesh || !o.userData.mats) return;
     const n = o.name;
     const isCape = /_Cape$/.test(n), isBody = /_Body$/.test(n), isHat = /_(Helmet|Hat)$/.test(n), isLimb = /_(ArmLeft|ArmRight|LegLeft|LegRight)$/.test(n);
-    if (isHat) o.visible = L.hat;
+    if (isHat) o.visible = L.hat || (helmOn && /Knight_Helmet$/.test(n));
     if (isCape) o.visible = L.cape;
     if (isCape || isBody || isLimb) {
       if (!o.userData.ownMats) {
@@ -1953,6 +1954,7 @@ function applyLook() {
     }
   });
   dressArmour();
+  if (helmOn) player.root.traverse((o) => { if (o.isMesh && /Knight_Helmet$/.test(o.name) && o.userData.mats && !Array.isArray(o.userData.mats.toon)) { if (!o.userData.ownMats) { o.userData.ownMats = { std: o.userData.mats.std.clone(), toon: o.userData.mats.toon.clone() }; o.userData.ownMats.toon.onBeforeCompile = o.userData.mats.toon.onBeforeCompile; o.userData.mats = o.userData.ownMats; o.material = styled.on ? o.userData.mats.toon : o.userData.mats.std; } for (const m of [o.userData.mats.std, o.userData.mats.toon]) { colourise(m, 0.7); m.color.set(ofc0.helm); if (m.emissive) m.emissive.set('#000000'); } } });
   const ofC = cosState().eq.outfit; if (skel) skelPaint(player); else if (ofC && COS.outfit[ofC]) paintOutfit(player, COS.outfit[ofC]);
   player.baseScale = heroScale(L); if (!tinyUntil) setHeroScale(player, player.baseScale);
   const capeC = cosState().eq.cape; if (capeC && COS.cape[capeC]) capeColour(player, COS.cape[capeC].col, COS.cape[capeC].glow);
@@ -2010,6 +2012,35 @@ function dressOutfit(a, c, model, armour = null) {
     put('hips', sashGeo, trim, hp.clone().add(new THREE.Vector3(0, 0.12 * S1, 0.01 * S1)), new THREE.Euler(Math.PI / 2, 0, 0), new THREE.Vector3(0.41 * S1, 0.35 * S1, 1.1 * S1));
     put('hips', charmGeo, toon(r >= 3 ? c.trim : '#ffd34a', { emissive: r >= 3 ? new THREE.Color(c.trim).multiplyScalar(0.4) : '#3a2400' }), hp.clone().add(new THREE.Vector3(0, 0.12 * S1, 0.36 * S1)), new THREE.Euler(0, 0, Math.PI / 4), new THREE.Vector3(0.07 * S1, 0.07 * S1, 0.035 * S1));
   }
+  // themed pieces
+  const st = c.style, dark = toon(c.helm ? mixHex(c.helm, '#ffffff', 0.18) : c.body), side2 = THREE.DoubleSide;
+  if (st === 'knight') for (const sd of ['l', 'r']) {
+    const arm = rest[`upperarm${sd}`]; if (!arm) continue;
+    const sp = wp(`upperarm${sd}`), out = Math.sign(sp.x) || (sd === 'l' ? 1 : -1), R0 = 0.36 * S1;
+    put(`upperarm${sd}`, padGeo, dark, sp.clone().add(new THREE.Vector3(out * 0.07 * S1, 0.1 * S1, 0)), new THREE.Euler(0, 0, -out * 0.5), new THREE.Vector3(R0, R0 * 0.8, R0 * 1.05));
+    put(`upperarm${sd}`, padGeo, trim, sp.clone().add(new THREE.Vector3(out * 0.15 * S1, -0.02 * S1, 0)), new THREE.Euler(0, 0, -out * 0.75), new THREE.Vector3(R0 * 0.75, R0 * 0.6, R0 * 0.85));
+    put(`upperarm${sd}`, spikeGeo, trim, sp.clone().add(new THREE.Vector3(out * 0.22 * S1, 0.4 * S1, 0)), new THREE.Euler(0, 0, -out * 0.55), new THREE.Vector3(0.055 * S1, 0.08 * S1, 0.055 * S1));
+  }
+  if ((st === 'vamp' || st === 'holy') && live.chest) {
+    // folded wings on the back: leathery bat wings for vampires, small feathered ones for holy looks
+    for (const sx of [-1, 1]) {
+      const w = new THREE.Group();
+      if (st === 'vamp') {
+        const o = new THREE.Mesh(batWingGeo); registerMesh(o, (() => { const m = toon(c.trim); m.std.side = m.toon.side = side2; return m; })()); o.scale.set(sx * 0.6, 0.6, 1);
+        const i2 = new THREE.Mesh(batWingGeo); registerMesh(i2, (() => { const m = toon(c.body); m.std.side = m.toon.side = side2; return m; })()); i2.scale.set(sx * 0.48, 0.48, 1); i2.position.set(sx * 0.04, 0.03, -0.01);
+        w.add(o, i2); w.position.set(sx * 0.14, 0.3, -0.34); w.rotation.set(0.15, sx * 0.55, sx * 0.1);
+      } else {
+        const fm = toon('#ffffff', { emissive: new THREE.Color(c.trim).multiplyScalar(0.15 + glow) });
+        for (const [k, len] of [[0, 0.5], [1, 0.4], [2, 0.3]]) { const f = new THREE.Mesh(new THREE.CapsuleGeometry(0.07, len, 4, 8)); registerMesh(f, fm); f.position.set(sx * (0.14 + k * 0.06), 0.12 - k * 0.1, 0); f.rotation.z = sx * (1.0 + k * 0.25); w.add(f); }
+        w.position.set(sx * 0.18, 0.25, -0.32); w.rotation.y = -sx * 0.5;
+      }
+      live.chest.add(w); a.outfitParts.push(w);
+    }
+  }
+  if (st === 'holy' && live.head && a.headInfo) {
+    const H = a.headInfo, ring = new THREE.Mesh(new THREE.TorusGeometry(0.5, 0.045, 8, 32)); registerMesh(ring, toon(c.trim, { emissive: new THREE.Color(c.trim).multiplyScalar(0.6) }));
+    ring.rotation.x = Math.PI / 2 + 0.12; ring.position.y = H.box.max.y - 0.12; live.head.add(ring); a.outfitParts.push(ring);
+  }
   if (r >= 3 && !(armour && armour.gem)) put('chest', charmGeo, toon(c.trim, { emissive: new THREE.Color(c.trim).multiplyScalar(0.5 + glow) }), ch.clone().add(new THREE.Vector3(0, 0.14 * S1, 0.35 * S1)), new THREE.Euler(0, 0, 0), new THREE.Vector3(0.075 * S1, 0.1 * S1, 0.04 * S1));
   for (const m of a.outfitParts) { markStencil(m); addInk(m); }
 }
@@ -2038,11 +2069,13 @@ const ARMOUR_LOOK = {
 };
 const restRigs = new Map();
 const padGeo = new THREE.SphereGeometry(1, 20, 12, 0, Math.PI * 2, 0, Math.PI / 2), ringGeo = new THREE.TorusGeometry(1, 0.16, 8, 28), gemGeo = new THREE.OctahedronGeometry(1, 0), spikeGeo = new THREE.ConeGeometry(1, 2.4, 8);
+// an outfit is a full look of its own: armour pieces and the shield stay hidden under it (their stats still count)
+const outfitOn = () => { const oc = cosState().eq.outfit; return !!(oc && COS.outfit[oc]); };
 function dressArmour() {
-  { const oc = cosState().eq.outfit; dressOutfit(player, oc && COS.outfit[oc], heroModel(), ARMOUR_LOOK[S.equip.armour]); }
+  { const oc = cosState().eq.outfit; dressOutfit(player, oc && COS.outfit[oc], heroModel(), null); }
   if (player.armourParts) for (const m of player.armourParts) m.removeFromParent();
   player.armourParts = [];
-  const A = ARMOUR_LOOK[S.equip.armour];
+  const A = outfitOn() ? null : ARMOUR_LOOK[S.equip.armour];
   if (!A) return;
   // measure on an untouched copy of the body in its rest pose, then hang each piece on the
   // matching bone of the hero, so it sits the same way whatever animation is playing
@@ -2134,6 +2167,7 @@ function equipGear() {
   for (const m of player.customs || []) m.removeFromParent();
   player.customs = []; player.weapons = [];
   const hold = (item, base, side) => {
+    if (side === 'l' && outfitOn()) { if (base) base.visible = false; return; }
     if (base) base.visible = !item.model;
     // shields are held a bit smaller so they don't hide the hero's outfit
     if (base && side === 'r' && !item.model && !base.userData.stretched) { base.userData.stretched = true; stretchBlade(base); }
@@ -7487,6 +7521,12 @@ const COS = {
     paladin: { name: 'Paladin white', r: 3, body: '#fbf8ef', trim: '#ffc22e', glow: 0.18, how: 'drop' }, bog: { name: 'Bog witch', r: 3, body: '#5a8a4a', trim: '#b06ae8', glow: 0.12, how: 'drop' },
     dragon: { name: 'Dragonscale', r: 4, body: '#c8361a', trim: '#ffb02e', glow: 0.3, how: 'drop' },
     starlight: { name: 'Starlight regalia', r: 5, body: '#2a2a78', trim: '#ffe27a', glow: 0.35, shimmer: true, how: 'drop' },
+    vnoble: { name: 'Crimson Noble', r: 3, body: '#6a1020', trim: '#1a0a12', style: 'vamp', how: 'drop' },
+    vlord: { name: 'Vampire Lord', r: 4, body: '#2a1424', trim: '#b01830', glow: 0.15, style: 'vamp', how: 'drop' },
+    dknight: { name: 'Dark Knight', r: 4, body: '#26262f', trim: '#7a5aff', style: 'knight', helm: '#45455a', how: 'drop' },
+    abyss: { name: 'Abyssal Knight', r: 5, body: '#16121e', trim: '#ff3a5a', glow: 0.2, style: 'knight', helm: '#3a2c40', how: 'drop' },
+    templar: { name: 'Sunlit Templar', r: 3, body: '#fff3da', trim: '#f2b632', glow: 0.1, style: 'holy', how: 'drop' },
+    seraph: { name: 'Seraph Raiment', r: 5, body: '#ffffff', trim: '#8fd4ff', glow: 0.3, style: 'holy', shimmer: true, how: 'drop' },
     skeleton: { name: 'Dark Skeleton', r: 5, body: '#5a5470', trim: '#a050ff', skin: 'skeleton', how: 'drop' },
   },
   cape: {
@@ -7944,6 +7984,8 @@ function renderBag(el) {
       <div class="dfig"><div class="dprev" title="Drag to turn your hero"></div><b>${esc(heroName())}</b><span class="drank">${R.name} · Lv ${heroLvl()}</span>${t && !t.id.startsWith('rank') ? `<em>${esc(t.name)}</em>` : ''}</div>
       <div class="dcol">${cslot('hat')}${cslot('outfit')}${cslot('cape')}${cslot('aura')}</div></div>
       <div class="dstats"><div><img src="${ICONS[w.type]}" alt=""><span>Hit</span><b>${Math.round(w.dmg * dmgMult() * pathDmg())}</b></div><div><img src="${ICONS.shield}" alt=""><span>Defense</span><b>${totalDef()}</b></div><div><img src="${ICONS.heart}" alt=""><span>Health</span><b>${maxHp()}</b></div><div><img src="${ICONS.star}" alt=""><span>Renown</span><b>+${Math.round((renown() - 1) * 100)}%</b></div></div>
+      ${(() => { const oc = COS.outfit[C.eq.outfit || '']; return oc && oc.helm ? `<button id="helmtog" class="helmtog" aria-pressed="${!S.look.helmOff}">${S.look.helmOff ? 'Show helmet' : 'Hide helmet'}</button>` : ''; })()}
+      ${outfitOn() ? '<p class="hint">Your outfit is a full look: armour and shield stats still count, they just stay hidden under it.</p>' : ''}
       ${dollList()}`;
   } else if (bagTab === 'items') {
     const keys = bagKeys(), slots = [];
@@ -7979,8 +8021,9 @@ function renderBag(el) {
   el.querySelectorAll('[data-bagsort]').forEach((b) => { b.onclick = () => { bagSort(b.dataset.bagsort); renderSheet(); }; });
   el.querySelectorAll('[data-pin]').forEach((b) => { b.onclick = () => { pinToHotbar(b.dataset.pin); renderSheet(); }; });
   el.querySelectorAll('[data-gear]').forEach((b) => { b.onclick = () => { const g = GEAR[b.dataset.gear]; S.equip[g.slot] = g.slot === 'gadget' && S.equip.gadget === b.dataset.gear ? null : b.dataset.gear; cancelTask(); equipGear(); buildGearBar(); updateTitle(); save(); renderSheet(); burst(player.pos.clone().setY(1.6), '#ffe07a', 20, 4); sfx('equip'); }; });
-  el.querySelectorAll('[data-cos]').forEach((b) => { b.onclick = () => { const [sl, k] = b.dataset.cos.split(':'); const C = cosState(); const wasSkel = heroSkel(); C.eq[sl] = k && C.eq[sl] !== k ? k : null; if (sl === 'outfit' && wasSkel !== heroSkel()) { rebuildHero(); if (net.on) profileKey = ''; } else if (sl === 'cape' || sl === 'outfit') applyLook(); heroFlair(); save(); renderSheet(); burst(player.pos.clone().setY(1.6), '#ffe07a', 24, 4); }; });
+  el.querySelectorAll('[data-cos]').forEach((b) => { b.onclick = () => { const [sl, k] = b.dataset.cos.split(':'); const C = cosState(); const wasSkel = heroSkel(); C.eq[sl] = k && C.eq[sl] !== k ? k : null; if (sl === 'outfit' && wasSkel !== heroSkel()) { rebuildHero(); if (net.on) profileKey = ''; } else if (sl === 'cape' || sl === 'outfit') { applyLook(); if (sl === 'outfit') equipGear(); } heroFlair(); save(); renderSheet(); burst(player.pos.clone().setY(1.6), '#ffe07a', 24, 4); }; });
   el.querySelectorAll('[data-title]').forEach((b) => { b.onclick = () => { S.title = b.dataset.title; save(); renderSheet(); }; });
+  if ($('helmtog')) $('helmtog').onclick = () => { S.look.helmOff = !S.look.helmOff; applyLook(); save(); renderSheet(); };
   if ($('b-appear')) $('b-appear').onclick = () => { closeSheet(); openCreator('edit'); };
 }
 
