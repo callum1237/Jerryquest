@@ -2327,7 +2327,7 @@ const npcIdle = (n) => n.actor.play(n.id === 'fenwick' ? 'Spellcasting' : 'Idle'
 for (const k of ['mud_gloop', 'boss_gobbler', 'sand_gloop']) ENEMY_TYPES[k].alias = ENEMY_TYPES.bog_slime.alias;
 ENEMY_TYPES.dust_bat.alias = ENEMY_TYPES.mire_bat.alias;
 // Toughness pass (Callum, Nov 23): every monster hits harder and takes longer to beat; bosses much more so.
-const MOB_HP = 1.5, MOB_HIT = 1.4, BOSS_HP = 2.2, BOSS_HIT = 1.6;
+const MOB_HP = 2.2, MOB_HIT = 1.9, BOSS_HP = 3.5, BOSS_HIT = 2.4;
 function toughen(T) { if (T.world || T.toughened) return; T.toughened = true; T.hp = Math.round(T.hp * (T.boss ? BOSS_HP : MOB_HP)); T.maxHit = Math.max(1, Math.round(T.maxHit * (T.boss ? BOSS_HIT : MOB_HIT))); }
 // Valley critters: round, goofy monsters alongside the skeletons (Quaternius CC0 slime and bat)
 Object.assign(ENEMY_TYPES, {
@@ -2608,7 +2608,7 @@ function toast(text, icon, big = false) {
   el.querySelector('span').textContent = text;
   $('toasts').appendChild(el);
   while ($('toasts').children.length > 4) $('toasts').firstChild.remove();
-  setTimeout(() => el.remove(), big ? 3600 : 2200);
+  setTimeout(() => el.remove(), Math.max(big ? 3600 : 2200, 1800 + text.length * 55));
 }
 function floatText(p, text, cls = '') {
   const v = p.clone().project(camera);
@@ -3995,7 +3995,7 @@ function hurtEnemy(e, dmg, src = null, power = 1) {
     S.coins += coins; addItem('bones'); later(0.25, () => sfx('coin'));
     rollLoot(e);
     if (e.T.boss) {
-      bossCleanup(e); queueLetter(e.type); S.beat = { ...(S.beat || {}), [e.type]: ((S.beat || {})[e.type] || 0) + 1 };
+      bossCleanup(e); lastBossKill = now; queueLetter(e.type); S.beat = { ...(S.beat || {}), [e.type]: ((S.beat || {})[e.type] || 0) + 1 };
       if (e.type === 'boss_gagron' && !S.gagronFree) { S.gagronFree = true; later(4, makeGagronFriend); }
       if (e.type === 'boss_sogg' && !S.soggFree) { S.soggFree = true; later(4, makeSoggFriend); }
       if (e.type === 'boss_pomp' && !S.pompFree) { S.pompFree = true; later(4, makePompFriend); }
@@ -5727,7 +5727,7 @@ function bossIntroTick(dt = 0) {
     const at = talky ? Math.min(B.t, B.kind === 'intro' && B.t < start ? B.t : 1.5) : B.t;
     for (const el of $('bossintro').children) el.style.animationDelay = `-${at.toFixed(3)}s`;
     if (talky && B.t >= start) {
-      if (B.li < 0 || B.t - B.lineAt > 3.4) bossNextLine();
+      if (B.li < 0 || B.t - B.lineAt > (B.lineLen || 4)) bossNextLine();
     }
     const over = talky ? B.li >= B.lines.length : B.t > 3.2;
     if (over || !player || player.dead || (B.kind === 'intro' && B.e.hp <= 0)) endBossIntro();
@@ -5781,6 +5781,7 @@ function bossNextLine() {
   const el = $('bosstalk');
   if (B.li >= B.lines.length) { el.hidden = true; return; }
   const ln = B.lines[B.li], hero = Array.isArray(ln), text = hero ? ln[1] : ln, e = B.e;
+  B.lineLen = 5 + text.length * 0.09; // plenty of time to read; click or E moves on sooner
   const face = hero ? portrait(S.look) : e.T.look ? portrait({ ...NPC_BASE, ...e.T.look }) : null;
   el.className = hero ? 'hero' : 'boss';
   el.innerHTML = `<div class="bt-face">${face ? `<img src="${face}" alt="">` : `<span>${e.T.dragon ? '🐉' : '💀'}</span>`}</div><div class="bt-body"><b></b><p></p><small>Click or press E</small></div>`;
@@ -5807,7 +5808,7 @@ function bossShoutTick() {
   shoutEl.style.left = `${(v.x * 0.5 + 0.5) * innerWidth}px`; shoutEl.style.top = `${(-v.y * 0.5 + 0.5) * innerHeight}px`;
 }
 function startBossScene(e, kind, custom) {
-  closeDialog(); closeSheet(); cancelTask(); keys.clear(); moveTarget = null;
+  requeueLetter(); closeDialog(); closeSheet(); cancelTask(); keys.clear(); moveTarget = null;
   const lines = custom || (BOSS_LINES[e.type] || {})[kind] || [];
   bossIntro = { e, t: 0, kind, lines, li: -1, lineAt: 0 };
   const el = $('bossintro');
@@ -5815,7 +5816,7 @@ function startBossScene(e, kind, custom) {
   el.hidden = false; el.classList.remove('go', 'talking'); void el.offsetWidth; el.classList.add('go');
 }
 function startBossIntro(e) {
-  e.introAt = now; e.lowSaid = false; closeDialog(); closeSheet(); cancelTask(); keys.clear(); moveTarget = null;
+  e.introAt = now; e.lowSaid = false; requeueLetter(); closeDialog(); closeSheet(); cancelTask(); keys.clear(); moveTarget = null;
   bossIntro = { e, t: 0, kind: 'intro', lines: (BOSS_LINES[e.type] || {}).intro || [], li: -1, lineAt: 0 };
   $('bossintro').classList.remove('talking');
   e.face(player.pos.x, player.pos.z);
@@ -7549,11 +7550,15 @@ function queueLetter(id) {
   S.letters[id] = 1; S.letterQueue = [...(S.letterQueue || []), id]; save();
 }
 let letterAt = 0;
+let letterOpen = null, lastBossKill = -99;
+// a boss scene that starts while a letter is open puts the letter back in the queue to show afterwards
+function requeueLetter() { if (letterOpen && !$('dialog').hidden) { S.letterQueue = [letterOpen, ...(S.letterQueue || [])]; letterAt = now + 3; } letterOpen = null; }
 function letterTick() {
   if (!player || now < letterAt || !(S.letterQueue || []).length) return;
   letterAt = now + 1;
   if (uiLock() || !$('dialog').hidden || !$('sheet').hidden || pomp || player.dead || (camMoment && camMoment.t < camMoment.dur)) return;
   if (enemies.some((e) => e.T.boss && e.hp > 0 && (e.state === 'chase' || e.state === 'slam'))) return;
+  if (bossIntro || now - lastBossKill < 6) return;
   const id = S.letterQueue.shift(); save();
   // Flapsworth swoops down beside you
   sfx('whoosh'); burst(player.pos.clone().setY(3), '#5a3a7a', 30, 5, 1);
@@ -7562,8 +7567,8 @@ function letterTick() {
   d.innerHTML = vision ? '<h3>A vision of light</h3><p class="via">Your halo glows warm and bright.</p><div class="letter"></div><div class="row"><button id="lbye" class="primary">Remember it</button></div>'
     : `<h3>A letter from ${DARK_KING}</h3><p class="via">Delivered by Flapsworth the bat, who is shaking a little.</p><div class="letter"></div><div class="row"><button id="lbye" class="primary">Fold it away</button></div>`;
   d.querySelector('.letter').textContent = vision ? LETTERS[id] : `${LETTERS[id]}\n\nYours menacingly,\n${DARK_KING}`;
-  $('lbye').onclick = closeDialog;
-  showDialog(d);
+  $('lbye').onclick = () => { letterOpen = null; closeDialog(); };
+  letterOpen = id; showDialog(d);
 }
 
 // ---------- Gagron, reformed ----------
