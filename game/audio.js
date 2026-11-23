@@ -210,6 +210,9 @@ const FX = {
   boing: (t) => tone(sfxBus, t, 160, 0.5, { type: 'sine', gain: 0.35, slide: 3, release: 0.1 }),
   bossintro: (t) => { kick(t, 0.8); tone(sfxBus, t, 55, 1.2, { type: 'sawtooth', gain: 0.12, filter: 600 }); [0, 3, 7].forEach((n) => tone(sfxBus, t + 0.35, midi(50 + n), 0.9, { type: 'sawtooth', gain: 0.07, filter: 1800 })); noise(sfxBus, t + 0.35, 0.8, { gain: 0.25, freq: 300, sweep: 0.3 }); },
   slam: (t) => { tone(sfxBus, t, 70, 0.4, { type: 'sine', gain: 0.6, slide: 0.4 }); noise(sfxBus, t, 0.35, { gain: 0.4, freq: 300, q: 0.5 }); },
+  sniff: (t) => { noise(sfxBus, t, 0.09, { gain: 0.22, type: 'highpass', freq: 2600, sweep: 1.6 }); noise(sfxBus, t + 0.13, 0.12, { gain: 0.26, type: 'highpass', freq: 2400, sweep: 1.8 }); },
+  bigsniff: (t) => { noise(sfxBus, t, 1.2, { gain: 0.3, freq: 900, q: 0.7, sweep: 4 }); tone(sfxBus, t + 0.9, 200, 0.3, { type: 'sine', gain: 0.08, slide: 1.8 }); },
+  sneeze: (t) => { noise(sfxBus, t, 0.5, { gain: 0.5, freq: 1600, q: 0.5, sweep: 0.25 }); tone(sfxBus, t, 420, 0.35, { type: 'sawtooth', gain: 0.12, slide: 0.35, filter: 1800 }); },
   door: (t) => { tone(sfxBus, t, 220, 0.12, { type: 'triangle', gain: 0.2, slide: 0.7 }); noise(sfxBus, t, 0.2, { gain: 0.1, freq: 600 }); },
 };
 const lastFx = {};

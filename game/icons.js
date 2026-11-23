@@ -236,6 +236,13 @@ ICONS.rusty_helm = make((g) => {
   shape(g, '#6a9a4a', () => { g.moveTo(-26, 16); g.quadraticCurveTo(-10, 8, 4, 18); g.quadraticCurveTo(-8, 26, -26, 24); g.closePath(); });
   shine(g, -12, -18, 4);
 });
+ICONS.goon_hanky = make((g) => {
+  // Goonshoe's enormous orange hanky, folded with a little monogram
+  shape(g, '#f08a30', () => { g.moveTo(-28, -18); g.quadraticCurveTo(0, -30, 28, -18); g.lineTo(24, 22); g.quadraticCurveTo(0, 30, -24, 22); g.closePath(); });
+  shape(g, '#ffd8a8', () => { g.moveTo(-28, -18); g.lineTo(0, 4); g.lineTo(28, -18); g.quadraticCurveTo(0, -30, -28, -18); });
+  shape(g, '#fff4d0', () => g.arc(0, 14, 7, 0, 7));
+  shine(g, -14, -14, 4);
+});
 ICONS.gobbler_tooth = make((g) => {
   shape(g, '#fff6e0', () => { g.moveTo(-20, -26); g.quadraticCurveTo(0, -34, 20, -26); g.quadraticCurveTo(14, 6, 0, 32); g.quadraticCurveTo(-14, 6, -20, -26); });
   shape(g, '#8adf6a', () => { g.moveTo(-14, -20); g.quadraticCurveTo(0, -26, 14, -20); g.quadraticCurveTo(0, -14, -14, -20); });

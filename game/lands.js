@@ -33,6 +33,7 @@ export const LANDS = {
       mire: { name: 'Mire Hollow', x: MX - 56, z: MZ - 18, r: 19 },
       ruins: { name: 'Sunken Ruins', x: MX + 56, z: MZ - 16, r: 18 },
       gobbler: { name: "Gobbler's Pool", x: MX, z: MZ - 66, r: 18 },
+      goon: { name: "Goonshoe's Bog", x: MX + 44, z: MZ - 54, r: 18 },
     },
     // where the bog's monsters live: out in the open between the stages, never on a road or in a town
     camps: [{ x: MX - 30, z: MZ - 20, r: 6 }, { x: MX + 32, z: MZ - 24, r: 6 }, { x: MX - 16, z: MZ - 40, r: 5 }, { x: MX - 22, z: MZ + 22, r: 5 }],
@@ -408,6 +409,14 @@ export function buildMarsh() {
     colliders.push({ x, z, r: 0.8 });
   }
 
+  // Goonshoe's Bog: a wide, squelchy mud ring with his big shack at the back and a heap of used hankies
+  const GB = Z.goon;
+  disc(GB.x, GB.z, GB.r, '#7a6440', 0.033); disc(GB.x, GB.z, GB.r - 6, '#6a5636', 0.04);
+  const shack = stiltHut(GB.x + 5, GB.z - GB.r + 4, -0.4, '#e08a3a', '#5a3a22'); shack.scale.multiplyScalar(1.5);
+  const hank = new THREE.SphereGeometry(0.45, 8, 6);
+  for (let i = 0; i < 9; i++) { const h = new THREE.Mesh(hank); h.scale.set(1, 0.55, 1); h.position.set(GB.x - 6 + (i % 3) * 0.8 + rng() * 0.3, 0.25 + Math.floor(i / 3) * 0.35, GB.z - GB.r + 6 + (i % 2) * 0.6); scene.add(add(h, '#f4f0e6')); }
+  colliders.push({ x: GB.x - 5.2, z: GB.z - GB.r + 6.3, r: 1.4 }, { x: GB.x + 5, z: GB.z - GB.r + 4, r: 3.9 });
+  ring(GB, 24, GB.r + 1.6);
   // willows: a belt round the edge, a dark grove behind Mire Hollow, a few lone ones in the open
   const wil = [], willowAt = (x, z, sc) => { wil.push(M(x, 0, z, sc, rng() * 6)); colliders.push({ x, z, r: 0.35 * sc }); };
   edgeBelt(L, 380, (x, z) => willowAt(x, z, 3.6 + rng() * 1.4), nearPath, (x, z, p) => free(x, z, p) && Object.values(Z).every((q) => Math.hypot(q.x - x, q.z - z) > q.r + 3), 0.5);

@@ -73,9 +73,9 @@ const ITEMS = {
   bread: 'Bread', pie: 'Apple pie', stew: 'Hearty stew', grilled_shrimp: 'Grilled shrimp', grilled_trout: 'Grilled trout', fish_pie: 'Fish pie',
   bone_dust: 'Bone dust', dark_essence: 'Dark essence',
   dragon_scale: "Gagron's fire scale", silver_ring: 'Silver ring', ruby: 'Ruby', golden_crown: 'Tiny golden crown', frost_gem: 'Frost gem',
-  lucky_sock: "Bonecrusher's lucky sock", frost_crown: "Queen Frostwhisker's ice crown", gloom_hat: "Gloomcaster's droopy hat", rattle_tooth: "Rattlebones' gold tooth",
+  lucky_sock: "Bonecrusher's lucky sock", frost_crown: "Queen Frostwhisker's ice crown", gloom_hat: "Harold's droopy grey hat", rattle_tooth: "Rattlebones' gold tooth",
   dark_omen: 'Dark Omen',
-  bogwood_logs: 'Bogwood logs', mireiron_ore: 'Mireiron ore', mire_charm: "Mother Mire's charm", rusty_helm: "Sir Soggington's rusty helm", gobbler_tooth: "The Gobbler's tooth",
+  bogwood_logs: 'Bogwood logs', mireiron_ore: 'Mireiron ore', mire_charm: "Mother Mire's charm", rusty_helm: "Sir Soggington's rusty helm", gobbler_tooth: "The Gobbler's tooth", goon_hanky: "Goonshoe's giant hanky",
   palm_logs: 'Palm logs', sunstone_ore: 'Sunstone', sphinx_coin: 'Sphinx coin', pomp_monocle: "Pompington's golden monocle", colossus_core: 'Colossus core',
 };
 // Food heals; bought from Marta's stall in the market.
@@ -188,7 +188,7 @@ const gadgetMult = (k) => 1 + (((ARMOUR[S.equip.gadget] || {}).bonus || {})[k] |
 const BOSS_WEAPON = { boss_gagron: 'k_flame', boss_crusher: 'k_cleaver', boss_gloom: 'm_gloom', boss_rattle: 'a_rattle', boss_twin_a: 'a_twin', boss_gobbler: 'k_tongue', boss_colossus: 'k_colossus', boss_pomp: 'a_pomp' };
 const DARK_KING = 'Morgoth the Menacing'; // working name, change it here
 // Everything can be sold. Treasures (rings, rubies, crowns) are rare drops worth a lot.
-const SELL = { palm_logs: 22, sunstone_ore: 70, sphinx_coin: 600, pomp_monocle: 900, colossus_core: 1500, bogwood_logs: 14, mireiron_ore: 40, mire_charm: 500, rusty_helm: 500, gobbler_tooth: 800, grilled_shrimp: 5, grilled_trout: 12, fish_pie: 26, dragon_scale: 90, bread: 4, pie: 10, stew: 20, silver_ring: 40, ruby: 120, golden_crown: 400, frost_gem: 260, bone_dust: 3, dark_essence: 15, lucky_sock: 60, frost_crown: 300, gloom_hat: 60, rattle_tooth: 60, dark_omen: 500, logs: 3, oak_logs: 6, copper_ore: 4, iron_ore: 8, silver_ore: 15, gold_ore: 30, frostsilver_ore: 22, shrimp: 3, trout: 8, bones: 2 };
+const SELL = { goon_hanky: 650, palm_logs: 22, sunstone_ore: 70, sphinx_coin: 600, pomp_monocle: 900, colossus_core: 1500, bogwood_logs: 14, mireiron_ore: 40, mire_charm: 500, rusty_helm: 500, gobbler_tooth: 800, grilled_shrimp: 5, grilled_trout: 12, fish_pie: 26, dragon_scale: 90, bread: 4, pie: 10, stew: 20, silver_ring: 40, ruby: 120, golden_crown: 400, frost_gem: 260, bone_dust: 3, dark_essence: 15, lucky_sock: 60, frost_crown: 300, gloom_hat: 60, rattle_tooth: 60, dark_omen: 500, logs: 3, oak_logs: 6, copper_ore: 4, iron_ore: 8, silver_ore: 15, gold_ore: 30, frostsilver_ore: 22, shrimp: 3, trout: 8, bones: 2 };
 const NODES = {
   tree: { skill: 'woodcutting', req: 1, xp: 25, item: 'logs', name: 'Tree', verb: 'Chop', doing: 'Chopping', deplete: 0.3, respawn: 14 },
   oak: { skill: 'woodcutting', req: 5, xp: 40, item: 'oak_logs', name: 'Oak tree', verb: 'Chop', doing: 'Chopping', deplete: 0.22, respawn: 20 },
@@ -212,7 +212,9 @@ const ENEMY_TYPES = {
   skel_mage: { name: 'Skeleton Mage', hp: 22, maxHit: 4, weapon: 'Skeleton_Staff', xp: 25, ranged: true },
   // minibosses: big, tough, and every third attack is a giant slam you can see coming (jump or run!)
   boss_crusher: { name: 'Bonecrusher', model: 'skel_warrior', stuck: 2.2, stuckLine: 'Axe stuck! Mum!', hp: 280, maxHit: 8, weapon: 'axe_2handed', xp: 800, boss: true, scale: 2.5, coins: [90, 150], drop: 'lucky_sock', slam: 5.5 },
-  boss_gloom: { name: 'Gloomcaster', model: 'skel_mage', hp: 230, maxHit: 7, weapon: 'Skeleton_Staff', xp: 800, boss: true, scale: 2.3, coins: [90, 150], drop: 'gloom_hat', ranged: true, spread: true, slam: 4.5 },
+  // Harold the Grotesque: a pale, freckled giant with black curls who steals the colour from Glimmerwood
+  boss_gloom: { name: 'Harold the Grotesque', title: 'Giant of Glimmerwood', model: 'barbarian', hp: 340, maxHit: 8, weapon: 'Skeleton_Staff', xp: 1300, boss: true, scale: 3.1, coins: [150, 240], drop: 'gloom_hat', ranged: true, spread: true, slam: 5.5, tint: '#ffffff', suit: '#7a7090', hide: ['Barbarian_Hat', 'Mug'],
+    look: { skin: 'porcelain', eyes: 'grey', eyeStyle: 'sharp', mouth: 'fang', hair: 'afro', hairLen: 'short', hairCol: 'black', hairShade: -0.6, mark: 'freckles', head: 'big', skinShade: -0.42 } },
   // the first story boss: a fire dragon in a cave north-east of the castle. Breathes fire and rains fireballs.
   boss_gagron: { name: 'Gagron the Hideous', model: 'dragon', hp: 400, maxHit: 7, xp: 900, boss: true, dragon: true, scale: 2.1, coins: [120, 200], drop: 'dragon_scale', inside: 'cave', noBones: true },
   boss_rattle: { name: 'Captain Rattlebones', model: 'skel_minion', hp: 250, maxHit: 7, weapon: 'Skeleton_Blade', xp: 800, boss: true, scale: 2.3, coins: [90, 150], drop: 'rattle_tooth', slam: 6 },
@@ -247,12 +249,15 @@ const ENEMY_TYPES = {
   clock_conjurer: { name: 'Copper Conjurer', model: 'skel_mage', hp: 230, maxHit: 23, weapon: 'Skeleton_Staff', xp: 480, ranged: true, tint: '#d8885a', inside: 'sands', coins: [38, 66], noBones: true },
   boss_pomp: { name: 'Sir Percival Pompington', title: 'In a Stolen Battle-Suit', model: 'knight', hp: 3400, maxHit: 24, weapon: 'sword_2handed_color', xp: 20000, boss: true, scale: 2.2, coins: [800, 1100], drop: 'pomp_monocle', slam: 5.5, inside: 'sands', suit: '#ffcf5a' },
   boss_colossus: { name: 'The Brassbolt Colossus', title: 'Guardian of the Old Kingdom', model: 'skel_warrior', hp: 5200, maxHit: 28, weapon: 'axe_2handed', xp: 32000, boss: true, scale: 5.2, coins: [1200, 1600], drop: 'colossus_core', slam: 7, inside: 'sands', tintAll: '#d8a850', noBones: true, mass: 30 },
+  // Goonshoe the Bogdweller: a stuffy-nosed giant who cannot breathe through his nose (so he cannot smell the bog)
+  boss_goon: { name: 'Goonshoe the Bogdweller', title: 'Giant of the Stuffy Bog', model: 'barbarian', hp: 2200, maxHit: 20, weapon: 'axe_2handed', xp: 12000, boss: true, scale: 3.2, coins: [500, 750], drop: 'goon_hanky', slam: 6.5, inside: 'marsh', tint: '#ffffff', suit: '#f08a30', hide: ['Barbarian_Hat', 'Mug'],
+    look: { skin: 'tan', eyes: 'brown', eyeStyle: 'sleepy', mouth: 'calm', hair: 'afro', hairLen: 'short', hairCol: 'black', head: 'big', mark: 'rosy' } },
   boss_gobbler: { name: 'The Gobbler', title: 'Terror of Gobbler Marsh', model: 'slime', hp: 2600, maxHit: 21, xp: 15000, boss: true, scale: 3.4, coins: [600, 900], drop: 'gobbler_tooth', slam: 7, inside: 'marsh', noBones: true, tintAll: '#7ab05a', mass: 20 },
   boss_frost: { name: 'Queen Frostwhisker', model: 'mage', hp: 1400, maxHit: 13, weapon: 'Skeleton_Staff', xp: 3000, boss: true, scale: 2.4, coins: [300, 450], drop: 'frost_crown', ranged: true, spread: true, slam: 5.5, inside: 'frost', tint: '#cfeaff',
     look: { sex: 'f', skin: 'porcelain', eyes: 'sky', eyeStyle: 'sharp', mouth: 'cat', hair: 'hime', hairLen: 'long', hairCol: 'snow', mark: 'star', ears: 'elf' } },
 };
 // a few bosses move and swing a bit quicker (their warnings on the floor stay the same length)
-for (const [k, f] of [['boss_crusher', 1.25], ['boss_rattle', 1.25], ['boss_grumble', 1.2], ['boss_twin_a', 1.2], ['boss_twin_b', 1.2], ['boss_sogg', 1.25], ['boss_mire', 1.15], ['boss_pomp', 1.2], ['boss_frost', 1.15]]) if (ENEMY_TYPES[k]) ENEMY_TYPES[k].fast = f;
+for (const [k, f] of [['boss_crusher', 1.25], ['boss_rattle', 1.25], ['boss_grumble', 1.2], ['boss_twin_a', 1.2], ['boss_twin_b', 1.2], ['boss_sogg', 1.25], ['boss_mire', 1.15], ['boss_pomp', 1.2], ['boss_frost', 1.15], ['boss_goon', 1.1]]) if (ENEMY_TYPES[k]) ENEMY_TYPES[k].fast = f;
 const QUESTS = {
   firewood: {
     name: 'Firewood for the Tavern', giver: 'bertha',
@@ -293,25 +298,25 @@ Object.assign(QUESTS, {
   st_dragon: {
     story: true, chapter: 'Chapter 1', name: "Gagron's Lair", giver: 'king', after: ['st_1'], bossType: 'boss_gagron',
     intro: `When the Heartstone broke, its biggest shard fell into the Ember Cave, north-east of the castle. Something woke up down there: Gagron the Hideous, a fire dragon, and he is guarding it. Watch the ground: when it glows, his fire is coming. Jump, dash or run!`,
-    ready: 'You beat Gagron and brought back the shard! It is warm as a hearth. The first piece of the seal is home.', done: 'The Ember shard glows on its stand. Gagron will sulk in his cave for a while.',
+    ready: 'You beat Gagron and brought back the shard! It is warm as a hearth. And Gagron says a GIANT threw it into his cave? A pale fellow with black curls... Harold. Harold the Grotesque. Oh dear.', done: 'The Ember shard glows on its stand. Gagron will sulk in his cave for a while.',
     need: { boss: 1 }, reward: { coins: 200, xp: { hero: 700 } }, desc: 'Defeat Gagron the Hideous in the Ember Cave (north-east of the castle).',
   },
   st_crags: {
     story: true, chapter: 'Chapter 1', name: 'The Shard of the Crags', giver: 'king', after: ['st_dragon'], bossType: 'boss_crusher',
-    intro: `A shard of the Heartstone fell in the Grumble Crags, to the west. ${DARK_KING}'s brute, Bonecrusher, has claimed it. Defeat him and bring the shard home.`,
+    intro: `A shard of the Heartstone fell in the Grumble Crags, to the west. ${DARK_KING}'s brute, Bonecrusher, has claimed it. Defeat him and bring the shard home. Harold the Grotesque gave him that shard, I am sure of it.`,
     ready: 'The Crags shard! It still glows. One piece of the seal, restored.', done: 'The Crags shard rests in the throne room, humming softly.',
     need: { boss: 1 }, reward: { coins: 150, xp: { hero: 500 } }, desc: 'Defeat Bonecrusher in the Grumble Crags (west).',
   },
   st_glimmer: {
-    story: true, chapter: 'Chapter 1', name: 'The Shard of Glimmerwood', giver: 'king', after: ['st_dragon'], bossType: 'boss_gloom',
-    intro: `Another shard lies in Glimmerwood, to the east. The Gloomcaster, ${DARK_KING}'s sorcerer, drinks its light. Stop him before the whole forest goes grey.`,
-    ready: 'The Glimmerwood shard! Feel how it sparkles. The seal grows stronger.', done: 'The Glimmerwood shard glitters beside its brother.',
-    need: { boss: 1 }, reward: { coins: 150, xp: { hero: 500 } }, desc: 'Defeat the Gloomcaster in Glimmerwood (east).',
+    story: true, chapter: 'Chapter 1', name: 'Harold the Grotesque', giver: 'king', after: ['st_crags', 'st_hollow'], bossType: 'boss_gloom',
+    intro: `Bonecrusher and Rattlebones both said the same name: Harold. Harold the Grotesque, a giant as pale as milk, who handed out the shards like party favours. He sits in Glimmerwood, to the east, drinking the colour out of the forest with the last shard. He is ${DARK_KING}'s right hand in this land. Beat him, and bring that shard home.`,
+    ready: 'The Glimmerwood shard! Feel how it sparkles. All four pieces are home... and yet the Heartstone will not mend. And Harold kept saying "he promised"... Who promised? Come back and speak with me.', done: 'The shards are home, but something is still wrong with the Heartstone.',
+    need: { boss: 1 }, reward: { coins: 300, xp: { hero: 900 } }, desc: 'Defeat Harold the Grotesque in Glimmerwood (east).',
   },
   st_hollow: {
     story: true, chapter: 'Chapter 1', name: 'The Shard of the Hollow', giver: 'king', after: ['st_dragon'], bossType: 'boss_rattle',
     intro: `The third shard sank into Haunted Hollow, north of the castle. Captain Rattlebones leads ${DARK_KING}'s restless dead there. Put him to rest, if only for a while.`,
-    ready: 'The Hollow shard, cold as moonlight. All four pieces are home... and yet the Heartstone will not mend. Come back and speak with me.', done: 'The shards are home, but something is still wrong with the Heartstone.',
+    ready: 'The Hollow shard, cold as moonlight. Only Glimmerwood is left now, where Harold the Grotesque waits.', done: 'The Hollow shard rests in the throne room, cold to the touch.',
     need: { boss: 1 }, reward: { coins: 150, xp: { hero: 500 } }, desc: 'Defeat Captain Rattlebones in Haunted Hollow (north).',
   },
   st_socket: {
@@ -372,8 +377,14 @@ Object.assign(QUESTS, {
     ready: 'Sir Soggington says the Wardstone is in the Gobbler\'s BELLY? Well, that explains the burping.', done: 'Sir Soggington dries out by the well now, teaching sword drills to the tadpoles.',
     need: { boss: 1 }, reward: { coins: 2800, xp: { hero: 34000 } }, desc: 'Defeat Sir Soggington in the Sunken Ruins (east).',
   },
+  st_goon: {
+    story: true, chapter: 'Chapter 3', name: 'Goonshoe the Bogdweller', giver: 'croakley', after: ['st_sogg'], bossType: 'boss_goon', land: 'marsh',
+    intro: 'To bring the Gobbler up we need lanterns, and every drop of lantern oil in the marsh has gone to Goonshoe\'s Bog, north-east. Goonshoe is a giant. A big, sniffly giant. He cannot breathe through his nose, so he cannot smell the bog... which is why Mother Mire paid him to guard the Gobbler\'s pool. Watch out when he takes a BIG sniff: get away before he sneezes!',
+    ready: 'The lantern oil! And Goonshoe says he never even LIKED guarding the pool, he just wanted somewhere quiet to blow his nose. Poor fellow.', done: 'Goonshoe has a pot of Fenwick\'s steam tea now. He can breathe through his nose for the first time in years. He cried a bit.',
+    need: { boss: 1 }, reward: { coins: 2600, xp: { hero: 30000 } }, desc: "Defeat Goonshoe the Bogdweller in Goonshoe's Bog (north-east).",
+  },
   st_lantern: {
-    story: true, chapter: 'Chapter 3', name: 'Lantern Night', giver: 'croakley', after: ['st_sogg'], land: 'marsh', onStart: () => startLanternNight(),
+    story: true, chapter: 'Chapter 3', name: 'Lantern Night', giver: 'croakley', after: ['st_goon'], land: 'marsh', onStart: () => startLanternNight(),
     intro: 'The Gobbler only comes up for light. Tonight the whole village floats lanterns! Light the five lantern posts around the marsh. Mud gloops will try to snuff you out, so be quick, and bring friends!',
     ready: 'All five lanterns are glowing! Look... out in Gobbler\'s Pool. Two big yellow eyes. It is coming up.', done: 'The lanterns still float on the pool. They look lovely, actually.',
     need: { lanterns: 5 }, reward: { coins: 2000, xp: { hero: 26000 } }, desc: 'Light the 5 lantern posts around Gobbler Marsh.',
@@ -1410,7 +1421,7 @@ const HAIR_COLOURS = {
   snow: ['Snow', '#f1ece4'], pink: ['Pink', '#ff8fc8'], blue: ['Blue', '#5f9ef0'], green: ['Green', '#66c46a'],
   auburn: ['Auburn', '#a8322a'], silver: ['Silver', '#b8bcc8'], purple: ['Purple', '#9a5fd8'], teal: ['Teal', '#2fb0a8'], honey: ['Honey', '#d8a04a'], mint: ['Mint', '#9fe8c8'],
 };
-const HAIR_STYLES = { short: 'Neat', hero: 'Hero spikes', spiky: 'Spiky', swept: 'Swept fringe', shag: 'Messy layers', wavy: 'Soft waves', bob: 'Bob', hime: 'Straight bangs', long: 'Ponytail', sidepony: 'Side ponytail', braid: 'Braid', twin: 'Pigtails', bun: 'Top bun', curls: 'Curls', mohawk: 'Mohawk', none: 'Bald' };
+const HAIR_STYLES = { short: 'Neat', hero: 'Hero spikes', spiky: 'Spiky', swept: 'Swept fringe', shag: 'Messy layers', wavy: 'Soft waves', bob: 'Bob', hime: 'Straight bangs', long: 'Ponytail', sidepony: 'Side ponytail', braid: 'Braid', twin: 'Pigtails', bun: 'Top bun', curls: 'Curls', afro: 'Afro', mohawk: 'Mohawk', none: 'Bald' };
 const HAIR_LENGTHS = { short: 'Short', chin: 'Chin', shoulder: 'Shoulder', long: 'Long', vlong: 'Very long' };
 const SKIN_TONES = {
   porcelain: ['Porcelain', '#ffe9dc'], peach: ['Peach', '#f9cfb0'], honey: ['Honey', '#e7b085'], tan: ['Tan', '#c98d5e'],
@@ -1513,6 +1524,15 @@ function hairGroup(style, len = 'short', hairMats = HERO_HAIR) {
   if (style === 'twin') {
     shell(0.45, -0.05, -0.72); bangs('centre');
     for (const s of [-1, 1]) { add(new THREE.SphereGeometry(0.09, 10, 8), HC.x + s * HR.x * 0.82, HC.y + HR.y * 0.55, HC.z - HR.z * 0.45); const t = lock(s * 2.0, 0.55, 0.7 + LEN * 0.5, 0.18, 0.7, 0, 0.75, 1.15); t.rotation.z = s * 0.25; }
+  }
+  if (style === 'afro') {
+    // a big round puff of curls sitting up and back, leaving the whole face clear
+    shell(0.55, 0.05, -0.5);
+    for (let i = 0; i < 46; i++) {
+      const az = (i * 2.399) % (Math.PI * 2), el = 0.25 + (i % 6) * 0.22;
+      if (Math.cos(az) > 0.15 && el < 1.05) continue;
+      add(curlGeo, HC.x + Math.sin(az) * Math.cos(el) * HR.x * 1.32, HC.y + 0.12 + Math.sin(el) * HR.y * 1.25, HC.z - 0.1 + Math.cos(az) * Math.cos(el) * HR.z * 1.25, 0, 0, 0, 1.25, 1.25, 1.25);
+    }
   }
   if (style === 'curls') {
     shell(0.4, 0.0, -0.45);
@@ -1734,7 +1754,7 @@ function paintFace(g, L, state) {
   g.fillStyle = shade(skin, 0.78); g.beginPath(); g.ellipse(FX + 2, EY + 46, 5, 3.5, 0, 0, Math.PI * 2); g.fill();
   for (const s of [-1, 1]) { drawEye(g, FX + s * ESEP, EY, s, L, state); drawBrow(g, FX + s * (ESEP - 4), EY - 78, s, L); }
   drawMouth(g, FX, EY + 82, L, state);
-  if (L.mark === 'freckles') { g.fillStyle = shade(skin, 0.68); for (const [dx, dy] of [[-120, 44], [-104, 56], [-92, 42], [-112, 66], [92, 42], [104, 56], [120, 44], [112, 66], [-12, 40], [14, 40]]) { g.beginPath(); g.arc(FX + dx, EY + dy, 3.5, 0, Math.PI * 2); g.fill(); } }
+  if (L.mark === 'freckles') { g.fillStyle = shade(skin, 0.58); for (const [dx, dy] of [[-120, 44], [-104, 56], [-92, 42], [-112, 66], [92, 42], [104, 56], [120, 44], [112, 66], [-12, 40], [14, 40], [-128, 60], [128, 60], [-98, 72], [98, 72]]) { g.beginPath(); g.arc(FX + dx, EY + dy, 4.6, 0, Math.PI * 2); g.fill(); } }
   if (L.mark === 'scar') { g.strokeStyle = shade(skin, 0.62); g.lineWidth = 6; g.lineCap = 'round'; g.beginPath(); g.moveTo(FX - 44, EY + 18); g.lineTo(FX + 36, EY + 58); g.stroke(); g.strokeStyle = '#ffd9cc'; g.lineWidth = 2; g.stroke(); }
   if (L.mark === 'paint') { g.fillStyle = '#d9483b'; for (const s of [-1, 1]) for (let i = 0; i < 2; i++) { g.beginPath(); g.moveTo(FX + s * 54, EY + 44 + i * 14); g.lineTo(FX + s * 112, EY + 36 + i * 14); g.lineTo(FX + s * 110, EY + 44 + i * 14); g.lineTo(FX + s * 56, EY + 52 + i * 14); g.closePath(); g.fill(); } }
   if (L.mark === 'star') { g.fillStyle = '#ffd34a'; g.strokeStyle = '#b8742a'; g.lineWidth = 2.5; const cx = FX + 118, cy = EY + 40; g.beginPath(); for (let i = 0; i < 10; i++) { const r = i % 2 ? 6 : 14, a = -Math.PI / 2 + i * Math.PI / 5; g.lineTo(cx + Math.cos(a) * r, cy + Math.sin(a) * r); } g.closePath(); g.fill(); g.stroke(); }
@@ -1806,7 +1826,7 @@ function portrait(L) {
   // hair on top, with a zig-zag fringe
   if (H !== 'none') {
     g.fillStyle = hair; g.beginPath();
-    const top = cy - ry - (H === 'curls' || H === 'bun' ? 18 : 10);
+    const top = cy - ry - (H === 'afro' ? 34 : H === 'curls' || H === 'bun' ? 18 : 10);
     if (H === 'mohawk') { g.moveTo(cx - 22, cy - ry + 18); g.lineTo(cx - 16, top - 30); g.lineTo(cx, top - 44); g.lineTo(cx + 16, top - 30); g.lineTo(cx + 22, cy - ry + 18); g.closePath(); }
     else {
       g.moveTo(cx - rx - 8, cy + (long ? 30 : 0));
@@ -2429,7 +2449,7 @@ function buildNpcs() {
     { id: 'crier', name: 'Bertram the Town Crier', model: 'knight', x: -6 * VS, z: 5 * VS, hide: ['Knight_Helmet'], tint: '#ffd08a',
       lines: ['Hear ye! Four lands lie beyond the woods: Glimmerwood to the east, Grumble Crags to the west, Honeymeadow to the south and Haunted Hollow to the north!', 'Hear ye! Each land has a fearsome boss. Watch for the red glow on the ground and get out of the way!', 'Hear ye! Hold Shift to sprint, press C (or tap any direction twice) to dash in any direction, J or click to attack, R for your special attack, and M for the map. Hear ye!', 'Hear ye! Coins in the bank are safe. Coins in your pocket? Half of them fall out when you get knocked out!', 'Hear ye! Adventurers wander the valley. Talk to them or open the Crew menu to make them allies, leave them be, or make them your rivals!', 'Hear ye! Monsters have taken Thornbury, Mossbrook and Cinderholt! Defeat each town\'s tyrant to free it, and the townsfolk will send you coins.'] },
     { id: 'lumi', name: 'Lumi the Wisp-keeper', model: 'mage', x: ZONES.glimmer.x - 22, z: ZONES.glimmer.z + 8, hide: [], tint: '#9ff0ff',
-      lines: ['The Gloomcaster stole the colour from half my mushrooms. The rest glow twice as bright out of spite!', 'Glimmerwood hums at night. Can you hear it? No? Try humming back.'] },
+      lines: ['Harold the Grotesque stole the colour from half my mushrooms. The rest glow twice as bright out of spite!', 'Glimmerwood hums at night. Can you hear it? No? Try humming back.'] },
     { id: 'dot', name: 'Prospector Dot', model: 'heroine', x: ZONES.crags.x + 23, z: ZONES.crags.z + 6, hide: [], tint: '#e8b080',
       lines: ['Bonecrusher sleeps in the middle of the Crags. Well, "sleeps". Mostly he stomps.', 'When the ground glows red, jump! I learned that one the hard way. Twice.'] },
     { id: 'mort', name: 'Gravekeeper Mort', model: 'barbarian', x: ZONES.hollow.x - 16, z: ZONES.hollow.z + 16, hide: [], tint: '#a8a8c0',
@@ -2591,7 +2611,7 @@ Object.assign(ENEMY_TYPES, {
 for (const T of Object.values(ENEMY_TYPES)) toughen(T);
 function spawnEnemy(k, x, z) {
   const T = ENEMY_TYPES[k];
-  const e = new Actor(G[T.model || k], { scale: T.scale || 1.3 });
+  const e = new Actor(G[T.model || k], { scale: T.scale || 1.3, hide: T.hide || [] });
   if (T.weapon) { const w = lib[T.weapon].clone(true); stylize(w); e.attach(w); }
   if (T.alias) e.alias = T.alias;
   if (T.tintAll) e.root.traverse((o) => { if (o.isMesh && !/Eye/i.test((o.userData.mats && o.userData.mats.std.name) || (o.material && o.material.name) || '')) tinted(o, T.tintAll); });
@@ -2606,7 +2626,7 @@ function spawnEnemy(k, x, z) {
   e.root.position.set(x, 0, z); e.root.rotation.y = rng() * 6;
   e.hp = T.hp; e.state = 'idle'; e.timer = rng() * 3; e.target = new THREE.Vector2(); e.nextHit = 0; e.swings = 0;
   e.play('Idle');
-  if ((T.boss || T.tint) && !T.tintAll) e.root.traverse((o) => { if (o.isMesh && (T.town && !T.boss ? /Body/ : /Body|Head/).test(o.name)) tinted(o, T.tint || (k === 'boss_gloom' ? '#c8a8ff' : k === 'boss_crusher' ? '#ffd0a0' : '#c0ffc8')); });
+  if ((T.boss || T.tint) && !T.tintAll) e.root.traverse((o) => { if (o.isMesh && (T.town && !T.boss ? /Body/ : T.look ? (T.hide ? /Body|Arm|Leg|Cape/ : /Body/) : /Body|Head/).test(o.name)) tinted(o, T.tint || (k === 'boss_gloom' ? '#c8a8ff' : k === 'boss_crusher' ? '#ffd0a0' : '#c0ffc8')); });
   if (T.boss) addSilhouette(e.root, '#ff8a9a');
   if ((T.model || k).startsWith('skel')) skeletonize(e, T);
   if (T.look) { const hat = e.root.getObjectByName('Mage_Hat'); if (hat) hat.visible = false; const helm = !T.look.hat && e.root.getObjectByName('Knight_Helmet'); if (helm) helm.visible = false; dressNpc(e, { ...NPC_BASE, ...T.look }); if (k === 'boss_frost') e.root.traverse((o) => { if (o.isBone && o.name === 'head') { const c = makeCrown(); c.traverse((m) => { if (m.isMesh) registerMesh(m, toon('#bfefff')); }); o.add(c); } }); }
@@ -2681,6 +2701,7 @@ function buildEnemies() {
   spawnEnemy('boss_mire', MZs.mire.x + 1, MZs.mire.z + 1);
   spawnEnemy('boss_sogg', MZs.ruins.x, MZs.ruins.z);
   spawnEnemy('boss_gobbler', MZs.gobbler.x, MZs.gobbler.z);
+  spawnEnemy('boss_goon', MZs.goon.x - 2, MZs.goon.z + 2);
   // Brassbolt Sands
   const DZs = LANDS.sands.zones, DV = LANDS.sands.village;
   fring({ x: DZs.sphinx.x + 4, z: DZs.sphinx.z + 18 }, ['sand_gloop', 'clock_conjurer', 'dust_bat', 'sand_gloop'], 8);
@@ -4804,7 +4825,7 @@ function axeSpin(e) {
     if (d < 3.6 && now > hitAt && !player.dead) { hitAt = now + 0.5; if (dodging()) floatText(player.pos.clone().setY(3.6), 'Dodged!', 'miss'); else hurtPlayer(bossDmg(e, 0.8)); }
   }, () => { if (e.hp > 0) { bossSay(e, 'So... dizzy...'); dizzy(e, 2.6); } });
 }
-// The Gloomcaster: crystal runes shield him in phase 2. Stand on the glowing rune to shatter it.
+// Harold the Grotesque: crystal runes shield him in phase 2. Stand on the glowing rune to shatter it.
 function makeRunes(e) {
   e.runes = [];
   for (let i = 0; i < 3; i++) {
@@ -5031,6 +5052,46 @@ function tongueLash(e) {
   later(0.85, () => tween(0.35, (k) => { const L = len * Math.sin(k * Math.PI); tongue.scale.y = Math.max(0.01, L); tongue.position.z = L / 2; }, () => scene.remove(holder)));
   later(1.4, () => { if (e.hp > 0 && e.state === 'slam') { e.state = 'chase'; e.play('Idle_Combat'); } });
 }
+// Goonshoe the Bogdweller. A BIG sniff pulls you in (the ground shows where the sneeze will land),
+// then he sneezes a wide cone. Phase 2 adds drips of bog-snot round you; phase 3 adds a belly flop.
+function goonSneeze(e) {
+  e.face(player.pos.x, player.pos.z); e.state = 'slam';
+  e.play('Spellcasting', { fade: 0.1 });
+  bossSay(e, rng() < 0.5 ? '*SNIIIIIIFF*' : 'Hold od... *sniiiiff*... here it comes...'); sfx('bigsniff');
+  const dir = Math.atan2(player.pos.x - e.pos.x, player.pos.z - e.pos.z), sx = e.pos.x, sz = e.pos.z;
+  hazard({ x: sx, z: sz, R: 13, dir: dir + Math.PI, half: 0.55, dur: 1.5, dmg: bossDmg(e, 1.6), col: '#b8e07a' });
+  // the sniff drags you a little towards him, so you have to really run
+  tween(1.3, () => { if (e.hp <= 0 || player.dead) return; const dx = sx - player.pos.x, dz = sz - player.pos.z, d = Math.hypot(dx, dz); if (d > 2.5 && d < 20) { player.pos.x += (dx / d) * 0.045; player.pos.z += (dz / d) * 0.045; } });
+  later(1.45, () => {
+    if (e.hp <= 0) return; sfx('sneeze'); e.play('2H_Melee_Attack_Chop', { once: true, fade: 0.05 });
+    for (let i = 0; i < 4; i++) { const a = dir + (rng() - 0.5) * 1.0, r = 3 + rng() * 8; burst(new THREE.Vector3(sx + Math.sin(a) * r, 1, sz + Math.cos(a) * r), '#c8f08a', 10, 4); }
+    bossSay(e, 'AAAH-CHOOO! ...sorry. Excuse me.');
+  });
+  later(2.3, () => { if (e.hp > 0 && e.state === 'slam') { e.state = 'chase'; e.play('Idle_Combat'); } });
+}
+function goonDrips(e) {
+  e.play('Spellcast_Shoot', { once: true, fade: 0.1, onFinish: () => e.play('Idle_Combat') });
+  sfx('sniff'); bossSay(e, '*snrrk* Dew drops! Dot sdot. DEW drops.');
+  for (let i = 0; i < 5; i++) { const a = rng() * 6.28, r = i ? 2.5 + rng() * 4 : 0; hazard({ x: player.pos.x + Math.cos(a) * r, z: player.pos.z + Math.sin(a) * r, R: 2.3, dur: 1.15, dmg: bossDmg(e, 0.9), col: '#b8e07a' }); }
+}
+function goonFlop(e) {
+  e.face(player.pos.x, player.pos.z); e.state = 'slam';
+  const tx = player.pos.x, tz = player.pos.z, [fx, fz] = nearHome(e, tx, tz), sx = e.pos.x, sz = e.pos.z;
+  bossSay(e, 'BELLY... FLOP!'); e.play('Jump_Full_Long', { once: true, fade: 0.1 });
+  hazard({ x: fx, z: fz, R: 6.5, dur: 1.2, dmg: bossDmg(e, 1.8), col: '#f0a050' });
+  later(0.4, () => tween(0.75, (k) => { if (e.hp <= 0) return; e.pos.x = sx + (fx - sx) * k; e.pos.z = sz + (fz - sz) * k; e.root.position.y = Math.sin(k * Math.PI) * 5; },
+    () => { e.root.position.y = 0; sfx('slam'); burst(e.pos.clone().setY(0.4), '#8a7a52', 30, 6); if (e.hp > 0) { bossSay(e, 'Huff... huff... cad\'t... breathe... through... by... DOSE.'); dizzy(e, 2.4); } }));
+}
+// all through the fight he sniffles
+function goonTick() {
+  for (const e of enemies) {
+    if (e.type !== 'boss_goon' || e.hp <= 0 || e.inside !== where || e.state === 'idle' || e.state === 'return') continue;
+    if (now < (e.sniffAt || 0)) continue;
+    e.sniffAt = now + 2.6 + rng() * 2.2;
+    sfx('sniff'); floatText(e.pos.clone().setY(8.4), rng() < 0.75 ? '*sniff*' : '*snrrk*', 'miss');
+    if (rng() < 0.22) bossSay(e, ['I can\'t breathe through by dose!', 'Doh, by sidus...', 'Has adyone got a hadkerchief?', 'Everyone says the bog smells. I wouldn\'t KDOW!', 'Breathe through your bouth, they said. Ruddy useless advice.'][Math.floor(rng() * 5)]);
+  }
+}
 function mudSpit(e) {
   e.play('Spellcast_Shoot', { once: true, fade: 0.1, onFinish: () => e.play('Idle_Combat') });
   for (let i = 0; i < 3; i++) { const a = rng() * 6.28, r = i ? 2 + rng() * 2.5 : 0; hazard({ x: player.pos.x + Math.cos(a) * r, z: player.pos.z + Math.sin(a) * r, R: 2, dur: 1.1, dmg: bossDmg(e, 0.9), col: '#a8845a' }); }
@@ -5090,12 +5151,23 @@ Object.assign(PHASE_LINES, {
   boss_mire: ['My pretties! Up from the mud!', 'Bubble, bubble, YOU\'RE in trouble!'],
   boss_sogg: ['A hundred years I waited! CHARGE!', 'The tide is coming IN!'],
   boss_gobbler: ['*gurgle* Hide-and-seek!', '*SLURP* Still hungry!'],
+  boss_goon: ['*sniiiff* You are making by dose ruddy!', '*SNORT* I CAN\'T BREATHE AND I\'M FURIOUS!'],
 });
 Object.assign(PHASE_SETUP, {
   boss_mire: (e, ph) => { if (ph === 2) for (let i = 0; i < 2; i++) { const a = i * 3.14 + rng(); bossAdd(e, 'bog_slime', e.pos.x + Math.cos(a) * 5, e.pos.z + Math.sin(a) * 5); } },
   boss_gobbler: (e, ph) => { if (ph === 3) for (let i = 0; i < 2; i++) { const a = i * 3.14 + rng(); bossAdd(e, 'mud_gloop', e.pos.x + Math.cos(a) * 7, e.pos.z + Math.sin(a) * 7); } },
 });
+Object.assign(PHASE_SETUP, {
+  boss_goon: (e, ph) => { if (ph === 3) for (let i = 0; i < 2; i++) { const a = i * 3.14 + rng(); bossAdd(e, 'bog_slime', e.pos.x + Math.cos(a) * 6, e.pos.z + Math.sin(a) * 6); } },
+});
 Object.assign(BOSS_AI, {
+  boss_goon(e, toP) {
+    e.flyN = (e.flyN || 0) + 1; const ph = e.phase || 1;
+    if (ph >= 3 && e.flyN % 3 === 0) { goonFlop(e); return true; }
+    if (e.flyN % 3 === 1 || toP > 7) { goonSneeze(e); return true; }
+    if (ph >= 2 && e.flyN % 3 === 2) { goonDrips(e); return true; }
+    return false;
+  },
   boss_mire(e) { e.flyN = (e.flyN || 0) + 1; if ((e.phase || 1) >= 3 && e.flyN % 2 === 0) { mireHex(e); return true; } return false; },
   boss_sogg(e, toP) {
     e.flyN = (e.flyN || 0) + 1; const ph = e.phase || 1;
@@ -6278,7 +6350,7 @@ function tick() {
   const off = camOff.copy(CAM_OFF).multiplyScalar(zoom * (camera.aspect < 1 ? 1.3 : 1));
   const following = !(creator.open && player) && !bossIntro && !(camMoment && player && camMoment.t < camMoment.dur) && !(player && dlg && dlg.talky && talking && talking.actor && !$('dialog').hidden) && !(!player && !$('pick').hidden);
   if (!following) camFollow = false;
-  bossIntroTick(dt); bossGateTick();
+  bossIntroTick(dt); bossGateTick(); goonTick();
   if (creator.open && player) creatorCam(dt);
   else if (bossIntro) introCam(dt);
   else if (camMoment && player && camMoment.t < camMoment.dur) momentCam(dt);
@@ -6333,20 +6405,21 @@ let musicAt = 0;
 // ---------- boss intros ----------
 // The first time a boss notices you (and again after a while), the action pauses: black bars slide in,
 // the camera swoops to the boss, it roars, and its name slams onto the screen.
-const BOSS_TITLES = { boss_pomp: 'In a Stolen Battle-Suit', boss_colossus: 'Guardian of the Old Kingdom', boss_mire: 'Bog Witch of Mire Hollow', boss_sogg: 'The Sunken Knight', boss_gobbler: 'Terror of Gobbler Marsh', boss_frost: 'Ice Queen of Frostwhisker Peaks', boss_crusher: 'Brute of the Grumble Crags', boss_gloom: 'Sorcerer of Glimmerwood', boss_rattle: 'Terror of Haunted Hollow', boss_gagron: 'Fire Dragon of the Ember Cave' };
+const BOSS_TITLES = { boss_pomp: 'In a Stolen Battle-Suit', boss_colossus: 'Guardian of the Old Kingdom', boss_mire: 'Bog Witch of Mire Hollow', boss_sogg: 'The Sunken Knight', boss_gobbler: 'Terror of Gobbler Marsh', boss_goon: 'Giant of the Stuffy Bog', boss_frost: 'Ice Queen of Frostwhisker Peaks', boss_crusher: 'Brute of the Grumble Crags', boss_gloom: 'Giant of Glimmerwood', boss_rattle: 'Terror of Haunted Hollow', boss_gagron: 'Fire Dragon of the Ember Cave' };
 let bossIntro = null;
 // ---------- sealed final bosses ----------
 // A chapter's last boss stays behind a shimmering seal until you've beaten the one before it.
 const BOSS_GATES = {
   // Chapter 1: the three shard guardians wake only once Gagron is beaten
   boss_crusher: { quest: 'st_dragon', beat: 'boss_gagron', who: 'Gagron the Hideous', r: 21 },
-  boss_gloom: { quest: 'st_dragon', beat: 'boss_gagron', who: 'Gagron the Hideous', r: 21 },
+  boss_gloom: { all: [['st_crags', 'boss_crusher'], ['st_hollow', 'boss_rattle']], who: 'Bonecrusher and Captain Rattlebones', r: 21 },
   boss_rattle: { quest: 'st_dragon', beat: 'boss_gagron', who: 'Gagron the Hideous', r: 19 },
   boss_colossus: { quest: 'st_pomp', beat: 'boss_pomp', who: 'Sir Percival Pompington' },
   boss_frost: { quest: 'st_twins', beat: 'boss_twin_a', who: 'the Avalanche Twins' },
   boss_gobbler: { quest: 'st_lantern', who: 'the Lantern Night' },
+  boss_goon: { quest: 'st_sogg', beat: 'boss_sogg', who: 'Sir Soggington', r: 19 },
 };
-const bossLocked = (e) => { const g = e && BOSS_GATES[e.type]; if (!g) return false; if ((S.beat || {})[e.type] || (S.quests[g.quest] && S.quests[g.quest].state === 'done') || (g.beat && (S.beat || {})[g.beat])) return false; return true; };
+const bossLocked = (e) => { const g = e && BOSS_GATES[e.type]; if (!g) return false; const B = S.beat || {}, Q = (q) => S.quests[q] && S.quests[q].state === 'done'; if (g.all) return !(B[e.type] || g.all.every(([q, b]) => Q(q) || B[b])); if ((S.beat || {})[e.type] || (S.quests[g.quest] && S.quests[g.quest].state === 'done') || (g.beat && (S.beat || {})[g.beat])) return false; return true; };
 const SEAL_R = 21;
 let sealSaid = 0;
 function bossGateTick() {
@@ -6406,16 +6479,18 @@ const BOSS_LINES = {
     low: 'My beautiful wrinkles! You scuffed them!', defeat: ['Fine! FINE! Yes, I fed the Gobbler. Boots, boats, bridges, all of it.', ['h', 'Why?!'], 'The Dark King promised to make me young again. Young! Do you know how creaky my knees are?', 'He never kept his word, of course. They never do...'] },
   boss_sogg: { intro: ['*glub* WHO DISTURBS SIR PERCIVAL SOGGINGTON?', ['h', 'Wait, another Sir Percival?'], 'There is only ONE Sir Percival! The other one is a fraud with shiny armour! CHARGE!'],
     low: 'My armour is filling with tadpoles!', defeat: ['Oh... oh dear. A hundred years asleep and I attack the first nice person I see.', 'That witch woke me with a spell. Listen, young hero: the Marsh Wardstone is not lost.', 'The Gobbler SWALLOWED it. The very night the Heartstone cracked.'] },
+  boss_goon: { intro: ['*sniiiiiff* Who\'s there? Cub closer, I cad\'t see you. Or smell you. I cad\'t smell ADYTHIG.', ['h', 'Are you Goonshoe?'], 'Goonshoe the Bogdweller! The odly giant who cad live by the Gobbler\'s pool. You kdow why? *SNORT* By dose has beed blocked for TWELVE YEARS.', ['h', 'That sounds awful, actually.'], 'It IS awful! ...Dow go away before I sdeeze od you.'],
+    low: '*sniff* Doh, I\'b goig to cry, ad thed it\'ll get WORSE!', defeat: ['*sniff*... Fide. Take the ladtern oil.', ['h', 'Have you tried steam? Hot tea?'], '...Steab? Dobody ever told be about steab.', 'Mother Mire said I would get a dew dose if I guarded the pool. A DEW DOSE! She lied.'] },
   boss_gobbler: { intro: ['*BURRRRP*', ['h', 'Excuse YOU.'], '*gurgle gurgle* ...HUNGRY.'],
     low: '*sad gurgle*', defeat: ['*HURK*', ['h', 'It coughed something up!'], ['h', 'The Wardstone! But it\'s... split in two?'], '*tiny burp* ...sorry.'] },
   boss_gagron: { intro: ['WHO dares walk into my beautiful cave?', ['h', 'Um, hello? Are you Gagron the Hideous?'], 'HIDEOUS?! Who keeps calling me that?! I will roast you for that, tiny hero!'],
     low: 'Not the face! Anything but the face!', defeat: ['Ugh... my chest... something is coming loose...', ['h', 'The shard! It was stuck inside you!'], 'Oh. OH. That feels SO much better. That nasty thing was whispering to me for weeks.', 'I think... I am shrinking? I am going to the village. I need a nap and a biscuit.', ['h', 'Wait, you were being controlled?'], 'Somebody threw that shard into my cave on purpose. Find them, little hero.'] },
   boss_crusher: { intro: ['BONECRUSHER SMASH!', 'Mum said I can keep the shiny rock if I smash everyone who comes!', ['h', 'Your mum said that?']],
-    low: "Ow! I'm telling my mum!", defeat: ['MUUUUM! The hero was mean to me!'] },
-  boss_gloom: { intro: ['Ah. More colour, walking right into my grey little forest.', ['h', 'Why did you steal all the colours?'], 'Red, green, they all look the same to me. So NOBODY gets to have them!'],
-    low: 'Stop sparkling at me!', defeat: ["The colours... they're coming back. Ugh.", "They're so... pretty."] },
+    low: "Ow! I'm telling my mum!", defeat: ['MUUUUM! The hero was mean to me!', 'Big Harold gave me the shiny rock! Go bother HIM!'] },
+  boss_gloom: { intro: ['Ah. More colour, walking right into my grey little forest.', ['h', 'You must be Harold.'], 'HAROLD THE GROTESQUE. Look at me! Pale as porridge, freckles like spilled pepper. Everyone LAUGHED.', ['h', 'So you stole all the colours?'], 'He promised me that if the whole world went grey, nobody would ever laugh at me again. Now hold STILL.'],
+    low: 'Stop sparkling at me! It makes my freckles itch!', defeat: ["The colours... they're coming back. Ugh.", ['h', 'Who promised you all this, Harold?'], 'Someone close to your king. Shiny boots. Very shiny. That is all I know, I swear.', "...The colours are quite pretty, actually."] },
   boss_rattle: { intro: ['Yarr! Who goes there? Have ye seen me ship?', ['h', 'Your ship? This is a graveyard.'], 'No ship? Then ye be walkin\' the plank!'],
-    low: 'Me bones! Me lovely bones!', defeat: ['Arr... I only wanted me ship back...', 'If ye ever find a boat, tell her old Rattlebones misses her.'] },
+    low: 'Me bones! Me lovely bones!', defeat: ['Arr... I only wanted me ship back...', 'If ye ever find a boat, tell her old Rattlebones misses her.', 'And beware the giant in Glimmerwood. Harold. He be the one who handed out the shards.'] },
   boss_frost: { intro: ['Another warm little visitor. How dreadfully cosy.', ['h', 'Stop freezing everything, Your Majesty!'], 'Soon every land will be as quiet and lovely as mine. Frozen SOLID!'],
     defeat: ['Wait... stop! Look at the sky!', ['h', "It's... turning purple?"], 'You fool! My cold was the only thing slowing the dark magic down!', 'Without my snow, the Wardstone of the North will crack. Go to Elder Mittens. Hurry!'] },
   boss_grumble: { intro: ['WHO walks on Grumblefrost\'s path?!', ['h', 'Just passing through!'], 'Nobody passes! Grumblefrost guards the Queen. Grumblefrost ROLL you flat!'],
@@ -7520,7 +7595,7 @@ const COS = {
   hat: {
     beanie: { name: 'Cosy beanie', r: 0, how: 'drop' }, bandana: { name: 'Red bandana', r: 0, how: 'drop' },
     flowers: { name: 'Flower crown', r: 1, how: 'Free a monster town' }, chef: { name: 'Chef hat', r: 1, how: 'drop' }, mushroom: { name: 'Mushroom cap', r: 1, how: 'drop' }, catears: { name: 'Cat ears', r: 1, how: 'drop' },
-    horns: { name: 'Viking horns', r: 2, how: 'Defeat Bonecrusher' }, tricorn: { name: 'Pirate tricorn', r: 2, how: 'Defeat Rattlebones' }, wizard: { name: 'Starry wizard hat', r: 2, how: 'Defeat the Gloomcaster' },
+    horns: { name: 'Viking horns', r: 2, how: 'Defeat Bonecrusher' }, tricorn: { name: 'Pirate tricorn', r: 2, how: 'Defeat Rattlebones' }, wizard: { name: 'Starry wizard hat', r: 2, how: 'Defeat Harold the Grotesque' },
     witch: { name: 'Witch hat', r: 2, how: 'drop' }, plume: { name: 'Knight plume', r: 2, how: 'drop' },
     tiara: { name: 'Ice tiara', r: 3, how: 'Defeat Queen Frostwhisker' }, frog: { name: 'Frog hat', r: 3, how: 'Defeat the Gobbler' }, tophat: { name: 'Dapper top hat', r: 3, how: 'Defeat Pompington' }, halo: { name: 'Golden halo', r: 3, how: 'drop' },
     goggles: { name: 'Brass goggles', r: 4, how: 'Defeat the Brassbolt Colossus' }, crown: { name: 'Royal crown', r: 4, how: 'Reach level 70 (Legend)' }, flame: { name: 'Crown of flames', r: 4, how: 'drop' },
@@ -8446,9 +8521,10 @@ function openBoard(npc) {
 const LETTERS = {
   boss_gagron: 'Dear Hero,\n\nYou have beaten my dragon. I was not fond of him anyway. He kept setting my curtains on fire.\n\nEnjoy your little shard. You will need a great many more.',
   boss_crusher: 'Dear Hero,\n\nBonecrusher\'s mother has written to me to complain. She says you were rude. I agree.\n\nStop collecting my shards at once.',
-  boss_gloom: 'Dear Hero,\n\nThe Gloomcaster was my finest sorcerer. Well, my only sorcerer. He is now crying in a cupboard.\n\nThis is all your fault.',
+  boss_gloom: 'Dear Hero,\n\nHarold was my biggest helper. In every sense. He is now crying in a VERY large cupboard.\n\nThis is all your fault.',
   boss_rattle: 'Dear Hero,\n\nSo you have all four shards. How lovely for you.\n\nAsk your King what is missing from the middle of his precious Heartstone. Ask him who was in the throne room that night.',
   st_socket: 'Dear Hero,\n\nLooking for something? It is quite safe with me. Someone very close to your King was kind enough to hand it over.\n\nGo north if you like. It is cold there. I hope you did not pack a scarf.',
+  boss_goon: 'Dear Hero,\n\nGoonshoe has written to complain that YOU cured his nose and now he can smell the bog. He says it is the worst day of his life.\n\nHa. Serves you both right.',
   boss_mire: 'Dear Hero,\n\nMother Mire tells me you were very rude to her. She also tells me I owe her one youth potion. I do not.\n\nPlease stop beating my helpers. Good help is so hard to find.',
   boss_gobbler: 'Dear Hero,\n\nYou made my Gobbler cough up its supper. Disgusting. Also, well done.\n\nThe stone has split, has it not? Touch the dark half. I did, long ago. It is ever so nice.',
   boss_pomp: 'Dear Hero,\n\nPompington was supposed to be my shiniest helper. Instead he is polishing POTS.\n\nI am giving his battle-suit to someone more competent. Possibly a goat.',
@@ -8504,7 +8580,7 @@ function makeGagronFriend() {
   npcs.push(gagronFriend);
 }
 
-window.__jq = { toast, showKeysNote, setSlotBox, showSlots, get slotBox() { return slotBox; }, get guide() { return guide; }, bossNet, safeSpot, get PVP_LVL() { return PVP_LVL; }, goldNode, wbInfo, wbTick, get wb() { return wb; }, WB_SPOTS, tradeOpen, tradeNet, offerKey, get trade() { return trade; }, adv(s) { for (let t = 0; t < s; t += 0.05) { for (let i = timers.length - 1; i >= 0; i--) { timers[i].t -= 0.05; if (timers[i].t <= 0) { const f = timers[i].f; timers.splice(i, 1); f(); } } bossFxTick(0.05); } }, get party() { return party; }, BOSS_AI, PHASE_SETUP, get gulped() { return gulped; }, wriggle, toggleBigMap, spawnEnemy, openPathChoice, choosePath, startLanternNight, get lanterns() { return lanterns; }, duelOffer, duelPrize, onNet, chatCommand, canFight, openUpgrade, openBoard, boardToday, queueLetter, makeGagronFriend, net, peerActors, runeTick, bossFx, renderer, scene, openMayor, darkOmen, netWorth, liberateTown, setGolden, goldenCaught, pompArrive, get goldenE() { return goldenE; }, spinWheel, dayTick, get bossIntro() { return bossIntro; }, bossSkip, startBossScene, sailTo, regions, closeSheet, renderHotbar, crew, setCrewMode, TOWNS, liberateTown, chests, openChest, stopRoulette, enemies, startBossIntro, closeDialog, advanceDialog, dash, attackPress, craft, CRAFTS, openCreator, closeCreator, creator, rebuildHero, setZoom: (z) => { zoom = zoomGoal = z; }, hurtEnemy, goThrough, get where() { return where; }, INTERIORS, equipGear, spendPoint, giveHeroXp, heroLvl, stat, maxHp, defDiv, openWeaponShop, openKing, jump, eat, eatBest, openShop, swing, swingTarget, hitNode, projectiles, timers, get S() { return S; }, get player() { return player; }, enemies, nodes, npcs, startTask, doAction, giveXp, save, openSheet, openDialog };
+window.__jq = { toast, showKeysNote, goonSneeze, goonDrips, goonFlop, setSlotBox, showSlots, get slotBox() { return slotBox; }, get guide() { return guide; }, bossNet, safeSpot, get PVP_LVL() { return PVP_LVL; }, goldNode, wbInfo, wbTick, get wb() { return wb; }, WB_SPOTS, tradeOpen, tradeNet, offerKey, get trade() { return trade; }, adv(s) { for (let t = 0; t < s; t += 0.05) { for (let i = timers.length - 1; i >= 0; i--) { timers[i].t -= 0.05; if (timers[i].t <= 0) { const f = timers[i].f; timers.splice(i, 1); f(); } } bossFxTick(0.05); } }, get party() { return party; }, BOSS_AI, PHASE_SETUP, get gulped() { return gulped; }, wriggle, toggleBigMap, spawnEnemy, openPathChoice, choosePath, startLanternNight, get lanterns() { return lanterns; }, duelOffer, duelPrize, onNet, chatCommand, canFight, openUpgrade, openBoard, boardToday, queueLetter, makeGagronFriend, net, peerActors, runeTick, bossFx, renderer, scene, openMayor, darkOmen, netWorth, liberateTown, setGolden, goldenCaught, pompArrive, get goldenE() { return goldenE; }, spinWheel, dayTick, get bossIntro() { return bossIntro; }, bossSkip, startBossScene, sailTo, regions, closeSheet, renderHotbar, crew, setCrewMode, TOWNS, liberateTown, chests, openChest, stopRoulette, enemies, startBossIntro, closeDialog, advanceDialog, dash, attackPress, craft, CRAFTS, openCreator, closeCreator, creator, rebuildHero, setZoom: (z) => { zoom = zoomGoal = z; }, hurtEnemy, goThrough, get where() { return where; }, INTERIORS, equipGear, spendPoint, giveHeroXp, heroLvl, stat, maxHp, defDiv, openWeaponShop, openKing, jump, eat, eatBest, openShop, swing, swingTarget, hitNode, projectiles, timers, get S() { return S; }, get player() { return player; }, enemies, nodes, npcs, startTask, doAction, giveXp, save, openSheet, openDialog };
 window.addEventListener('error', (e) => { const m = $('loadmsg'); if (m) m.textContent = `Something went wrong: ${e.message}`; });
 main().catch((err) => {
   console.error(err);
