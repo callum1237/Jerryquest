@@ -193,6 +193,12 @@ export const ICONS = {
     for (const x of [-9, 9]) shape(g, '#3a2010', () => g.arc(x, 6, 3.5, 0, 7));
     shine(g, -16, -4, 4);
   }),
+  golden_acorn: make((g) => {
+    shape(g, '#ffc83a', () => g.ellipse(0, 8, 20, 22, 0, 0, 7));
+    shape(g, '#a8682a', () => { g.moveTo(-24, -4); g.quadraticCurveTo(0, -26, 24, -4); g.quadraticCurveTo(0, 2, -24, -4); g.closePath(); });
+    shape(g, '#a8682a', () => g.rect(-3, -28, 6, 10));
+    shine(g, -8, 6, 5);
+  }),
   frost_crown: make((g) => {
     shape(g, '#bfefff', () => { g.moveTo(-30, 22); g.lineTo(-30, -10); g.lineTo(-18, 2); g.lineTo(-10, -26); g.lineTo(0, -2); g.lineTo(10, -26); g.lineTo(18, 2); g.lineTo(30, -10); g.lineTo(30, 22); g.closePath(); });
     for (const x of [-16, 0, 16]) shape(g, '#7fd3ff', () => g.arc(x, 12, 4.5, 0, 7));

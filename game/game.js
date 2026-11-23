@@ -1027,6 +1027,7 @@ const WB_EVERY = 20 * 60 * 1000, WB_LIVE = 7 * 60 * 1000;
 const WB_SPOTS = [['out', 50, 6, 'the Glimmerwood road'], ['frost', 1000, -4, 'the Frostwhisker road'], ['marsh', 2000, -4, 'the Gobbler Marsh road'], ['sands', 3000, 2, 'the Brassbolt dunes']];
 ENEMY_TYPES.wb_wobble = { name: 'King Wobblegut', title: 'World Boss · everyone can help', model: 'slime', hp: 3000, maxHit: 10, xp: 0, boss: true, world: true, scale: 4, coins: [0, 1], drop: 'royal_jelly', slam: 8, noBones: true, poof: true, tintAll: '#ffcf3a', mass: 40 };
 ITEMS.royal_jelly = 'Royal jelly'; SELL.royal_jelly = 400;
+ITEMS.golden_acorn = 'Golden acorn'; SELL.golden_acorn = 250;
 let wb = null, wbSlot = -1, wbWarned = -1, wbDmg = 0, wbAt = 0, wbRemote = false;
 const wbInfo = (t = Date.now()) => { const slot = Math.floor(t / WB_EVERY), into = t - slot * WB_EVERY; return { slot, spot: WB_SPOTS[slot % WB_SPOTS.length], live: into < WB_LIVE, left: WB_LIVE - into, next: (slot + 1) * WB_EVERY - t }; };
 const landName = (w) => (w === 'out' ? 'the Valley' : w === 'frost' ? 'Frostwhisker Peaks' : w === 'marsh' ? 'Gobbler Marsh' : 'Brassbolt Sands');
@@ -3721,6 +3722,16 @@ function fxTick(dt) {
     if (el.dataset.lbl !== lbl) { el.dataset.lbl = lbl; el.querySelector('span').textContent = lbl; }
   }
 }
+let gRhythm = { n: 0, at: -99 };
+// a golden tree or rock: painted gold until it's harvested
+function goldNode(n, on) {
+  n.golden = on;
+  n.full.traverse((o) => {
+    if (!o.isMesh || !o.userData.mats || Array.isArray(o.userData.mats.std)) return;
+    if (on) { if (!o.userData.goldOrig) o.userData.goldOrig = o.userData.mats; const m = { std: o.userData.goldOrig.std.clone(), toon: o.userData.goldOrig.toon.clone() }; m.toon.onBeforeCompile = o.userData.goldOrig.toon.onBeforeCompile; for (const x of [m.std, m.toon]) { x.color.lerp(new THREE.Color('#ffd23f'), 0.9); if (x.emissive) x.emissive.set('#8a5a00'); } registerMesh(o, m); }
+    else if (o.userData.goldOrig) registerMesh(o, o.userData.goldOrig);
+  });
+}
 function hitNode(n) {
   if (!n.alive) return;
   const def = n.def, l = lvl(def.skill);
@@ -3738,10 +3749,20 @@ function hitNode(n) {
   sfx(def.skill === 'mining' ? 'mine' : 'chop');
   if (n.hp > 0) { n.full.rotation.z = 0.05; later(0.12, () => { n.full.rotation.z = 0; }); return; }
   // broken: tree falls / rock cracks, hand out the haul
-  const count = 2 + (rng() < 0.4 + l * 0.01 ? 1 : 0);
+  // gathering rhythm: keep chopping or mining without a long break and the hauls grow (up to x5)
+  gRhythm = now - gRhythm.at < 45 ? { n: Math.min(5, gRhythm.n + 1), at: now } : { n: 1, at: now };
+  let count = 2 + (rng() < 0.4 + l * 0.01 ? 1 : 0) + (rng() < gRhythm.n * 0.12 ? 1 : 0);
+  if (n.golden) count *= 3;
   addItem(def.item, count);
-  giveXp(def.skill, def.xp * count, player.pos.clone().setY(3.2));
-  toast(`You get ${count} ${ITEMS[def.item].toLowerCase()}.`, ICONS[def.item]);
+  giveXp(def.skill, def.xp * count * (n.golden ? 2 : 1), player.pos.clone().setY(3.2));
+  toast(`${n.golden ? 'Golden haul! ' : ''}You get ${count} ${ITEMS[def.item].toLowerCase()}.`, ICONS[def.item], !!n.golden);
+  if (gRhythm.n >= 2) floatText(at.clone().setY(4.2), `Rhythm x${gRhythm.n}!`, 'gain');
+  // rare finds: a golden acorn in trees, a gem in rocks
+  if (rng() < 0.03 + l * 0.0006 + (n.golden ? 0.25 : 0)) {
+    const find = def.skill === 'mining' ? (where === 'frost' ? 'frost_gem' : 'ruby') : 'golden_acorn';
+    addItem(find); toast(`A rare find: ${ITEMS[find].toLowerCase()}!`, ICONS[find], true); sfx('win');
+  }
+  if (n.golden) { goldNode(n, false); S.goldenNodes = (S.goldenNodes || 0) + 1; }
   n.alive = false; n.respawnAt = now + def.respawn; n.bar.hidden = true;
   n.full.visible = false; if (n.cut) n.cut.visible = true;
   if (n.full.userData.collider) n.full.userData.collider.r = 0.6;
@@ -5468,8 +5489,11 @@ function tick() {
   for (const n of nodes) {
     if (!n.alive && now > n.respawnAt) {
       n.alive = true; n.full.visible = true; if (n.cut) n.cut.visible = false; if (n.maxHp) n.hp = n.maxHp;
+      // now and then a tree or rock grows back golden: triple haul
+      if (n.def.skill !== 'fishing' && rng() < 0.06) goldNode(n, true);
       if (n.full.userData.collider) n.full.userData.collider.r = 1.2;
     }
+    if (n.golden && n.alive && rng() < dt * 6) burst(new THREE.Vector3(n.x + (rng() - 0.5) * 2, 0.6 + rng() * 2.6, n.z + (rng() - 0.5) * 2), '#ffd84a', 3, 2, 0.9);
     if (n.ring) {
       const ph = (now * 0.8 + n.x) % 1;
       n.ring.scale.setScalar(1 + ph * 0.8); n.ring.material.opacity = 0.9 - ph * 0.8;
@@ -6782,12 +6806,14 @@ const COS = {
   },
   cape: {
     royal: { name: 'Royal purple cape', col: '#7a3ac8', how: 'Reach level 25 (Veteran)' }, ember: { name: 'Ember cape', col: '#ff6a2a', how: 'Defeat Gagron' },
-    midnight: { name: 'Midnight cape', col: '#2a2a6a', how: 'Defeat Sir Soggington' }, gold: { name: 'Cloth-of-gold cape', col: '#ffc83a', how: 'Reach level 70 (Legend)' },
+    midnight: { name: 'Midnight cape', col: '#2a2a6a', how: 'Defeat Sir Soggington' },
+    wood: { name: "Woodcutter's cape", col: '#3f9a3e', how: 'Reach Woodcutting 50' }, mine: { name: "Miner's cape", col: '#c8733a', how: 'Reach Mining 50' }, fish: { name: "Angler's cape", col: '#3a8ae0', how: 'Reach Fishing 50' }, gold: { name: 'Cloth-of-gold cape', col: '#ffc83a', how: 'Reach level 70 (Legend)' },
   },
   aura: {
     frost: { name: 'Frost aura', col: '#7fe8ff', how: 'Defeat Queen Frostwhisker' }, royal: { name: 'Royal aura', col: '#b06ae8', how: 'Reach level 45 (Champion)' },
     rose: { name: 'Rose aura', col: '#ff7ab0', how: 'Be worth 100,000 coins' }, sun: { name: 'Sunfire aura', col: '#ffb02e', how: 'Defeat the Brassbolt Colossus' },
     void: { name: 'Void aura', col: '#7a3aff', how: 'Reach level 90 (Mythic)' },
+    jelly: { name: 'Royal jelly aura', col: '#ffd84a', how: 'Help beat King Wobblegut' }, gold: { name: 'Golden harvest aura', col: '#ffe9a0', how: 'Gather from 10 golden trees or rocks' },
   },
   trail: {
     sparkle: { name: 'Sparkle trail', col: '#fff2a0', how: 'Reach level 10' }, ember: { name: 'Ember trail', col: '#ff8a3a', how: 'Defeat Gagron' },
@@ -6807,6 +6833,11 @@ function cosEarned() {
   if (l >= 70) { out.add('hat:crown'); out.add('cape:gold'); }
   if (l >= 90) { out.add('aura:void'); out.add('trail:shadow'); }
   if ((S.goldenN || 0) > 0) out.add('trail:hearts');
+  if (lvl('woodcutting') >= 50) out.add('cape:wood');
+  if (lvl('mining') >= 50) out.add('cape:mine');
+  if (lvl('fishing') >= 50) out.add('cape:fish');
+  if ((S.wbKills || 0) > 0) out.add('aura:jelly');
+  if ((S.goldenNodes || 0) >= 10) out.add('aura:gold');
   if (Object.keys(S.towns || {}).length) out.add('hat:flowers');
   if (S.started && netWorth() >= 100000) out.add('aura:rose');
   return out;
@@ -7468,7 +7499,7 @@ function makeGagronFriend() {
   npcs.push(gagronFriend);
 }
 
-window.__jq = { wbInfo, wbTick, get wb() { return wb; }, WB_SPOTS, tradeOpen, tradeNet, offerKey, get trade() { return trade; }, adv(s) { for (let t = 0; t < s; t += 0.05) { for (let i = timers.length - 1; i >= 0; i--) { timers[i].t -= 0.05; if (timers[i].t <= 0) { const f = timers[i].f; timers.splice(i, 1); f(); } } bossFxTick(0.05); } }, get party() { return party; }, BOSS_AI, PHASE_SETUP, get gulped() { return gulped; }, wriggle, toggleBigMap, spawnEnemy, openPathChoice, choosePath, startLanternNight, get lanterns() { return lanterns; }, duelOffer, duelPrize, onNet, chatCommand, canFight, openUpgrade, openBoard, boardToday, queueLetter, makeGagronFriend, net, peerActors, runeTick, bossFx, renderer, scene, openMayor, darkOmen, netWorth, liberateTown, spots, spotEffect, setGolden, goldenCaught, pompArrive, get goldenE() { return goldenE; }, spinWheel, dayTick, get bossIntro() { return bossIntro; }, bossSkip, startBossScene, sailTo, regions, closeSheet, renderHotbar, crew, setCrewMode, TOWNS, liberateTown, chests, openChest, stopRoulette, enemies, startBossIntro, closeDialog, advanceDialog, dash, attackPress, craft, CRAFTS, openCreator, closeCreator, creator, rebuildHero, setZoom: (z) => { zoom = z; }, hurtEnemy, goThrough, get where() { return where; }, INTERIORS, equipGear, spendPoint, giveHeroXp, heroLvl, stat, maxHp, defDiv, openWeaponShop, openKing, jump, eat, eatBest, openShop, swing, swingTarget, hitNode, projectiles, timers, get S() { return S; }, get player() { return player; }, enemies, nodes, npcs, startTask, doAction, giveXp, save, openSheet, openDialog };
+window.__jq = { goldNode, wbInfo, wbTick, get wb() { return wb; }, WB_SPOTS, tradeOpen, tradeNet, offerKey, get trade() { return trade; }, adv(s) { for (let t = 0; t < s; t += 0.05) { for (let i = timers.length - 1; i >= 0; i--) { timers[i].t -= 0.05; if (timers[i].t <= 0) { const f = timers[i].f; timers.splice(i, 1); f(); } } bossFxTick(0.05); } }, get party() { return party; }, BOSS_AI, PHASE_SETUP, get gulped() { return gulped; }, wriggle, toggleBigMap, spawnEnemy, openPathChoice, choosePath, startLanternNight, get lanterns() { return lanterns; }, duelOffer, duelPrize, onNet, chatCommand, canFight, openUpgrade, openBoard, boardToday, queueLetter, makeGagronFriend, net, peerActors, runeTick, bossFx, renderer, scene, openMayor, darkOmen, netWorth, liberateTown, spots, spotEffect, setGolden, goldenCaught, pompArrive, get goldenE() { return goldenE; }, spinWheel, dayTick, get bossIntro() { return bossIntro; }, bossSkip, startBossScene, sailTo, regions, closeSheet, renderHotbar, crew, setCrewMode, TOWNS, liberateTown, chests, openChest, stopRoulette, enemies, startBossIntro, closeDialog, advanceDialog, dash, attackPress, craft, CRAFTS, openCreator, closeCreator, creator, rebuildHero, setZoom: (z) => { zoom = z; }, hurtEnemy, goThrough, get where() { return where; }, INTERIORS, equipGear, spendPoint, giveHeroXp, heroLvl, stat, maxHp, defDiv, openWeaponShop, openKing, jump, eat, eatBest, openShop, swing, swingTarget, hitNode, projectiles, timers, get S() { return S; }, get player() { return player; }, enemies, nodes, npcs, startTask, doAction, giveXp, save, openSheet, openDialog };
 window.addEventListener('error', (e) => { const m = $('loadmsg'); if (m) m.textContent = `Something went wrong: ${e.message}`; });
 main().catch((err) => {
   console.error(err);
