@@ -4035,7 +4035,7 @@ function hurtEnemy(e, dmg, src = null, power = 1) {
       burst(e.pos.clone().setY(2), '#ffe07a', 80, 8, 1.6);
       for (const k of Object.keys(QUESTS)) if (S.quests[k].state === 'active' && QUESTS[k].bossType === e.type) S.quests[k].boss = 1;
       $('bossbar').hidden = true;
-      if ((BOSS_LINES[e.type] || {}).defeat) { const be = e; later(0.5, () => { if (!bossIntro && !player.dead) startBossScene(be, 'defeat'); }); }
+      if ((BOSS_LINES[e.type] || {}).defeat && S.beat[e.type] === 1) { const be = e; later(0.5, () => { if (!bossIntro && !player.dead) startBossScene(be, 'defeat'); }); }
       if (e.T.town) { const T = TOWNS.find((t) => t.id === e.T.town); later(1.5, () => liberateTown(T)); }
     }
     floatText(e.pos.clone().setY(2.4), `+${coins} coins`, 'gain');
@@ -5836,6 +5836,7 @@ function bossIntroTick(dt = 0) {
   for (const e of enemies) {
     if (!e.T.boss || e.hp <= 0 || e.inside !== where || e.state === 'idle' || e.state === 'dead') continue;
     if (e.T.world || (e.introAt && (now - e.introAt < 150 || e.hp < e.T.hp))) continue;
+    if (beatenBoss(e)) { e.introAt = now; continue; } // seen it already: straight into the fight
     if (Math.hypot(e.pos.x - player.pos.x, e.pos.z - player.pos.z) > 26) continue;
     startBossIntro(e); return;
   }
@@ -5875,6 +5876,8 @@ const BOSS_LINES = {
   cinderholt_boss: { intro: ['KNEEL before the Lord of Cinderholt!', "It is very hot in this armour, so let's make this quick."],
     low: 'My armour is getting toasty!', defeat: ["I'm moving somewhere with... less lava."] },
 };
+// Once you have beaten a boss, its intro and defeat talk never play again for you.
+const beatenBoss = (e) => [e.type, e.T.twin].some((k) => k && ((S.beat || {})[k] || Object.keys(QUESTS).some((q) => QUESTS[q].bossType === k && S.quests[q] && S.quests[q].state === 'done')));
 function bossNextLine() {
   const B = bossIntro; B.li++; B.lineAt = B.t;
   const el = $('bosstalk');
