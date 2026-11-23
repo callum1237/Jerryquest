@@ -198,12 +198,19 @@ Object.assign(QUESTS, {
   st_hollow: {
     story: true, chapter: 'Chapter 1', name: 'The Shard of the Hollow', giver: 'king', after: ['st_dragon'], bossType: 'boss_rattle',
     intro: `The third shard sank into Haunted Hollow, north of the castle. Captain Rattlebones leads ${DARK_KING}'s restless dead there. Put him to rest, if only for a while.`,
-    ready: 'The Hollow shard, cold as moonlight. Three of the pieces are home.', done: 'The shards are home, but the Heartstone will not mend, and a cold wind blows from the north. Take the ship at the lake pier to Frostwhisker Peaks.',
+    ready: 'The Hollow shard, cold as moonlight. All four pieces are home... and yet the Heartstone will not mend. Come back and speak with me.', done: 'The shards are home, but something is still wrong with the Heartstone.',
     need: { boss: 1 }, reward: { coins: 150, xp: { hero: 500 } }, desc: 'Defeat Captain Rattlebones in Haunted Hollow (north).',
+  },
+  st_socket: {
+    story: true, chapter: 'Chapter 1', name: 'The Empty Socket', giver: 'king', after: ['st_crags', 'st_glimmer', 'st_hollow'],
+    intro: `All four shards sit in the Heartstone, but look: there is a hole right in its heart, where the core should be. Old Fenwick says a powder of ground bones can show whose hands last touched it. Bring me 6 bones from the skeletons and we shall see.`,
+    ready: 'Fenwick sprinkles the powder... and the throne room glows! Scratch marks, all around the socket, from the INSIDE. Someone in this very room pried the core loose on purpose. And look: a footprint from a very shiny boot.',
+    done: 'Someone close to the throne cracked the Heartstone. Until we know who, the core is lost. A cold wind blows from the north. Take the ship at the lake pier to Frostwhisker Peaks.',
+    need: { bones: 6 }, reward: { coins: 250, xp: { hero: 1200 } }, desc: 'Bring King Jerrold 6 bones for Fenwick\'s revealing powder.',
   },
   // Chapter 2: a new land. Sail from the pier on the village lake to Frostwhisker Peaks.
   st_frost1: {
-    story: true, chapter: 'Chapter 2', name: 'The Frozen North', giver: 'elder', after: ['st_crags', 'st_glimmer', 'st_hollow'], land: 'frost',
+    story: true, chapter: 'Chapter 2', name: 'The Frozen North', giver: 'elder', after: ['st_socket'], land: 'frost',
     intro: 'Brr! You came all the way from Jerry Valley? Then you felt it too: the cold that crept south the night your Heartstone cracked. Queen Frostwhisker has woken up in her Ice Palace, and her frost skeletons are everywhere. Clear a few of them out of our woods and hills, and then we can talk about the Queen.',
     ready: 'You fought them off! Snowdrop has not been this brave in years. Come, warm your hands, and I will tell you about the Queen.', done: 'Snowdrop is safer thanks to you. The Queen still sits in her Ice Palace to the north.',
     need: { kills: 6 }, reward: { coins: 300, xp: { hero: 2500 } }, desc: 'Defeat 6 frost monsters in Frostwhisker Peaks.',
@@ -219,7 +226,7 @@ Object.assign(QUESTS, {
 // Only the Prologue and Chapter 1 are playable so far; the rest are the plan.
 const CHAPTERS = [
   { id: 'pro', tag: 'Prologue', name: 'The Crack', land: 'Jerry Valley', quests: ['st_1'] },
-  { id: 'c1', tag: 'Chapter 1', name: 'The Shards', land: 'Jerry Valley', quests: ['st_dragon', 'st_crags', 'st_glimmer', 'st_hollow'] },
+  { id: 'c1', tag: 'Chapter 1', name: 'The Shards', land: 'Jerry Valley', quests: ['st_dragon', 'st_crags', 'st_glimmer', 'st_hollow', 'st_socket'] },
   { id: 'c2', tag: 'Chapter 2', name: 'The Frozen North', land: 'Frostwhisker Peaks', quests: ['st_frost1', 'st_frost_boss'] },
   { id: 'c3', tag: 'Chapter 3', name: 'The Hungry Swamp', land: 'Gobbler Marsh', quests: [], soon: true },
   { id: 'c4', tag: 'Chapter 4', name: 'The Clockwork Ruins', land: 'Brassbolt Sands', quests: [], soon: true },
@@ -292,8 +299,15 @@ const heroLvl = () => heroLevelOf(S.hero.xp);
 // a stat = 1 at level 1, +1 every level, plus whatever points you spent on it
 const stat = (k) => heroLvl() * AUTO_PER_LEVEL + S.hero.alloc[k];
 const freePoints = () => (heroLvl() - 1) * FREE_PER_LEVEL - Object.values(S.hero.alloc).reduce((a, b) => a + b, 0);
-const W = () => WEAPONS[S.equip.weapon] || WEAPONS.k_sword;
-const gearDef = () => (ARMOUR[S.equip.shield] || { def: 0 }).def + (ARMOUR[S.equip.armour] || { def: 0 }).def;
+// the equipped weapon, with any smith upgrades applied
+const wCache = { k: '', p: -1, w: null };
+const W = () => {
+  const k = WEAPONS[S.equip.weapon] ? S.equip.weapon : 'k_sword', p = plusOf(k);
+  if (!p) return WEAPONS[k];
+  if (wCache.k !== k || wCache.p !== p) { const w = WEAPONS[k]; wCache.k = k; wCache.p = p; wCache.w = { ...w, dmg: Math.round(w.dmg * plusMult(k) * 10) / 10, name: plusName(k) }; }
+  return wCache.w;
+};
+const gearDef = () => ['shield', 'armour'].reduce((a, sl) => a + (ARMOUR[S.equip[sl]] ? Math.round(ARMOUR[S.equip[sl]].def * plusMult(S.equip[sl]) * 10) / 10 : 0), 0);
 const totalDef = () => stat('def') + gearDef();
 const dmgMult = () => 1 + ATK_MULT * stat('atk');
 const defDiv = () => 1 + DEF_DIV * totalDef();
@@ -404,7 +418,7 @@ async function main() {
   // entering the world, once the title screen is done
   const begin = () => {
     $('pick').hidden = true; document.body.classList.remove('titling');
-    rebuildBinds(); applyTowns(); dayTick(0, true);
+    rebuildBinds(); applyTowns(); dayTick(0, true); makeGagronFriend();
     if (S.started) { startHero(); if (!S.name && !net.on) openCreator('new'); } else newHero();
     if (net.on) goOnline();
   };
@@ -1403,6 +1417,7 @@ function buildNpcs() {
     { id: 'rowan', name: 'Captain Rowan', model: 'knight', x: 12 * VS, z: -18 * VS, hide: [] },
     { id: 'fenwick', name: 'Old Fenwick', model: 'mage', x: 15 * VS, z: -4.5 * VS, hide: [] },
     { id: 'marta', name: 'Marta the Baker', model: 'barbarian', x: 7.5 * VS, z: 10.2 * VS, hide: [], shop: 'food', tint: '#bfe3ff' },
+    { id: 'pip', name: 'Pip of the Request Board', model: 'archer', x: -10.5, z: 12, hide: [], board: true, tint: '#ffd8a0' },
     { id: 'brom', name: 'Brom the Blacksmith', model: 'barbarian', x: 5.5 * VS, z: -19.8 * VS, hide: [], shop: 'melee', tint: '#ffb38a' },
     { id: 'wisteria', name: 'Madame Wisteria', model: 'mage', x: 18.4 * VS, z: -21.6 * VS, hide: [], shop: 'magic', tint: '#f0b0ff' },
     { id: 'hazel', name: 'Hazel the Fletcher', model: 'heroine', x: -22 * VS, z: 10.5 * VS, hide: [], shop: 'ranged', tint: '#d8f0a0' },
@@ -1989,7 +2004,7 @@ function goThrough(to) {
   }, 320);
 }
 // ---------- ships between lands ----------
-const chapter1Done = () => ['st_dragon', 'st_crags', 'st_glimmer', 'st_hollow'].every((k) => S.quests[k] && S.quests[k].state === 'done');
+const chapter1Done = () => ['st_dragon', 'st_crags', 'st_glimmer', 'st_hollow'].every((k) => S.quests[k] && S.quests[k].state === 'done') && (S.quests.st_socket.state === 'done' || S.quests.st_frost1.state !== 'todo');
 function openSail(npc) {
   talking = npc;
   const to = npc.sail, L = LANDS[to];
@@ -2297,7 +2312,7 @@ function openWeaponShop(npc) {
       return `<button class="buy" data-w="${k}" ${eq || (!own && S.coins < g.price) ? 'disabled' : ''}><img src="${gearIcon(g)}" alt=""><b>${g.name}</b><span>${gearStats(g)}</span><em>${label}</em></button>`;
     }).join('')}</div>
     ${spare.length ? `<h4 class="sub">Sell spare gear</h4><div class="shop sell">${spare.map(([k, g]) => `<button class="buy" data-sellg="${k}"><img src="${gearIcon(g)}" alt=""><b>${g.name}</b><span>${gearStats(g)}</span><em>Sell +${gearValue(g)}</em></button>`).join('')}</div>` : ''}
-    <p class="hint">You have ${S.coins} coins. Damage is the weapon's base: your Attack multiplies it.</p><div class="row">${type === 'melee' ? `<button id="wforge" class="primary"><img src="${ICONS.hammer}" alt="">Use the forge</button>` : ''}<button id="wbye">Goodbye</button></div>`;
+    <p class="hint">You have ${S.coins} coins. Damage is the weapon's base: your Attack multiplies it.</p><div class="row">${type === 'melee' ? `<button id="wforge" class="primary"><img src="${ICONS.hammer}" alt="">Use the forge</button><button id="wup" class="primary"><img src="${ICONS.hammer}" alt="">Upgrade gear</button>` : ''}<button id="wbye">Goodbye</button></div>`;
   d.querySelectorAll('[data-w]').forEach((b) => { b.onclick = () => {
     const k = b.dataset.w, g = GEAR[k];
     if (!S.owned.includes(k)) { if (S.coins < g.price) return; S.coins -= g.price; S.owned.push(k); toast(`You buy the ${g.name}!`, gearIcon(g), true); }
@@ -2313,6 +2328,7 @@ function openWeaponShop(npc) {
     refreshUI(); save(); openWeaponShop(npc);
   }; });
   if ($('wforge')) $('wforge').onclick = () => { closeDialog(); openSheet('craft'); };
+  if ($('wup')) $('wup').onclick = () => openUpgrade(npc);
   $('wbye').onclick = closeDialog;
   showDialog(d);
   npc.actor.face(player.pos.x, player.pos.z);
@@ -2367,6 +2383,7 @@ function finishQuest(id, npc) {
   st.state = 'done'; S.coins += q.reward.coins;
   for (const [k, v] of Object.entries(q.reward.xp)) { if (k === 'hero') giveHeroXp(v); else giveXp(k, v); }
   toast(`Quest complete: ${q.name}`, ICONS.coins, true);
+  if (id === 'st_socket') queueLetter('st_socket');
   burst(npc.actor.pos.clone().setY(2), '#9cff6b', 50, 6, 1.4);
   npc.actor.play('Cheer', { once: true, onFinish: () => npcIdle(npc) });
   refreshUI(); save();
@@ -2375,6 +2392,7 @@ function openDialog(npc) {
   if (npc.crew) { openCrewTalk(npc); return; }
   if (npc.sail) { openSail(npc); return; }
   if (npc.clerk) { openMayor(npc); return; }
+  if (npc.board) { openBoard(npc); return; }
   if (npc.lines) { openTalk(npc); return; }
   if (npc.king) { openKing(npc); return; }
   if (npc.bank) { openBank(npc); return; }
@@ -3036,7 +3054,8 @@ function hurtEnemy(e, dmg, src = null, power = 1) {
     S.coins += coins; addItem('bones'); later(0.25, () => sfx('coin'));
     rollLoot(e);
     if (e.T.boss) {
-      bossCleanup(e);
+      bossCleanup(e); queueLetter(e.type);
+      if (e.type === 'boss_gagron' && !S.gagronFree) { S.gagronFree = true; later(4, makeGagronFriend); }
       addItem(e.T.drop);
       toast(`You defeated ${e.T.name}! It dropped ${ITEMS[e.T.drop].toLowerCase()}!`, ICONS[e.T.drop], true);
       burst(e.pos.clone().setY(2), '#ffe07a', 80, 8, 1.6);
@@ -3048,6 +3067,7 @@ function hurtEnemy(e, dmg, src = null, power = 1) {
     floatText(e.pos.clone().setY(2.4), `+${coins} coins`, 'gain');
     if (e.golden) goldenCaught(e);
     for (const k of Object.keys(QUESTS)) if (S.quests[k].state === 'active' && QUESTS[k].need.kills !== undefined && (!QUESTS[k].land || QUESTS[k].land === e.inside)) S.quests[k].kills++;
+    if (!e.temp || e.boss) boardToday().kills++;
     refreshUI();
     later(e.temp ? 5 : e.T.boss ? 90 : 16, () => {
       if (e.temp) { removeEnemy(e); return; } // ambush skeletons don't come back
@@ -3960,7 +3980,7 @@ function tick() {
   for (const [i, c] of dynamic.crystals.entries()) { c.position.y = 2.4 + Math.sin(now * 1.6 + i) * 0.4; c.rotation.y = now * 0.8 + i; }
   if (player) { player.mixer.update(dt); if (player.headScale && player.headInfo) player.headInfo.bone.scale.setScalar(player.headScale); faceTick(player); }
   for (const n of npcs) npcLife(n, dt);
-  crewTick(dt); crewTags(); heroTag(); peersTick(dt); emoteTick(); bossShoutTick(); townTick(); if (snowFx) { snowFx.visible = where === 'frost'; if (snowFx.visible && player) snowFx.userData.tick(dt, player.pos.x, player.pos.z); } if (now > 45 && !document.body.classList.contains('nohint')) document.body.classList.add('nohint'); occluderTick(dt);
+  crewTick(dt); crewTags(); heroTag(); peersTick(dt); emoteTick(); bossShoutTick(); townTick(); letterTick(); if (snowFx) { snowFx.visible = where === 'frost'; if (snowFx.visible && player) snowFx.userData.tick(dt, player.pos.x, player.pos.z); } if (now > 45 && !document.body.classList.contains('nohint')) document.body.classList.add('nohint'); occluderTick(dt);
   guideTick(); musicTick();
 
   for (let i = lootPops.length - 1; i >= 0; i--) {
@@ -4142,7 +4162,7 @@ function bossIntroTick(dt = 0) {
 const POMP_BOSSES = ['boss_gagron', 'boss_crusher', 'boss_gloom', 'boss_rattle', 'boss_frost'];
 const BOSS_LINES = {
   boss_gagron: { intro: ['WHO dares walk into my beautiful cave?', ['h', 'Um, hello? Are you Gagron the Hideous?'], 'HIDEOUS?! Who keeps calling me that?! I will roast you for that, tiny hero!'],
-    low: 'Not the face! Anything but the face!', defeat: ['Fine! Take your silly shard...', ['h', 'Thanks!'], '...but admit it. I am a little bit handsome.'] },
+    low: 'Not the face! Anything but the face!', defeat: ['Ugh... my chest... something is coming loose...', ['h', 'The shard! It was stuck inside you!'], 'Oh. OH. That feels SO much better. That nasty thing was whispering to me for weeks.', 'I think... I am shrinking? I am going to the village. I need a nap and a biscuit.', ['h', 'Wait, you were being controlled?'], 'Somebody threw that shard into my cave on purpose. Find them, little hero.'] },
   boss_crusher: { intro: ['BONECRUSHER SMASH!', 'Mum said I can keep the shiny rock if I smash everyone who comes!', ['h', 'Your mum said that?']],
     low: "Ow! I'm telling my mum!", defeat: ['MUUUUM! The hero was mean to me!'] },
   boss_gloom: { intro: ['Ah. More colour, walking right into my grey little forest.', ['h', 'Why did you steal all the colours?'], 'Red, green, they all look the same to me. So NOBODY gets to have them!'],
@@ -5477,7 +5497,147 @@ function worthHtml() {
     <p class="hint">${net.on ? 'Every player in JerryQuest, richest first.' : 'Play online to race your friends on this list.'}</p>`;
 }
 
-window.__jq = { net, peerActors, runeTick, bossFx, renderer, scene, openMayor, darkOmen, netWorth, liberateTown, spots, spotEffect, setGolden, goldenCaught, pompArrive, get goldenE() { return goldenE; }, spinWheel, dayTick, get bossIntro() { return bossIntro; }, bossSkip, startBossScene, sailTo, regions, closeSheet, renderHotbar, crew, setCrewMode, TOWNS, liberateTown, chests, openChest, stopRoulette, enemies, startBossIntro, closeDialog, advanceDialog, dash, attackPress, craft, CRAFTS, openCreator, closeCreator, creator, rebuildHero, setZoom: (z) => { zoom = z; }, hurtEnemy, goThrough, get where() { return where; }, INTERIORS, equipGear, spendPoint, giveHeroXp, heroLvl, stat, maxHp, defDiv, openWeaponShop, openKing, jump, eat, eatBest, openShop, swing, swingTarget, hitNode, projectiles, timers, get S() { return S; }, get player() { return player; }, enemies, nodes, npcs, startTask, doAction, giveXp, save, openSheet, openDialog };
+
+// ---------- smith upgrades ----------
+// Brom can upgrade any weapon, shield or armour from +1 to +5. Each step adds 8% to its stats,
+// costs coins and ore, and never fails. A +5 old sword keeps up with a plain sword from the next chapter.
+const PLUS_MAX = 5, PLUS_STEP = 0.08;
+const plusOf = (k) => (S.plus && S.plus[k]) || 0;
+const plusMult = (k) => 1 + PLUS_STEP * plusOf(k);
+const plusName = (k) => `${GEAR[k].name}${plusOf(k) ? ` +${plusOf(k)}` : ''}`;
+function gearUpCost(k) {
+  const n = plusOf(k) + 1, g = GEAR[k], base = g.price || (g.unique ? 600 : 120);
+  return { coins: Math.round(base * 0.2 * n + 30 * n * n), ore: n <= 2 ? 'copper_ore' : 'iron_ore', count: 2 * n };
+}
+function openUpgrade(npc) {
+  talking = npc;
+  const d = $('dialog');
+  const rows = ['weapon', 'shield', 'armour'].map((sl) => S.equip[sl]).filter((k) => GEAR[k]).map((k) => {
+    const g = GEAR[k], p = plusOf(k);
+    if (p >= PLUS_MAX) return `<div class="upg"><img src="${gearIcon(g)}" alt=""><b>${plusName(k)}</b><span>Fully upgraded!</span><em>Max</em></div>`;
+    const c = gearUpCost(k), have = S.inv[c.ore] || 0, ok = S.coins >= c.coins && have >= c.count;
+    return `<button class="upg" data-up="${k}" ${ok ? '' : 'disabled'}><img src="${gearIcon(g)}" alt=""><b>${plusName(k)} → +${p + 1}</b><span>${fmt(c.coins)} coins and ${c.count} ${ITEMS[c.ore].toLowerCase()} (you have ${have})</span><em>Upgrade</em></button>`;
+  }).join('');
+  d.innerHTML = `<h3>${npc.name}</h3><p>Bring me ore and coin and I'll hammer your gear stronger. Each upgrade adds 8%, up to +5. My hammer never slips, I promise!</p>
+    <div class="upgs">${rows}</div><p class="hint">Upgrades go on the gear you have equipped. Copper ore for +1 and +2, iron ore after that.</p>
+    <div class="row"><button id="ubk">Back to the shop</button><button id="ubye">Goodbye</button></div>`;
+  d.querySelectorAll('[data-up]').forEach((b) => { b.onclick = () => {
+    const k = b.dataset.up, c = gearUpCost(k);
+    if (S.coins < c.coins || (S.inv[c.ore] || 0) < c.count || plusOf(k) >= PLUS_MAX) return;
+    S.coins -= c.coins; takeItem(c.ore, c.count);
+    S.plus = { ...(S.plus || {}), [k]: plusOf(k) + 1 };
+    sfx('slam'); later(0.25, () => sfx('win'));
+    npc.actor.play('2H_Melee_Attack_Chop', { once: true, onFinish: () => npcIdle(npc) });
+    burst(player.pos.clone().setY(1.6), '#ffd84a', 40, 5, 1.3);
+    toast(`Clang! Your ${plusName(k)} is ready.`, gearIcon(GEAR[k]), true);
+    equipGear(); buildGearBar(); refreshUI(); save(); openUpgrade(npc);
+  }; });
+  $('ubk').onclick = () => openWeaponShop(npc);
+  $('ubye').onclick = closeDialog;
+  showDialog(d);
+}
+
+// ---------- the request board ----------
+// Pip pins up three orders every game day: gather, fish or hunt. Each pays coins and XP,
+// and finishing all three in one day spins the prize wheel.
+const ORDER_POOL = [
+  { k: 'logs', n: 8, say: 'Firewood for the tavern', skill: 'woodcutting' },
+  { k: 'oak_logs', n: 5, say: 'Oak planks for a new bridge', skill: 'woodcutting' },
+  { k: 'copper_ore', n: 6, say: 'Copper for the smithy', skill: 'mining' },
+  { k: 'iron_ore', n: 4, say: 'Iron for the castle gates', skill: 'mining' },
+  { k: 'shrimp', n: 6, say: 'Shrimp for Marta\'s pies', skill: 'fishing' },
+  { k: 'trout', n: 4, say: 'Trout for the royal supper', skill: 'fishing' },
+  { k: 'kills', n: 10, say: 'Clear skeletons off the roads', skill: 'hero' },
+  { k: 'bones', n: 8, say: 'Bones for Fenwick\'s potions', skill: 'hero' },
+];
+function boardToday() {
+  const day = Math.floor(S.gameDays || 0);
+  if (!S.board || S.board.day !== day) {
+    let h = (day + 7) * 2654435761 >>> 0; const pick = [];
+    const pool = [...ORDER_POOL.keys()];
+    while (pick.length < 3) { h = (h * 1103515245 + 12345) >>> 0; const i = pool.splice(h % pool.length, 1)[0]; pick.push(i); }
+    S.board = { day, orders: pick, done: [], kills: 0, bonus: false };
+  }
+  return S.board;
+}
+const orderReward = (o) => ({ coins: 20 * o.n + 40, xp: o.skill === 'hero' ? 300 : 40 * o.n });
+const orderHave = (o, b) => (o.k === 'kills' ? b.kills : S.inv[o.k] || 0);
+function openBoard(npc) {
+  talking = npc;
+  const b = boardToday(), d = $('dialog');
+  const rows = b.orders.map((i) => {
+    const o = ORDER_POOL[i], r = orderReward(o), done = b.done.includes(i), have = Math.min(orderHave(o, b), o.n);
+    const what = o.k === 'kills' ? `Defeat ${o.n} monsters` : `${o.n} ${ITEMS[o.k].toLowerCase()}`;
+    return `<button class="order ${done ? 'done' : ''}" data-ord="${i}" ${done || have < o.n ? 'disabled' : ''}><b>${o.say}</b><span>${what} · ${done ? 'Done!' : `${have} / ${o.n}`}</span><em>${fmt(r.coins)} coins, ${r.xp} ${o.skill === 'hero' ? 'hero' : SKILL_NAME[o.skill]} XP</em></button>`;
+  }).join('');
+  d.innerHTML = `<h3>${npc.name}</h3><p>Fresh requests every game day! Finish all three for a spin of the prize wheel.</p>
+    <div class="orders">${rows}</div><p class="hint">New requests in ${daysText(Math.ceil(S.gameDays || 0.0001) - (S.gameDays || 0) || 1)}. ${b.bonus ? 'You already won today\'s prize!' : `${b.done.length} of 3 done today.`}</p>
+    <div class="row"><button id="bbye">Goodbye</button></div>`;
+  d.querySelectorAll('[data-ord]').forEach((btn) => { btn.onclick = () => {
+    const i = +btn.dataset.ord, o = ORDER_POOL[i], r = orderReward(o);
+    if (b.done.includes(i) || orderHave(o, b) < o.n) return;
+    if (o.k !== 'kills') takeItem(o.k, o.n);
+    b.done.push(i); S.coins += r.coins;
+    if (o.skill === 'hero') giveHeroXp(r.xp); else giveXp(o.skill, r.xp);
+    sfx('coin'); toast(`Request done: ${o.say}! +${fmt(r.coins)} coins`, ICONS.coins);
+    refreshUI(); save();
+    if (b.done.length === 3 && !b.bonus) { b.bonus = true; save(); closeDialog(); later(0.6, () => spinWheel('All three requests done!')); return; }
+    openBoard(npc);
+  }; });
+  $('bbye').onclick = closeDialog;
+  showDialog(d);
+}
+
+// ---------- letters from the Dark King ----------
+// After each big boss, a nervous bat called Flapsworth flaps in with a letter.
+const LETTERS = {
+  boss_gagron: 'Dear Hero,\n\nYou have beaten my dragon. I was not fond of him anyway. He kept setting my curtains on fire.\n\nEnjoy your little shard. You will need a great many more.',
+  boss_crusher: 'Dear Hero,\n\nBonecrusher\'s mother has written to me to complain. She says you were rude. I agree.\n\nStop collecting my shards at once.',
+  boss_gloom: 'Dear Hero,\n\nThe Gloomcaster was my finest sorcerer. Well, my only sorcerer. He is now crying in a cupboard.\n\nThis is all your fault.',
+  boss_rattle: 'Dear Hero,\n\nSo you have all four shards. How lovely for you.\n\nAsk your King what is missing from the middle of his precious Heartstone. Ask him who was in the throne room that night.',
+  st_socket: 'Dear Hero,\n\nLooking for something? It is quite safe with me. Someone very close to your King was kind enough to hand it over.\n\nGo north if you like. It is cold there. I hope you did not pack a scarf.',
+  boss_frost: 'Dear Hero,\n\nYou beat the Queen. Splendid! Without her silly snow in the way, my magic flows north like warm soup.\n\nThank you so much for your help.',
+};
+function queueLetter(id) {
+  S.letters = S.letters || {};
+  if (!LETTERS[id] || S.letters[id]) return;
+  S.letters[id] = 1; S.letterQueue = [...(S.letterQueue || []), id]; save();
+}
+let letterAt = 0;
+function letterTick() {
+  if (!player || now < letterAt || !(S.letterQueue || []).length) return;
+  letterAt = now + 1;
+  if (uiLock() || !$('dialog').hidden || !$('sheet').hidden || pomp || player.dead) return;
+  if (enemies.some((e) => e.T.boss && e.hp > 0 && (e.state === 'chase' || e.state === 'slam'))) return;
+  const id = S.letterQueue.shift(); save();
+  // Flapsworth swoops down beside you
+  sfx('whoosh'); burst(player.pos.clone().setY(3), '#5a3a7a', 30, 5, 1);
+  const d = $('dialog');
+  d.innerHTML = `<h3>A letter from ${DARK_KING}</h3><p class="via">Delivered by Flapsworth the bat, who is shaking a little.</p><div class="letter"></div><div class="row"><button id="lbye" class="primary">Fold it away</button></div>`;
+  d.querySelector('.letter').textContent = `${LETTERS[id]}\n\nYours menacingly,\n${DARK_KING}`;
+  $('lbye').onclick = closeDialog;
+  showDialog(d);
+}
+
+// ---------- Gagron, reformed ----------
+// When his shard pops out, the dark magic leaves with it. Gagron shrinks to a much nicer (still grumpy)
+// little dragon and moves to the village, by the well.
+let gagronFriend = null;
+function makeGagronFriend() {
+  if (gagronFriend || !S.gagronFree) return;
+  const a = new Actor(G.dragon, { scale: 0.62 });
+  a.alias = { Idle: 'Flying_Idle', Cheer: 'Yes', Interact: 'Yes' };
+  const x = 12, z = 7;
+  a.root.position.set(x, 0, z); a.face(0, 8); a.play('Idle');
+  addInk(a.root);
+  const m = markerSprite(); m.position.set(x, 3.4, z); scene.add(m);
+  colliders.push({ x, z, r: 1.2 });
+  gagronFriend = { id: 'gagron_pal', name: 'Gagron (much nicer now)', actor: a, marker: m, reach: 3.6, accent: '#e8743a',
+    lines: ['Hmph. Yes, it is me. That shard made me grumpy. Well, grumpier.', 'Fenwick says I am "reformed". I still think I am handsome.', 'If you see the one who threw that shard into my cave, I would like a word. A fiery word.', 'Do not call me hideous. Call me Gagron the Mildly Toasty.'] };
+  npcs.push(gagronFriend);
+}
+
+window.__jq = { openUpgrade, openBoard, boardToday, queueLetter, makeGagronFriend, net, peerActors, runeTick, bossFx, renderer, scene, openMayor, darkOmen, netWorth, liberateTown, spots, spotEffect, setGolden, goldenCaught, pompArrive, get goldenE() { return goldenE; }, spinWheel, dayTick, get bossIntro() { return bossIntro; }, bossSkip, startBossScene, sailTo, regions, closeSheet, renderHotbar, crew, setCrewMode, TOWNS, liberateTown, chests, openChest, stopRoulette, enemies, startBossIntro, closeDialog, advanceDialog, dash, attackPress, craft, CRAFTS, openCreator, closeCreator, creator, rebuildHero, setZoom: (z) => { zoom = z; }, hurtEnemy, goThrough, get where() { return where; }, INTERIORS, equipGear, spendPoint, giveHeroXp, heroLvl, stat, maxHp, defDiv, openWeaponShop, openKing, jump, eat, eatBest, openShop, swing, swingTarget, hitNode, projectiles, timers, get S() { return S; }, get player() { return player; }, enemies, nodes, npcs, startTask, doAction, giveXp, save, openSheet, openDialog };
 window.addEventListener('error', (e) => { const m = $('loadmsg'); if (m) m.textContent = `Something went wrong: ${e.message}`; });
 main().catch((err) => {
   console.error(err);

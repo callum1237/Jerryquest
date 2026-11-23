@@ -297,6 +297,19 @@
   .shop.sell { grid-template-columns: repeat(auto-fill, minmax(118px, 1fr)); }
   .shop.sell .buy img { width: 34px; height: 34px; }
   .shop.sell .buy em { color: #2f7d32; font-weight: 800; }
+  .upgs, .orders { display: grid; gap: 8px; margin: 10px 0; }
+  .upg, .order { display: grid; grid-template-columns: 44px 1fr auto; align-items: center; gap: 2px 10px; text-align: left; padding: 8px 10px; font-size: 14px; }
+  .order { grid-template-columns: 1fr auto; }
+  .upg img { width: 44px; height: 44px; grid-row: span 2; }
+  .upg b, .order b { font-family: var(--display); font-weight: 600; }
+  .upg span, .order span { grid-column: 2; font-size: 12.5px; color: var(--ink-soft); font-weight: 700; }
+  .order span { grid-column: 1; }
+  .upg em, .order em { grid-row: 1 / span 2; grid-column: 3; font-style: normal; font-weight: 800; color: var(--plum); font-size: 13px; text-align: right; }
+  .order em { grid-column: 2; max-width: 120px; }
+  .order.done { opacity: .6; }
+  div.upg { border: 2px dashed rgb(74 42 23 / .3); border-radius: 12px; }
+  #dialog .via { font-size: 13px; color: var(--ink-soft); margin-top: -4px; font-style: italic; }
+  .letter { white-space: pre-line; background: linear-gradient(180deg, #fffdf4, #f7ead0); border: 1.5px solid rgb(74 42 23 / .35); border-radius: 6px; padding: 14px 16px; margin: 10px 0; font-family: Georgia, 'Times New Roman', serif; font-size: 15px; line-height: 1.5; color: #3a2416; box-shadow: inset 0 0 0 4px #fffdf4, inset 0 0 0 5px rgb(107 63 160 / .25); max-height: 46vh; overflow: auto; }
   .shop { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin: 10px 0; }
   .shop .buy { display: grid; justify-items: center; gap: 2px; padding: 8px 6px; font-size: 14px; }
   .shop .buy img { width: 44px; height: 44px; }
