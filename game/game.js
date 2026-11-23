@@ -5,6 +5,7 @@ import * as SkeletonUtils from 'three/addons/utils/SkeletonUtils.js';
 import { buildWorld, buildFlowers, place, colliders, clouds, dynamic, LAKE, CAMP, MINE, S_NATURE, blocked, isFree, ZONES, WORLD_R, VS } from './world.js';
 import { ICONS } from './icons.js';
 import { buildInteriors, INTERIORS } from './interiors.js';
+import { unlockAudio, playMusic, sfx, setVolumes } from './audio.js';
 
 const $ = (id) => document.getElementById(id);
 const clock = new THREE.Clock();
@@ -1272,6 +1273,7 @@ function spendPoint(k) {
 }
 function levelFanfare(col) {
   if (!player) return;
+  sfx('levelup');
   const c = player.pos;
   for (let i = 0; i < 16; i++) { const a = (i / 16) * Math.PI * 2; burst(new THREE.Vector3(c.x + Math.cos(a) * 1.6, 0.4, c.z + Math.sin(a) * 1.6), i % 2 ? col : '#ffffff', 5, 2.5, 1.2); }
   burst(c.clone().setY(2.8), col, 40, 6, 1.5);
@@ -1523,17 +1525,67 @@ const LUCK = [
   [8, 'jackpot', () => { S.coins += 150; burst(player.pos.clone().setY(2), '#ffe07a', 90, 9, 1.6); return ['JACKPOT! 150 coins!', ICONS.coins]; }],
   [12, 'prank', () => { player.air = true; player.vy = 18; hurtPlayer(3); burst(player.pos.clone().setY(1), '#ff9af0', 60, 6, 1.2); return ['Boing! A spring-loaded prank!', ICONS.chest]; }],
 ];
+// Opening a chest spins the treasure roulette: lights race round eight prize panels, you hit STOP,
+// and it slows down onto your prize. The panels are the odds: 3 coins, 2 food, 1 XP, 1 jackpot, 1 prank.
+const WHEEL = ['coins', 'food', 'xp', 'coins', 'jackpot', 'food', 'coins', 'prank'];
+const WHEEL_LOOK = { coins: ['Coins', 'coins', '#ffd84a'], food: ['Snacks', 'pie', '#ff9f6b'], xp: ['XP', 'star', '#8fd0ff'], jackpot: ['JACKPOT', 'chest', '#ff6bd0'], prank: ['Prank!', 'chest', '#b48cff'] };
+let roulette = null;
 function openChest(c) {
-  if (c.open) return;
+  if (c.open || roulette) return;
   c.open = true; c.at = now + 180; c.m.visible = false; c.glow.visible = false;
   burst(new THREE.Vector3(c.x, 1.2, c.z), '#ffe07a', 40, 6, 1.4);
-  let r = rng() * LUCK.reduce((a, l) => a + l[0], 0), pick = LUCK[0];
-  for (const l of LUCK) { if ((r -= l[0]) <= 0) { pick = l; break; } }
+  sfx('win');
+  const el = $('roulette');
+  el.innerHTML = `<div class="rl-wrap"><div class="rl-title">Treasure Roulette!</div><div class="rl-ring">${WHEEL.map((k, i) => {
+    const a = (i / WHEEL.length) * Math.PI * 2 - Math.PI / 2, [nm, ic, col] = WHEEL_LOOK[k];
+    return `<div class="rl-p" style="--x:${Math.cos(a) * 40}%;--y:${Math.sin(a) * 40}%;--c:${col}"><img src="${ICONS[ic]}" alt=""><b>${nm}</b></div>`;
+  }).join('')}<button class="rl-stop" id="rl-stop">STOP!</button></div><div class="rl-hint">Press ${keyOf('interact')}, Space or tap STOP</div></div>`;
+  el.hidden = false; document.body.classList.add('rouletting');
+  const panels = [...el.querySelectorAll('.rl-p')];
+  roulette = { el, panels, pos: 0, speed: 16, stopping: false, done: false, t0: performance.now(), last: performance.now(), lit: -1 };
+  $('rl-stop').onclick = stopRoulette;
+  requestAnimationFrame(rouletteFrame);
+}
+function stopRoulette() {
+  const R = roulette;
+  if (!R || R.stopping) { if (R && R.done) closeRoulette(); return; }
+  R.stopping = true;
+  // pick where it lands now, then ease the lights onto that panel
+  const landOn = Math.floor(rng() * WHEEL.length);
+  const cur = R.pos, base = Math.ceil(cur) + WHEEL.length * 2;
+  R.target = base + ((landOn - (base % WHEEL.length)) + WHEEL.length) % WHEEL.length;
+  R.from = cur; R.st = performance.now(); R.dur = 1700 + (R.target - cur) * 20;
+  $('rl-stop').textContent = '...';
+}
+function rouletteFrame(t) {
+  const R = roulette; if (!R) return;
+  const dt = Math.min(0.1, (t - R.last) / 1000); R.last = t;
+  if (!R.stopping) R.pos += R.speed * dt;
+  else if (!R.done) {
+    const k = Math.min(1, (t - R.st) / R.dur), e = 1 - Math.pow(1 - k, 3);
+    R.pos = R.from + (R.target - R.from) * e;
+    if (k >= 1) { R.done = true; R.pos = R.target; landRoulette(); }
+  }
+  const lit = Math.floor(R.pos + 0.0001) % WHEEL.length;
+  if (lit !== R.lit) { if (R.lit >= 0) R.panels[R.lit].classList.remove('lit'); R.panels[lit].classList.add('lit'); R.lit = lit; sfx('tick'); }
+  if (!R.done || R.el.querySelector('.rl-result')) requestAnimationFrame(rouletteFrame);
+}
+function landRoulette() {
+  const R = roulette, k = WHEEL[R.lit], pick = LUCK.find((l) => l[1] === k);
+  R.panels[R.lit].classList.add('win');
   const [text, icon] = pick[2]();
-  toast(`Treasure: ${text}`, icon, true);
-  const el = $('banner'); el.textContent = pick[1] === 'prank' ? 'Prank!' : pick[1] === 'jackpot' ? 'Jackpot!' : 'Treasure!';
-  el.classList.add('lvl'); el.classList.remove('show'); void el.offsetWidth; el.classList.add('show'); setTimeout(() => el.classList.remove('lvl'), 3300);
+  sfx(k === 'jackpot' ? 'jackpot' : k === 'prank' ? 'boing' : 'win');
+  if (k !== 'prank') burst(player.pos.clone().setY(2), k === 'jackpot' ? '#ff9af0' : '#ffe07a', k === 'jackpot' ? 90 : 40, 7, 1.5);
+  const res = document.createElement('div'); res.className = `rl-result ${k}`;
+  res.innerHTML = `<img src="${icon}" alt=""><span>${text}</span><button class="primary" id="rl-ok">Yay!</button>`;
+  R.el.querySelector('.rl-wrap').appendChild(res);
+  $('rl-ok').onclick = closeRoulette;
+  $('rl-stop').textContent = k === 'prank' ? 'Oops!' : 'WIN!';
   refreshUI(); save();
+}
+function closeRoulette() {
+  if (!roulette) return;
+  roulette.el.hidden = true; roulette.el.innerHTML = ''; roulette = null; document.body.classList.remove('rouletting');
 }
 // ---------- doors ----------
 let where = 'out', fading = false;
@@ -1548,7 +1600,7 @@ function buildDoors() {
 const doorRings = [];
 function goThrough(to) {
   fading = true; held = false; mouseHeld = false; moveTarget = null; pending = null; marker.visible = false; cancelTask(); closeDialog();
-  $('fade').classList.add('on');
+  $('fade').classList.add('on'); sfx('door');
   setTimeout(() => {
     const pp = player.pos;
     if (to === 'out') {
@@ -1560,7 +1612,7 @@ function goThrough(to) {
       toast(I.name, null);
     }
     where = to;
-    camPos.copy(pp).setY(0).add(new THREE.Vector3(0, 23, 27).multiplyScalar(zoom * (camera.aspect < 1 ? 1.3 : 1)));
+    camPos.copy(pp).setY(0).add(new THREE.Vector3(0, 27, 32).multiplyScalar(zoom * (camera.aspect < 1 ? 1.3 : 1)));
     $('fade').classList.remove('on');
     setTimeout(() => { fading = false; }, 250);
   }, 320);
@@ -1675,6 +1727,9 @@ function renderSheet() {
     el.innerHTML = `<h3>Options</h3><div class="opts">
       <button id="o-style" aria-pressed="${styled.on}">Storybook look: ${styled.on ? 'On' : 'Off'}</button>
       <button id="o-tod" aria-pressed="${env.preset === 'golden'}">${env.preset === 'golden' ? 'Switch to daytime' : 'Switch to golden hour'}</button>
+      <h4>Sound</h4>
+      <label class="volrow">Music <input type="range" id="o-music" min="0" max="1" step="0.05" value="${(S.vol || {}).music ?? 0.55}"></label>
+      <label class="volrow">Effects <input type="range" id="o-sfx" min="0" max="1" step="0.05" value="${(S.vol || {}).sfx ?? 0.8}"></label>
       <h4>Controls</h4>
       <p class="hint">Click a key box, then press the key you want. Backspace clears it, Esc cancels.</p>
       <div class="binds">${BIND_ACTIONS.map(([a, label]) => `<div class="bind"><span>${label}</span>${[0, 1].map((i) => `<button data-bind="${a}" data-slot="${i}" class="${bindCapture && bindCapture.act === a && bindCapture.slot === i ? 'waiting' : ''}">${bindCapture && bindCapture.act === a && bindCapture.slot === i ? 'Press a key…' : keyLabel(binds()[a][i])}</button>`).join('')}</div>`).join('')}</div>
@@ -1683,6 +1738,8 @@ function renderSheet() {
       <p class="hint">Progress saves in this browser for now. Accounts that save online come in the next step.</p></div>`;
     $('o-style').onclick = () => { setStyled(!styled.on); renderSheet(); };
     el.querySelectorAll('[data-bind]').forEach((b) => { b.onclick = () => { bindCapture = { act: b.dataset.bind, slot: +b.dataset.slot }; renderSheet(); }; });
+    const vols = () => { S.vol = { music: +$('o-music').value, sfx: +$('o-sfx').value }; setVolumes(S.vol.music, S.vol.sfx); save(); };
+    $('o-music').oninput = vols; $('o-sfx').oninput = () => { vols(); sfx('coin'); };
     $('o-binds').onclick = () => { delete S.binds; rebuildBinds(); save(); renderSheet(); };
     $('o-tod').onclick = () => { applyPreset(env.preset === 'golden' ? 'day' : 'golden'); S.preset = env.preset; save(); renderSheet(); };
     $('o-reset').onclick = () => {
@@ -1767,7 +1824,7 @@ let eatAt = -9;
 function eat(k) {
   if (!player || player.dead || !FOOD[k] || !S.inv[k] || now < eatAt) return false;
   if (S.hp >= maxHp()) { toast("You're already at full health.", ICONS[k]); return false; }
-  eatAt = now + 1.2;
+  eatAt = now + 1.2; sfx('eat');
   takeItem(k, 1);
   const heal = Math.min(FOOD[k].heal, maxHp() - S.hp);
   S.hp += heal;
@@ -1978,6 +2035,7 @@ function typePage(instant) {
   let k = 0; const t0 = performance.now();
   typing = setInterval(() => {
     const upto = Math.min(letters.length, Math.floor((performance.now() - t0) / 1000 * 70));
+    if (upto > k && (upto >> 2) !== (k >> 2)) sfx('talk');
     for (; k < upto; k++) letters[k].classList.add('on');
     if (dlg.npc && dlg.npc.actor) dlg.npc.actor.talkUntil = now + 0.12;
     if (k >= letters.length) finish();
@@ -2042,6 +2100,7 @@ addEventListener('keydown', (e) => {
     S.binds = b; rebuildBinds(); save(); renderSheet(); return;
   }
   if (creator.open && e.key === 'Escape' && creator.mode !== 'new') { closeCreator(false); return; }
+  if (roulette) { if (!e.repeat && (codeToAct[e.code] === 'interact' || codeToAct[e.code] === 'attack' || e.code === 'Space' || e.code === 'Enter' || e.code === 'Escape')) { e.preventDefault(); stopRoulette(); } return; }
   if (e.code === 'Escape') { closeSheet(); closeDialog(); }
   if (!player || uiLock()) return;
   if (e.target && /INPUT|TEXTAREA|SELECT/.test(e.target.tagName)) return;
@@ -2129,7 +2188,7 @@ renderer.domElement.addEventListener('pointerdown', (e) => {
   marker.position.set(p.x, 0.08, p.z); marker.visible = !t; marker.scale.setScalar(1.4);
 });
 let zoom = 1;
-renderer.domElement.addEventListener('wheel', (e) => { zoom = THREE.MathUtils.clamp(zoom + e.deltaY * 0.001, 0.6, 1.5); e.preventDefault(); }, { passive: false });
+renderer.domElement.addEventListener('wheel', (e) => { zoom = THREE.MathUtils.clamp(zoom + e.deltaY * 0.001, 0.55, 1.6); e.preventDefault(); }, { passive: false });
 let held = false;
 $('action').addEventListener('pointerdown', (e) => {
   e.preventDefault();
@@ -2198,6 +2257,7 @@ function dash(dir) {
     dir = [x, z];
   }
   const L = Math.hypot(dir[0], dir[1]) || 1;
+  sfx('dash');
   dashDir = { x: dir[0] / L, z: dir[1] / L }; dashUntil = now + 0.18; dashReady = now + 0.55; dashLeft = 4.2;
   stamina = Math.max(0, stamina - 12); staminaAt = now + 1;
   burst(player.pos.clone().setY(0.4), '#f3e2bd', 12, 3);
@@ -2206,7 +2266,7 @@ function jump() {
   if (!player || player.dead || uiLock() || player.air) return;
   if (talking) closeDialog();
   if (player.task) cancelTask();
-  player.air = true; player.vy = 13.5;
+  player.air = true; player.vy = 13.5; sfx('jump');
   player.play(player.clips.Jump_Full_Short ? 'Jump_Full_Short' : 'Cheer', { once: true, fade: 0.05, speed: 1.65 });
   burst(player.pos.clone().setY(0.2), '#f3e2bd', 8, 2);
 }
@@ -2240,6 +2300,7 @@ function swing() {
   if (t.type === 'node') { held = false; startTask(t); return; }
   moveTarget = null; pending = null; marker.visible = false;
   flashArc();
+  if (t.type !== 'gather') sfx('swing');
   if (t.type === 'gather') {
     const n = t.n, def = n.def;
     player.face(n.x, n.z);
@@ -2320,7 +2381,7 @@ function special() {
   if (player.task) cancelTask();
   if (now - aim.at < 2.5) { player.face(aim.x, aim.z); aim.at = -99; }
   const w = W(), key = specialOf(w), SP = SPECIALS[key];
-  specialReady = now + SP.cd; player.nextHit = now + 0.6;
+  specialReady = now + SP.cd; player.nextHit = now + 0.6; sfx('special');
   const big = w.unique ? 1.25 : 1;
   const fwd = fwdOf(player), pp = player.pos;
   const hitIn = (cx, cz, R, mult) => { let n = 0; for (const e of enemies) if (e.hp > 0 && e.state !== 'rising' && e.inside === where && Math.hypot(e.pos.x - cx, e.pos.z - cz) < R + (e.T.boss ? 1.2 : 0.5)) { hurtEnemy(e, Math.round(heroDamage() * mult) || 1, { x: cx, z: cz }, 1.7); n++; } return n; };
@@ -2388,6 +2449,7 @@ function hitNode(n) {
   n.hp = Math.max(0, n.hp - dmg);
   floatText(at.clone().setY(3), String(dmg));
   giveXp(def.skill, Math.round(def.xp * 0.15 * dmg));
+  sfx(def.skill === 'mining' ? 'mine' : 'chop');
   if (n.hp > 0) { n.full.rotation.z = 0.05; later(0.12, () => { n.full.rotation.z = 0; }); return; }
   // broken: tree falls / rock cracks, hand out the haul
   const count = 2 + (rng() < 0.4 + l * 0.01 ? 1 : 0);
@@ -2441,6 +2503,7 @@ function gatherTick(task) {
   if (rng() > chance) return;
   addItem(def.item);
   giveXp(def.skill, def.xp, player.pos.clone().setY(3.2));
+  sfx('splash');
   toast(`You get some ${ITEMS[def.item].toLowerCase()}.`, ICONS[def.item]);
   refreshUI();
 }
@@ -2480,6 +2543,7 @@ function impact(e, dmg, src, power, killed) {
   if (m < 3) { e.vy = (killed ? 6 : 2.5) * Math.min(1.4, power) / m; e.lift = Math.max(e.lift, 0.01); }
   e.staggerUntil = now + Math.min(0.45, 0.35 / Math.sqrt(m)) * (killed ? 0 : 1);
   e.flashT = now + 0.13;
+  sfx(killed ? 'kill' : power > 1.4 || w.heavy ? 'bighit' : 'hit');
   hitStopUntil = now + (killed ? 0.12 : w.heavy || power > 1.4 ? 0.08 : 0.05) * (e.T.boss ? 0.7 : 1);
   const at = e.pos.clone().setY(e.T.boss ? 2.6 : 1.5);
   const col = w.type === 'magic' ? '#bff6ff' : w.type === 'ranged' ? '#ffe9a8' : '#fff4d0';
@@ -2515,7 +2579,7 @@ function hurtEnemy(e, dmg, src = null, power = 1) {
     if (!e.T.noBones) later(0.75, () => { if (e.state === 'dead') collapse(e); });
     giveHeroXp(e.T.xp, e.pos.clone().setY(4));
     const coins = e.T.coins ? e.T.coins[0] + Math.floor(rng() * (e.T.coins[1] - e.T.coins[0])) : 3 + Math.floor(rng() * 9);
-    S.coins += coins; addItem('bones');
+    S.coins += coins; addItem('bones'); later(0.25, () => sfx('coin'));
     rollLoot(e);
     if (e.T.boss) {
       addItem(e.T.drop);
@@ -2548,7 +2612,7 @@ function hurtPlayer(dmg) {
   const d = dmg / defDiv();
   dmg = Math.floor(d) + (rng() < d - Math.floor(d) ? 1 : 0);
   if (dmg === 0) { floatText(head, 'Blocked', 'miss'); burst(player.pos.clone().setY(1.5), '#bfe0ff', 8, 3); return; }
-  S.hp -= dmg; lastHurt = now; player.hurtFace = now + 0.45;
+  S.hp -= dmg; lastHurt = now; player.hurtFace = now + 0.45; sfx('hurt');
   floatText(head, String(dmg), 'hurt');
   burst(player.pos.clone().setY(1.5), '#ff8a7a', 10, 4);
   if (S.hp <= 0) {
@@ -2657,7 +2721,7 @@ function slamTick(dt) {
     const k = Math.min(1, s2.t / s2.dur);
     s2.m.scale.setScalar(s2.R * k); s2.m.material.opacity = 0.25 + 0.3 * k;
     if (k >= 1) {
-      const e = s2.e;
+      const e = s2.e; sfx('slam');
       burst(e.pos.clone().setY(0.5), '#ffd08a', 60, 9, 1.4);
       shake = 0.5;
       if (e.hp > 0 && !player.dead && where === 'out' && Math.hypot(player.pos.x - e.pos.x, player.pos.z - e.pos.z) < s2.R) {
@@ -2911,7 +2975,7 @@ function tick() {
     $('stamfill').style.width = `${stamina}%`; $('status').classList.toggle('tired', stamina < 99);
     if (player.air) {
       pp.y += player.vy * dt; player.vy -= GRAV * dt;
-      if (pp.y <= 0) { pp.y = 0; player.air = false; player.vy = 0; burst(pp.clone().setY(0.15), '#f3e2bd', 10, 2.5); if (now > player.busyUntil) player.play(mx || mz ? 'Running_A' : 'Idle', { fade: 0.1 }); }
+      if (pp.y <= 0) { pp.y = 0; player.air = false; player.vy = 0; sfx('land'); burst(pp.clone().setY(0.15), '#f3e2bd', 10, 2.5); if (now > player.busyUntil) player.play(mx || mz ? 'Running_A' : 'Idle', { fade: 0.1 }); }
     }
     if (now >= player.nextHit && !talking) { if (now - attackQueued < 0.4) { attackQueued = -9; forceAttack = true; swing(); forceAttack = false; } else if (held && swingTarget().type !== 'attack') swing(); }
     if (now - lastHurt > 6 && now > regenAt && S.hp < maxHp()) { S.hp = Math.min(maxHp(), S.hp + 1); regenAt = now + 2.5; refreshUI(); }
@@ -2920,7 +2984,7 @@ function tick() {
 
   for (const e of enemies) {
     const near = !player || Math.hypot(e.pos.x - player.pos.x, e.pos.z - player.pos.z) < 70;
-    if (player && (near || e.state !== 'idle')) enemyTick(e, dt);
+    if (player && (near || e.state !== 'idle') && !bossIntro) enemyTick(e, dt);
     if (near) e.mixer.update(dt);
   }
   slamTick(dt);
@@ -2933,7 +2997,7 @@ function tick() {
   for (const [i, c] of dynamic.crystals.entries()) { c.position.y = 2.4 + Math.sin(now * 1.6 + i) * 0.4; c.rotation.y = now * 0.8 + i; }
   if (player) { player.mixer.update(dt); if (player.headScale && player.headInfo) player.headInfo.bone.scale.setScalar(player.headScale); faceTick(player); }
   for (const n of npcs) npcLife(n, dt);
-  guideTick();
+  guideTick(); musicTick();
 
   for (let i = lootPops.length - 1; i >= 0; i--) {
     const L = lootPops[i]; L.t += dt;
@@ -3028,8 +3092,10 @@ function tick() {
 
   const focus = player ? tmpF.copy(player.pos).setY(0) : tmpF.set(0, 0, 4);
   updateParticles(dt, now, focus);
-  const off = new THREE.Vector3(0, 23, 27).multiplyScalar(zoom * (camera.aspect < 1 ? 1.3 : 1));
+  const off = new THREE.Vector3(0, 27, 32).multiplyScalar(zoom * (camera.aspect < 1 ? 1.3 : 1));
+  bossIntroTick(dt);
   if (creator.open && player) creatorCam(dt);
+  else if (bossIntro) introCam(dt);
   else if (player && dlg && dlg.talky && talking && talking.actor && !$('dialog').hidden) talkCam(dt);
   else {
     if (camera.view && camera.view.enabled) { camera.clearViewOffset(); camera.updateProjectionMatrix(); }
@@ -3045,12 +3111,74 @@ function tick() {
   render();
 }
 addEventListener('pagehide', () => { if (!resetting) save(); });
+// sound starts on the first key or tap (browsers require that)
+for (const ev of ['pointerdown', 'keydown']) addEventListener(ev, () => { unlockAudio(); if (S.vol) setVolumes(S.vol.music, S.vol.sfx); }, { capture: true });
+addEventListener('click', (e) => { if (e.target.closest && e.target.closest('button')) sfx('click'); }, { capture: true });
+// pick the tune for where you are
+let musicAt = 0;
+// ---------- boss intros ----------
+// The first time a boss notices you (and again after a while), the action pauses: black bars slide in,
+// the camera swoops to the boss, it roars, and its name slams onto the screen.
+const BOSS_TITLES = { boss_crusher: 'Brute of the Grumble Crags', boss_gloom: 'Sorcerer of Glimmerwood', boss_rattle: 'Terror of Haunted Hollow', boss_gagron: 'Fire Dragon of the Ember Cave' };
+let bossIntro = null;
+function bossIntroTick(dt = 0) {
+  if (bossIntro) {
+    bossIntro.t += Math.min(dt, 0.1); // frame time, capped, so a hitch never skips the show
+    // the bars and title card follow the same clock, so they stay in step with the camera
+    for (const el of $('bossintro').children) el.style.animationDelay = `-${bossIntro.t.toFixed(3)}s`;
+    if (bossIntro.t > 3.2 || !player || player.dead) endBossIntro();
+    return;
+  }
+  if (!player || creator.open || player.dead) return;
+  for (const e of enemies) {
+    if (!e.T.boss || e.hp <= 0 || e.inside !== where || e.state === 'idle' || e.state === 'dead') continue;
+    if (e.introAt && now - e.introAt < 150) continue;
+    if (Math.hypot(e.pos.x - player.pos.x, e.pos.z - player.pos.z) > 26) continue;
+    startBossIntro(e); return;
+  }
+}
+function startBossIntro(e) {
+  e.introAt = now; closeDialog(); closeSheet(); cancelTask(); keys.clear(); moveTarget = null;
+  bossIntro = { e, t: 0 };
+  e.face(player.pos.x, player.pos.z);
+  e.play(e.clips.Cheer ? 'Cheer' : e.T.dragon ? 'Spellcasting' : 'Idle_Combat', { once: true, fade: 0.15 });
+  const el = $('bossintro');
+  el.innerHTML = `<div class="bi-bar top"></div><div class="bi-bar bot"></div><div class="bi-card"><small>${BOSS_TITLES[e.type] || 'A fearsome foe'}</small><b>${e.T.name}</b></div>`;
+  el.hidden = false; el.classList.remove('go'); void el.offsetWidth; el.classList.add('go');
+  sfx('bossintro'); later(0.9, () => sfx('slam'));
+  later(0.9, () => { if (bossIntro) burst(e.pos.clone().setY(2), '#ff6b5a', 60, 8, 1.6); });
+}
+function endBossIntro() {
+  const e = bossIntro.e; bossIntro = null;
+  $('bossintro').hidden = true;
+  if (e.hp > 0) { e.state = 'chase'; e.play('Idle_Combat'); }
+}
+function introCam(dt) {
+  const e = bossIntro.e, k = Math.min(1, bossIntro.t / 0.8);
+  const p = player.pos, dx = e.pos.x - p.x, dz = e.pos.z - p.z, d = Math.hypot(dx, dz) || 1;
+  const big = e.T.scale || 2;
+  // stand in front of the boss, looking up at it
+  const back = 8 + big * 3.4 - k * 1.5; // starts wide and creeps in
+  const want = tmpV.set(e.pos.x - (dx / d) * back, 2 + big * 1.1, e.pos.z - (dz / d) * back);
+  camPos.lerp(want, 1 - Math.pow(0.02, dt) * (1 - k * 0.5));
+  camera.position.copy(camPos);
+  camera.lookAt(e.pos.x, 1.2 + big * 1.0, e.pos.z);
+}
+function musicTick() {
+  if (now < musicAt) return; musicAt = now + 0.5;
+  if (!S.started || creator.open) { playMusic('village'); return; }
+  const boss = player && enemies.some((e) => e.T.boss && e.inside === where && e.hp > 0 && (e.state === 'chase' || e.state === 'slam') && Math.hypot(e.pos.x - player.pos.x, e.pos.z - player.pos.z) < 32);
+  if (boss) playMusic('boss');
+  else if (where === 'cave') playMusic('cave');
+  else if (where !== 'out' || (player && Math.hypot(player.pos.x, player.pos.z) < 50) || (player && Math.hypot(player.pos.x - 4, player.pos.z + 64) < 28)) playMusic('village');
+  else playMusic('field');
+}
 
 // ---------- hero creator ----------
 // A full-screen character screen: the hero turns on the left (drag to spin), choices on the right.
 const NAME_IDEAS = ['Pip', 'Rowan', 'Elara', 'Bram', 'Juniper', 'Tamsin', 'Fen', 'Wren', 'Corin', 'Maeve', 'Odo', 'Lyra', 'Hollis', 'Briar', 'Cass', 'Nell', 'Alden', 'Isolde', 'Thorne', 'Mira', 'Toby', 'Saffron', 'Gideon', 'Posy'];
 const creator = { open: false, mode: 'new', tab: 'body', yaw: 0, drag: null, close: false, before: null, light: null };
-const uiLock = () => !$('pick').hidden || creator.open;
+const uiLock = () => !$('pick').hidden || creator.open || !!roulette || !!bossIntro;
 const heroName = () => (S.name || '').trim() || 'Hero';
 function cleanName(v) { return v.replace(/[^\p{L}\p{N} '\-]/gu, '').replace(/\s+/g, ' ').slice(0, 16); }
 function randomLook() {
@@ -3317,7 +3445,7 @@ function renderCraft(el) {
   el.querySelectorAll('[data-craftall]').forEach((b) => { b.onclick = () => craft(CRAFTS[+b.dataset.craftall], 99); });
 }
 
-window.__jq = { closeDialog, advanceDialog, dash, attackPress, craft, CRAFTS, openCreator, closeCreator, creator, rebuildHero, setZoom: (z) => { zoom = z; }, hurtEnemy, goThrough, get where() { return where; }, INTERIORS, equipGear, spendPoint, giveHeroXp, heroLvl, stat, maxHp, defDiv, openWeaponShop, openKing, jump, eat, eatBest, openShop, swing, swingTarget, hitNode, projectiles, timers, get S() { return S; }, get player() { return player; }, enemies, nodes, npcs, startTask, doAction, giveXp, save, openSheet, openDialog };
+window.__jq = { chests, openChest, stopRoulette, enemies, startBossIntro, closeDialog, advanceDialog, dash, attackPress, craft, CRAFTS, openCreator, closeCreator, creator, rebuildHero, setZoom: (z) => { zoom = z; }, hurtEnemy, goThrough, get where() { return where; }, INTERIORS, equipGear, spendPoint, giveHeroXp, heroLvl, stat, maxHp, defDiv, openWeaponShop, openKing, jump, eat, eatBest, openShop, swing, swingTarget, hitNode, projectiles, timers, get S() { return S; }, get player() { return player; }, enemies, nodes, npcs, startTask, doAction, giveXp, save, openSheet, openDialog };
 window.addEventListener('error', (e) => { const m = $('loadmsg'); if (m) m.textContent = `Something went wrong: ${e.message}`; });
 main().catch((err) => {
   console.error(err);
