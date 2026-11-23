@@ -857,13 +857,33 @@
   .richlist li { padding: 3px 0; } .richlist li span { display: inline-block; min-width: 60%; }
   .richlist li.me { font-weight: 800; color: #6a3fd0; }
   #sheet h4 small { float: right; font: 800 14px var(--display); color: #c8901c; }
+  /* ---------- vitals: health and hero XP sit at the bottom of the screen ---------- */
+  #vitals { position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(env(safe-area-inset-bottom, 0px) + 8px); width: min(380px, calc(100% - 32px)); z-index: 2; pointer-events: none; display: grid; gap: 3px; }
+  #vitals .vrow { display: flex; align-items: center; gap: 6px; }
+  #vitals .vrow > img { width: 22px; height: 22px; flex: none; filter: drop-shadow(0 1px 0 var(--ink)); }
+  #vitals .vhp { flex: 1; height: 17px; box-shadow: 0 2px 0 rgb(0 0 0 / .25); }
+  #vitals .vhp > b { font-size: 11px; line-height: 12px; }
+  #vitals .vxp { position: relative; height: 13px; margin-left: 28px; border: 2px solid var(--ink); border-radius: 6px; background: #3b2a4a; overflow: hidden; box-shadow: 0 2px 0 rgb(0 0 0 / .25); }
+  #vitals .vxp > i { position: absolute; inset: 0 auto 0 0; background: linear-gradient(180deg, #fff2a8, #ffc93a 55%, #e09a1a); transition: width .4s; }
+  #xptext { position: absolute; inset: 0; text-align: center; font: 800 9.5px/9px var(--display); color: #fff7d6; text-shadow: 0 1px 0 var(--ink), 0 0 3px var(--ink); white-space: nowrap; }
+  #vitals .vxp > i { border-radius: 4px; }
+  #actionbar { bottom: calc(env(safe-area-inset-bottom, 0px) + 50px) !important; }
+  #hotbar { bottom: calc(env(safe-area-inset-bottom, 0px) + 110px) !important; }
+  #specialbtn { bottom: calc(env(safe-area-inset-bottom, 0px) + 50px); }
+  body.talking #vitals, body.creating #vitals, body:has(#bossintro:not([hidden])) #vitals { opacity: 0; }
+  body.sheet-open #vitals { opacity: .35; }
+  @media (max-width: 700px) {
+    #vitals { left: calc(env(safe-area-inset-left, 0px) + 12px); transform: none; width: auto; right: calc(env(safe-area-inset-right, 0px) + 104px); bottom: calc(env(safe-area-inset-bottom, 0px) + 6px); }
+    #actionbar { bottom: calc(env(safe-area-inset-bottom, 0px) + 14px) !important; }
+    #hotbar { bottom: calc(env(safe-area-inset-bottom, 0px) + 52px) !important; }
+    #menutoggle { bottom: calc(env(safe-area-inset-bottom, 0px) + 98px); }
+  }
 </style>
 
 <div id="stage"></div>
 
 <section id="status" class="panel" aria-label="Your hero">
   <div class="who"><div class="badge"><img id="badgeicon" alt=""><b id="badgelvl">1</b></div><div><h2 id="pname">Hero</h2><b id="pchapter" class="chaptag">Prologue</b><span id="pclass">Knight</span></div><button id="hudmore" aria-label="Show more" aria-expanded="false">▾</button></div>
-  <div class="barrow"><img id="hearticon" alt=""><div class="bar" aria-label="Health"><i id="hpfill" style="width:100%"></i><b id="hptext">50 / 50</b></div></div>
   <div class="barrow stamrow"><img id="booticon" alt=""><div class="bar stam" aria-label="Stamina"><i id="stamfill" style="width:100%"></i></div></div>
   <div id="coins"><img id="coinicon" alt=""><span id="coinval">0</span> coins</div>
   <div id="classes" aria-label="Class"></div>
@@ -884,6 +904,10 @@
 <aside id="sheet" class="panel" hidden></aside>
 
 <div id="chat" aria-label="Chat"><div id="chatlog" role="log" aria-live="polite"></div><form id="chatform" autocomplete="off"><input id="chatin" maxlength="120" placeholder="Say something to everyone..." enterkeyhint="send" aria-label="Chat message"><button type="submit">Send</button></form><button id="chatbtn" class="panel" type="button" aria-label="Open chat (Enter)" title="Chat (Enter)"><svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path d="M4 5.5C4 4.1 5.1 3 6.5 3h11C18.9 3 20 4.1 20 5.5v8c0 1.4-1.1 2.5-2.5 2.5H11l-4.5 4v-4h0C5.1 16 4 14.9 4 13.5z" fill="#fff3c4" stroke="#4a2a17" stroke-width="2" stroke-linejoin="round"/><circle cx="8.5" cy="9.5" r="1.3" fill="#4a2a17"/><circle cx="12" cy="9.5" r="1.3" fill="#4a2a17"/><circle cx="15.5" cy="9.5" r="1.3" fill="#4a2a17"/></svg></button></div>
+<div id="vitals" aria-label="Your health and experience">
+  <div class="vrow"><img id="hearticon" alt=""><div class="bar vhp" aria-label="Health"><i id="hpfill" style="width:100%"></i><b id="hptext">50 / 50</b></div></div>
+  <div class="vxp" aria-label="Hero experience"><i id="xpfill" style="width:0%"></i><b id="xptext">Level 1</b></div>
+</div>
 <div id="hotbar" class="panel" aria-label="Hotbar"></div>
 <div id="actionbar" class="panel">
   <button id="action" disabled><img id="actionicon" alt=""><span id="actionlabel">Explore</span></button>

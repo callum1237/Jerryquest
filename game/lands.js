@@ -48,6 +48,11 @@ LANDS.frost.map = { bg: '#c8d8ea', sea: '#4fb0e8', ground: '#f2f7ff', zone: '#e2
 LANDS.frost.villageName = 'Snowdrop';
 LANDS.frost.pond.name = 'Frozen Pond';
 LANDS.frost.boss = 'palace';
+// boss stages: open, cleared rings far apart, so fighting one boss never wakes another
+LANDS.frost.arenas = {
+  grumble: { x: FX - 6, z: FZ - 8, r: 15 },
+  twins: { x: FX + 45, z: FZ + 8, r: 15 },
+};
 LANDS.marsh.boss = 'gobbler';
 // roads from each village out to its zones, shared by the land builder and the map
 export function landRoads(L) {
@@ -187,7 +192,13 @@ export function buildLands() {
     for (const [x1, z1, x2, z2] of roads) { const dx = x2 - x1, dz = z2 - z1, l2 = dx * dx + dz * dz, k = Math.max(0, Math.min(1, ((x - x1) * dx + (z - z1) * dz) / l2)); if (Math.hypot(x - x1 - k * dx, z - z1 - k * dz) < 4) return true; }
     return false;
   };
-  const free = (x, z, pad) => colliders.every((c) => Math.hypot(c.x - x, c.z - z) > c.r + pad);
+  const arenas = Object.values(L.arenas || {});
+  const free = (x, z, pad) => arenas.every((A) => Math.hypot(A.x - x, A.z - z) > A.r + pad) && colliders.every((c) => Math.hypot(c.x - x, c.z - z) > c.r + pad);
+  // each boss stage: a trampled snow floor with a ring of ice shards round the edge
+  for (const A of arenas) {
+    disc(A.x, A.z, A.r, '#dbe6f4');
+    for (let i = 0; i < 14; i++) { const a = (i / 14) * Math.PI * 2 + 0.2, x = A.x + Math.cos(a) * (A.r + 1), z = A.z + Math.sin(a) * (A.r + 1); const sp = new THREE.Mesh(new THREE.ConeGeometry(0.35, 1.4 + (i % 3) * 0.5, 5)); sp.position.set(x, 0.6, z); sp.rotation.z = (rng() - 0.5) * 0.3; registerMesh(sp, toon('#bfe8ff')); scene.add(sp); }
+  }
   const pines = [];
   const pineAt = (x, z, s) => { pines.push(M(x, 0, z, s, rng() * 6)); colliders.push({ x, z, r: 0.25 * s }); };
   for (let i = 0; i < 340; i++) {
@@ -211,7 +222,7 @@ export function buildLands() {
   // Snowman Hills: lots of snowmen (they're friendly... probably) and igloos
   const men = [], igl = [];
   for (let i = 0; i < 9; i++) { const a = (i / 9) * Math.PI * 2 + rng() * 0.4, rr = 6 + rng() * (Z.hills.r - 4), x = Z.hills.x + Math.cos(a) * rr, z = Z.hills.z + Math.sin(a) * rr; if (!free(x, z, 1)) continue; men.push(M(x, 0, z, 1.5 + rng() * 0.5, Math.atan2(FX - x, FZ + 30 - z))); colliders.push({ x, z, r: 0.5 }); }
-  for (const [dx, dz, ry] of [[-6, -10, 0.4], [7, -8, -0.6], [12, 6, -1.6]]) { const x = Z.hills.x + dx, z = Z.hills.z + dz; igl.push(M(x, 0, z, 2.2, ry)); colliders.push({ x, z, r: 2 }); }
+  for (const [dx, dz, ry] of [[-6, -10, 0.4], [7, -8, -0.6], [12, 6, -1.6]]) { const x = Z.hills.x + dx, z = Z.hills.z + dz; if (!free(x, z, 1)) continue; igl.push(M(x, 0, z, 2.2, ry)); colliders.push({ x, z, r: 2 }); }
   for (const [dx, dz] of [[-14, 6], [13, -6], [-9, 14]]) { const x = V.x + dx, z = V.z + dz; if (free(x, z, 1)) { men.push(M(x, 0, z, 1.5, Math.atan2(V.x - x, V.z - z))); colliders.push({ x, z, r: 0.5 }); } }
   instanced(snowman(), men); instanced(igloo(), igl);
   // snow-capped rocks

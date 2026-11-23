@@ -2327,7 +2327,7 @@ const npcIdle = (n) => n.actor.play(n.id === 'fenwick' ? 'Spellcasting' : 'Idle'
 for (const k of ['mud_gloop', 'boss_gobbler', 'sand_gloop']) ENEMY_TYPES[k].alias = ENEMY_TYPES.bog_slime.alias;
 ENEMY_TYPES.dust_bat.alias = ENEMY_TYPES.mire_bat.alias;
 // Toughness pass (Callum, Nov 23): every monster hits harder and takes longer to beat; bosses much more so.
-const MOB_HP = 2.2, MOB_HIT = 1.9, BOSS_HP = 3.5, BOSS_HIT = 2.4;
+const MOB_HP = 2.2, MOB_HIT = 1.9, BOSS_HP = 4.5, BOSS_HIT = 3;
 // each chapter's land is a big step up from the last
 const CHAPTER_MULT = { out: 1, frost: 1.35, marsh: 1.75, sands: 2.3 };
 function farMult(w, x, z) {
@@ -2335,6 +2335,11 @@ function farMult(w, x, z) {
   if (!c || (w !== 'out' && !LANDS[w])) return 1;
   const d = Math.hypot(x - c.x, z - c.z);
   return 1 + Math.min(0.8, Math.max(0, (d - 35) / 110));
+}
+// Boss hits always matter: at least a share of your max health (after your defence), however strong you are.
+function bossDmg(e, k = 1) {
+  if (!e.T.boss) return Math.max(1, Math.round(e.T.maxHit * k));
+  return Math.max(Math.round(e.T.maxHit * k), Math.round(maxHp() * 0.075 * k * defDiv()));
 }
 function toughen(T) { if (T.world || T.toughened) return; T.toughened = true; const ch = CHAPTER_MULT[T.inside || 'out'] || 1; T.hp = Math.round(T.hp * (T.boss ? BOSS_HP : MOB_HP) * ch); T.maxHit = Math.max(1, Math.round(T.maxHit * (T.boss ? BOSS_HIT : MOB_HIT) * ch)); }
 // Valley critters: round, goofy monsters alongside the skeletons (Quaternius CC0 slime and bat)
@@ -2419,12 +2424,13 @@ function buildEnemies() {
   const FZs = LANDS.frost.zones;
   const fring = (Z, list, r) => list.forEach((k, i) => { const a = (i / list.length) * Math.PI * 2 + 0.7; spawnEnemy(k, Z.x + Math.cos(a) * r, Z.z + Math.sin(a) * r); });
   fring(FZs.woods, ['frost_minion', 'frost_warrior', 'frost_minion', 'frost_mage', 'frost_minion'], 11);
-  fring(FZs.hills, ['frost_mage', 'frost_minion', 'frost_warrior', 'frost_minion'], 10);
+  fring({ x: FZs.hills.x - 10, z: FZs.hills.z - 4 }, ['frost_mage', 'frost_minion', 'frost_warrior', 'frost_minion'], 8);
   fring({ x: FZs.palace.x, z: FZs.palace.z + 18 }, ['frost_warrior', 'frost_mage', 'frost_warrior'], 6);
   spawnEnemy('boss_frost', FZs.palace.x, FZs.palace.z - 1);
-  spawnEnemy('boss_grumble', FZs.palace.x + 2, FZs.palace.z + 30);
-  spawnEnemy('boss_twin_a', FZs.hills.x - 3, FZs.hills.z + 2);
-  spawnEnemy('boss_twin_b', FZs.hills.x + 3, FZs.hills.z - 2);
+  const FA = LANDS.frost.arenas;
+  spawnEnemy('boss_grumble', FA.grumble.x, FA.grumble.z);
+  spawnEnemy('boss_twin_a', FA.twins.x - 3, FA.twins.z + 2);
+  spawnEnemy('boss_twin_b', FA.twins.x + 3, FA.twins.z - 2);
   // Gobbler Marsh
   const MZs = LANDS.marsh.zones, MV = LANDS.marsh.village;
   fring(MZs.mire, ['bog_slime', 'bog_witchling', 'mire_bat', 'bog_slime', 'bog_witchling'], 11);
@@ -2929,6 +2935,10 @@ function refreshUI() {
   const mh = maxHp();
   $('hpfill').style.width = `${Math.max(0, (S.hp / mh) * 100)}%`;
   $('hptext').textContent = `${Math.max(0, Math.ceil(S.hp))} / ${mh}`;
+  { const L = heroLvl(), lo = HXT[L] || 0, hi = HXT[L + 1], max = L >= HERO_MAX || hi == null;
+    const k = max ? 1 : Math.max(0, Math.min(1, (S.hero.xp - lo) / (hi - lo)));
+    $('xpfill').style.width = `${(k * 100).toFixed(1)}%`;
+    $('xptext').textContent = max ? `Level ${L} · max level` : `Level ${L} · ${Math.floor(S.hero.xp - lo).toLocaleString()} / ${(hi - lo).toLocaleString()} XP`; }
   $('coinval').textContent = S.coins;
   renderChapter();
   const active = Object.keys(QUESTS).filter((k) => S.quests[k].state === 'active');
@@ -3390,7 +3400,7 @@ function typePage(instant) {
   // time-based, so a slow frame never slows the words down
   let k = 0; const t0 = performance.now();
   typing = setInterval(() => {
-    const upto = Math.min(letters.length, Math.floor((performance.now() - t0) / 1000 * 70));
+    const upto = Math.min(letters.length, Math.floor((performance.now() - t0) / 1000 * 90));
     if (upto > k && (upto >> 2) !== (k >> 2)) sfx('talk');
     for (; k < upto; k++) letters[k].classList.add('on');
     if (dlg.npc && dlg.npc.actor) dlg.npc.actor.talkUntil = now + 0.12;
@@ -3410,7 +3420,8 @@ function advanceDialog() {
   if (dlg.talky && btns.length === 1) { btns[0].click(); return true; }
   return false;
 }
-function closeDialog() { $('dialog').hidden = true; talking = null; dlg = null; clearInterval(typing); document.body.classList.remove('talking'); }
+let dlgClosedAt = 0;
+function closeDialog() { if (dlg) dlgClosedAt = performance.now(); $('dialog').hidden = true; talking = null; dlg = null; clearInterval(typing); document.body.classList.remove('talking'); }
 
 // ---------- input ----------
 // Keybinds: every action has two keys, and the player can change both from Options.
@@ -3457,6 +3468,12 @@ addEventListener('keydown', (e) => {
   if (creator.open && e.key === 'Escape' && creator.mode !== 'new') { closeCreator(false); return; }
   if (roulette) { if (!e.repeat && (codeToAct[e.code] === 'interact' || codeToAct[e.code] === 'attack' || e.code === 'Space' || e.code === 'Enter' || e.code === 'Escape')) { e.preventDefault(); stopRoulette(); } return; }
   if (e.code === 'Escape') { closeSheet(); closeDialog(); }
+  // boss and Percival scenes: E (or attack / jump) skips to the next line. This has to come before
+  // the UI lock below, which is on for the whole scene.
+  if (bossIntro && !e.repeat && !(e.target && /INPUT|TEXTAREA|SELECT/.test(e.target.tagName))) {
+    const a = codeToAct[e.code];
+    if (a === 'interact' || a === 'attack' || a === 'jump' || e.code === 'Space' || e.code === 'Enter') { e.preventDefault(); bossSkip(); return; }
+  }
   if (!player || uiLock()) return;
   if (e.target && /INPUT|TEXTAREA|SELECT/.test(e.target.tagName)) return;
   if ((e.code === 'Enter' || e.code === 'NumpadEnter') && !codeToAct[e.code] && !creator.open) { e.preventDefault(); openChat(); return; }
@@ -3470,13 +3487,13 @@ addEventListener('keydown', (e) => {
     keys.add(mk); if (mk !== 'sprint') { cancelTask(); moveTarget = null; }
     return;
   }
-  if (bossIntro && !e.repeat && (act === 'interact' || act === 'attack' || act === 'jump')) { e.preventDefault(); bossSkip(); return; }
   if (emoteWheelOpen() && !e.repeat) { const m = /^(Digit|Numpad)([1-9])$/.exec(e.code); if (m) { e.preventDefault(); doEmote(+m[2] - 1); return; } if (e.code === 'Escape') { toggleEmotes(false); return; } }
   if (e.repeat && act !== 'interact') return;
   if (act === 'attack') attackPress(true);
   else if (act === 'dash') dash();
   else if (act === 'special') special();
-  else if (act === 'interact') { if (!e.repeat) { held = true; const t = !talking && swingTarget(), rc = !talking && (!t || t.type === 'attack') && nearCrew(5); if (rc && !uiLock() && !player.dead) openCrewTalk(rc); else doAction(); } }
+  // spamming E through a conversation: the extra presses after it ends don't start it all over again
+  else if (act === 'interact') { if (!e.repeat && (talking || performance.now() - dlgClosedAt > 700)) { held = true; const t = !talking && swingTarget(), rc = !talking && (!t || t.type === 'attack') && nearCrew(5); if (rc && !uiLock() && !player.dead) openCrewTalk(rc); else doAction(); } }
   else if (act === 'jump') jump();
   else if (act === 'eat') eatBest();
   else if (act === 'map') toggleBigMap();
@@ -4128,7 +4145,7 @@ function dragonAttack(e, toP) {
     for (let i = 0; i < 3; i++) {
       const a = rng() * 6.28, r = i === 0 ? 0 : 2 + rng() * 2.5;
       const x = player.pos.x + Math.cos(a) * r, z = player.pos.z + Math.sin(a) * r;
-      later(i * 0.25, () => hazard({ x, z, R: 2.4, dur: 1.2, dmg: Math.round(e.T.maxHit * 1.3) }));
+      later(i * 0.25, () => hazard({ x, z, R: 2.4, dur: 1.2, dmg: bossDmg(e, 1.3) }));
     }
   } else if (toP < 5 && n % 2 === 0) {
     e.face(player.pos.x, player.pos.z);
@@ -4136,13 +4153,13 @@ function dragonAttack(e, toP) {
     later(0.55, () => {
       if (e.hp <= 0 || Math.hypot(player.pos.x - ep.x, player.pos.z - ep.z) > 5.5) return;
       if (dodging()) { floatText(player.pos.clone().setY(3.6), 'Dodged!', 'miss'); return; }
-      hurtPlayer(1 + Math.floor(rng() * e.T.maxHit));
+      hurtPlayer(bossDmg(e, 0.7 + rng() * 0.5));
     });
   } else {
     // fire breath: a wide cone in front of him
     e.face(player.pos.x, player.pos.z); e.state = 'slam';
     e.play('Spellcast_Shoot', { once: true, fade: 0.1 });
-    hazard({ x: ep.x, z: ep.z, R: 12, dir: toward + Math.PI, half: 0.42, dur: 1.15, dmg: Math.round(e.T.maxHit * 1.6) });
+    hazard({ x: ep.x, z: ep.z, R: 12, dir: toward + Math.PI, half: 0.42, dur: 1.15, dmg: bossDmg(e, 1.6) });
     later(1.2, () => { if (e.hp > 0) { e.state = 'chase'; e.play('Idle_Combat'); } });
   }
 }
@@ -4203,9 +4220,77 @@ function bossCleanup(e) {
   for (const r of e.runes || []) { scene.remove(r.g); }
   e.runes = null;
   for (const a of e.adds || []) if (enemies.includes(a)) { if (a.hp > 0) { a.hp = 0; a.state = 'dead'; a.bar.hidden = true; a.play('Death_A', { once: true, clamp: true }); later(0.75, () => collapse(a)); } later(4, () => removeEnemy(a)); }
-  e.adds = [];
+  e.adds = []; e.addWave = 0; e.enraged = false; e.nextSpecial = null;
 }
 
+// ---------- boss specials (every boss) ----------
+// On top of each boss's own moves, every big boss now has a set of telegraphed specials:
+// a charge, shockwave rings, a meteor rain and cross beams. At 66% and 33% health it calls
+// in helpers, and below 30% it gets ENRAGED and uses specials much more often.
+const ADD_FOR = { out: 'skel_minion', frost: 'frost_minion', marsh: 'bog_slime', sands: 'clock_soldier' };
+function bossSpecial(e) {
+  const ep = e.pos, k = e.hp / e.T.hp, land = e.inside && ADD_FOR[e.inside] ? e.inside : 'out';
+  // helpers at 66% and 33%
+  e.addWave = e.addWave || 0;
+  if ((e.addWave === 0 && k <= 0.66) || (e.addWave === 1 && k <= 0.33)) {
+    e.addWave++;
+    bossSay(e, e.addWave === 1 ? 'Minions! To me!' : 'More! Bring me MORE!');
+    const n = land === 'out' ? 3 : 2;
+    for (let i = 0; i < n; i++) { const a = (i / n) * 6.28 + rng(); bossAdd(e, ADD_FOR[land], ep.x + Math.cos(a) * 5, ep.z + Math.sin(a) * 5); }
+    e.nextSpecial = now + 4; return true;
+  }
+  if (!e.enraged && k <= 0.3) {
+    e.enraged = true; bossSay(e, 'ENRAGED!');
+    burst(ep.clone().setY(2.5), '#ff3b2f', 60, 9, 1.4); sfx('slam');
+  }
+  e.nextSpecial = now + (e.enraged ? 3.6 : 6.5) + rng() * 1.5;
+  const pick = (e.specN = (e.specN || 0) + 1 + Math.floor(rng() * 2)) % 4;
+  const toward = Math.atan2(player.pos.x - ep.x, player.pos.z - ep.z), dir = toward + Math.PI;
+  e.face(player.pos.x, player.pos.z);
+  if (pick === 0) {
+    // CHARGE: a long lane toward you, then it rushes down it and is left dizzy
+    e.state = 'slam'; e.play('Spellcasting', { once: true, fade: 0.1 });
+    const sx = ep.x, sz = ep.z, dx = Math.sin(toward), dz = Math.cos(toward), L = 15;
+    hazard({ x: sx, z: sz, R: L + 1, dir, half: 0.17, dur: 1.0, dmg: bossDmg(e, 1.5), col: '#ff4a3a' });
+    for (let s = 1; s <= 8; s++) later(1.0 + s * 0.035, () => { if (e.hp > 0) { ep.x = sx + dx * L * s / 8; ep.z = sz + dz * L * s / 8; } });
+    later(1.0, () => { if (e.hp > 0) e.play('Running_A', { fade: 0.05 }); });
+    later(1.35, () => { if (e.hp > 0) { burst(ep.clone().setY(1), '#ffd23f', 30, 6); dizzy(e, 1.6); } });
+  } else if (pick === 1) {
+    // SHOCKWAVE: three rings rolling outward. Stand in the gaps or jump through.
+    e.state = 'slam'; e.play('Spellcast_Shoot', { once: true, fade: 0.1 });
+    const cx = ep.x, cz = ep.z;
+    [[0, 4], [4.5, 8.5], [9, 13]].forEach(([a, b], i) => later(i * 0.55, () => { if (e.hp > 0) hazard({ x: cx, z: cz, R: b, inner: a, dur: 1.0, dmg: bossDmg(e, 1.2), col: '#c06bff' }); }));
+    later(1.9, () => { if (e.hp > 0) { e.state = 'chase'; e.play('Idle_Combat'); } });
+  } else if (pick === 2) {
+    // METEOR RAIN: circles fall on and around you, one after another
+    e.play('Spellcasting', { once: true, fade: 0.1, onFinish: () => e.play('Idle_Combat') });
+    const n = e.enraged ? 7 : 5;
+    for (let i = 0; i < n; i++) later(i * 0.3, () => {
+      if (e.hp <= 0) return;
+      const a = rng() * 6.28, r = i === 0 ? 0 : 1.5 + rng() * 4;
+      hazard({ x: player.pos.x + Math.cos(a) * r, z: player.pos.z + Math.sin(a) * r, R: 2.6, dur: 1.15, dmg: bossDmg(e, 1.3) });
+    });
+  } else {
+    // CROSS BEAMS: four thin beams, then four more turned halfway. Step between them.
+    e.state = 'slam'; e.play('Spellcast_Shoot', { once: true, fade: 0.1 });
+    const cx = ep.x, cz = ep.z;
+    for (let j = 0; j < 4; j++) hazard({ x: cx, z: cz, R: 16, dir: dir + j * Math.PI / 2, half: 0.12, dur: 1.1, dmg: bossDmg(e, 1.4), col: '#4ad8ff' });
+    later(1.0, () => { if (e.hp > 0) for (let j = 0; j < 4; j++) hazard({ x: cx, z: cz, R: 16, dir: dir + Math.PI / 4 + j * Math.PI / 2, half: 0.12, dur: 1.0, dmg: bossDmg(e, 1.4), col: '#4ad8ff' }); });
+    later(2.1, () => { if (e.hp > 0) { e.state = 'chase'; e.play('Idle_Combat'); } });
+  }
+  return true;
+}
+
+// Boss stages: a boss follows you round a big ring, but never so far that it walks into another
+// boss's stage, and a second boss won't join in while you're already fighting one.
+const isPair = (a, b) => a.T.twin === b.type || b.T.twin === a.type;
+function bossLeash(e) {
+  if (e.leash) return e.leash;
+  let near = 999;
+  for (const o of enemies) if (o !== e && o.T.boss && !o.temp && o.inside === e.inside && !isPair(e, o)) near = Math.min(near, Math.hypot(o.home.x - e.home.x, o.home.y - e.home.y));
+  return (e.leash = Math.max(22, Math.min(48, near * 0.55)));
+}
+const otherBossBusy = (e) => enemies.some((o) => o !== e && o.T.boss && o.hp > 0 && o.state !== 'idle' && o.state !== 'walk' && o.state !== 'dead' && o.state !== 'return' && o.inside === e.inside && !isPair(e, o));
 // little per-frame helpers for boss moves
 const bossFx = [];
 const tween = (dur, f, done) => bossFx.push({ t: 0, dur, f, done });
@@ -4228,12 +4313,12 @@ function gagronFly(e) {
   for (let i = 0; i < 6; i++) later(0.6 + i * 0.4, () => {
     if (e.hp <= 0 || player.dead) return;
     const a = rng() * 6.28, r = i % 2 ? 0 : 1 + rng() * 2;
-    hazard({ x: player.pos.x + Math.cos(a) * r, z: player.pos.z + Math.sin(a) * r, R: 2.5, dur: 1.0, dmg: Math.round(e.T.maxHit * 1.2) });
+    hazard({ x: player.pos.x + Math.cos(a) * r, z: player.pos.z + Math.sin(a) * r, R: 2.5, dur: 1.0, dmg: bossDmg(e, 1.2) });
   });
   later(3.0, () => {
     if (e.hp <= 0) return;
     const [x, z] = nearHome(e, player.pos.x, player.pos.z);
-    hazard({ x, z, R: 4.8, dur: 1.1, dmg: Math.round(e.T.maxHit * 1.7) });
+    hazard({ x, z, R: 4.8, dur: 1.1, dmg: bossDmg(e, 1.7) });
     later(0.75, () => {
       if (e.hp <= 0) return;
       e.pos.x = x; e.pos.z = z;
@@ -4244,7 +4329,7 @@ function gagronFly(e) {
 function lavaRings(e) {
   e.state = 'slam'; e.play('Spellcasting', { once: true, fade: 0.1 });
   const x = e.pos.x, z = e.pos.z;
-  for (let i = 0; i < 3; i++) later(i * 0.8, () => { if (e.hp > 0) hazard({ x, z, R: 5 + i * 4.5, inner: 3.4 + i * 4.5, dur: 1.0, dmg: Math.round(e.T.maxHit * 1.4) }); });
+  for (let i = 0; i < 3; i++) later(i * 0.8, () => { if (e.hp > 0) hazard({ x, z, R: 5 + i * 4.5, inner: 3.4 + i * 4.5, dur: 1.0, dmg: bossDmg(e, 1.4) }); });
   later(2.8, () => { if (e.hp > 0 && e.state === 'slam') { e.state = 'chase'; e.play('Idle_Combat'); } });
 }
 // Bonecrusher: boulders from afar in phase 2, a whirling axe spin in phase 3
@@ -4255,7 +4340,7 @@ function boulder(e) {
   const rock = new THREE.Mesh(new THREE.IcosahedronGeometry(0.9, 0), new THREE.MeshLambertMaterial({ color: '#a08a70', flatShading: true }));
   rock.position.copy(e.pos).setY(4); scene.add(rock);
   const from = rock.position.clone();
-  hazard({ x, z, R: 2.8, dur: 1.2, dmg: Math.round(e.T.maxHit * 1.4), col: '#c89a6a' });
+  hazard({ x, z, R: 2.8, dur: 1.2, dmg: bossDmg(e, 1.4), col: '#c89a6a' });
   tween(1.2, (k) => { rock.position.set(from.x + (x - from.x) * k, 4 + 8 * Math.sin(k * Math.PI) - 3.5 * k, from.z + (z - from.z) * k); rock.rotation.x += 0.2; }, () => { scene.remove(rock); burst(new THREE.Vector3(x, 0.6, z), '#b89a78', 30, 6); });
 }
 function axeSpin(e) {
@@ -4268,7 +4353,7 @@ function axeSpin(e) {
     const dx = player.pos.x - e.pos.x, dz = player.pos.z - e.pos.z, d = Math.hypot(dx, dz);
     if (d > 0.5) { e.pos.x += (dx / d) * 2.6 * dt; e.pos.z += (dz / d) * 2.6 * dt; }
     if (rng() < dt * 10) burst(e.pos.clone().setY(1.2), '#ffd08a', 4, 5, 0.5);
-    if (d < 3.6 && now > hitAt && !player.dead) { hitAt = now + 0.5; if (dodging()) floatText(player.pos.clone().setY(3.6), 'Dodged!', 'miss'); else hurtPlayer(Math.round(e.T.maxHit * 0.8)); }
+    if (d < 3.6 && now > hitAt && !player.dead) { hitAt = now + 0.5; if (dodging()) floatText(player.pos.clone().setY(3.6), 'Dodged!', 'miss'); else hurtPlayer(bossDmg(e, 0.8)); }
   }, () => { if (e.hp > 0) { bossSay(e, 'So... dizzy...'); dizzy(e, 2.6); } });
 }
 // The Gloomcaster: crystal runes shield him in phase 2. Stand on the glowing rune to shatter it.
@@ -4319,14 +4404,14 @@ function gloomBlink(e) {
 // Captain Rattlebones: calls his crew in phase 2, swings his anchor in phase 3
 function anchorSweep(e) {
   e.state = 'slam'; e.play('2H_Melee_Attack_Spin', { once: true, fade: 0.1 }) || e.play('1H_Melee_Attack_Chop', { once: true });
-  hazard({ x: e.pos.x, z: e.pos.z, R: 7.5, inner: 2.4, dur: 1.2, dmg: Math.round(e.T.maxHit * 1.6), col: '#8fb8d8' });
+  hazard({ x: e.pos.x, z: e.pos.z, R: 7.5, inner: 2.4, dur: 1.2, dmg: bossDmg(e, 1.6), col: '#8fb8d8' });
   later(1.3, () => { if (e.hp > 0) dizzy(e, 2.4); });
 }
 function cannons(e) {
   for (let i = 0; i < 2; i++) later(i * 0.35, () => {
     if (e.hp <= 0 || player.dead) return;
     const a = rng() * 6.28, r = 1.5 + rng() * 3;
-    hazard({ x: player.pos.x + Math.cos(a) * r, z: player.pos.z + Math.sin(a) * r, R: 2.2, dur: 1.2, dmg: Math.round(e.T.maxHit * 1.1), col: '#9aa8b8' });
+    hazard({ x: player.pos.x + Math.cos(a) * r, z: player.pos.z + Math.sin(a) * r, R: 2.2, dur: 1.2, dmg: bossDmg(e, 1.1), col: '#9aa8b8' });
   });
 }
 const PHASE_SETUP = {
@@ -4373,7 +4458,7 @@ function snowball(e) {
   e.face(player.pos.x, player.pos.z); e.state = 'slam';
   e.play('2H_Melee_Attack_Chop', { once: true, fade: 0.1 }) || e.play('1H_Melee_Attack_Chop', { once: true });
   const toward = Math.atan2(player.pos.x - e.pos.x, player.pos.z - e.pos.z), len = 18;
-  hazard({ x: e.pos.x, z: e.pos.z, R: len, dir: toward + Math.PI, half: 0.12, dur: 1.2, dmg: Math.round(e.T.maxHit * 1.6), col: '#e8f4ff' });
+  hazard({ x: e.pos.x, z: e.pos.z, R: len, dir: toward + Math.PI, half: 0.12, dur: 1.2, dmg: bossDmg(e, 1.6), col: '#e8f4ff' });
   const ball = new THREE.Mesh(new THREE.IcosahedronGeometry(1.4, 1), new THREE.MeshLambertMaterial({ color: '#f6fbff', flatShading: true }));
   const sx = e.pos.x, sz = e.pos.z; ball.position.set(sx, 1.4, sz); scene.add(ball);
   later(0.9, () => tween(0.7, (k) => { ball.position.set(sx + Math.sin(toward) * len * k, 1.4, sz + Math.cos(toward) * len * k); ball.rotation.x += 0.35; if (rng() < 0.5) burst(ball.position.clone().setY(0.4), '#ffffff', 3, 3, 0.5); },
@@ -4386,7 +4471,7 @@ function icicles(e) {
   for (let i = 0; i < 5; i++) later(i * 0.3, () => {
     if (e.hp <= 0 || player.dead) return;
     const a = rng() * 6.28, r = i === 0 ? 0 : 1.5 + rng() * 3.5;
-    hazard({ x: player.pos.x + Math.cos(a) * r, z: player.pos.z + Math.sin(a) * r, R: 2.2, dur: 1.0, dmg: Math.round(e.T.maxHit * 1.1), col: '#9fe6ff' });
+    hazard({ x: player.pos.x + Math.cos(a) * r, z: player.pos.z + Math.sin(a) * r, R: 2.2, dur: 1.0, dmg: bossDmg(e, 1.1), col: '#9fe6ff' });
   });
 }
 function makeBraziers(e) {
@@ -4467,14 +4552,14 @@ function mireHex(e) {
   for (let i = 0; i < 4; i++) later(i * 0.35, () => {
     if (e.hp <= 0 || player.dead) return;
     const a = rng() * 6.28, r = i === 0 ? 0 : 1.5 + rng() * 3;
-    hazard({ x: player.pos.x + Math.cos(a) * r, z: player.pos.z + Math.sin(a) * r, R: 2.4, dur: 1.0, dmg: Math.round(e.T.maxHit * 1.1), col: '#8aff6a' });
+    hazard({ x: player.pos.x + Math.cos(a) * r, z: player.pos.z + Math.sin(a) * r, R: 2.4, dur: 1.0, dmg: bossDmg(e, 1.1), col: '#8aff6a' });
   });
 }
 // Sir Soggington charges in a straight line you can see coming, then sloshes about with water rings.
 function soggCharge(e) {
   e.face(player.pos.x, player.pos.z); e.state = 'slam';
   const dir = Math.atan2(player.pos.x - e.pos.x, player.pos.z - e.pos.z), len = 14, sx = e.pos.x, sz = e.pos.z;
-  hazard({ x: sx, z: sz, R: len, dir: dir + Math.PI, half: 0.14, dur: 1.0, dmg: Math.round(e.T.maxHit * 1.5), col: '#7fd0ff' });
+  hazard({ x: sx, z: sz, R: len, dir: dir + Math.PI, half: 0.14, dur: 1.0, dmg: bossDmg(e, 1.5), col: '#7fd0ff' });
   e.play('Running_A', { fade: 0.1 });
   later(0.9, () => tween(0.45, (k) => { if (e.hp <= 0) return; const [x, z] = nearHome(e, sx + Math.sin(dir) * len * k, sz + Math.cos(dir) * len * k); e.pos.x = x; e.pos.z = z; if (rng() < 0.6) burst(e.pos.clone().setY(0.4), '#bfe9ff', 3, 3, 0.5); },
     () => { if (e.hp > 0) { bossSay(e, 'Huff... puff... these boots are FULL.'); dizzy(e, 2); } }));
@@ -4482,7 +4567,7 @@ function soggCharge(e) {
 function soggRings(e) {
   e.state = 'slam'; e.play('2H_Melee_Attack_Chop', { once: true, fade: 0.1 });
   const x = e.pos.x, z = e.pos.z;
-  for (let i = 0; i < 3; i++) later(0.3 + i * 0.75, () => { if (e.hp > 0) hazard({ x, z, R: 5 + i * 4, inner: 3.2 + i * 4, dur: 0.9, dmg: Math.round(e.T.maxHit * 1.3), col: '#7fd0ff' }); });
+  for (let i = 0; i < 3; i++) later(0.3 + i * 0.75, () => { if (e.hp > 0) hazard({ x, z, R: 5 + i * 4, inner: 3.2 + i * 4, dur: 0.9, dmg: bossDmg(e, 1.3), col: '#7fd0ff' }); });
   later(2.8, () => { if (e.hp > 0 && e.state === 'slam') { e.state = 'chase'; e.play('Idle_Combat'); } });
 }
 // The Gobbler: tongue lashes along a line; in phase 2 it dives and pops up under a lily pad;
@@ -4491,7 +4576,7 @@ function tongueLash(e) {
   e.face(player.pos.x, player.pos.z); e.state = 'slam';
   e.play('1H_Melee_Attack_Chop', { once: true, fade: 0.1 });
   const dir = Math.atan2(player.pos.x - e.pos.x, player.pos.z - e.pos.z), len = 15;
-  hazard({ x: e.pos.x, z: e.pos.z, R: len, dir: dir + Math.PI, half: 0.1, dur: 0.9, dmg: Math.round(e.T.maxHit * 1.5), col: '#ff7aa8' });
+  hazard({ x: e.pos.x, z: e.pos.z, R: len, dir: dir + Math.PI, half: 0.1, dur: 0.9, dmg: bossDmg(e, 1.5), col: '#ff7aa8' });
   const tongue = new THREE.Mesh(new THREE.CylinderGeometry(0.35, 0.5, 1, 10), new THREE.MeshLambertMaterial({ color: '#ff7aa8' }));
   tongue.rotation.set(Math.PI / 2, 0, 0); const holder = new THREE.Group(); holder.add(tongue); holder.position.set(e.pos.x, 1.6, e.pos.z); holder.rotation.y = dir; scene.add(holder);
   tongue.scale.set(1, 0.01, 1);
@@ -4500,7 +4585,7 @@ function tongueLash(e) {
 }
 function mudSpit(e) {
   e.play('Spellcast_Shoot', { once: true, fade: 0.1, onFinish: () => e.play('Idle_Combat') });
-  for (let i = 0; i < 3; i++) { const a = rng() * 6.28, r = i ? 2 + rng() * 2.5 : 0; hazard({ x: player.pos.x + Math.cos(a) * r, z: player.pos.z + Math.sin(a) * r, R: 2, dur: 1.1, dmg: Math.round(e.T.maxHit * 0.9), col: '#a8845a' }); }
+  for (let i = 0; i < 3; i++) { const a = rng() * 6.28, r = i ? 2 + rng() * 2.5 : 0; hazard({ x: player.pos.x + Math.cos(a) * r, z: player.pos.z + Math.sin(a) * r, R: 2, dur: 1.1, dmg: bossDmg(e, 0.9), col: '#a8845a' }); }
 }
 function gobblerDive(e) {
   e.state = 'slam'; e.under = true; sfx('whoosh');
@@ -4509,7 +4594,7 @@ function gobblerDive(e) {
   tween(0.6, (k) => { e.root.scale.setScalar(base * (1 - k * 0.95)); e.root.position.y = -k * 1.5; });
   const [x, z] = nearHome(e, player.pos.x + (rng() - 0.5) * 4, player.pos.z + (rng() - 0.5) * 4, 12);
   for (let i = 0; i < 8; i++) later(0.5 + i * 0.2, () => burst(new THREE.Vector3(x + (rng() - 0.5) * 2, 0.3, z + (rng() - 0.5) * 2), '#bfffd8', 6, 3, 0.7));
-  later(0.7, () => hazard({ x, z, R: 3.8, dur: 1.3, dmg: Math.round(e.T.maxHit * 1.6), col: '#8adfc0' }));
+  later(0.7, () => hazard({ x, z, R: 3.8, dur: 1.3, dmg: bossDmg(e, 1.6), col: '#8adfc0' }));
   later(2.0, () => {
     if (e.hp <= 0) return;
     e.pos.x = x; e.pos.z = z; e.under = false;
@@ -4537,7 +4622,7 @@ function gulpTick() {
   const g = gulped, e = g.e;
   player.pos.set(e.pos.x, 0, e.pos.z);
   if (rng() < 0.3) burst(e.pos.clone().setY(e.T.scale * 1.2), '#ff9ac0', 3, 3, 0.6);
-  if (now > g.hurtAt) { g.hurtAt = now + 0.8; hurtPlayer(Math.max(2, Math.round(e.T.maxHit * 0.35))); }
+  if (now > g.hurtAt) { g.hurtAt = now + 0.8; hurtPlayer(bossDmg(e, 0.35)); }
   if (player.dead || e.hp <= 0 || g.taps >= 8 || now > g.until) spitOut();
 }
 function wriggle() {
@@ -4837,7 +4922,7 @@ function rocketDash(e) {
   e.face(player.pos.x, player.pos.z); e.state = 'slam';
   const dir = Math.atan2(player.pos.x - e.pos.x, player.pos.z - e.pos.z), len = 16, sx = e.pos.x, sz = e.pos.z;
   bossSay(e, 'Rocket boots, ENGAGE!');
-  hazard({ x: sx, z: sz, R: len, dir: dir + Math.PI, half: 0.15, dur: 0.9, dmg: Math.round(e.T.maxHit * 1.5), col: '#ffb347' });
+  hazard({ x: sx, z: sz, R: len, dir: dir + Math.PI, half: 0.15, dur: 0.9, dmg: bossDmg(e, 1.5), col: '#ffb347' });
   e.play('Running_A', { fade: 0.1 });
   later(0.9, () => tween(0.35, (k) => { if (e.hp <= 0) return; const [x, z] = nearHome(e, sx + Math.sin(dir) * len * k, sz + Math.cos(dir) * len * k); e.pos.x = x; e.pos.z = z; burst(e.pos.clone().setY(1), '#ff8a3a', 4, 3, 0.5); },
     () => { if (e.hp > 0) { if (rng() < 0.5) bossSay(e, 'Whoops! Who designed these brakes?!'); dizzy(e, 1.8); } }));
@@ -4850,14 +4935,14 @@ function missileVolley(e) {
     if (e.hp <= 0 || player.dead) return;
     const a = rng() * 6.28, r = i === 0 ? 0 : 2 + rng() * 4, x = player.pos.x + Math.cos(a) * r, z = player.pos.z + Math.sin(a) * r;
     burst(new THREE.Vector3(e.pos.x, 4, e.pos.z), '#ffcf6a', 6, 4, 0.6);
-    hazard({ x, z, R: 2.1, dur: 1.0, dmg: Math.round(e.T.maxHit * 1.0), col: '#ff8a3a' });
+    hazard({ x, z, R: 2.1, dur: 1.0, dmg: bossDmg(e, 1.0), col: '#ff8a3a' });
   });
 }
 function gloryBeam(e) {
   e.state = 'slam'; e.play('Spellcasting', { once: true, fade: 0.1 });
   bossSay(e, 'Witness my GLORY BEAM!');
   const base = Math.atan2(player.pos.x - e.pos.x, player.pos.z - e.pos.z);
-  for (let i = 0; i < 4; i++) later(i * 0.45, () => { if (e.hp > 0) hazard({ x: e.pos.x, z: e.pos.z, R: 14, dir: base + Math.PI + i * (Math.PI / 2), half: 0.32, dur: 1.0, dmg: Math.round(e.T.maxHit * 1.4), col: '#fff27a' }); });
+  for (let i = 0; i < 4; i++) later(i * 0.45, () => { if (e.hp > 0) hazard({ x: e.pos.x, z: e.pos.z, R: 14, dir: base + Math.PI + i * (Math.PI / 2), half: 0.32, dur: 1.0, dmg: bossDmg(e, 1.4), col: '#fff27a' }); });
   later(2.6, () => { if (e.hp > 0 && e.state === 'slam') { e.state = 'chase'; e.play('Idle_Combat'); } });
 }
 
@@ -4867,7 +4952,7 @@ function colossusFist(e) {
   e.face(player.pos.x, player.pos.z); e.state = 'slam';
   e.play('2H_Melee_Attack_Chop', { once: true, fade: 0.1 });
   const x = player.pos.x, z = player.pos.z;
-  hazard({ x, z, R: 3.8, dur: 1.3, dmg: Math.round(e.T.maxHit * 1.5), col: '#ffb347' });
+  hazard({ x, z, R: 3.8, dur: 1.3, dmg: bossDmg(e, 1.5), col: '#ffb347' });
   later(1.3, () => {
     if (e.hp <= 0) return;
     burst(new THREE.Vector3(x, 0.5, z), '#e8c890', 50, 8, 1.4); sfx('slam');
@@ -4896,7 +4981,7 @@ function kneeLaser(e) {
     if (e.hp <= 0) { ring.visible = false; return; }
     const r = 2 + k * 22; ring.visible = true; ring.scale.setScalar(r);
     const d = Math.hypot(player.pos.x - x, player.pos.z - z);
-    if (!hit && Math.abs(d - r) < 0.9 && player.pos.y < 0.7 && !player.dead) { hit = true; hurtPlayer(Math.round(e.T.maxHit * 1.4)); floatText(player.pos.clone().setY(4), 'Zapped! Jump next time!', 'miss'); }
+    if (!hit && Math.abs(d - r) < 0.9 && player.pos.y < 0.7 && !player.dead) { hit = true; hurtPlayer(bossDmg(e, 1.4)); floatText(player.pos.clone().setY(4), 'Zapped! Jump next time!', 'miss'); }
   }, () => scene.remove(ring)));
   later(3, () => { if (e.hp > 0 && e.state === 'slam') { e.state = 'chase'; e.play('Idle_Combat'); } });
 }
@@ -5008,7 +5093,7 @@ function slamTick(dt) {
       shake = 0.5;
       if (e.hp > 0 && !player.dead && where === e.inside && Math.hypot(player.pos.x - e.pos.x, player.pos.z - e.pos.z) < s2.R) {
         if (dodging()) floatText(player.pos.clone().setY(3.6), 'Dodged!', 'miss');
-        else hurtPlayer(Math.round(e.T.maxHit * 1.6));
+        else hurtPlayer(bossDmg(e, 1.6));
       }
       if (e.hp > 0) { e.state = 'chase'; e.play('Idle_Combat'); if (e.T.stuck) { bossSay(e, e.T.stuckLine || 'Stuck!'); dizzy(e, e.T.stuck); } }
       scene.remove(s2.m, s2.edge); slams.splice(i, 1);
@@ -5038,18 +5123,19 @@ function enemyTick(e, dt) {
   if (where !== e.inside && e.state === 'chase' && !foe) e.state = 'return';
   if ((e.state === 'idle' || e.state === 'walk') && foe) e.state = 'chase';
   if ((e.state === 'idle' || e.state === 'walk') && toHero < (big ? 11 : 6.5) && !player.dead && !uiLock() && where === e.inside
-    && (big || enemies.filter((o) => o.state === 'chase' && !o.T.boss).length < 3)) e.state = 'chase';
+    && (!big || !otherBossBusy(e)) && (big || enemies.filter((o) => o.state === 'chase' && !o.T.boss).length < 3)) e.state = 'chase';
   if (e.state === 'slam') return;
   if (e.state === 'chase') {
-    if (fromHome > (big ? 28 : 20)) { e.state = 'return'; return; }
+    if (fromHome > (big ? bossLeash(e) : 20)) { e.state = 'return'; return; }
     e.face(tp.x, tp.z);
+    if (big && !foe && !e.T.world && toHero < 30 && now > (e.nextSpecial ??= now + 3) && now > (e.dizzyUntil || 0) && now > (e.staggerUntil || 0) && bossSpecial(e)) return;
     if (toP > reach) {
       const dx = tp.x - ep.x, dz = tp.z - ep.z;
       ep.x += (dx / toP) * 4.2 * dt; ep.z += (dz / toP) * 4.2 * dt;
       if (e.name !== '1H_Melee_Attack_Chop' && e.name !== 'Spellcast_Shoot' && e.name !== 'Hit_A') e.play('Running_A', { fade: 0.15 });
     } else if (now > e.nextHit) {
-      e.nextHit = now + (big ? 2.2 : 1.9) + rng() * 0.6;
-      const dmg = rng() < 0.3 ? 0 : 1 + Math.floor(rng() * e.T.maxHit);
+      e.nextHit = now + (big ? 1.5 : 1.9) + rng() * 0.6;
+      const dmg = big ? bossDmg(e, 0.65 + rng() * 0.45) : rng() < 0.3 ? 0 : 1 + Math.floor(rng() * e.T.maxHit);
       if (BOSS_AI[e.type] && BOSS_AI[e.type](e, toP)) return;
       if (e.T.dragon) { dragonAttack(e, toP); return; }
       if (big && ++e.swings % 3 === 0) { bossSlam(e); return; }
@@ -5803,7 +5889,13 @@ function bossNextLine() {
   if (hero) player.talkUntil = now + 1.2; else { e.play(e.clips.Cheer ? 'Cheer' : 'Idle_Combat', { once: true, fade: 0.15 }); sfx('slam'); }
   $('bossintro').classList.add('talking');
 }
-function bossSkip() { if (bossIntro && bossIntro.lines.length && bossIntro.li >= 0) bossNextLine(); }
+// Every press of E (or click) moves on straight away, even during the opening, so spamming E skips a scene fast.
+function bossSkip() {
+  const B = bossIntro, ms = performance.now(); if (!B || !B.lines.length || ms - (B.skipAt || 0) < 120) return;
+  B.skipAt = ms;
+  if (B.li < 0) B.t = Math.max(B.t, B.kind === 'intro' ? 2.5 : 0.6);
+  bossNextLine();
+}
 // A boss shouts when it gets low on health: it reels back for a moment and the line pops up over its head.
 let shoutEl = null;
 function bossShout(e) {
