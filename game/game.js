@@ -4411,6 +4411,7 @@ function hurtEnemy(e, dmg, src = null, power = 1) {
   // (Hitting a corpse used to run its death a second time, which queued a second respawn: that's
   // what made skeletons pop back up mid-fight and then keel over for no reason.)
   if (!e || e.hp <= 0 || e.state === 'dead' || e.state === 'gone' || e.state === 'rising') return;
+  if (bossLocked(e)) { if (rng() < 0.3) floatText(e.pos.clone().setY(4), 'Sealed', 'miss'); return; }
   const head = e.pos.clone().setY(3.4);
   e.barAt = now; // its health bar shows for a little while after each hit
   if (e.state === 'idle' || e.state === 'walk') e.state = 'chase';
@@ -5597,7 +5598,7 @@ function enemyTick(e, dt) {
   if (where !== e.inside && e.state === 'chase' && !foe) e.state = 'return';
   if ((e.state === 'idle' || e.state === 'walk') && foe) e.state = 'chase';
   if ((e.state === 'idle' || e.state === 'walk') && toHero < (big ? 11 : 6.5) && !player.dead && !uiLock() && where === e.inside
-    && (!big || !otherBossBusy(e)) && (big || enemies.filter((o) => o.state === 'chase' && !o.T.boss).length < 3)) e.state = 'chase';
+    && (!big || (!otherBossBusy(e) && !bossLocked(e))) && (big || enemies.filter((o) => o.state === 'chase' && !o.T.boss).length < 3)) e.state = 'chase';
   if (e.state === 'slam') return;
   if (e.state === 'chase') {
     if (fromHome > (big ? bossLeash(e) : 20)) { e.state = 'return'; return; }
@@ -6272,7 +6273,7 @@ function tick() {
   const off = camOff.copy(CAM_OFF).multiplyScalar(zoom * (camera.aspect < 1 ? 1.3 : 1));
   const following = !(creator.open && player) && !bossIntro && !(camMoment && player && camMoment.t < camMoment.dur) && !(player && dlg && dlg.talky && talking && talking.actor && !$('dialog').hidden) && !(!player && !$('pick').hidden);
   if (!following) camFollow = false;
-  bossIntroTick(dt);
+  bossIntroTick(dt); bossGateTick();
   if (creator.open && player) creatorCam(dt);
   else if (bossIntro) introCam(dt);
   else if (camMoment && player && camMoment.t < camMoment.dur) momentCam(dt);
@@ -6329,6 +6330,37 @@ let musicAt = 0;
 // the camera swoops to the boss, it roars, and its name slams onto the screen.
 const BOSS_TITLES = { boss_pomp: 'In a Stolen Battle-Suit', boss_colossus: 'Guardian of the Old Kingdom', boss_mire: 'Bog Witch of Mire Hollow', boss_sogg: 'The Sunken Knight', boss_gobbler: 'Terror of Gobbler Marsh', boss_frost: 'Ice Queen of Frostwhisker Peaks', boss_crusher: 'Brute of the Grumble Crags', boss_gloom: 'Sorcerer of Glimmerwood', boss_rattle: 'Terror of Haunted Hollow', boss_gagron: 'Fire Dragon of the Ember Cave' };
 let bossIntro = null;
+// ---------- sealed final bosses ----------
+// A chapter's last boss stays behind a shimmering seal until you've beaten the one before it.
+const BOSS_GATES = {
+  boss_colossus: { quest: 'st_pomp', beat: 'boss_pomp', who: 'Sir Percival Pompington' },
+  boss_frost: { quest: 'st_twins', beat: 'boss_twin_a', who: 'the Avalanche Twins' },
+  boss_gobbler: { quest: 'st_lantern', who: 'the Lantern Night' },
+};
+const bossLocked = (e) => { const g = e && BOSS_GATES[e.type]; if (!g) return false; if ((S.beat || {})[e.type] || (S.quests[g.quest] && S.quests[g.quest].state === 'done') || (g.beat && (S.beat || {})[g.beat])) return false; return true; };
+const SEAL_R = 21;
+let sealSaid = 0;
+function bossGateTick() {
+  if (!player || player.dead) return;
+  for (const e of enemies) {
+    if (!BOSS_GATES[e.type] || e.inside !== where) { if (e.seal) e.seal.visible = false; continue; }
+    const locked = bossLocked(e), hx = e.home.x, hz = e.home.y;
+    if (!e.seal) {
+      // a faint wall of light round the stage
+      const m = new THREE.Mesh(new THREE.CylinderGeometry(SEAL_R, SEAL_R, 7, 72, 1, true), new THREE.MeshBasicMaterial({ color: '#c9a8ff', transparent: true, opacity: 0.16, depthWrite: false, fog: false, side: THREE.DoubleSide, blending: THREE.AdditiveBlending }));
+      m.position.set(hx, 3.5, hz); m.layers.set(1); scene.add(m); e.seal = m;
+    }
+    const d = Math.hypot(player.pos.x - hx, player.pos.z - hz);
+    e.seal.visible = locked && d < SEAL_R + 30;
+    if (!locked) continue;
+    e.seal.material.opacity = 0.1 + 0.08 * Math.sin(now * 2) + (d < SEAL_R + 4 ? 0.12 : 0);
+    if (d < SEAL_R + 0.8) {
+      const k = (SEAL_R + 0.8) / (d || 1);
+      player.pos.x = hx + (player.pos.x - hx) * k; player.pos.z = hz + (player.pos.z - hz) * k;
+      if (performance.now() - sealSaid > 4000) { sealSaid = performance.now(); toast(`A magic seal blocks the way. Beat ${BOSS_GATES[e.type].who} first.`, ICONS.star); burst(player.pos.clone().setY(1.5), '#c9a8ff', 20, 4); }
+    }
+  }
+}
 function bossIntroTick(dt = 0) {
   if (bossIntro) {
     bossIntro.t += Math.min(dt, 0.1); // frame time, capped, so a hitch never skips the show
