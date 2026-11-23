@@ -2660,7 +2660,7 @@ function giveXp(skill, amount, at) {
   }
   // gathering also trains the hero a little (bosses and quests give the most)
   if (skill !== 'speed' && amount > 0) giveHeroXp(Math.max(1, Math.round(amount * GATHER_HERO_XP)));
-  else if (!$('sheet').hidden && sheetMode === 'skills' && skill !== 'speed') renderSheet();
+  else if (!$('sheet').hidden && sheetMode === 'card' && skill !== 'speed') renderSheet();
 }
 function giveHeroXp(amount, at) {
   const before = heroLvl();
@@ -2678,7 +2678,7 @@ function giveHeroXp(amount, at) {
     buildGearBar();
   }
   updateTitle(); refreshUI();
-  if (!$('sheet').hidden && sheetMode === 'skills') renderSheet();
+  if (!$('sheet').hidden && sheetMode === 'card') renderSheet();
 }
 function spendPoint(k) {
   if (freePoints() <= 0) return;
@@ -3221,6 +3221,7 @@ function renderSheet() {
   const el = $('sheet');
   if (sheetMode === 'craft') { renderCraft(el); return; }
   if (sheetMode === 'crew') { renderCrew(el); return; }
+  if (sheetMode === 'card') { renderCard(el); return; }
   if (sheetMode === 'skills') {
     const L = heroLvl(), cur = HXT[L], next = HXT[Math.min(HERO_MAX, L + 1)], free = freePoints();
     const pct = L >= 99 ? 100 : ((S.hero.xp - cur) / (next - cur)) * 100;
@@ -3231,7 +3232,7 @@ function renderSheet() {
       <div class="stats">${Object.entries(STATS).map(([k, [nm, ic]]) => `<div class="stat"><img src="${ICONS[ic]}" alt=""><span class="nm">${nm}</span><span class="lv">${stat(k)}</span><small>${effect[k]}</small>${free > 0 ? `<button class="plus" data-stat="${k}" aria-label="Add a point to ${nm}">+</button>` : ''}</div>`).join('')}</div>
       <p class="hint">${free > 0 ? `<b>${free} point${free > 1 ? 's' : ''} to spend.</b> ` : ''}Each level gives +1 to every stat and ${FREE_PER_LEVEL} points to spend. Defense and Health keep you alive about equally, so mixing them works best.</p>
       <h4 class="sub">Weapon</h4><div class="gearbtn now"><b><img src="${ICONS[w.type]}" alt="">${w.name}</b><span>${gearStats(w)}</span></div>
-      <h4 class="sub">Gathering</h4><div class="skills">${SKILLS.map(([k, nm]) => {
+      <h4 class="sub">Gathering</h4><div class="skills">${SKILLS.filter(([k]) => k !== 'crafting').map(([k, nm]) => {
       const l = lvl(k), c0 = XPT[l], n0 = XPT[Math.min(99, l + 1)];
       const pc = l >= 99 ? 100 : ((S.xp[k] - c0) / (n0 - c0)) * 100;
       return `<div class="skill" title="${Math.floor(S.xp[k])} XP"><img src="${ICONS[k]}" alt=""><span class="nm">${nm}</span><span class="lv">${l}</span><div class="xp"><i style="width:${pc}%"></i></div></div>`;
@@ -3258,14 +3259,27 @@ function renderSheet() {
     el.querySelectorAll('[data-pin]').forEach((b) => { b.onclick = () => { pinToHotbar(b.dataset.pin); renderSheet(); }; });
     el.querySelectorAll('[data-gear]').forEach((b) => { b.onclick = () => { const g = GEAR[b.dataset.gear]; S.equip[g.slot] = g.slot === 'gadget' && S.equip.gadget === b.dataset.gear ? null : b.dataset.gear; cancelTask(); equipGear(); buildGearBar(); updateTitle(); save(); renderSheet(); burst(player.pos.clone().setY(1.6), '#ffe07a', 20, 4); }; });
   } else if (sheetMode === 'quests') {
-    const order = Object.entries(QUESTS).filter(([k, q]) => !q.story || storyOpen(k) || S.quests[k].state !== 'todo').sort((a, b) => (b[1].story ? 1 : 0) - (a[1].story ? 1 : 0));
-    el.innerHTML = `<h3>Quests</h3>${order.map(([k, q]) => {
-      const st = S.quests[k].state, ready = questReady(k);
-      const tag = st === 'done' ? '<span class="tag done">Done</span>' : ready ? '<span class="tag ready">Hand in</span>' : st === 'active' ? '<span class="tag active">Active</span>' : '<span class="tag todo">New</span>';
-      const body = st === 'todo' ? `Talk to ${npcName(q.giver)}.` : st === 'done' ? 'Completed.' : ready ? `Return to ${npcName(q.giver)}.` : `${q.desc} (${questProgress(k)})`;
-      const canTrack = st !== 'done', on = trackedQuest() === k;
-      return `<div class="quest${q.story ? ' story' : ''}">${q.story ? `<small class="chapter">Main story · ${q.chapter}</small>` : ''}<h4>${q.name}${tag}</h4><p>${body}</p>${canTrack ? `<button class="trackbtn" data-track="${k}" aria-pressed="${on}">${on ? '&#10148; Following' : 'Follow with arrow'}</button>` : ''}</div>`;
-    }).join('')}`;
+    // a cleaner quest log: the main story up top, then what you're doing, what's on offer, and what's done
+    const all = Object.entries(QUESTS).filter(([k, q]) => !q.story || storyOpen(k) || S.quests[k].state !== 'todo');
+    const st = (k) => S.quests[k].state, tracked = trackedQuest();
+    const story = all.filter(([k, q]) => q.story && st(k) !== 'done');
+    const doing = all.filter(([k, q]) => !q.story && st(k) === 'active');
+    const offered = all.filter(([k, q]) => !q.story && st(k) === 'todo');
+    const done = all.filter(([k]) => st(k) === 'done');
+    const reward = (q) => { const r = q.reward || {}, bits = []; if (r.coins) bits.push(`<span><img src="${ICONS.coins}" alt="">${fmt(r.coins)}</span>`); if (r.hxp || r.heroXp) bits.push(`<span><img src="${ICONS.star}" alt="">${fmt(r.hxp || r.heroXp)} XP</span>`); return bits.length ? `<div class="qrew">${bits.join('')}</div>` : '<div></div>'; };
+    const card = ([k, q]) => {
+      const s0 = st(k), ready = questReady(k), on = tracked === k;
+      const tag = ready ? '<span class="tag ready">Hand in</span>' : s0 === 'active' ? '<span class="tag active">Active</span>' : '<span class="tag todo">New</span>';
+      const body = s0 === 'todo' ? `Talk to ${npcName(q.giver)}.` : ready ? `Return to ${npcName(q.giver)}.` : `${q.desc} <b>${questProgress(k)}</b>`;
+      return `<div class="quest${q.story ? ' story' : ''}${on ? ' on' : ''}">${q.story ? `<small class="chapter">Main story · ${q.chapter}</small>` : ''}<h4>${q.name}${tag}</h4><p>${body}</p>
+        <div class="qfoot">${reward(q)}<button class="trackbtn" data-track="${k}" aria-pressed="${on}">${on ? '&#10148; Following' : 'Follow'}</button></div></div>`;
+    };
+    el.innerHTML = `<h3>Quests <small>${done.length} done</small></h3>
+      ${story.map(card).join('')}
+      ${doing.length ? `<h4 class="sub">In progress</h4>${doing.map(card).join('')}` : ''}
+      ${offered.length ? `<h4 class="sub">On offer <small>talk to them to start</small></h4>${offered.map(card).join('')}` : ''}
+      ${!story.length && !doing.length && !offered.length ? '<p class="hint">No quests right now. Explore and talk to people!</p>' : ''}
+      ${done.length ? `<details class="qdone"><summary>Completed (${done.length})</summary><ul>${done.map(([, q]) => `<li>${q.story ? '&#9733; ' : ''}${q.name}</li>`).join('')}</ul></details>` : ''}`;
     el.querySelectorAll('[data-track]').forEach((b) => { b.onclick = () => { S.track = b.dataset.track; refreshUI(); save(); renderSheet(); }; });
   } else if (sheetMode === 'look') {
     const sw = (part, set = LOOK_COLOURS) => Object.entries(set).map(([k, [nm, c]]) => `<button class="swatch" data-part="${part}" data-col="${k}" title="${nm}" aria-label="${nm}" aria-pressed="${S.look[part] === k}" style="background:${c}"></button>`).join('');
@@ -3325,9 +3339,11 @@ function renderSheet() {
 }
 let resetting = false;
 function openSheet(mode) {
+  if (mode === 'skills') mode = 'card'; // the hero sheet now lives on the hero card
+  if (mode === 'craft') return; // crafting is switched off for now
   if (sheetMode === mode && !$('sheet').hidden) { closeSheet(); return; }
   sheetMode = mode; $('sheet').hidden = false; renderSheet(); document.body.classList.add('sheet-open'); document.body.classList.toggle('sheet-bag', mode === 'bag');
-  for (const m of ['skills', 'bag', 'quests', 'craft', 'crew', 'look', 'opts']) $(`b-${m}`).setAttribute('aria-pressed', String(m === mode));
+  for (const m of ['skills', 'bag', 'quests', 'craft', 'crew', 'look', 'opts']) $(`b-${m}`).setAttribute('aria-pressed', String(m === mode || (m === 'skills' && mode === 'card')));
 }
 function closeSheet() { document.body.classList.remove('sheet-open', 'sheet-bag'); $('sheet').hidden = true; sheetMode = null; for (const m of ['skills', 'bag', 'quests', 'craft', 'crew', 'look', 'opts']) $(`b-${m}`).setAttribute('aria-pressed', 'false'); }
 for (const m of ['skills', 'bag', 'quests', 'craft', 'crew', 'look', 'opts']) $(`b-${m}`).addEventListener('click', () => { document.body.classList.remove('menu-open'); $('menutoggle').setAttribute('aria-expanded', 'false'); if (m === 'look') openCreator('edit'); else openSheet(m); });
@@ -3468,7 +3484,7 @@ function openWeaponShop(npc) {
       return `<button class="buy" data-w="${k}" ${eq || (!own && S.coins < g.price) ? 'disabled' : ''}><img src="${gearIcon(g)}" alt=""><b>${g.name}</b><span>${gearStats(g)}</span><em>${label}</em></button>`;
     }).join('')}</div>
     ${spare.length ? `<h4 class="sub">Sell spare gear</h4><div class="shop sell">${spare.map(([k, g]) => `<button class="buy" data-sellg="${k}"><img src="${gearIcon(g)}" alt=""><b>${g.name}</b><span>${gearStats(g)}</span><em>Sell +${gearValue(g)}</em></button>`).join('')}</div>` : ''}
-    <p class="hint">You have ${S.coins} coins. Damage is the weapon's base: your Attack multiplies it.</p><div class="row">${type === 'frost' || type === 'marsh' || type === 'sands' ? `<button id="wup" class="primary"><img src="${ICONS.hammer}" alt="">Upgrade gear</button>` : ''}${type === 'melee' ? `<button id="wforge" class="primary"><img src="${ICONS.hammer}" alt="">Use the forge</button><button id="wup" class="primary"><img src="${ICONS.hammer}" alt="">Upgrade gear</button>` : ''}<button id="wbye">Goodbye</button></div>`;
+    <p class="hint">You have ${S.coins} coins. Damage is the weapon's base: your Attack multiplies it.</p><div class="row">${type === 'frost' || type === 'marsh' || type === 'sands' ? `<button id="wup" class="primary"><img src="${ICONS.hammer}" alt="">Upgrade gear</button>` : ''}${type === 'melee' ? `<button id="wup" class="primary"><img src="${ICONS.hammer}" alt="">Upgrade gear</button>` : ''}<button id="wbye">Goodbye</button></div>`;
   d.querySelectorAll('[data-w]').forEach((b) => { b.onclick = () => {
     const k = b.dataset.w, g = GEAR[k];
     if (!S.owned.includes(k)) { if (S.coins < g.price) return; S.coins -= g.price; S.owned.push(k); toast(`You buy the ${g.name}!`, gearIcon(g), true); }
@@ -3702,8 +3718,8 @@ const BIND_ACTIONS = [
   ['special', 'Special move', ['KeyR', '']], ['dash', 'Dash', ['KeyC', 'KeyZ']],
   ['jump', 'Jump', ['Space', '']], ['interact', 'Talk / use / skip', ['KeyE', 'KeyF']],
   ['eat', 'Eat best food', ['KeyH', '']], ['map', 'Map', ['KeyM', '']],
-  ['hero', 'Hero sheet', ['KeyP', '']], ['bag', 'Bag', ['KeyI', 'KeyB']], ['quests', 'Quests', ['KeyQ', '']],
-  ['craft', 'Craft', ['KeyG', '']], ['emote', 'Emote wheel', ['KeyN', '']],
+  ['hero', 'Hero sheet', ['KeyP', '']], ['card', 'Hero card (your worth and towns)', ['Tab', '']], ['bag', 'Bag', ['KeyI', 'KeyB']], ['quests', 'Quests', ['KeyQ', '']],
+  ['emote', 'Emote wheel', ['KeyN', '']],
   ...[1, 2, 3, 4, 5, 6, 7, 8].map((i) => [`hot${i}`, `Hotbar slot ${i}`, [`Digit${i}`, '']]),
 ];
 const MOVE_KEY = { up: 'u', down: 'd', left: 'l', right: 'r', sprint: 'sprint' };
@@ -3770,9 +3786,9 @@ addEventListener('keydown', (e) => {
   else if (act === 'eat') eatBest();
   else if (act === 'map') toggleBigMap();
   else if (act === 'hero') openSheet('skills');
+  else if (act === 'card') { e.preventDefault(); openSheet('card'); }
   else if (act === 'bag') { if (sheetMode !== 'bag') bagTab = 'items'; openSheet('bag'); }
   else if (act === 'quests') openSheet('quests');
-  else if (act === 'craft') openSheet('craft');
   else if (act === 'emote') toggleEmotes();
   else if (act.startsWith('hot') && typeof useHotbar === 'function') useHotbar(+act.slice(3) - 1);
 });
@@ -7931,7 +7947,7 @@ function renderBag(el) {
   } else {
     const C = cosState(), T = titleList(), cur = heroTitle();
     const total = Object.values(COS).reduce((a, s) => a + Object.keys(s).length, 0), have = Object.keys(C.got).length;
-    body = `<h4 class="sub">Title <small>shown over your name</small></h4><div class="titles">${T.map((t) => `<button class="titlebtn${t.ok ? '' : ' locked'}" data-title="${t.id}" aria-pressed="${cur && cur.id === t.id}" ${t.ok ? '' : 'disabled'} style="--tc:${t.col}" title="${t.how}">${t.name}${t.ok ? '' : `<small>${t.how}</small>`}</button>`).join('')}</div>
+    body = `<button id="b-appear" class="primary">Change appearance (face, hair, body)</button><h4 class="sub">Title <small>shown over your name</small></h4><div class="titles">${T.map((t) => `<button class="titlebtn${t.ok ? '' : ' locked'}" data-title="${t.id}" aria-pressed="${cur && cur.id === t.id}" ${t.ok ? '' : 'disabled'} style="--tc:${t.col}" title="${t.how}">${t.name}${t.ok ? '' : `<small>${t.how}</small>`}</button>`).join('')}</div>
       <h4 class="sub">Looks <small>${have} of ${total} found</small></h4><div class="cosgrid">${Object.entries(COS_SLOTS).map(([sl, nm]) => { const c = C.eq[sl] && COS[sl][C.eq[sl]]; return `<button class="dslot cos ${c ? RARITY[c.r || 0].id : 'empty'}" data-dslot="cos:${sl}"><span class="swatch" style="--sw:${c ? c.col || c.body || '#e8a93a' : '#d8c8a8'}"></span><small>${nm}</small></button>`; }).join('')}</div>
       <p class="hint">Ranks: ${RANKS.map((r) => `<b style="color:${r.col}">${r.name}</b> (${r.min})`).join(' · ')}. Every rank gives +5% damage and health, a bigger aura and flashier specials.</p>`;
   }
@@ -7947,6 +7963,7 @@ function renderBag(el) {
   el.querySelectorAll('[data-gear]').forEach((b) => { b.onclick = () => { const g = GEAR[b.dataset.gear]; S.equip[g.slot] = g.slot === 'gadget' && S.equip.gadget === b.dataset.gear ? null : b.dataset.gear; cancelTask(); equipGear(); buildGearBar(); updateTitle(); save(); renderSheet(); burst(player.pos.clone().setY(1.6), '#ffe07a', 20, 4); sfx('equip'); }; });
   el.querySelectorAll('[data-cos]').forEach((b) => { b.onclick = () => { const [sl, k] = b.dataset.cos.split(':'); const C = cosState(); const wasSkel = heroSkel(); C.eq[sl] = k && C.eq[sl] !== k ? k : null; if (sl === 'outfit' && wasSkel !== heroSkel()) { rebuildHero(); if (net.on) profileKey = ''; } else if (sl === 'cape' || sl === 'outfit') applyLook(); heroFlair(); save(); renderSheet(); burst(player.pos.clone().setY(1.6), '#ffe07a', 24, 4); }; });
   el.querySelectorAll('[data-title]').forEach((b) => { b.onclick = () => { S.title = b.dataset.title; save(); renderSheet(); }; });
+  if ($('b-appear')) $('b-appear').onclick = () => { closeSheet(); openCreator('edit'); };
 }
 
 // ---------- Sir Percival Pompington, the glory thief ----------
@@ -8006,6 +8023,44 @@ const townBuild = (T) => !remoteMayor(T.id) && S.townBuild && S.townBuild[T.id];
 const mayorName = (T) => { const r = remoteMayor(T.id); if (r) return r.mayor_name || 'a friend'; return typeof (S.towns || {})[T.id] === 'string' ? S.towns[T.id] : heroName(); };
 const weeklyTax = (T) => Math.round(400 * T.stars * townMult(T) * (1 + 0.75 * townLvl(T)));
 const upgradeCost = (T, l) => Math.round(TOWN_LEVELS[l].cost * T.stars * townMult(T));
+// Tab: a hero card with your look, level, gold, net worth and the towns you run
+function renderCard(el) {
+  const nw = netWorth(), mine = TOWNS.filter((T) => townMine(T.id)), rk = rankOf(heroLvl()), R = RANKS[rk], t = heroTitle(), ch = chapterNow();
+  const L = heroLvl(), cur = HXT[L], next = HXT[Math.min(HERO_MAX, L + 1)], pct = L >= 99 ? 100 : ((S.hero.xp - cur) / (next - cur)) * 100;
+  el.innerHTML = `<h3>${esc(heroName())} <small>${ch.tag}</small></h3>
+    <div class="herocard" style="--rank:${R.col}">
+      <div class="dfig"><div class="dprev" title="Drag to turn your hero"></div><span class="drank">${R.name}</span>${t && t.name !== R.name ? `<em>${esc(t.name)}</em>` : ''}</div>
+      <div class="hcstats">
+        <div class="hclvl"><b>Level ${L}</b><div class="hcbar"><i style="width:${pct.toFixed(1)}%"></i></div><small>${L >= 99 ? 'Max level' : `${fmt(S.hero.xp - cur)} / ${fmt(next - cur)} XP`}</small></div>
+        <div class="hcrow"><img src="${ICONS.coins}" alt=""><span>Gold</span><b>${fmt(nw.coins)}</b></div>
+        <div class="hcrow"><img src="${ICONS.coins}" alt=""><span>In the bank</span><b>${fmt(nw.bank)}</b></div>
+        <div class="hcrow"><img src="${ICONS.star}" alt=""><span>Items</span><b>${fmt(nw.items)}</b></div>
+        <div class="hcrow"><img src="${ICONS.star}" alt=""><span>Towns</span><b>${fmt(nw.towns)}</b></div>
+        <div class="hcrow total"><span>Net worth</span><b>${fmt(nw.total)}</b></div>
+      </div>
+    </div>
+    <h4 class="sub">Your towns <small>${mine.length} of ${TOWNS.length}</small></h4>
+    ${mine.length ? `<div class="hctowns">${mine.map((T) => `<div class="hctown"><b>${esc(T.name)}</b><span>${'★'.repeat(T.stars || 1)} · ${TOWN_LEVELS[townLvl(T)] ? TOWN_LEVELS[townLvl(T)].name : 'Town'}</span><small>${fmt(weeklyTax(T))} tax a week · worth ${fmt(townValue(T))}</small></div>`).join('')}</div>`
+      : '<p class="hint">You don\'t run any towns yet. Beat the monster holding a town to become its mayor and collect taxes every week.</p>'}
+    ${heroStatsHtml()}
+    <div class="row"><button id="cardclose">Close (Tab)</button></div>`;
+  previewMount();
+  el.querySelectorAll('[data-stat]').forEach((b) => { b.onclick = () => spendPoint(b.dataset.stat); });
+  $('cardclose').onclick = closeSheet;
+}
+// stat points, weapon, gathering skills and the rich list (this used to be its own Hero sheet)
+function heroStatsHtml() {
+  const free = freePoints();
+  const effect = { atk: `Weapon damage × ${dmgMult().toFixed(1)}`, def: `Damage taken ÷ ${defDiv().toFixed(1)}${gearDef() ? ` (gear +${gearDef()})` : ''}`, hp: `${maxHp()} max health` };
+  return `<h4 class="sub">Stats ${free > 0 ? `<small><b>${free} point${free > 1 ? 's' : ''} to spend</b></small>` : ''}</h4>
+      <div class="stats">${Object.entries(STATS).map(([k, [nm, ic]]) => `<div class="stat"><img src="${ICONS[ic]}" alt=""><span class="nm">${nm}</span><span class="lv">${stat(k)}</span><small>${effect[k]}</small>${free > 0 ? `<button class="plus" data-stat="${k}" aria-label="Add a point to ${nm}">+</button>` : ''}</div>`).join('')}</div>
+      <p class="hint">Each level gives +1 to every stat and ${FREE_PER_LEVEL} points to spend. Defense and Health keep you alive about equally, so mixing them works best.</p>
+      <h4 class="sub">Gathering</h4><div class="skills">${SKILLS.filter(([k]) => k !== 'crafting').map(([k, nm]) => {
+      const l = lvl(k), c0 = XPT[l], n0 = XPT[Math.min(99, l + 1)];
+      const pc = l >= 99 ? 100 : ((S.xp[k] - c0) / (n0 - c0)) * 100;
+      return `<div class="skill" title="${Math.floor(S.xp[k])} XP"><img src="${ICONS[k]}" alt=""><span class="nm">${nm}</span><span class="lv">${l}</span><div class="xp"><i style="width:${pc}%"></i></div></div>`;
+    }).join('')}</div>${worthHtml()}`;
+}
 function townValue(T) {
   let v = 1000 * T.stars + weeklyTax(T) * 2;
   for (let l = 1; l <= townLvl(T); l++) v += upgradeCost(T, l);
@@ -8203,7 +8258,7 @@ let richAsked = 0;
 const RIVAL_WORTH = [['Sir Percival Pompington', 2400, 420], ['Big Gus', 900, 160], ['Saffy Quickshot', 650, 190], ['Sir Bramble', 800, 140], ['Nyx', 500, 230]];
 function richList() {
   if (net.on) {
-    if (!richAsked || performance.now() - richAsked > 30000) { richAsked = performance.now(); refreshBoard().then(() => { if (!$('sheet').hidden && sheetMode === 'skills') renderSheet(); }); }
+    if (!richAsked || performance.now() - richAsked > 30000) { richAsked = performance.now(); refreshBoard().then(() => { if (!$('sheet').hidden && sheetMode === 'card') renderSheet(); }); }
     const rows = (net.board || []).map((r) => ({ name: r.name, worth: Number(r.net_worth) }));
     if (!rows.some((r) => r.name === heroName())) rows.push({ name: heroName(), worth: netWorth().total });
     for (const r of rows) if (r.name === heroName()) { r.me = true; r.worth = netWorth().total; }
