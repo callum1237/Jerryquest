@@ -660,6 +660,7 @@
   }
   #dialog .crewnow { font-size: .85em; opacity: .75; margin-top: -4px; }
   #status .who > div { flex: 1; min-width: 0; justify-items: start; row-gap: 2px; }
+  #status .who > .badge { flex: none; } /* the round portrait stays round and never spills over the quest line */
   #status .who h2 { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; line-height: 1.1; }
   .chaptag { font: 800 10px/1 var(--display, inherit); color: #fff; background: #8a5ad8; border: 2px solid var(--ink, #2b160c); border-radius: 999px; padding: 2px 7px; white-space: nowrap; box-shadow: 0 2px 0 var(--ink, #2b160c); }
 
@@ -888,7 +889,13 @@
   #hotbar .hot.empty img { display: none; }
   #bossbar { top: calc(env(safe-area-inset-top, 0px) + 12px); bottom: auto !important; width: min(460px, calc(100% - 540px)); min-width: 260px; }
   #toasts { top: calc(env(safe-area-inset-top, 0px) + 84px); }
-  @media (max-width: 1000px) { #bossbar { top: calc(env(safe-area-inset-top, 0px) + 112px); width: min(420px, calc(100% - 32px)); } }
+  @media (max-width: 1000px) { #bossbar { top: calc(env(safe-area-inset-top, 0px) + 112px); width: min(420px, calc(100% - 32px)); } body:has(#bossbar:not([hidden])) #toasts { top: calc(env(safe-area-inset-top, 0px) + 186px); } }
+  /* phones: toasts and the boss bar sit below your name card and the minimap, never on top of them */
+  @media (max-width: 700px) {
+    #toasts { top: calc(env(safe-area-inset-top, 0px) + 134px); width: calc(100% - 24px); }
+    #bossbar { top: calc(env(safe-area-inset-top, 0px) + 134px); }
+    body:has(#bossbar:not([hidden])) #toasts { top: calc(env(safe-area-inset-top, 0px) + 206px); }
+  }
   /* ---------- v57 loadout: live hero preview, six rarities ---------- */
   .dprev { width: 100%; max-width: 190px; aspect-ratio: 4 / 5; border-radius: 16px; border: 3px solid var(--ink); background: radial-gradient(circle at 50% 38%, #fffaf0, color-mix(in srgb, var(--rank) 30%, #f0d39a) 75%); box-shadow: inset 0 0 0 3px #f7d77a, 0 3px 0 var(--ink); overflow: hidden; position: relative; }
   .dprev::after { content: ''; position: absolute; left: 22%; right: 22%; bottom: 7%; height: 9%; border-radius: 50%; background: rgb(74 42 23 / .18); pointer-events: none; }

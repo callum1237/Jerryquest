@@ -129,9 +129,9 @@ const WEAPONS = {
   k_colossus: { type: 'melee', name: 'Colossus Fist', dmg: 72, reach: 3.9, cd: 1.35, price: 0, unique: true, model: 'axe_2handed', tint: '#ffd23f', heavy: true },
   a_pomp: { type: 'ranged', name: "Pompington's Popgun", dmg: 30, reach: 16, cd: 0.42, price: 0, unique: true, model: 'crossbow_2handed', tint: '#ffe28a' },
   // MYTHIC: the rarest things in the game. A tiny chance from Chapter 4 bosses and the world boss.
-  my_star: { type: 'melee', name: 'Starfall Blade', dmg: 96, reach: 3.7, cd: 0.85, price: 0, unique: true, mythic: true, model: 'sword_2handed_color', tint: '#ff6ab0', heavy: true },
-  my_root: { type: 'magic', name: 'Worldroot Staff', dmg: 90, reach: 19, cd: 0.95, price: 0, unique: true, mythic: true, model: 'staff', tint: '#7affc8' },
-  my_dawn: { type: 'ranged', name: 'Dawnbreaker', dmg: 82, reach: 20, cd: 0.5, price: 0, unique: true, mythic: true, model: 'crossbow_2handed', tint: '#fff6d0' },
+  my_star: { type: 'melee', name: 'Starfall Blade', dmg: 92, reach: 3.7, cd: 0.95, price: 0, unique: true, mythic: true, model: 'sword_2handed_color', tint: '#ff6ab0', heavy: true },
+  my_root: { type: 'magic', name: 'Worldroot Staff', dmg: 80, reach: 19, cd: 0.95, price: 0, unique: true, mythic: true, model: 'staff', tint: '#7affc8' },
+  my_dawn: { type: 'ranged', name: 'Dawnbreaker', dmg: 46, reach: 20, cd: 0.55, price: 0, unique: true, mythic: true, model: 'crossbow_2handed', tint: '#fff6d0' },
   a_rattle: { type: 'ranged', name: "Rattlebones' Repeater", dmg: 12, reach: 14, cd: 0.55, price: 0, unique: true, model: 'crossbow_2handed', tint: '#9effa8' },
 };
 // Shields and armour add Defense on top of your Defense points.
@@ -175,7 +175,8 @@ function gearRarIx(g) {
   if (g.tier === 2) return 1;
   return g.price >= 150 ? 1 : 0;
 }
-const gearValue = (g) => Math.floor((g.unique ? [100, 200, 400, 1500, 6000, 40000][gearRarIx(g)] : g.price / 2) * (g.unique ? 1 : RARITY[gearRarIx(g)].sell / 1.3 + 0.25));
+// shop gear always sells for less than it costs (half, up to three quarters for the rarest), so buying to sell never pays
+const gearValue = (g) => Math.floor(g.unique ? [100, 200, 400, 1500, 6000, 40000][gearRarIx(g)] : g.price * [0.5, 0.55, 0.6, 0.65, 0.7, 0.75][gearRarIx(g)]);
 const gearIcon = (g) => (g.slot === 'weapon' ? ICONS[g.type] : ICONS[g.slot]);
 const gearStats = (g) => (g.slot === 'weapon'
   ? `${g.dmg} dmg · ${g.type === 'melee' ? 'reach' : 'range'} ${g.reach} · ${g.cd}s · ${SPECIALS[specialOf(g)].name}${g.sun ? ' · +15% by day' : ''}`
@@ -765,6 +766,7 @@ function makePeer(id, p) {
 function dropPeer(id) {
   const pa = peerActors.get(id);
   if (!pa) return;
+  if (pa.a.flair) auraKit(pa.a, null);
   scene.remove(pa.a.root); pa.tag.remove(); peerActors.delete(id);
 }
 const ONE_SHOT = /Attack|Hit_|Death|Jump|Dodge|Use_Item|Interact|Cheer|Spellcast|Block/;
@@ -790,6 +792,7 @@ function peersTick(dt) {
     if (p.a && p.a !== pa.anim) { pa.anim = p.a; pa.a.play(p.a, { once: ONE_SHOT.test(p.a), clamp: /Death/.test(p.a) }); }
     pa.a.mixer.update(dt); headPose(pa.a);
     flairTick(pa.a, dt, /Running|Walking/.test(pa.anim));
+    if (pa.shimAt === undefined || now > pa.shimAt) { pa.shimAt = now + 0.1; shimmerTick(pa.a, p.look && p.look.cos); }
     const v = tmpV.set(p.x, 4.4, p.z).project(camera);
     if (v.z > 1 || bossIntro) { setShown(pa.tag, false); continue; }
     setShown(pa.tag, true);
@@ -2086,6 +2089,8 @@ function useHotbar(i) {
 function renderHotbar() {
   const el = $('hotbar'); if (!el || !S.started) return;
   const hb = hotbar(), kb = binds();
+  // gear you sold, traded or lost in a duel leaves the hotbar
+  for (let i = 0; i < HOT_N; i++) if (GEAR[hb[i]] && !S.owned.includes(hb[i])) hb[i] = null;
   // first time: fill it with your weapons, then your food, so switching weapons is one key away
   if (!S.hotAuto) {
     S.hotAuto = 1;
@@ -2653,7 +2658,9 @@ function buildGuide() {
   // a dark border drawn just underneath, so the arrow reads clearly on grass, snow and sand
   const rim = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ color: '#4a2a17', depthTest: false, transparent: true, fog: false }));
   rim.scale.set(1.22, 0.6, 1.22); rim.position.set(0, -0.05, 0.02); rim.renderOrder = 998; arrow.add(rim);
-  const pivot = new THREE.Group(); arrow.position.z = -4.6; pivot.add(arrow); // tip faces outward, away from the hero g.add(pivot);
+  const pivot = new THREE.Group(); arrow.position.z = -4.6; pivot.add(arrow); g.add(pivot); // tip faces outward, away from the hero
+  // ...but never over the hero (or a boss) themselves: they mark the stencil, and the arrow skips those pixels
+  for (const m of [...Object.values(arrow.userData.mats || {}), arrow.material, rim.material]) if (m && m.isMaterial) Object.assign(m, { stencilWrite: true, stencilRef: 1, stencilFunc: THREE.NotEqualStencilFunc, stencilFail: THREE.KeepStencilOp, stencilZFail: THREE.KeepStencilOp, stencilZPass: THREE.KeepStencilOp });
   const starShape = new THREE.Shape();
   for (let i = 0; i < 10; i++) { const r = i % 2 ? 0.28 : 0.62, a = Math.PI / 2 + i * Math.PI / 5; i ? starShape.lineTo(Math.cos(a) * r, Math.sin(a) * r) : starShape.moveTo(Math.cos(a) * r, Math.sin(a) * r); }
   const star = new THREE.Mesh(new THREE.ExtrudeGeometry(starShape, { depth: 0.2, bevelEnabled: true, bevelSize: 0.05, bevelThickness: 0.05 })); registerMesh(star, gold);
@@ -2670,7 +2677,8 @@ function guideTick() {
   if (guide.pivot.parent !== guide.g) guide.g.add(guide.pivot);
   if (guide.g.parent !== scene) scene.add(guide.g);
   if (guide.star.parent !== scene) scene.add(guide.star);
-  const id = trackedQuest(), show = S.guideOn !== false && id && !uiLock() && !talking;
+  // it steps aside during a boss fight, so the floor warnings are the only things on the ground
+  const id = trackedQuest(), show = S.guideOn !== false && id && !uiLock() && !talking && $('bossbar').hidden;
   let t = show && questTarget(id), via = '';
   if (t && t.inside !== where) {
     // the goal is in another place: lead to the door first
@@ -3279,8 +3287,9 @@ function openShop(npc) {
     const k = b.dataset.sellgear, g = GEAR[k], v = gearValue(g);
     // rare things ask twice, so nobody sells a treasure by accident
     if (gearRarIx(g) >= 2 && b.dataset.sure !== '1') { b.dataset.sure = '1'; b.querySelector('em').textContent = `Sure? ${fmt(v)}`; return; }
-    S.owned = S.owned.filter((x) => x !== k); S.hotbar = (S.hotbar || []).map((x) => (x === k ? null : x));
-    S.coins += v; toast(`Sold ${g.name} for ${fmt(v)} coins.`, ICONS.coins, v >= 1000);
+    if (!S.owned.includes(k) || Object.values(S.equip).includes(k)) return;
+    S.owned = S.owned.filter((x) => x !== k); S.hotbar = (S.hotbar || []).map((x) => (x === k ? null : x)); if (S.plus) delete S.plus[k];
+    S.coins += v; renderHotbar(); toast(`Sold ${g.name} for ${fmt(v)} coins.`, ICONS.coins, v >= 1000);
     refreshUI(); save(); openShop(npc);
   }; });
   if (worth && !tavern) $('sellall').onclick = () => {
@@ -3364,7 +3373,7 @@ function openWeaponShop(npc) {
   d.querySelectorAll('[data-sellg]').forEach((b) => { b.onclick = () => {
     const k = b.dataset.sellg, g = GEAR[k];
     if (!S.owned.includes(k) || S.equip[g.slot] === k) return;
-    S.owned = S.owned.filter((o) => o !== k); S.coins += gearValue(g);
+    S.owned = S.owned.filter((o) => o !== k); S.coins += gearValue(g); if (S.plus) delete S.plus[k]; S.hotbar = (S.hotbar || []).map((x) => (x === k ? null : x)); renderHotbar();
     toast(`Sold the ${g.name} for ${gearValue(g)} coins.`, ICONS.coins, g.unique);
     refreshUI(); save(); openWeaponShop(npc);
   }; });
@@ -3937,9 +3946,12 @@ function chargedAttack(k) {
   player.busyUntil = now + 0.3;
   const fwd = fwdOf(player), dmg = () => Math.max(1, Math.round(heroDamage() * mult));
   if (A.proj) {
+    // a fan of five shots: the first one to reach a foe hits in full, extra shots on the same foe only graze,
+    // so a big boss doesn't soak up all five for a one-button wipe
+    const struck = new Set(), part = (e) => { const f = struck.has(e) ? 0.25 : 1; struck.add(e); return Math.max(1, Math.round(dmg() * f)); };
     for (const a of [-0.24, -0.12, 0, 0.12, 0.24]) {
       const d = fwd.clone().applyAxisAngle(new THREE.Vector3(0, 1, 0), a);
-      shoot(player.pos.clone().add(new THREE.Vector3(0, 1.8, 0)).addScaledVector(d, 0.8), d, A.proj, w.reach * 1.35, 'player', (e) => (e.isCrew ? hurtCrew(e, dmg(), player) : hurtEnemy(e, dmg(), null, 2)));
+      shoot(player.pos.clone().add(new THREE.Vector3(0, 1.8, 0)).addScaledVector(d, 0.8), d, A.proj, w.reach * 1.35, 'player', (e) => (e.isCrew ? hurtCrew(e, part(e), player) : hurtEnemy(e, part(e), null, 2)));
     }
     burst(player.pos.clone().setY(1.8).addScaledVector(fwd, 1.2), A.proj === 'orb' ? '#bff6ff' : '#ffe9a8', 30, 6);
     return;
@@ -4471,7 +4483,10 @@ function bossSpecial(e) {
   if (pick === 0) {
     // CHARGE: a long lane toward you, then it rushes down it and is left dizzy
     e.state = 'slam'; e.play('Spellcasting', { once: true, fade: 0.1 });
-    const sx = ep.x, sz = ep.z, dx = Math.sin(toward), dz = Math.cos(toward), L = 15;
+    const sx = ep.x, sz = ep.z, dx = Math.sin(toward), dz = Math.cos(toward);
+    // it never charges off its own stage (into another boss's, or out of the arena)
+    const [tx, tz] = e.home ? nearHome(e, sx + dx * 15, sz + dz * 15, bossLeash(e)) : [sx + dx * 15, sz + dz * 15];
+    const L = Math.max(5, Math.min(15, Math.hypot(tx - sx, tz - sz)));
     hazard({ x: sx, z: sz, R: L + 1, dir, half: 0.17, dur: 1.0, dmg: bossDmg(e, 1.5), col: '#ff4a3a' });
     for (let s = 1; s <= 8; s++) later(1.0 + s * 0.035, () => { if (e.hp > 0) { ep.x = sx + dx * L * s / 8; ep.z = sz + dz * L * s / 8; } });
     later(1.0, () => { if (e.hp > 0) e.play('Running_A', { fade: 0.05 }); });
@@ -7411,8 +7426,8 @@ function makeHat(id) {
   } else if (id === 'halo') {
     const h = M(new THREE.TorusGeometry(0.42, 0.06, 10, 32), '#ffe27a', { emissive: '#c89a00' }); h.rotation.x = Math.PI / 2; h.position.y = 1.55;
   } else if (id === 'flame') {
-    M(new THREE.TorusGeometry(0.5, 0.06, 8, 28), '#ffb02e', { emissive: '#a84a00' }).rotation.x = Math.PI / 2; g.children[0].position.y = 1.02;
-    for (let i = 0; i < 7; i++) { const a2 = (i / 7) * Math.PI * 2, f = M(new THREE.ConeGeometry(0.12, 0.42 + (i % 2) * 0.16, 8), i % 2 ? '#ffd23f' : '#ff5a1a', { emissive: i % 2 ? '#c89a00' : '#a82a00' }); f.position.set(Math.cos(a2) * 0.5, 1.26, Math.sin(a2) * 0.5); }
+    M(new THREE.TorusGeometry(0.47, 0.05, 8, 28), '#ffb02e', { emissive: '#a84a00' }).rotation.x = Math.PI / 2; g.children[0].position.y = 1.02;
+    for (let i = 0; i < 7; i++) { const a2 = (i / 7) * Math.PI * 2, h = 0.26 + (i % 2) * 0.1, f = M(new THREE.ConeGeometry(0.085, h, 8), i % 2 ? '#ffd23f' : '#ff5a1a', { emissive: i % 2 ? '#c89a00' : '#a82a00' }); f.position.set(Math.cos(a2) * 0.47, 1.04 + h / 2, Math.sin(a2) * 0.47); }
   } else if (id === 'star') {
     M(new THREE.TorusGeometry(0.5, 0.045, 8, 32), '#fff6d0', { emissive: '#ff6ab0' }).rotation.x = Math.PI / 2; g.children[0].position.y = 1.04;
     for (let i = 0; i < 5; i++) { const a2 = (i / 5) * Math.PI * 2, st = M(new THREE.OctahedronGeometry(0.13), '#ffe27a', { emissive: '#ff6ab0' }); st.position.set(Math.cos(a2) * 0.62, 1.42 + (i % 2) * 0.12, Math.sin(a2) * 0.62); st.scale.y = 1.5; }
@@ -7445,7 +7460,7 @@ const pillarTex = (() => { const c = document.createElement('canvas'); c.width =
 const moteGeo = new THREE.SphereGeometry(0.09, 8, 6);
 function auraKit(a, c) {
   const F = a.flair;
-  if (F.kit) { F.kit.removeFromParent(); F.kit.traverse((o) => { if (o.material) o.material.dispose(); }); F.kit = null; }
+  if (F.kit) { F.kit.removeFromParent(); F.kit.traverse((o) => { if (o.material) o.material.dispose(); if (o.geometry && o.geometry !== moteGeo) o.geometry.dispose(); }); F.kit = null; }
   if (!c) return;
   const r = c.r || 0, kit = new THREE.Group(), add = (m) => { m.layers.set(1); kit.add(m); return m; };
   const blend = { transparent: true, depthWrite: false, fog: false, blending: THREE.AdditiveBlending };
@@ -7577,6 +7592,8 @@ function previewMount() {
     prev.cv.addEventListener('pointermove', (e) => { if (prev.drag !== null) { prev.yaw += (e.clientX - prev.drag) * 0.012; prev.drag = e.clientX; } });
     prev.cv.addEventListener('pointerup', () => { prev.drag = null; });
   }
+  // no second 3D view on this device: show the painted portrait instead
+  if (!prev.r) { slot.innerHTML = `<img src="${portrait(S.look)}" alt="" style="width:100%;height:100%;object-fit:contain">`; return; }
   slot.appendChild(prev.cv);
 }
 function previewTick() {
@@ -7586,10 +7603,13 @@ function previewTick() {
   if (prev.cv.width !== Math.round(w * prev.r.getPixelRatio())) { prev.r.setSize(w, h, false); prev.cam.aspect = w / h; prev.cam.updateProjectionMatrix(); }
   if (prev.drag === null) prev.yaw += 0.006;
   // borrow the real hero for one quick draw, then put everything back exactly where it was
-  const R = player.root, parent = R.parent, px = R.position.x, py = R.position.y, pz = R.position.z, ry = R.rotation.y;
-  prev.scene.add(R); R.position.set(0, 0, 0); R.rotation.y = prev.yaw;
-  prev.cam.position.set(0, 2.2, 7.4); prev.cam.lookAt(0, 1.45, 0);
-  try { prev.r.render(prev.scene, prev.cam); } finally { if (parent) parent.add(R); R.position.set(px, py, pz); R.rotation.y = ry; }
+  const R = player.root, parent = R.parent, px = R.position.x, py = R.position.y, pz = R.position.z, ry = R.rotation.y, vis = R.visible;
+  // the see-through silhouettes only make sense behind trees, so they stay out of the portrait
+  const sils = prev.sils || (prev.sils = []); sils.length = 0;
+  R.traverse((o) => { if (o.userData.isSil && o.visible) { sils.push(o); o.visible = false; } });
+  prev.scene.add(R); R.position.set(0, 0, 0); R.rotation.y = prev.yaw; R.visible = true;
+  prev.cam.position.set(0, 2.3, 8.6); prev.cam.lookAt(0, 1.6, 0);
+  try { prev.r.render(prev.scene, prev.cam); } finally { if (parent) parent.add(R); R.position.set(px, py, pz); R.rotation.y = ry; R.visible = vis; for (const o of sils) o.visible = true; }
 }
 const SLOT_NAMES = { weapon: 'Weapon', shield: 'Shield', armour: 'Armour', gadget: 'Gadget' };
 function gearDelta(g, cur) {
