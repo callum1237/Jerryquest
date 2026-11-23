@@ -74,6 +74,19 @@ export async function signIn(name, pass, create) {
 export async function flushSave() { clearTimeout(saveTimer); await flush(); }
 export async function signOut() { try { await (await client()).auth.signOut(); } catch (e) { /* ignore */ } }
 
+// ---------- admin ----------
+// Only accounts listed in the server's "admins" table get the admin commands. The table can only be
+// read for your own row and can't be written from the game at all, so nobody can add themselves.
+let adminCache = null;
+export async function isAdmin() {
+  if (!net.on || !net.user || !sb) return false;
+  if (adminCache && adminCache.id === net.user.id) return adminCache.ok;
+  let ok = false;
+  try { const { data, error } = await sb.from('admins').select('user_id').eq('user_id', net.user.id).maybeSingle(); ok = !error && !!data; } catch (e) { ok = false; }
+  adminCache = { id: net.user.id, ok };
+  return ok;
+}
+
 // ---------- cloud saves ----------
 export async function loadCloud() {
   const { data, error } = await sb.from('saves').select('data').eq('user_id', net.user.id).maybeSingle();

@@ -8,7 +8,7 @@ import { LANDS, VALLEY_DOCK, buildLands, makeSnow, landRoads, coastOf, SANDS_FX,
 import { ICONS } from './icons.js';
 import { buildInteriors, INTERIORS, lavaPools } from './interiors.js';
 import { unlockAudio, playMusic, sfx, setVolumes, fxMute } from './audio.js';
-import { net, resume, signIn, signOut, loadCloud, cloudSave, flushSave, refreshBoard, setTown, connect, updateProfile, sendPos, sendChat, cleanChat, sendNet } from './online.js';
+import { net, resume, signIn, signOut, loadCloud, cloudSave, flushSave, refreshBoard, setTown, connect, updateProfile, sendPos, sendChat, cleanChat, sendNet, isAdmin } from './online.js';
 
 const $ = (id) => document.getElementById(id);
 let resizeCount = 0; addEventListener('resize', () => { resizeCount++; });
@@ -888,8 +888,34 @@ function partySet(p, why) {
   if (!p && was && why) { sys(why); toast(why, ICONS.star); }
   renderParty();
 }
+// /give: an admin-only command (the server decides who is an admin). Gives items, gear, cosmetics or coins.
+async function adminGive(rest) {
+  if (!(await isAdmin())) { sys('Commands: /p name to invite, /p list, /p leave, /p kick name, /p damage on|off, /p disband, /trade name'); return; }
+  const what = (rest[0] || '').toLowerCase(), n = Math.max(1, Math.min(100000, parseInt(rest[1], 10) || 1));
+  if (!what || what === 'help') { sys('Admin: /give item_id [amount], /give coins 5000, /give xp 1000, /give aura:dark, /give find word (search ids)'); return; }
+  if (what === 'find') {
+    const q = (rest[1] || '').toLowerCase(), hits = [];
+    for (const [k, v] of Object.entries(ITEMS)) if (k.includes(q) || String(v).toLowerCase().includes(q)) hits.push(k);
+    for (const [k, g] of Object.entries(GEAR)) if (k.includes(q) || (g.name || '').toLowerCase().includes(q)) hits.push(k);
+    for (const [slot, list] of Object.entries(COS)) for (const [k, c] of Object.entries(list)) if (k.includes(q) || (c.name || '').toLowerCase().includes(q)) hits.push(`${slot}:${k}`);
+    for (const [k, sp] of Object.entries(typeof SPELLS === 'object' ? SPELLS : {})) if (k.includes(q) || sp.name.toLowerCase().includes(q)) hits.push(`spell:${k}`);
+    sys(hits.length ? `Found: ${hits.slice(0, 30).join(', ')}${hits.length > 30 ? '...' : ''}` : 'Nothing found.'); return;
+  }
+  if (what === 'coins' || what === 'gold') { S.coins += n; refreshUI(); sys(`Gave ${n} coins.`); save(); return; }
+  if (what === 'xp') { giveHeroXp(n); sys(`Gave ${n} hero XP.`); save(); return; }
+  if (what.includes(':')) {
+    const [slot, k] = what.split(':');
+    if (slot === 'spell' && typeof SPELLS === 'object' && SPELLS[k]) { learnSpell(k); sys(`Learned ${SPELLS[k].name}.`); save(); return; }
+    if (COS[slot] && COS[slot][k]) { cosState().got[what] = 1; sys(`Unlocked ${COS[slot][k].name}. Wear it from your Bag (Style tab).`); save(); return; }
+    sys(`No cosmetic called ${what}.`); return;
+  }
+  if (GEAR[what]) { for (let i = 0; i < Math.min(n, 1); i++) if (!S.owned.includes(what)) S.owned.push(what); refreshUI(); sys(`Gave ${GEAR[what].name}.`); save(); return; }
+  if (ITEMS[what] || FOOD[what]) { addItem(what, n); sys(`Gave ${n} x ${ITEMS[what] || what}.`); save(); return; }
+  sys(`No item called "${what}". Try /give find word`);
+}
 function chatCommand(line) {
   const [cmd, ...rest] = line.slice(1).split(/\s+/), arg = rest.join(' ');
+  if (/^give$/i.test(cmd)) { adminGive(rest); return; }
   if (/^(t|trade)$/i.test(cmd)) { if (!arg) sys('Trade: /trade name, standing near them.'); else tradeInvite(arg); return; }
   if (!/^(p|party)$/i.test(cmd)) { sys('Commands: /p name to invite, /p list, /p leave, /p kick name, /p damage on|off, /p disband, /trade name'); return; }
   if (!net.on) { sys('Parties need the game server.'); return; }
@@ -7630,6 +7656,7 @@ const COS = {
     gold: { name: 'Golden harvest aura', r: 2, col: '#ffe08a', how: 'Gather from 10 golden trees or rocks' }, sakura: { name: 'Sakura aura', r: 2, col: '#ff9ac8', how: 'drop' }, jelly: { name: 'Royal jelly aura', r: 2, col: '#ffd84a', how: 'drop' },
     frost: { name: 'Frost aura', r: 3, col: '#7fe8ff', how: 'Defeat Queen Frostwhisker' }, royal: { name: 'Royal aura', r: 3, col: '#b06ae8', how: 'Reach level 45 (Champion)' }, storm: { name: 'Storm aura', r: 3, col: '#a8c8ff', how: 'drop' },
     rose: { name: 'Rose aura', r: 4, col: '#ff5a9a', how: 'Be worth 100,000 coins' }, sun: { name: 'Sunfire aura', r: 4, col: '#ffa02e', how: 'Defeat the Brassbolt Colossus' }, inferno: { name: 'Inferno aura', r: 4, col: '#ff5a1a', how: 'drop' },
+    dark: { name: 'Dark aura', r: 4, col: '#8a3aff', dark: true, how: 'drop' },
     void: { name: 'Void aura', r: 5, col: '#7a3aff', how: 'Reach level 90 (Mythic)' }, prism: { name: 'Prism aura', r: 5, col: '#ff6ad5', shimmer: true, how: 'drop' },
   },
   trail: {
@@ -7815,13 +7842,21 @@ function auraKit(a, c) {
   if (!c) return;
   const r = c.r || 0, kit = new THREE.Group(), add = (m) => { m.layers.set(1); kit.add(m); return m; };
   const blend = { transparent: true, depthWrite: false, fog: false, blending: THREE.AdditiveBlending };
-  const disc = add(new THREE.Mesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshBasicMaterial({ map: runeTex, color: c.col, opacity: 0.55 + r * 0.06, side: THREE.DoubleSide, ...blend })));
+  // a dark aura can't be made of light: its rune, smoke and wisps are drawn as shadow, with a thin violet glow
+  const shadow = { transparent: true, depthWrite: false, fog: false };
+  const disc = add(new THREE.Mesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshBasicMaterial({ map: runeTex, color: c.dark ? '#14061f' : c.col, opacity: c.dark ? 0.85 : 0.55 + r * 0.06, side: THREE.DoubleSide, ...(c.dark ? shadow : blend) })));
   disc.rotation.x = -Math.PI / 2; disc.position.y = 0.07; disc.scale.setScalar(2.6 + r * 0.25);
   const motes = [];
-  for (let i = 0; i < 4 + r * 3; i++) { const m = add(new THREE.Mesh(moteGeo, new THREE.MeshBasicMaterial({ color: i % 3 ? c.col : '#ffffff', opacity: 0.9, ...blend }))); m.userData.o = { ph: i / (4 + r * 3), sp: 0.35 + rng() * 0.25, rad: 0.8 + rng() * 0.5, s: 0.7 + rng() * 0.8 }; motes.push(m); }
+  for (let i = 0; i < 4 + r * 3 + (c.dark ? 6 : 0); i++) { const m = add(new THREE.Mesh(moteGeo, c.dark && i % 3 ? new THREE.MeshBasicMaterial({ color: i % 2 ? '#12051c' : '#2a0e40', opacity: 0.8, ...shadow }) : new THREE.MeshBasicMaterial({ color: c.dark ? '#b46aff' : i % 3 ? c.col : '#ffffff', opacity: 0.9, ...blend }))); m.userData.o = { ph: i / (4 + r * 3), sp: 0.35 + rng() * 0.25, rad: 0.8 + rng() * 0.5, s: 0.7 + rng() * 0.8 }; motes.push(m); }
   let pillar = null;
   if (r >= 3) { pillar = add(new THREE.Mesh(new THREE.CylinderGeometry(1.0, 1.15, 3.4, 24, 1, true), new THREE.MeshBasicMaterial({ map: pillarTex, color: c.col, opacity: 0.18 + (r - 3) * 0.08, side: THREE.DoubleSide, ...blend }))); pillar.position.y = 1.7; }
-  a.root.add(kit); F.kit = kit; F.kitParts = { disc, motes, pillar, r, shimmer: !!c.shimmer, col: new THREE.Color(c.col) };
+  if (c.dark) {
+    if (pillar) { pillar.material.blending = THREE.NormalBlending; pillar.material.color.set('#1a0828'); pillar.material.needsUpdate = true; }
+    const glow = add(new THREE.Mesh(new THREE.RingGeometry(0.86, 1, 48), new THREE.MeshBasicMaterial({ color: c.col, opacity: 0.75, side: THREE.DoubleSide, ...blend })));
+    glow.rotation.x = -Math.PI / 2; glow.position.y = 0.08; glow.scale.setScalar(1.45); glow.userData.darkGlow = true;
+    for (const m of motes) if (m.material.blending === THREE.NormalBlending) m.userData.o.s *= 1.8;
+  }
+  a.root.add(kit); F.kit = kit; F.kitParts = { disc, motes, pillar, r, shimmer: !!c.shimmer, dark: !!c.dark, col: new THREE.Color(c.col) };
 }
 function auraKitTick(F) {
   const P = F.kitParts; if (!P) return;
@@ -7834,7 +7869,8 @@ function auraKitTick(F) {
     m.scale.setScalar(o.s * (t < 0.15 ? t / 0.15 : 1 - (t - 0.15) / 0.85));
     if (P.shimmer) m.material.color.setHSL((now * 0.15 + o.ph) % 1, 0.85, 0.65);
   }
-  if (P.pillar) P.pillar.material.opacity = (0.16 + (P.r - 3) * 0.08) * (0.8 + 0.2 * Math.sin(now * 2));
+  if (P.pillar) P.pillar.material.opacity = (P.dark ? 0.6 : 0.16 + (P.r - 3) * 0.08) * (0.8 + 0.2 * Math.sin(now * 2));
+  if (P.dark) P.disc.material.opacity = 0.88 + 0.1 * Math.sin(now * 2.2);
 }
 function setFlair(a, { rank = 0, aura = null, trail = null, hat = null, helmet = false } = {}) {
   const F = a.flair || (a.flair = {});
