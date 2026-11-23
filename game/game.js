@@ -4,7 +4,7 @@ import { THREE, scene, camera, renderer, sun, sky, PRESETS, env, applyPreset, bl
 import * as SkeletonUtils from 'three/addons/utils/SkeletonUtils.js';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { buildWorld, buildFlowers, place, tentAt, S_PROP, S_BUILD, colliders, clouds, dynamic, LAKE, CAMP, MINE, S_NATURE, blocked, isFree, ZONES, WORLD_R, VS, TOWNS, ROADS, townFacing } from './world.js';
-import { LANDS, VALLEY_DOCK, buildLands, makeSnow, landRoads } from './lands.js';
+import { LANDS, VALLEY_DOCK, buildLands, makeSnow, landRoads, SANDS_FX, palmNode } from './lands.js';
 import { ICONS } from './icons.js';
 import { buildInteriors, INTERIORS, lavaPools } from './interiors.js';
 import { unlockAudio, playMusic, sfx, setVolumes } from './audio.js';
@@ -62,6 +62,7 @@ const ITEMS = {
   lucky_sock: "Bonecrusher's lucky sock", frost_crown: "Queen Frostwhisker's ice crown", gloom_hat: "Gloomcaster's droopy hat", rattle_tooth: "Rattlebones' gold tooth",
   dark_omen: 'Dark Omen',
   bogwood_logs: 'Bogwood logs', mireiron_ore: 'Mireiron ore', mire_charm: "Mother Mire's charm", rusty_helm: "Sir Soggington's rusty helm", gobbler_tooth: "The Gobbler's tooth",
+  palm_logs: 'Palm logs', sunstone_ore: 'Sunstone', sphinx_coin: 'Sphinx coin', pomp_monocle: "Pompington's golden monocle", colossus_core: 'Colossus core',
 };
 // Food heals; bought from Marta's stall in the market.
 const FOOD = { bread: { heal: 8, price: 8 }, pie: { heal: 20, price: 20 }, stew: { heal: 40, price: 40 }, grilled_shrimp: { heal: 6 }, grilled_trout: { heal: 14 }, fish_pie: { heal: 32 } };
@@ -103,6 +104,16 @@ const WEAPONS = {
   p_radiant: { type: 'magic', tier: 3, path: 'angel', name: 'Radiant staff', dmg: 32, reach: 16, cd: 1.0, price: 6000, model: 'staff', tint: '#fff2a0' },
   p_great: { type: 'melee', tier: 3, path: 'human', name: 'Steel greatsword', dmg: 44, reach: 3.6, cd: 1.25, price: 6000, model: 'sword_2handed_color', tint: '#e8eef6', heavy: true },
   k_tongue: { type: 'melee', name: "Gobbler's Tongue", dmg: 36, reach: 4.4, cd: 0.95, price: 0, unique: true, model: 'sword_1handed', tint: '#ff7aa8', poison: true },
+  // Chapter 4: Sunsteel, forged by Professor Tinkerwell at Oasis Rest from Sunstone. It burns brighter by day (+15% damage).
+  s_sword: { type: 'melee', tier: 4, name: 'Sunsteel sword', dmg: 40, reach: 3.1, cd: 0.8, price: 9000, model: 'sword_1handed', tint: '#ffcf5a', sun: true },
+  s_hammer: { type: 'melee', tier: 4, name: 'Sunsteel warhammer', dmg: 58, reach: 3.5, cd: 1.3, price: 11000, model: 'axe_2handed', tint: '#ffb347', heavy: true, sun: true },
+  s_staff: { type: 'magic', tier: 4, name: 'Sunburst staff', dmg: 40, reach: 16, cd: 1.05, price: 9500, model: 'staff', tint: '#ffe27a', sun: true },
+  s_bow: { type: 'ranged', tier: 4, name: 'Brassbolt crossbow', dmg: 38, reach: 17, cd: 0.7, price: 9500, model: 'crossbow_1handed', tint: '#d8a850', sun: true },
+  p_night: { type: 'melee', tier: 4, path: 'vampire', name: 'Nightfang', dmg: 46, reach: 3.0, cd: 0.65, price: 15000, model: 'dagger', tint: '#8a0a2a', drain: 0.08 },
+  p_dawn: { type: 'magic', tier: 4, path: 'angel', name: 'Dawnbringer', dmg: 48, reach: 17, cd: 0.95, price: 15000, model: 'staff', tint: '#ffffff' },
+  p_cog: { type: 'melee', tier: 4, path: 'human', name: 'Clockwork greatsword', dmg: 66, reach: 3.8, cd: 1.2, price: 15000, model: 'sword_2handed_color', tint: '#d8a850', heavy: true },
+  k_colossus: { type: 'melee', name: 'Colossus Fist', dmg: 72, reach: 3.9, cd: 1.35, price: 0, unique: true, model: 'axe_2handed', tint: '#ffd23f', heavy: true },
+  a_pomp: { type: 'ranged', name: "Pompington's Popgun", dmg: 30, reach: 16, cd: 0.42, price: 0, unique: true, model: 'crossbow_2handed', tint: '#ffe28a' },
   a_rattle: { type: 'ranged', name: "Rattlebones' Repeater", dmg: 12, reach: 14, cd: 0.55, price: 0, unique: true, model: 'crossbow_2handed', tint: '#9effa8' },
 };
 // Shields and armour add Defense on top of your Defense points.
@@ -118,6 +129,13 @@ const ARMOUR = {
   ar_frost: { slot: 'armour', tier: 2, name: 'Frostsilver plate', def: 11, price: 1600, tint: '#bfefff' },
   sh_mire: { slot: 'shield', tier: 3, name: 'Mireiron shield', def: 16, price: 3400, model: 'shield_spikes_color' },
   ar_mire: { slot: 'armour', tier: 3, name: 'Mireiron plate', def: 18, price: 4600, tint: '#9adf7a' },
+  sh_sun: { slot: 'shield', tier: 4, name: 'Sunsteel shield', def: 24, price: 8000, model: 'shield_square_color' },
+  ar_sun: { slot: 'armour', tier: 4, name: 'Sunsteel plate', def: 27, price: 10500, tint: '#ffd27a' },
+  // gadgets: Professor Tinkerwell's clockwork trinkets. One gadget slot, a small bonus each.
+  g_spring: { slot: 'gadget', tier: 4, name: 'Springheel boots', def: 0, price: 6000, bonus: { speed: 0.1 }, desc: '+10% speed' },
+  g_lens: { slot: 'gadget', tier: 4, name: 'Brass aiming lens', def: 0, price: 7000, bonus: { dmg: 0.1 }, desc: '+10% damage' },
+  g_cog: { slot: 'gadget', tier: 4, name: 'Cog ward', def: 0, price: 7000, bonus: { def: 0.12 }, desc: '+12% defense' },
+  g_heart: { slot: 'gadget', name: 'Clockwork heart', def: 0, price: 0, unique: true, bonus: { dmg: 0.06, def: 0.06, hp: 0.06, speed: 0.04 }, desc: '+6% damage, defense and health, +4% speed' },
 };
 for (const w of Object.values(WEAPONS)) w.slot = 'weapon';
 const GEAR = { ...WEAPONS, ...ARMOUR };
@@ -125,19 +143,23 @@ const GEAR = { ...WEAPONS, ...ARMOUR };
 const gearValue = (g) => (g.unique ? 250 : Math.floor(g.price / 2));
 const gearIcon = (g) => (g.slot === 'weapon' ? ICONS[g.type] : ICONS[g.slot]);
 const gearStats = (g) => (g.slot === 'weapon'
-  ? `${g.dmg} dmg · ${g.type === 'melee' ? 'reach' : 'range'} ${g.reach} · ${g.cd}s · ${SPECIALS[specialOf(g)].name}`
-  : `+${g.def} defense`);
+  ? `${g.dmg} dmg · ${g.type === 'melee' ? 'reach' : 'range'} ${g.reach} · ${g.cd}s · ${SPECIALS[specialOf(g)].name}${g.sun ? ' · +15% by day' : ''}`
+  : g.slot === 'gadget' ? g.desc : `+${g.def} defense`);
+// the equipped gadget's bonus for one stat (dmg, def, hp or speed), as a multiplier
+const gadgetMult = (k) => 1 + (((ARMOUR[S.equip.gadget] || {}).bonus || {})[k] || 0);
 
 // Who drops what. Regular monsters roll this table; bosses always drop their trophy and may drop their weapon.
-const BOSS_WEAPON = { boss_gagron: 'k_flame', boss_crusher: 'k_cleaver', boss_gloom: 'm_gloom', boss_rattle: 'a_rattle', boss_twin_a: 'a_twin', boss_gobbler: 'k_tongue' };
+const BOSS_WEAPON = { boss_gagron: 'k_flame', boss_crusher: 'k_cleaver', boss_gloom: 'm_gloom', boss_rattle: 'a_rattle', boss_twin_a: 'a_twin', boss_gobbler: 'k_tongue', boss_colossus: 'k_colossus', boss_pomp: 'a_pomp' };
 const DARK_KING = 'Morgoth the Menacing'; // working name, change it here
 // Everything can be sold. Treasures (rings, rubies, crowns) are rare drops worth a lot.
-const SELL = { bogwood_logs: 14, mireiron_ore: 40, mire_charm: 500, rusty_helm: 500, gobbler_tooth: 800, grilled_shrimp: 5, grilled_trout: 12, fish_pie: 26, dragon_scale: 90, bread: 4, pie: 10, stew: 20, silver_ring: 40, ruby: 120, golden_crown: 400, frost_gem: 260, bone_dust: 3, dark_essence: 15, lucky_sock: 60, frost_crown: 300, gloom_hat: 60, rattle_tooth: 60, dark_omen: 500, logs: 3, oak_logs: 6, copper_ore: 4, iron_ore: 8, frostsilver_ore: 22, shrimp: 3, trout: 8, bones: 2 };
+const SELL = { palm_logs: 22, sunstone_ore: 70, sphinx_coin: 600, pomp_monocle: 900, colossus_core: 1500, bogwood_logs: 14, mireiron_ore: 40, mire_charm: 500, rusty_helm: 500, gobbler_tooth: 800, grilled_shrimp: 5, grilled_trout: 12, fish_pie: 26, dragon_scale: 90, bread: 4, pie: 10, stew: 20, silver_ring: 40, ruby: 120, golden_crown: 400, frost_gem: 260, bone_dust: 3, dark_essence: 15, lucky_sock: 60, frost_crown: 300, gloom_hat: 60, rattle_tooth: 60, dark_omen: 500, logs: 3, oak_logs: 6, copper_ore: 4, iron_ore: 8, frostsilver_ore: 22, shrimp: 3, trout: 8, bones: 2 };
 const NODES = {
   tree: { skill: 'woodcutting', req: 1, xp: 25, item: 'logs', name: 'Tree', verb: 'Chop', doing: 'Chopping', deplete: 0.3, respawn: 14 },
   oak: { skill: 'woodcutting', req: 5, xp: 40, item: 'oak_logs', name: 'Oak tree', verb: 'Chop', doing: 'Chopping', deplete: 0.22, respawn: 20 },
   copper: { skill: 'mining', req: 1, xp: 18, item: 'copper_ore', name: 'Copper rock', verb: 'Mine', doing: 'Mining', deplete: 0.6, respawn: 10 },
   bogwood: { skill: 'woodcutting', req: 30, xp: 110, item: 'bogwood_logs', name: 'Bogwood tree', verb: 'Chop', doing: 'Chopping', deplete: 0.3, respawn: 26 },
+  palm: { skill: 'woodcutting', req: 40, xp: 160, item: 'palm_logs', name: 'Desert palm', verb: 'Chop', doing: 'Chopping', deplete: 0.3, respawn: 28 },
+  sunstone: { skill: 'mining', req: 40, xp: 180, item: 'sunstone_ore', name: 'Sunstone rock', verb: 'Mine', doing: 'Mining', deplete: 0.75, respawn: 30, sun: true },
   mireiron: { skill: 'fishing', req: 30, xp: 120, item: 'mireiron_ore', name: 'Mireiron in the deep pool', verb: 'Fish', doing: 'Fishing up', deplete: 0, respawn: 0 },
   frostsilver: { skill: 'mining', req: 15, xp: 70, item: 'frostsilver_ore', name: 'Frostsilver rock', verb: 'Mine', doing: 'Mining', deplete: 0.75, respawn: 24 },
   iron: { skill: 'mining', req: 6, xp: 35, item: 'iron_ore', name: 'Iron rock', verb: 'Mine', doing: 'Mining', deplete: 0.7, respawn: 18 },
@@ -145,7 +167,7 @@ const NODES = {
   trout: { skill: 'fishing', req: 5, xp: 45, item: 'trout', name: 'Trout spot', verb: 'Fish', doing: 'Fishing', deplete: 0, respawn: 0 },
 };
 // How many hits of health each tree/rock has, and the size of its hitbox.
-const NODE_HP = { tree: 5, oak: 9, copper: 5, iron: 8, frostsilver: 11, bogwood: 14 };
+const NODE_HP = { tree: 5, oak: 9, copper: 5, iron: 8, frostsilver: 11, bogwood: 14, palm: 16, sunstone: 16 };
 const ENEMY_TYPES = {
   skel_minion: { name: 'Skeleton', hp: 16, maxHit: 3, weapon: 'Skeleton_Blade', xp: 15 },
   skel_warrior: { name: 'Skeleton Warrior', hp: 28, maxHit: 5, weapon: 'Skeleton_Blade', xp: 30 },
@@ -180,6 +202,13 @@ const ENEMY_TYPES = {
     look: { sex: 'f', skin: 'green', eyes: 'gold', eyeStyle: 'sharp', mouth: 'fang', hair: 'long', hairLen: 'long', hairCol: 'snow', mark: 'paint', ears: 'elf' } },
   boss_sogg: { name: 'Sir Soggington', title: 'The Sunken Knight', model: 'knight', hp: 1900, maxHit: 19, weapon: 'sword_2handed_color', xp: 10000, boss: true, scale: 2.4, coins: [450, 650], drop: 'rusty_helm', slam: 5.5, stuck: 2.4, stuckLine: 'Glub! Water in me boots!', inside: 'marsh', tint: '#9ab0a0',
     look: { skin: 'blue', eyes: 'grey', eyeStyle: 'sleepy', mouth: 'calm', hair: 'none', beard: 'full', hairCol: 'green', hat: true } },
+  // Chapter 4: Brassbolt Sands
+  sand_gloop: { name: 'Sand Gloop', model: 'slime', hp: 230, maxHit: 21, xp: 420, inside: 'sands', coins: [34, 60], scale: 0.95, noBones: true, poof: true, tintAll: '#e8c070', mass: 1.4 },
+  dust_bat: { name: 'Dust Bat', model: 'bat', hp: 170, maxHit: 20, xp: 380, inside: 'sands', coins: [28, 52], scale: 0.85, noBones: true, poof: true, fly: 1.7, mass: 0.7, tintAll: '#a8784a' },
+  clock_soldier: { name: 'Clockwork Soldier', model: 'skel_warrior', hp: 290, maxHit: 24, weapon: 'Skeleton_Blade', xp: 520, tint: '#e0b058', inside: 'sands', coins: [40, 70], noBones: true },
+  clock_conjurer: { name: 'Copper Conjurer', model: 'skel_mage', hp: 230, maxHit: 23, weapon: 'Skeleton_Staff', xp: 480, ranged: true, tint: '#d8885a', inside: 'sands', coins: [38, 66], noBones: true },
+  boss_pomp: { name: 'Sir Percival Pompington', title: 'In a Stolen Battle-Suit', model: 'knight', hp: 3400, maxHit: 24, weapon: 'sword_2handed_color', xp: 20000, boss: true, scale: 2.2, coins: [800, 1100], drop: 'pomp_monocle', slam: 5.5, inside: 'sands', suit: '#ffcf5a' },
+  boss_colossus: { name: 'The Brassbolt Colossus', title: 'Guardian of the Old Kingdom', model: 'skel_warrior', hp: 5200, maxHit: 28, weapon: 'axe_2handed', xp: 32000, boss: true, scale: 5.2, coins: [1200, 1600], drop: 'colossus_core', slam: 7, inside: 'sands', tintAll: '#d8a850', noBones: true, mass: 30 },
   boss_gobbler: { name: 'The Gobbler', title: 'Terror of Gobbler Marsh', model: 'slime', hp: 2600, maxHit: 21, xp: 15000, boss: true, scale: 3.4, coins: [600, 900], drop: 'gobbler_tooth', slam: 7, inside: 'marsh', noBones: true, tintAll: '#7ab05a', mass: 20 },
   boss_frost: { name: 'Queen Frostwhisker', model: 'mage', hp: 1400, maxHit: 13, weapon: 'Skeleton_Staff', xp: 3000, boss: true, scale: 2.4, coins: [300, 450], drop: 'frost_crown', ranged: true, spread: true, slam: 5.5, inside: 'frost', tint: '#cfeaff',
     look: { sex: 'f', skin: 'porcelain', eyes: 'sky', eyeStyle: 'sharp', mouth: 'cat', hair: 'hime', hairLen: 'long', hairCol: 'snow', mark: 'star', ears: 'elf' } },
@@ -321,6 +350,43 @@ Object.assign(QUESTS, {
     ready: 'It is done. The halves have gone quiet. You feel... different.', done: 'You made your choice at the Marsh Wardstone.',
     need: { choice: 1 }, reward: { coins: 3000, xp: { hero: 30000 } }, desc: 'Touch the Wardstone halves and choose: Vampire, Angel or Human. (Talk to Mayor Croakley.)',
   },
+  // Chapter 4: Brassbolt Sands. Captain Barnaby sails there once you have chosen your path.
+  st_sand1: {
+    story: true, chapter: 'Chapter 4', name: 'Sand in Everything', giver: 'tinkerwell', after: ['st_choice'], land: 'sands',
+    intro: 'Ah! A visitor! Mind the gears. I am Professor Tinkerwell, last engineer of old Brassbolt. Under this sand sleeps a whole clockwork kingdom, and something is WINDING IT BACK UP. Clockwork soldiers marching about, sand gloops in my socks... Clear some out so I can think!',
+    ready: 'Splendid! Those soldiers had fresh oil in their joints. Someone is maintaining them. Someone with very shiny taste.', done: 'Oasis Rest can hear itself think again.',
+    need: { kills: 10 }, reward: { coins: 5000, xp: { hero: 45000 } }, desc: 'Defeat 10 monsters in Brassbolt Sands.',
+  },
+  st_sphinx: {
+    story: true, chapter: 'Chapter 4', name: 'The Sphinx Engine', giver: 'tinkerwell', after: ['st_sand1'], land: 'sands',
+    intro: 'The Sphinx Engine guards the old kingdom\'s memory. It knows where the Desert Wardstone went, but it only talks to people who answer its riddles. Three right answers. Wrong answers make it... cross. Its voicebox, Cogsworth, stands between its paws.',
+    ready: 'Three riddles! You clever thing. And it said the Wardstone was taken to power "the Colossus"? Oh no. Oh no no no.', done: 'The Sphinx Engine purrs when you walk past now.',
+    need: { riddles: 3 }, reward: { coins: 4000, xp: { hero: 40000 } }, desc: 'Answer 3 riddles at the Sphinx Engine (west). Talk to Cogsworth.',
+  },
+  st_storm: {
+    story: true, chapter: 'Chapter 4', name: 'Sandstorm', giver: 'tinkerwell', after: ['st_sphinx'], land: 'sands', onStart: () => startSandstorm(),
+    intro: 'A SANDSTORM! And my supply caravan was out in it! Four crates of parts are scattered across the dunes. I need them to build something that can stop the Colossus. Find them before the dust bats do. Stick together out there!',
+    ready: 'All four crates! Gears, springs, a lens, and... a very fancy invitation with a gold seal? "To Sir Percival Pompington, from His Darkness." Uh oh.', done: 'The storm has passed. The dunes are all different shapes now.',
+    need: { crates: 4 }, reward: { coins: 4500, xp: { hero: 42000 } }, desc: 'Find the 4 lost caravan crates in the sandstorm.',
+  },
+  st_pomp: {
+    story: true, chapter: 'Chapter 4', name: 'The Shiny Traitor', giver: 'tinkerwell', after: ['st_storm'], bossType: 'boss_pomp', land: 'sands',
+    intro: 'Pompington is working for the Dark King! He has stolen my battle-suit from Rustwind Yard: rockets, a big sword, the lot. He was promised "glory beyond measure". Go and get my suit back. Try not to dent it. Actually, dent it as much as you like.',
+    ready: 'He cried? In the suit? Oh dear. Well, he says the Dark King promised to make him famous, then sent him a letter calling him "the shiny one" and never wrote again. Poor silly man.', done: 'Pompington is polishing pots at Oasis Rest to say sorry. Slowly.',
+    need: { boss: 1 }, reward: { coins: 7000, xp: { hero: 60000 } }, desc: 'Defeat Sir Percival Pompington in Rustwind Yard (east).',
+  },
+  st_colossus: {
+    story: true, chapter: 'Chapter 4', name: 'The Brassbolt Colossus', giver: 'tinkerwell', after: ['st_pomp'], bossType: 'boss_colossus', land: 'sands',
+    intro: 'The Colossus is awake in its plaza, north of here, with the Wardstone ticking in its chest. Watch its fists: when one gets stuck in the ground, a gear pops loose. Hit it there! When its knees glow, JUMP its laser, or stand on a glowing pressure plate to short it out. At the end its core opens. That is your moment!',
+    ready: 'You did it! The Colossus is down and the Wardstone is safe. But... why is the sky going dark over the dunes?', done: 'The Colossus sits quietly in its plaza. Children climb on it now.',
+    need: { boss: 1 }, reward: { coins: 10000, xp: { hero: 90000 } }, desc: 'Defeat the Brassbolt Colossus in Colossus Plaza (north).',
+  },
+  st_castle: {
+    story: true, chapter: 'Chapter 4', name: 'The Floating Castle', giver: 'tinkerwell', after: ['st_colossus'], land: 'sands',
+    intro: 'Something huge is rising behind the plaza. Go to the lookout on the north road and see what it is. Take your friends. Take biscuits.',
+    ready: 'A castle. Floating. With purple windows. That is HIS castle, hero. The Dark King\'s. And it is flying towards the valley.', done: 'The Floating Castle hangs in the sky. Chapter 5 is coming soon!',
+    need: { castle: 1 }, reward: { coins: 6000, xp: { hero: 50000 } }, desc: 'Go to the lookout north of Oasis Rest and see what is rising.',
+  },
 });
 // The story is split into chapters, and each new chapter takes you to a new land.
 // Only the Prologue and Chapter 1 are playable so far; the rest are the plan.
@@ -329,7 +395,7 @@ const CHAPTERS = [
   { id: 'c1', tag: 'Chapter 1', name: 'The Shards', land: 'Jerry Valley', quests: ['st_dragon', 'st_crags', 'st_glimmer', 'st_hollow', 'st_socket'] },
   { id: 'c2', tag: 'Chapter 2', name: 'The Frozen North', land: 'Frostwhisker Peaks', quests: ['st_frost1', 'st_grumble', 'st_twins', 'st_frost_boss', 'st_thaw'] },
   { id: 'c3', tag: 'Chapter 3', name: 'The Hungry Swamp', land: 'Gobbler Marsh', quests: ['st_marsh1', 'st_mire', 'st_sogg', 'st_lantern', 'st_gobbler', 'st_choice'] },
-  { id: 'c4', tag: 'Chapter 4', name: 'The Clockwork Ruins', land: 'Brassbolt Sands', quests: [], soon: true },
+  { id: 'c4', tag: 'Chapter 4', name: 'The Clockwork Ruins', land: 'Brassbolt Sands', quests: ['st_sand1', 'st_sphinx', 'st_storm', 'st_pomp', 'st_colossus', 'st_castle'] },
   { id: 'c5', tag: 'Chapter 5', name: 'The Dark King', land: 'The Floating Castle', quests: [], soon: true },
 ];
 function chapterNow() {
@@ -518,7 +584,7 @@ async function main() {
   // entering the world, once the title screen is done
   const begin = () => {
     $('pick').hidden = true; document.body.classList.remove('titling');
-    rebuildBinds(); applyTowns(); dayTick(0, true); makeGagronFriend(); makeSoggFriend();
+    rebuildBinds(); applyTowns(); dayTick(0, true); makeGagronFriend(); makeSoggFriend(); makePompFriend();
     if (S.started) { startHero(); if (!S.name && !net.on) openCreator('new'); } else newHero();
     if (net.on) goOnline();
   };
@@ -1776,7 +1842,7 @@ function buildNodes() {
   const addRock = (x, z, kind) => {
     place(rng() > 0.5 ? 'rock_single_D' : 'rock_single_E', x, z, S_NATURE * 2.6, rng() * 6, { shrink: 0.5 });
     const gems = new THREE.Group();
-    const mats = toon(kind === 'copper' ? '#ff9b3d' : kind === 'frostsilver' ? '#7fe8ff' : '#a8c8f0', { emissive: kind === 'copper' ? '#5a2600' : kind === 'frostsilver' ? '#1a5a70' : '#1b2f52' });
+    const mats = toon(kind === 'copper' ? '#ff9b3d' : kind === 'frostsilver' ? '#7fe8ff' : kind === 'sunstone' ? '#ffc84a' : '#a8c8f0', { emissive: kind === 'copper' ? '#5a2600' : kind === 'frostsilver' ? '#1a5a70' : kind === 'sunstone' ? '#8a4a00' : '#1b2f52' });
     for (let i = 0; i < 4; i++) {
       const c = new THREE.Mesh(crystalGeo);
       const a = (i / 4) * Math.PI * 2 + rng();
@@ -1809,6 +1875,16 @@ function buildNodes() {
     const ring = new THREE.Mesh(new THREE.RingGeometry(0.6, 0.9, 24), new THREE.MeshBasicMaterial({ color: '#c8ff9a', transparent: true, opacity: 0.8, depthWrite: false, fog: false }));
     ring.rotation.x = -Math.PI / 2; ring.position.set(x, 0.09, z); ring.layers.set(1); scene.add(ring);
     nodes.push({ kind: 'mireiron', def: NODES.mireiron, x, z, full: ring, alive: true, reach: 3.6, ring });
+  }
+  // Brassbolt Sands: Sunstone rocks round the Sphinx (Mining 40, daylight only) and desert palms by the oasis road (Woodcutting 40)
+  const SL = LANDS.sands;
+  for (const [dx, dz] of [[14, 8], [18, -2], [10, 16], [-4, 18], [20, 12]]) { const x = SL.zones.sphinx.x + dx, z = SL.zones.sphinx.z + dz; if (isFree(x, z, 2)) addRock(x, z, 'sunstone'); }
+  for (const [dx, dz] of [[-18, 6], [-22, -6], [18, 4], [24, -8], [-14, -16], [12, -18]]) {
+    const x = SL.village.x + dx, z = SL.village.z + dz;
+    if (!isFree(x, z, 2)) continue;
+    const { full, cut } = palmNode(x, z); addInk(full); addInk(cut);
+    cut.visible = false;
+    nodes.push(hpNode({ kind: 'palm', def: NODES.palm, x, z, full, cut, alive: true, respawnAt: 0, reach: 2.6, r: 1.1 }));
   }
 
   const ringGeo = new THREE.RingGeometry(0.6, 0.9, 24);
@@ -1921,6 +1997,17 @@ function buildNpcs() {
     { id: 'tadpole', name: 'Tadpole Tim', model: 'knight', x: LANDS.marsh.village.x + 6, z: LANDS.marsh.village.z + 5, hide: [], tint: '#9ad87a', inside: 'marsh',
       look: { skin: 'green', eyes: 'brown', eyeStyle: 'happy', mouth: 'grin', hair: 'mohawk', hairCol: 'green', head: 'chibi' },
       lines: ['The Gobbler ate my wellies! Both of them! I only had them for a week!', 'If you stand really still by the Deep Pool you can hear Mireiron clinking at the bottom. Fishing it up takes ages though.', 'Bogwood trees only let strong woodcutters chop them. My grandpa says level 30. I am level 2.'] },
+    // Brassbolt Sands
+    { id: 'captain4', name: 'Captain Barnaby Gale', model: 'barbarian', x: LANDS.sands.captain.x, z: LANDS.sands.captain.z, hide: [], tint: '#5a8ad8', sail: 'out', inside: 'sands',
+      look: { skin: 'tan', eyes: 'blue', eyeStyle: 'happy', mouth: 'grin', hair: 'short', beard: 'full', hairCol: 'ginger' } },
+    { id: 'tinkerwell', name: 'Professor Tinkerwell', model: 'mage', x: LANDS.sands.elder.x, z: LANDS.sands.elder.z, hide: [], tint: '#d8a850', inside: 'sands',
+      look: { skin: 'bronze', eyes: 'sky', eyeStyle: 'round', mouth: 'grin', hair: 'none', beard: 'long', hairCol: 'snow', head: 'chibi' } },
+    { id: 'gizmo', name: 'Gizmo the Gearsmith', model: 'heroine', x: LANDS.sands.village.x - 7, z: LANDS.sands.village.z + 6, hide: [], shop: 'sands', tint: '#e0a050', inside: 'sands',
+      look: { sex: 'f', skin: 'ebony', eyes: 'gold', eyeStyle: 'sharp', mouth: 'grin', hair: 'pony', hairLen: 'long', hairCol: 'ginger', mark: 'paint' } },
+    { id: 'cogsworth', name: 'Cogsworth, Voice of the Sphinx', model: 'skel_mage', x: LANDS.sands.zones.sphinx.x, z: LANDS.sands.zones.sphinx.z + 2, hide: [], tint: '#e0b058', inside: 'sands' },
+    { id: 'dunstan', name: 'Dusty Dunstan', model: 'barbarian', x: LANDS.sands.village.x + 6, z: LANDS.sands.village.z + 5, hide: [], tint: '#e8c890', inside: 'sands',
+      look: { skin: 'honey', eyes: 'brown', eyeStyle: 'sleepy', mouth: 'smile', hair: 'shag', hairCol: 'blonde', beard: 'stache', head: 'chibi' },
+      lines: ['Sunstone only goes soft in daylight. Mine it at night and you will just bonk your pickaxe. Mining 40, mind.', 'Desert palms are as tough as old boots. You need Woodcutting 40 to chop one.', 'I once sold the Colossus a hat. It did not say thank you. It did not say anything. It is a statue.'] },
   ];
   for (const d of defs) makeNpc(d);
 }
@@ -2011,7 +2098,8 @@ function dressNpc(a, L) {
 const npcIdle = (n) => n.actor.play(n.id === 'fenwick' ? 'Spellcasting' : 'Idle');
 
 // ---------- enemies ----------
-for (const k of ['mud_gloop', 'boss_gobbler']) ENEMY_TYPES[k].alias = ENEMY_TYPES.bog_slime.alias;
+for (const k of ['mud_gloop', 'boss_gobbler', 'sand_gloop']) ENEMY_TYPES[k].alias = ENEMY_TYPES.bog_slime.alias;
+ENEMY_TYPES.dust_bat.alias = ENEMY_TYPES.mire_bat.alias;
 function spawnEnemy(k, x, z) {
   const T = ENEMY_TYPES[k];
   const e = new Actor(G[T.model || k], { scale: T.scale || 1.3 });
@@ -2024,10 +2112,10 @@ function spawnEnemy(k, x, z) {
   e.root.position.set(x, 0, z); e.root.rotation.y = rng() * 6;
   e.hp = T.hp; e.state = 'idle'; e.timer = rng() * 3; e.target = new THREE.Vector2(); e.nextHit = 0; e.swings = 0;
   e.play('Idle');
-  if (T.boss || T.tint) e.root.traverse((o) => { if (o.isMesh && (T.town && !T.boss ? /Body/ : /Body|Head/).test(o.name)) tinted(o, T.tint || (k === 'boss_gloom' ? '#c8a8ff' : k === 'boss_crusher' ? '#ffd0a0' : '#c0ffc8')); });
+  if ((T.boss || T.tint) && !T.tintAll) e.root.traverse((o) => { if (o.isMesh && (T.town && !T.boss ? /Body/ : /Body|Head/).test(o.name)) tinted(o, T.tint || (k === 'boss_gloom' ? '#c8a8ff' : k === 'boss_crusher' ? '#ffd0a0' : '#c0ffc8')); });
   if (T.boss) addSilhouette(e.root, '#ff8a9a');
   if ((T.model || k).startsWith('skel')) skeletonize(e, T);
-  if (T.look) { const hat = e.root.getObjectByName('Mage_Hat'); if (hat) hat.visible = false; dressNpc(e, { ...NPC_BASE, ...T.look }); if (k === 'boss_frost') e.root.traverse((o) => { if (o.isBone && o.name === 'head') { const c = makeCrown(); c.traverse((m) => { if (m.isMesh) registerMesh(m, toon('#bfefff')); }); o.add(c); } }); }
+  if (T.look) { const hat = e.root.getObjectByName('Mage_Hat'); if (hat) hat.visible = false; const helm = !T.look.hat && e.root.getObjectByName('Knight_Helmet'); if (helm) helm.visible = false; dressNpc(e, { ...NPC_BASE, ...T.look }); if (k === 'boss_frost') e.root.traverse((o) => { if (o.isBone && o.name === 'head') { const c = makeCrown(); c.traverse((m) => { if (m.isMesh) registerMesh(m, toon('#bfefff')); }); o.add(c); } }); }
   if (!T.boss) { const bar = document.createElement('div'); bar.className = 'hpbar'; bar.hidden = true; bar.innerHTML = '<i></i>'; document.body.appendChild(bar); e.bar = bar; }
   else e.bar = { hidden: true, style: {}, firstChild: { style: {} } };
   e.flashMats = [];
@@ -2036,6 +2124,8 @@ function spawnEnemy(k, x, z) {
     const m = { std: o.userData.mats.std.clone(), toon: o.userData.mats.toon.clone() };
     m.toon.onBeforeCompile = o.userData.mats.toon.onBeforeCompile;
     registerMesh(o, m); e.flashMats.push(m.std, m.toon);
+    // a painted suit of armour (Pompington's stolen battle-suit): recolour the body and limbs like the hero's outfit
+    if (T.suit && /_(Body|ArmLeft|ArmRight|LegLeft|LegRight)$/.test(o.name)) for (const x of [m.std, m.toon]) { colourise(x, 0.9); x.color.set(T.suit); x.needsUpdate = true; }
   });
   // heavier enemies barely budge: minions fly, warriors stagger, bosses rock on their heels
   e.mass = T.mass || (T.dragon ? 16 : T.boss ? 7 : k === 'skel_minion' ? 0.8 : k === 'skel_warrior' ? 1.3 : 1);
@@ -2091,6 +2181,14 @@ function buildEnemies() {
   spawnEnemy('boss_mire', MZs.mire.x + 1, MZs.mire.z + 1);
   spawnEnemy('boss_sogg', MZs.ruins.x, MZs.ruins.z);
   spawnEnemy('boss_gobbler', MZs.gobbler.x, MZs.gobbler.z);
+  // Brassbolt Sands
+  const DZs = LANDS.sands.zones, DV = LANDS.sands.village;
+  fring({ x: DZs.sphinx.x + 4, z: DZs.sphinx.z + 18 }, ['sand_gloop', 'clock_conjurer', 'dust_bat', 'sand_gloop'], 8);
+  fring(DZs.workshop, ['clock_soldier', 'dust_bat', 'clock_soldier', 'clock_conjurer'], 12);
+  fring({ x: DZs.colossus.x, z: DZs.colossus.z + 22 }, ['clock_soldier', 'dust_bat', 'sand_gloop'], 6);
+  fring({ x: DV.x, z: DV.z - 18 }, ['sand_gloop', 'dust_bat', 'sand_gloop'], 7);
+  spawnEnemy('boss_pomp', DZs.workshop.x, DZs.workshop.z);
+  spawnEnemy('boss_colossus', DZs.colossus.x, DZs.colossus.z - 2);
 }
 
 // ---------- inventory, xp, quests ----------
@@ -2151,7 +2249,7 @@ function levelFanfare(col) {
   if (!player.air) { player.air = true; player.vy = 9; }
   player.play('Cheer', { once: true, fade: 0.1, speed: 1.2 });
 }
-const QUEST_COUNTERS = ['kills', 'boss', 'lanterns', 'choice'];
+const QUEST_COUNTERS = ['kills', 'boss', 'lanterns', 'choice', 'riddles', 'crates', 'castle'];
 const needHave = (k, st) => (QUEST_COUNTERS.includes(k) ? st[k] || 0 : S.inv[k] || 0);
 function questReady(id) {
   const q = QUESTS[id], st = S.quests[id];
@@ -2182,6 +2280,12 @@ function questTarget(id) {
     for (const e of enemies) if (!e.T.boss && e.hp > 0 && e.inside === zone && !e.T.town) { const d = Math.hypot(e.pos.x - P.x, e.pos.z - P.z); if (d < bd) { bd = d; best = e; } }
     return best ? { x: best.pos.x, z: best.pos.z, inside: zone } : zone === 'out' ? { x: CAMP.x, z: CAMP.z, inside: 'out' } : { x: LANDS[zone].x, z: LANDS[zone].z, inside: zone };
   }
+  if (q.need.riddles) { const c = npcAt('cogsworth'); if (c) return c; }
+  if (q.need.crates) {
+    const c = crates.filter((x) => !x.got).sort((a, b) => Math.hypot(a.x - P.x, a.z - P.z) - Math.hypot(b.x - P.x, b.z - P.z))[0];
+    if (c) return { x: c.x, z: c.z, inside: 'sands' };
+  }
+  if (q.need.castle) return { x: LANDS.sands.lookout.x, z: LANDS.sands.lookout.z, inside: 'sands' };
   if (q.need.lanterns) {
     const l = lanterns.filter((x) => !x.lit).sort((a, b) => Math.hypot(a.x - P.x, a.z - P.z) - Math.hypot(b.x - P.x, b.z - P.z))[0];
     if (l) return { x: l.x, z: l.z, inside: 'marsh' };
@@ -2237,7 +2341,7 @@ function questProgress(id) {
   const q = QUESTS[id], st = S.quests[id];
   return Object.entries(q.need).map(([k, n]) => {
     const have = Math.min(n, needHave(k, st));
-    return `${k === 'kills' ? (q.land ? 'Monsters' : 'Skeletons') : k === 'boss' ? ENEMY_TYPES[q.bossType].name : k === 'lanterns' ? 'Lanterns lit' : k === 'choice' ? 'Choice made' : ITEMS[k]} ${have}/${n}`;
+    return `${k === 'kills' ? (q.land ? 'Monsters' : 'Skeletons') : k === 'boss' ? ENEMY_TYPES[q.bossType].name : k === 'lanterns' ? 'Lanterns lit' : k === 'choice' ? 'Choice made' : k === 'riddles' ? 'Riddles answered' : k === 'crates' ? 'Crates found' : k === 'castle' ? 'Lookout reached' : ITEMS[k]} ${have}/${n}`;
   }).join(', ');
 }
 
@@ -2505,9 +2609,9 @@ const chapter1Done = () => ['st_dragon', 'st_crags', 'st_glimmer', 'st_hollow'].
 function openSail(npc) {
   talking = npc;
   const dests = ['out', ...Object.keys(LANDS)].filter((k) => k !== where);
-  const marshOpen = S.quests.st_thaw && S.quests.st_thaw.state === 'done';
+ const marshOpen = S.quests.st_thaw && S.quests.st_thaw.state === 'done', sandsOpen = S.quests.st_choice && S.quests.st_choice.state === 'done';
   const text = where === 'out'
-    ? (marshOpen ? 'Ahoy! Where to, hero? North to the snow, or south to the soggy, froggy marsh? Both are far tougher than the valley.'
+    ? (sandsOpen ? 'Ahoy! The whole map is yours now: the snowy north, the soggy marsh, and the hot, clanky Brassbolt Sands in the east. Bring a hat for the desert!' : marshOpen ? 'Ahoy! Where to, hero? North to the snow, or south to the soggy, froggy marsh? Both are far tougher than the valley.'
       : chapter1Done() ? 'Ahoy! The King says you are bound for Frostwhisker Peaks. Wrap up warm, it is snowing up there! I sail to Gobbler Marsh too, though it is VERY dangerous for now.'
         : "Ahoy! I sail to Frostwhisker Peaks in the north and Gobbler Marsh in the south. The monsters there are much tougher than the valley's. The King will send you in later chapters, but I can take you for a look now if you are brave.")
     : `Where to next? The sea is calm and the biscuits are fresh.`;
@@ -2533,6 +2637,7 @@ function sailTo(to) {
     setTimeout(() => {
       $('fade').classList.remove('on', 'sail');
       toast(to === 'out' ? 'Home sweet Jerry Valley!' : `Welcome to ${name}!`, null, true);
+      pathArrive();
       setTimeout(() => { fading = false; }, 250);
       save(); refreshUI();
     }, 1100);
@@ -2611,11 +2716,11 @@ function renderSheet() {
       return `<h4 class="sub">${title}</h4><div class="gearlist">${mine.map((k) => `<div class="gearwrap"><button class="gearbtn" data-gear="${k}" aria-pressed="${S.equip[slot] === k}"><b><img src="${gearIcon(GEAR[k])}" alt="">${GEAR[k].name}</b><span>${gearStats(GEAR[k])}${GEAR[k].unique ? ' · boss drop' : ''}</span></button><button class="pin" data-pin="${k}" title="Put on hotbar" aria-label="Put ${GEAR[k].name} on the hotbar" aria-pressed="${(S.hotbar || []).includes(k)}">+</button></div>`).join('')}</div>`;
     };
     el.innerHTML = `<h3>Bag <small>${S.coins} coins${S.bank ? ` · ${S.bank} banked` : ''}</small></h3><div class="bag">${slots.join('')}</div>
-      ${group('weapon', 'Weapons')}${group('shield', 'Shields')}${group('armour', 'Armour')}
+      ${group('weapon', 'Weapons')}${group('shield', 'Shields')}${group('armour', 'Armour')}${S.owned.some((k) => GEAR[k] && GEAR[k].slot === 'gadget') ? group('gadget', 'Gadgets') : ''}
       <p class="hint">Press + on food or gear to put it on your hotbar, then press its number key to use it. Your weapon decides how you fight: swords up close, staffs and wands throw magic, crossbows shoot. Tap food to eat it and heal (or press H). Marta at the market buys anything in your bag, and the smiths buy back spare gear.</p>`;
     el.querySelectorAll('[data-eat]').forEach((b) => { b.onclick = () => eat(b.dataset.eat); });
     el.querySelectorAll('[data-pin]').forEach((b) => { b.onclick = () => { pinToHotbar(b.dataset.pin); renderSheet(); }; });
-    el.querySelectorAll('[data-gear]').forEach((b) => { b.onclick = () => { const g = GEAR[b.dataset.gear]; S.equip[g.slot] = b.dataset.gear; cancelTask(); equipGear(); buildGearBar(); updateTitle(); save(); renderSheet(); burst(player.pos.clone().setY(1.6), '#ffe07a', 20, 4); }; });
+    el.querySelectorAll('[data-gear]').forEach((b) => { b.onclick = () => { const g = GEAR[b.dataset.gear]; S.equip[g.slot] = g.slot === 'gadget' && S.equip.gadget === b.dataset.gear ? null : b.dataset.gear; cancelTask(); equipGear(); buildGearBar(); updateTitle(); save(); renderSheet(); burst(player.pos.clone().setY(1.6), '#ffe07a', 20, 4); }; });
   } else if (sheetMode === 'quests') {
     const order = Object.entries(QUESTS).filter(([k, q]) => !q.story || storyOpen(k) || S.quests[k].state !== 'todo').sort((a, b) => (b[1].story ? 1 : 0) - (a[1].story ? 1 : 0));
     el.innerHTML = `<h3>Quests</h3>${order.map(([k, q]) => {
@@ -2801,8 +2906,8 @@ function openKing(npc) {
 function openWeaponShop(npc) {
   talking = npc;
   const type = npc.shop, d = $('dialog');
-  const lines = { melee: 'Finest steel this side of the mountains! Swords, axes, shields and armour. A longer blade swings wider, a lighter one swings faster.', magic: 'Wands and staves, darling, humming with power. Hold one and your blows become bolts of magic you can throw from afar.', ranged: 'Crossbows I made myself. Hold one and you shoot from a safe distance. Lighter ones shoot faster.', frost: 'Frostsilver, forged cold and sharp! It shrugs off the north\'s worst. Bring me frostsilver ore and I\'ll make it even better.', marsh: 'Bogwood and Mireiron! Everything I make drips with marsh poison, so your foes keep hurting after you hit them. Chosen your path yet? I forge path weapons too.' };
-  const sells = (g) => (type === 'frost' ? g.tier === 2 : type === 'marsh' ? g.tier === 3 && (!g.path || g.path === S.path) : !g.tier && (g.slot === 'weapon' ? g.type === type : type === 'melee'));
+  const lines = { melee: 'Finest steel this side of the mountains! Swords, axes, shields and armour. A longer blade swings wider, a lighter one swings faster.', magic: 'Wands and staves, darling, humming with power. Hold one and your blows become bolts of magic you can throw from afar.', ranged: 'Crossbows I made myself. Hold one and you shoot from a safe distance. Lighter ones shoot faster.', frost: 'Frostsilver, forged cold and sharp! It shrugs off the north\'s worst. Bring me frostsilver ore and I\'ll make it even better.', marsh: 'Bogwood and Mireiron! Everything I make drips with marsh poison, so your foes keep hurting after you hit them. Chosen your path yet? I forge path weapons too.', sands: 'Sunsteel, hot from the forge! It burns brighter in daylight. And gadgets! Springs, lenses, cogs. One gadget at a time, mind, or you will start ticking.' };
+   const sells = (g) => (type === 'frost' ? g.tier === 2 : type === 'marsh' ? g.tier === 3 && (!g.path || g.path === S.path) : type === 'sands' ? g.tier === 4 && (!g.path || g.path === S.path) : !g.tier && (g.slot === 'weapon' ? g.type === type : type === 'melee'));
   const list = Object.entries(GEAR).filter(([, g]) => !g.unique && g.price > 0 && sells(g));
   const spare = S.owned.map((k) => [k, GEAR[k]]).filter(([k, g]) => g && sells(g) && gearValue(g) > 0 && S.equip[g.slot] !== k);
   d.innerHTML = `<h3>${npc.name}</h3><p>${lines[type]}</p>
@@ -2812,7 +2917,7 @@ function openWeaponShop(npc) {
       return `<button class="buy" data-w="${k}" ${eq || (!own && S.coins < g.price) ? 'disabled' : ''}><img src="${gearIcon(g)}" alt=""><b>${g.name}</b><span>${gearStats(g)}</span><em>${label}</em></button>`;
     }).join('')}</div>
     ${spare.length ? `<h4 class="sub">Sell spare gear</h4><div class="shop sell">${spare.map(([k, g]) => `<button class="buy" data-sellg="${k}"><img src="${gearIcon(g)}" alt=""><b>${g.name}</b><span>${gearStats(g)}</span><em>Sell +${gearValue(g)}</em></button>`).join('')}</div>` : ''}
-    <p class="hint">You have ${S.coins} coins. Damage is the weapon's base: your Attack multiplies it.</p><div class="row">${type === 'frost' || type === 'marsh' ? `<button id="wup" class="primary"><img src="${ICONS.hammer}" alt="">Upgrade gear</button>` : ''}${type === 'melee' ? `<button id="wforge" class="primary"><img src="${ICONS.hammer}" alt="">Use the forge</button><button id="wup" class="primary"><img src="${ICONS.hammer}" alt="">Upgrade gear</button>` : ''}<button id="wbye">Goodbye</button></div>`;
+    <p class="hint">You have ${S.coins} coins. Damage is the weapon's base: your Attack multiplies it.</p><div class="row">${type === 'frost' || type === 'marsh' || type === 'sands' ? `<button id="wup" class="primary"><img src="${ICONS.hammer}" alt="">Upgrade gear</button>` : ''}${type === 'melee' ? `<button id="wforge" class="primary"><img src="${ICONS.hammer}" alt="">Use the forge</button><button id="wup" class="primary"><img src="${ICONS.hammer}" alt="">Upgrade gear</button>` : ''}<button id="wbye">Goodbye</button></div>`;
   d.querySelectorAll('[data-w]').forEach((b) => { b.onclick = () => {
     const k = b.dataset.w, g = GEAR[k];
     if (!S.owned.includes(k)) { if (S.coins < g.price) return; S.coins -= g.price; S.owned.push(k); toast(`You buy the ${g.name}!`, gearIcon(g), true); }
@@ -2909,6 +3014,7 @@ function openDialog(npc, plain = false) {
   if (npc.crew) { openCrewTalk(npc); return; }
   if (npc.id === 'croakley' && !S.path && S.quests.st_choice && (S.quests.st_choice.state === 'active' || S.repick)) { openPathChoice(npc); return; }
   if (npc.id === 'fenwick' && S.path && !plain) { openPathUndo(npc); return; }
+  if (npc.id === 'cogsworth') { openRiddle(npc); return; }
   if (npc.sail) { openSail(npc); return; }
   if (npc.clerk) { openMayor(npc); return; }
   if (npc.board) { openBoard(npc); return; }
@@ -2926,7 +3032,7 @@ function openDialog(npc, plain = false) {
     if (!qid) {
       const d = $('dialog'); d.innerHTML = '<h3></h3><p></p><div class="row"><button>Goodbye</button></div>';
       d.querySelector('h3').textContent = npc.name;
-      d.querySelector('p').textContent = npc.id === 'croakley' ? 'Ribbit! Welcome to Lilypad Landing, traveller. Our troubles are BIG ones. Sort out the frozen north first (finish Chapter 2 for Elder Mittens), then hop back and see me.' : 'Welcome to Snowdrop, traveller! Our troubles are big ones. Help your own kingdom first (finish Chapter 1 for King Jerrold), then come back and see me.';
+      d.querySelector('p').textContent = npc.id === 'tinkerwell' ? 'Mind the gears! I am Professor Tinkerwell. Brassbolt has clockwork trouble, but you look like you have marsh trouble first. Finish Chapter 3 in Gobbler Marsh and choose your path, then come and see me.' : npc.id === 'croakley' ? 'Ribbit! Welcome to Lilypad Landing, traveller. Our troubles are BIG ones. Sort out the frozen north first (finish Chapter 2 for Elder Mittens), then hop back and see me.' : 'Welcome to Snowdrop, traveller! Our troubles are big ones. Help your own kingdom first (finish Chapter 1 for King Jerrold), then come back and see me.';
       d.querySelector('button').onclick = closeDialog; showDialog(d, { talky: true }); return;
     }
   }
@@ -3432,6 +3538,7 @@ function hitNode(n) {
   const at = new THREE.Vector3(n.x, 1.6, n.z);
   burst(at, def.skill === 'mining' ? '#ffe2b0' : '#c9f59a', 10, 3.5);
   if (l < def.req) { floatText(at.clone().setY(3), 'Too tough!', 'miss'); toast(`You need ${SKILL_NAME[def.skill]} level ${def.req} for that.`, ICONS[def.skill]); return; }
+  if (def.sun && env.preset === 'night') { floatText(at.clone().setY(3), 'Too dark!', 'miss'); toast('Sunstone only softens in daylight. Come back when the sun is up!', ICONS.sunstone_ore); return; }
   n.lastHit = now;
   const miss = THREE.MathUtils.clamp(0.12 - (l - def.req) * 0.03, 0, 0.12);
   if (rng() < miss) { floatText(at.clone().setY(3), 'Miss', 'miss'); return; }
@@ -3570,6 +3677,7 @@ function hurtEnemy(e, dmg, src = null, power = 1) {
   }
   if (e.shield) { dmg = Math.max(1, Math.round(dmg * 0.25)); if (rng() < 0.4) floatText(head.clone().setY(4.6), 'Shielded! Break the glowing crystal', 'miss'); }
   else if (now < (e.dizzyUntil || 0)) dmg = Math.round(dmg * 1.5);
+  if (e.coreOpen) { dmg = Math.round(dmg * 1.3); if (rng() < 0.15) floatText(head.clone().setY(5), 'Core hit!', 'gain'); }
   e.hp = Math.max(0, e.hp - dmg);
   // the Avalanche Twins share one strength: hurt one and the other feels it (and gets angry)
   if (e.T.twin) {
@@ -3597,6 +3705,8 @@ function hurtEnemy(e, dmg, src = null, power = 1) {
       bossCleanup(e); queueLetter(e.type);
       if (e.type === 'boss_gagron' && !S.gagronFree) { S.gagronFree = true; later(4, makeGagronFriend); }
       if (e.type === 'boss_sogg' && !S.soggFree) { S.soggFree = true; later(4, makeSoggFriend); }
+      if (e.type === 'boss_pomp' && !S.pompFree) { S.pompFree = true; later(4, makePompFriend); }
+      if (e.type === 'boss_colossus') sandsCleanup(e);
       addItem(e.T.drop);
       toast(`You defeated ${e.T.name}! It dropped ${ITEMS[e.T.drop].toLowerCase()}!`, ICONS[e.T.drop], true);
       burst(e.pos.clone().setY(2), '#ffe07a', 80, 8, 1.6);
@@ -3782,7 +3892,7 @@ function bossAdd(boss, k, x, z) {
   return a;
 }
 function bossCleanup(e) {
-  e.phase = 1; e.shield = false; e.dizzyUntil = 0; e.flyN = 0; e.root.position.y = 0; frostCleanup(e);
+  e.phase = 1; e.shield = false; e.dizzyUntil = 0; e.flyN = 0; e.root.position.y = 0; frostCleanup(e); sandsCleanup(e);
   for (const r of e.runes || []) { scene.remove(r.g); }
   e.runes = null;
   for (const a of e.adds || []) if (enemies.includes(a)) { if (a.hp > 0) { a.hp = 0; a.state = 'dead'; a.bar.hidden = true; a.play('Death_A', { once: true, clamp: true }); later(0.75, () => collapse(a)); } later(4, () => removeEnemy(a)); }
@@ -4221,10 +4331,12 @@ const PATHS = {
   human: { name: 'Human', icon: 'human', blurb: 'Touch neither. +15% max health. The villagers will call you "the stubborn one".' },
 };
 const PATH_UNDO = 5000;
-const pathDmg = () => (S.path === 'vampire' ? 1.12 : 1);
-const pathSpeed = () => (S.path === 'vampire' ? 1.06 : 1);
-const pathDef = () => (S.path === 'angel' ? 1.15 : 1);
-const pathHp = () => (S.path === 'human' ? 1.15 : 1);
+// paths and gadgets both nudge your stats; Sunsteel burns 15% hotter in daylight
+const sunBoost = () => (W().sun && env.preset !== 'night' && (where === 'out' || LANDS[where]) ? 1.15 : 1);
+const pathDmg = () => (S.path === 'vampire' ? 1.12 : 1) * gadgetMult('dmg') * sunBoost();
+const pathSpeed = () => (S.path === 'vampire' ? 1.06 : 1) * gadgetMult('speed');
+const pathDef = () => (S.path === 'angel' ? 1.15 : 1) * gadgetMult('def');
+const pathHp = () => (S.path === 'human' ? 1.15 : 1) * gadgetMult('hp');
 function openPathChoice(npc) {
   const d = $('dialog'); talking = npc || null;
   d.innerHTML = `<h3>The Marsh Wardstone</h3><p>The two halves hum in your hands. One is black as a moonless bog, one is white as a lily. A whisper rises from the dark half: <i>"He chose dark too, once. Long ago, when he was only a man..."</i></p>
@@ -4277,6 +4389,284 @@ function makeSoggFriend() {
     look: { skin: 'blue', eyes: 'grey', eyeStyle: 'sleepy', mouth: 'smile', hair: 'none', beard: 'full', hairCol: 'green', hat: true },
     lines: ['A hundred years under the bog! My socks will never be the same.', 'That witch woke me up and pointed me at you. I am terribly sorry. I was very damp and confused.', 'The Wardstone went down the Gobbler\'s gullet the night it cracked. I saw it with my own soggy eyes.', 'Keep your shield up and your boots dry, young hero. Mostly the boots.'] };
   soggFriend = makeNpc(soggFriend);
+}
+
+// ===================== Chapter 4: Brassbolt Sands =====================
+// The Sphinx Engine asks three riddles. Wrong answers wake its clockwork guards.
+const RIDDLES = [
+  ['I have hands but cannot clap, a face but cannot smile. What am I?', ['A clock', 'A statue', 'A scarecrow'], 0],
+  ['The more you take, the more you leave behind. What are they?', ['Coins', 'Footsteps', 'Biscuits'], 1],
+  ['What has teeth but never bites?', ['A gear', 'A dragon', 'A goose'], 0],
+  ['What gets wetter the more it dries?', ['The sea', 'A towel', 'A sandcastle'], 1],
+  ['I am full of holes but I still hold water. What am I?', ['A bucket', 'A sponge', 'A cloud'], 1],
+  ['What can run but never walks, has a mouth but never talks?', ['A river', 'A rumour', 'A clockwork dog'], 0],
+  ['The poor have it, the rich need it, and if you eat it you die. What is it?', ['Gold', 'Nothing', 'Sand'], 1],
+  ['What goes up but never comes down?', ['A kite', 'Your age', 'The Colossus'], 1],
+];
+function openRiddle(npc) {
+  talking = npc;
+  const st = S.quests.st_sphinx, d = $('dialog');
+  const say = (text, btns) => {
+    d.innerHTML = '<h3></h3><p></p><div class="row"></div>';
+    d.querySelector('h3').textContent = npc.name; d.querySelector('p').textContent = text;
+    for (const [label, cls, fn] of btns) { const b = document.createElement('button'); b.textContent = label; if (cls) b.className = cls; b.onclick = fn; d.querySelector('.row').appendChild(b); }
+    showDialog(d, { talky: true });
+  };
+  if (!st || st.state !== 'active') {
+    say(st && st.state === 'done' ? 'CLICK. WHIRR. RIDDLER RECOGNISED. YOU MAY PASS, CLEVER ONE.' : 'CLICK. WHIRR. THE SPHINX ENGINE IS NOT TAKING QUESTIONS TODAY. COME BACK WITH PROFESSOR TINKERWELL\'S PERMISSION.', [['Goodbye', '', closeDialog]]);
+    return;
+  }
+  if ((st.riddles || 0) >= 3) { say('THREE RIDDLES ANSWERED. THE DESERT WARDSTONE WAS CARRIED TO THE COLOSSUS. IT BEATS IN ITS CHEST. GO TELL THE PROFESSOR.', [['Goodbye', '', closeDialog]]); return; }
+  const used = st.used || [], pool = RIDDLES.map((r, i) => i).filter((i) => !used.includes(i));
+  const i = pool[Math.floor(rng() * pool.length)], [q, opts, right] = RIDDLES[i];
+  say(`RIDDLE ${(st.riddles || 0) + 1} OF 3. ${q}`, opts.map((o, k) => [o, 'primary', () => {
+    st.used = [...used, i];
+    if (k === right) {
+      st.riddles = (st.riddles || 0) + 1; sfx('win'); burst(npc.actor.pos.clone().setY(3), '#7fe8ff', 40, 6, 1.2);
+      toast(`Correct! ${st.riddles} of 3 riddles.`, ICONS.sphinx_coin);
+      if (st.riddles >= 3) { addItem('sphinx_coin'); toast('The Sphinx Engine gives you a Sphinx coin!', ICONS.sphinx_coin, true); }
+      save(); refreshUI(); openRiddle(npc);
+    } else {
+      sfx('slam'); closeDialog();
+      toast('WRONG. INTRUDER PROTOCOL ENGAGED. (Beat the guards, then try another riddle.)', ICONS.dark_omen, true);
+      for (let j = 0; j < 2; j++) { const a = rng() * 6.28, m = spawnEnemy(j ? 'clock_conjurer' : 'clock_soldier', npc.actor.pos.x + Math.cos(a) * 6, npc.actor.pos.z + 4 + Math.sin(a) * 4); m.temp = true; m.state = 'chase'; burst(m.pos.clone().setY(1), '#ffd27a', 30, 5, 1.2); }
+      if (st.used.length >= RIDDLES.length) st.used = [];
+      save();
+    }
+  }]));
+}
+
+// The sandstorm: four caravan crates lie scattered in the dust. Dust bats swoop when you grab one.
+const crates = [];
+function makeCrates() {
+  if (crates.length) return;
+  const L = LANDS.sands, Z = L.zones, V = L.village;
+  const spots = [[V.x - 22, V.z - 12], [Z.sphinx.x + 14, Z.sphinx.z + 16], [Z.workshop.x - 14, Z.workshop.z + 14], [V.x + 24, V.z - 20]];
+  for (const [x0, z0] of spots) {
+    let x = x0, z = z0;
+    for (let t = 0; t < 20 && !isFree(x, z, 1.2); t++) { x = x0 + (rng() - 0.5) * 6; z = z0 + (rng() - 0.5) * 6; }
+    const g = new THREE.Group(); g.position.set(x, 0, z);
+    const box = new THREE.Mesh(new THREE.BoxGeometry(1.1, 0.9, 1.1)); box.position.y = 0.45; box.rotation.y = rng() * 3; registerMesh(box, toon('#c8884a')); g.add(box);
+    const band = new THREE.Mesh(new THREE.BoxGeometry(1.14, 0.16, 1.14)); band.position.y = 0.45; band.rotation.y = box.rotation.y; registerMesh(band, toon('#6a3a1a')); g.add(band);
+    const beam = new THREE.Mesh(new THREE.CylinderGeometry(0.25, 0.25, 14, 10, 1, true), new THREE.MeshBasicMaterial({ color: '#ffe27a', transparent: true, opacity: 0.35, depthWrite: false, fog: false, side: THREE.DoubleSide }));
+    beam.position.y = 7; beam.layers.set(1); g.add(beam);
+    addInk(g); scene.add(g);
+    crates.push({ g, x, z, got: false });
+  }
+}
+function startSandstorm() {
+  makeCrates();
+  for (const c of crates) { c.got = false; c.g.visible = true; }
+  toast('Sandstorm! Find the four lost caravan crates. Follow the golden beams!', ICONS.crate, true);
+}
+let storm = null;
+function makeStorm() {
+  const N = 600, geo = new THREE.BufferGeometry(), p = new Float32Array(N * 3);
+  for (let i = 0; i < N; i++) { p[i * 3] = (Math.random() - 0.5) * 70; p[i * 3 + 1] = Math.random() * 12; p[i * 3 + 2] = (Math.random() - 0.5) * 70; }
+  geo.setAttribute('position', new THREE.BufferAttribute(p, 3));
+  const pts = new THREE.Points(geo, new THREE.PointsMaterial({ color: '#e8c890', size: 0.3, transparent: true, opacity: 0.8, depthWrite: false, fog: false }));
+  pts.frustumCulled = false; pts.layers.set(1); scene.add(pts);
+  return pts;
+}
+function stormTick(dt) {
+  const st = S.quests.st_storm;
+  const on = !!st && st.state === 'active' && where === 'sands' && (st.crates || 0) < 4 && !player.dead;
+  document.body.classList.toggle('sandstorm', on);
+  if (on && !storm) storm = makeStorm();
+  if (storm) {
+    storm.visible = on;
+    if (on) {
+      const a = storm.geometry.attributes.position;
+      for (let i = 0; i < a.count; i++) { let x = a.getX(i) + dt * (14 + (i % 7)); if (x > 35) x -= 70; a.setX(i, x); a.setY(i, (a.getY(i) + Math.sin(now * 2 + i) * dt * 0.6 + 12) % 12); }
+      a.needsUpdate = true; storm.position.set(player.pos.x, 0, player.pos.z);
+    }
+  }
+  if (!st || where !== 'sands') return;
+  if (!crates.length) { if (st.state !== 'active') return; makeCrates(); }
+  for (const c of crates) {
+    c.g.visible = st.state === 'active' && !c.got && (st.crates || 0) < 4;
+    if (!c.g.visible) continue;
+    c.g.children[2].material.opacity = 0.25 + Math.sin(now * 3) * 0.1;
+    if (Math.hypot(player.pos.x - c.x, player.pos.z - c.z) < 2.2) {
+      c.got = true; st.crates = (st.crates || 0) + 1; sfx('coin');
+      burst(new THREE.Vector3(c.x, 1, c.z), '#ffe27a', 40, 6, 1.2);
+      toast(`Crate found! ${st.crates} of 4.`, ICONS.crate);
+      for (let i = 0; i < 2; i++) { const a = rng() * 6.28, m = spawnEnemy(i ? 'sand_gloop' : 'dust_bat', c.x + Math.cos(a) * 7, c.z + Math.sin(a) * 7); m.temp = true; m.state = 'chase'; }
+      if (st.crates >= 4) toast('All four crates! Take them back to Professor Tinkerwell.', ICONS.crate, true);
+      refreshUI(); save();
+    }
+  }
+}
+
+// After the Colossus falls, the Dark King's Floating Castle rises over the northern dunes.
+function castleTick(dt) {
+  const fc = SANDS_FX.castle; if (!fc) return;
+  const col = S.quests.st_colossus, cq = S.quests.st_castle;
+  const risen = !!col && (col.state === 'done' || (col.state === 'active' && questReady('st_colossus')));
+  fc.visible = risen && where === 'sands';
+  if (!fc.visible) return;
+  fc.position.y = 15 + Math.sin(now * 0.6) * 1.2; fc.rotation.y += dt * 0.05;
+  if (rng() < dt * 4) burst(fc.position.clone().add(new THREE.Vector3((rng() - 0.5) * 20, -6, (rng() - 0.5) * 20)), '#c85aff', 4, 3, 1);
+  if (cq && cq.state === 'active' && !cq.castle) {
+    const P = LANDS.sands.lookout;
+    if (Math.hypot(player.pos.x - P.x, player.pos.z - P.z) < 6) {
+      cq.castle = 1; sfx('bossintro'); save(); refreshUI();
+      toast('The Floating Castle! Purple lights flicker in its towers...', ICONS.dark_omen, true);
+      queueLetter('st_castle');
+    }
+  }
+}
+
+// Sir Percival Pompington, in Professor Tinkerwell's stolen battle-suit.
+ENEMY_TYPES.boss_pomp.look = { skin: 'porcelain', eyes: 'blue', eyeStyle: 'sleepy', mouth: 'grin', hair: 'swept', hairCol: 'blonde', head: 'big', beard: 'none' };
+function rocketDash(e) {
+  e.face(player.pos.x, player.pos.z); e.state = 'slam';
+  const dir = Math.atan2(player.pos.x - e.pos.x, player.pos.z - e.pos.z), len = 16, sx = e.pos.x, sz = e.pos.z;
+  bossSay(e, 'Rocket boots, ENGAGE!');
+  hazard({ x: sx, z: sz, R: len, dir: dir + Math.PI, half: 0.15, dur: 0.9, dmg: Math.round(e.T.maxHit * 1.5), col: '#ffb347' });
+  e.play('Running_A', { fade: 0.1 });
+  later(0.9, () => tween(0.35, (k) => { if (e.hp <= 0) return; const [x, z] = nearHome(e, sx + Math.sin(dir) * len * k, sz + Math.cos(dir) * len * k); e.pos.x = x; e.pos.z = z; burst(e.pos.clone().setY(1), '#ff8a3a', 4, 3, 0.5); },
+    () => { if (e.hp > 0) { if (rng() < 0.5) bossSay(e, 'Whoops! Who designed these brakes?!'); dizzy(e, 1.8); } }));
+}
+function missileVolley(e) {
+  e.play('Spellcast_Shoot', { once: true, fade: 0.1, onFinish: () => e.play('Idle_Combat') });
+  bossSay(e, rng() < 0.5 ? 'Behold! Pompington Patented Pop-Rockets!' : 'Fire ze fireworks!');
+  const n = e.phase >= 3 ? 7 : 5;
+  for (let i = 0; i < n; i++) later(0.15 + i * 0.22, () => {
+    if (e.hp <= 0 || player.dead) return;
+    const a = rng() * 6.28, r = i === 0 ? 0 : 2 + rng() * 4, x = player.pos.x + Math.cos(a) * r, z = player.pos.z + Math.sin(a) * r;
+    burst(new THREE.Vector3(e.pos.x, 4, e.pos.z), '#ffcf6a', 6, 4, 0.6);
+    hazard({ x, z, R: 2.1, dur: 1.0, dmg: Math.round(e.T.maxHit * 1.0), col: '#ff8a3a' });
+  });
+}
+function gloryBeam(e) {
+  e.state = 'slam'; e.play('Spellcasting', { once: true, fade: 0.1 });
+  bossSay(e, 'Witness my GLORY BEAM!');
+  const base = Math.atan2(player.pos.x - e.pos.x, player.pos.z - e.pos.z);
+  for (let i = 0; i < 4; i++) later(i * 0.45, () => { if (e.hp > 0) hazard({ x: e.pos.x, z: e.pos.z, R: 14, dir: base + Math.PI + i * (Math.PI / 2), half: 0.32, dur: 1.0, dmg: Math.round(e.T.maxHit * 1.4), col: '#fff27a' }); });
+  later(2.6, () => { if (e.hp > 0 && e.state === 'slam') { e.state = 'chase'; e.play('Idle_Combat'); } });
+}
+
+// The Brassbolt Colossus: fist slams leave its gear exposed, knee lasers sweep the plaza
+// (jump them, or short it out on a glowing pressure plate), and in the end its core opens.
+function colossusFist(e) {
+  e.face(player.pos.x, player.pos.z); e.state = 'slam';
+  e.play('2H_Melee_Attack_Chop', { once: true, fade: 0.1 });
+  const x = player.pos.x, z = player.pos.z;
+  hazard({ x, z, R: 3.8, dur: 1.3, dmg: Math.round(e.T.maxHit * 1.5), col: '#ffb347' });
+  later(1.3, () => {
+    if (e.hp <= 0) return;
+    burst(new THREE.Vector3(x, 0.5, z), '#e8c890', 50, 8, 1.4); sfx('slam');
+    // the fist sticks in the sand: the elbow gear pops loose
+    bossSay(e, 'CLUNK. FIST. STUCK.');
+    weakGear(e, true); dizzy(e, 3.2);
+    later(3.2, () => weakGear(e, false));
+  });
+}
+function weakGear(e, on) {
+  if (!e.gearFx) {
+    const g = new THREE.Mesh(new THREE.TorusGeometry(0.5, 0.18, 8, 12), new THREE.MeshBasicMaterial({ color: '#ffe27a', fog: false }));
+    g.layers.set(1); scene.add(g); e.gearFx = g;
+  }
+  e.gearFx.visible = on;
+}
+function kneeLaser(e) {
+  e.state = 'slam'; e.play('Spellcasting', { once: true, fade: 0.1 });
+  bossSay(e, 'KNEE. LASER. CHARGING.');
+  toast('Its knees are glowing! Jump the laser (Space) or stand on a glowing plate!', ICONS.star);
+  const x = e.pos.x, z = e.pos.z;
+  const ring = new THREE.Mesh(new THREE.RingGeometry(0.92, 1, 64), new THREE.MeshBasicMaterial({ color: '#ff3a5a', transparent: true, opacity: 0.9, depthWrite: false, fog: false, side: THREE.DoubleSide }));
+  ring.rotation.x = -Math.PI / 2; ring.position.set(x, 0.6, z); ring.layers.set(1); ring.visible = false; scene.add(ring);
+  let hit = false;
+  later(1.1, () => tween(1.7, (k) => {
+    if (e.hp <= 0) { ring.visible = false; return; }
+    const r = 2 + k * 22; ring.visible = true; ring.scale.setScalar(r);
+    const d = Math.hypot(player.pos.x - x, player.pos.z - z);
+    if (!hit && Math.abs(d - r) < 0.9 && player.pos.y < 0.7 && !player.dead) { hit = true; hurtPlayer(Math.round(e.T.maxHit * 1.4)); floatText(player.pos.clone().setY(4), 'Zapped! Jump next time!', 'miss'); }
+  }, () => scene.remove(ring)));
+  later(3, () => { if (e.hp > 0 && e.state === 'slam') { e.state = 'chase'; e.play('Idle_Combat'); } });
+}
+function makePlates(e) {
+  e.plates = [];
+  for (let i = 0; i < 3; i++) {
+    const a = (i / 3) * Math.PI * 2 + 0.5, x = e.home.x + Math.cos(a) * 9, z = e.home.y + Math.sin(a) * 9;
+    const m = new THREE.Mesh(new THREE.CylinderGeometry(1.3, 1.4, 0.18, 20)); m.position.set(x, 0.09, z); registerMesh(m, toon('#7fe8ff', { emissive: '#2a8ab0' })); scene.add(m);
+    e.plates.push({ m, x, z, readyAt: 0 });
+  }
+}
+function colossusTick(dt) {
+  const e = enemies.find((q) => q.type === 'boss_colossus' && q.hp > 0 && q.state !== 'idle');
+  if (!e) return;
+  if (e.gearFx && e.gearFx.visible) { e.gearFx.position.copy(e.pos).setY((e.T.scale || 5) * 1.5); e.gearFx.rotation.z += dt * 4; e.gearFx.lookAt(camera.position); }
+  if (e.core) { e.core.position.copy(e.pos).setY((e.T.scale || 5) * 1.25); e.core.scale.setScalar(1 + Math.sin(now * 6) * 0.12); }
+  for (const p of e.plates || []) {
+    const ready = now >= p.readyAt;
+    for (const m of [p.m.userData.mats.toon, p.m.userData.mats.std]) { m.color.set(ready ? '#7fe8ff' : '#6a5a4a'); if (m.emissive) m.emissive.set(ready ? '#2a8ab0' : '#000000'); }
+    if (ready && !player.air && Math.hypot(player.pos.x - p.x, player.pos.z - p.z) < 1.5) {
+      p.readyAt = now + 16; sfx('special');
+      burst(new THREE.Vector3(p.x, 0.6, p.z), '#7fe8ff', 50, 7, 1.3);
+      bossSay(e, 'BZZT. SHORT. CIRCUIT.'); weakGear(e, true); dizzy(e, 3.5); later(3.5, () => weakGear(e, false));
+    }
+  }
+}
+function sandsCleanup(e) {
+  for (const p of e.plates || []) scene.remove(p.m);
+  e.plates = null;
+  if (e.core) { scene.remove(e.core); e.core = null; }
+  e.coreOpen = false;
+  if (e.gearFx) e.gearFx.visible = false;
+}
+Object.assign(PHASE_LINES, {
+  boss_pomp: ['Overdrive! Let us see you handle THIS!', 'Maximum GLORY! Maximum SHINE!'],
+  boss_colossus: ['PLATING. DAMAGED. ENGAGING. LASERS.', 'CORE. EXPOSED. THIS. IS. FINE.'],
+});
+Object.assign(PHASE_SETUP, {
+  boss_pomp: (e, ph) => { if (ph === 2) for (let i = 0; i < 2; i++) { const a = i * 3.14 + rng(); bossAdd(e, 'clock_soldier', e.pos.x + Math.cos(a) * 5, e.pos.z + Math.sin(a) * 5); } },
+  boss_colossus: (e, ph) => {
+    if (ph === 2) makePlates(e);
+    if (ph === 3) {
+      e.coreOpen = true;
+      const c = new THREE.Mesh(new THREE.SphereGeometry(0.9, 18, 14), new THREE.MeshBasicMaterial({ color: '#7fe8ff', fog: false })); c.layers.set(1); scene.add(c); e.core = c;
+      for (let i = 0; i < 2; i++) { const a = i * 3.14 + rng(); bossAdd(e, i ? 'clock_conjurer' : 'clock_soldier', e.pos.x + Math.cos(a) * 7, e.pos.z + Math.sin(a) * 7); }
+    }
+  },
+});
+Object.assign(BOSS_AI, {
+  boss_pomp(e, toP) {
+    e.flyN = (e.flyN || 0) + 1; const ph = e.phase || 1;
+    if (ph >= 3 && e.flyN % 3 === 0) { gloryBeam(e); return true; }
+    if (ph >= 2 && e.flyN % 3 === 1) { missileVolley(e); return true; }
+    if (toP > 7 || e.flyN % 4 === 2) { rocketDash(e); return true; }
+    return false;
+  },
+  boss_colossus(e, toP) {
+    e.flyN = (e.flyN || 0) + 1; const ph = e.phase || 1;
+    if (ph >= 2 && e.flyN % 3 === 0) { kneeLaser(e); return true; }
+    if (e.flyN % 2 === 1 || toP > 5) { colossusFist(e); return true; }
+    return false;
+  },
+});
+// Pompington, beaten and sorry, polishes pots at Oasis Rest.
+let pompFriend = null;
+function makePompFriend() {
+  if (pompFriend || !S.pompFree) return;
+  const V = LANDS.sands.village;
+  pompFriend = makeNpc({ id: 'pomp_pal', name: 'Sir Percival Pompington (sorry)', model: 'knight', x: V.x + 4, z: V.z - 6, hide: ['Knight_Helmet'], tint: '#ffe28a', inside: 'sands',
+    look: { ...ENEMY_TYPES.boss_pomp.look, mouth: 'calm', eyeStyle: 'sleepy' },
+    lines: ['I am polishing these pots to say sorry. They have never been shinier. Neither have I, frankly.', 'The Dark King said I would be the most famous knight in history. Then he called me "the shiny one" and stopped writing back.', 'I may have taken credit for one or two of your victories. Or six. I have written you a very long apology. It is mostly about me.', 'If you see the Floating Castle, do mind the moat. It is made of clouds. Nobody can swim in clouds.'] });
+}
+// Your path changes how Brassbolt greets you
+function pathArrive() {
+  if (where !== 'sands' || !S.path || (S.pathGift || {})[S.path]) return;
+  S.pathGift = { ...(S.pathGift || {}), [S.path]: 1 };
+  if (S.path === 'vampire') queueLetter('path_vamp_recruit');
+  if (S.path === 'angel') queueLetter('vision_angel');
+  if (S.path === 'human') later(1.5, () => {
+    if (!S.owned.includes('g_heart')) S.owned.push('g_heart');
+    toast('Professor Tinkerwell gave you a Clockwork heart gadget! (Stubborn humans need all the help they can get.) Equip it from your bag.', ICONS.gadget, true);
+    save();
+  });
+  save();
 }
 
 // The miniboss's big move: a red circle grows on the ground, then BOOM. Jump or get out!
@@ -4634,10 +5024,10 @@ function dayTick(dt, force) {
 // The valley, the frost land and the rooms are far apart, so only the one the hero is in
 // gets drawn or updated at all. The others are skipped wholesale each frame.
 const regions = {};
-const regionOfX = (x) => (x > 1600 ? 'marsh' : x > 700 ? 'frost' : x > 230 ? 'rooms' : 'valley');
+const regionOfX = (x) => (x > 2500 ? 'sands' : x > 1600 ? 'marsh' : x > 700 ? 'frost' : x > 230 ? 'rooms' : 'valley');
 function groupRegions(objs) {
   const box = new THREE.Box3(), c = new THREE.Vector3();
-  for (const k of ['valley', 'rooms', 'frost', 'marsh']) { regions[k] = new THREE.Group(); regions[k].name = 'region_' + k; scene.add(regions[k]); }
+  for (const k of ['valley', 'rooms', 'frost', 'marsh', 'sands']) { regions[k] = new THREE.Group(); regions[k].name = 'region_' + k; scene.add(regions[k]); }
   for (const o of objs) {
     box.setFromObject(o); if (box.isEmpty()) c.copy(o.position); else box.getCenter(c);
     regions[regionOfX(c.x)].attach(o);
@@ -4774,7 +5164,7 @@ function tick() {
   regionTick(); lightTick();
   if (player) { spotTick(); goldenTick(); tinyTick(dt); pompTick(dt); }
 
-  if (player) { gulpTick(); lanternTick(dt); wingTick(); }
+  if (player) { gulpTick(); lanternTick(dt); wingTick(); stormTick(dt); castleTick(dt); colossusTick(dt); }
   if (player && !player.dead && !uiLock() && !gulped) {
     const busy = now < player.busyUntil;
     let mx = 0, mz = 0;
@@ -5019,7 +5409,7 @@ let musicAt = 0;
 // ---------- boss intros ----------
 // The first time a boss notices you (and again after a while), the action pauses: black bars slide in,
 // the camera swoops to the boss, it roars, and its name slams onto the screen.
-const BOSS_TITLES = { boss_mire: 'Bog Witch of Mire Hollow', boss_sogg: 'The Sunken Knight', boss_gobbler: 'Terror of Gobbler Marsh', boss_frost: 'Ice Queen of Frostwhisker Peaks', boss_crusher: 'Brute of the Grumble Crags', boss_gloom: 'Sorcerer of Glimmerwood', boss_rattle: 'Terror of Haunted Hollow', boss_gagron: 'Fire Dragon of the Ember Cave' };
+const BOSS_TITLES = { boss_pomp: 'In a Stolen Battle-Suit', boss_colossus: 'Guardian of the Old Kingdom', boss_mire: 'Bog Witch of Mire Hollow', boss_sogg: 'The Sunken Knight', boss_gobbler: 'Terror of Gobbler Marsh', boss_frost: 'Ice Queen of Frostwhisker Peaks', boss_crusher: 'Brute of the Grumble Crags', boss_gloom: 'Sorcerer of Glimmerwood', boss_rattle: 'Terror of Haunted Hollow', boss_gagron: 'Fire Dragon of the Ember Cave' };
 let bossIntro = null;
 function bossIntroTick(dt = 0) {
   if (bossIntro) {
@@ -5047,6 +5437,10 @@ function bossIntroTick(dt = 0) {
 // ['h', text] lines are your hero talking back.
 const POMP_BOSSES = ['boss_gagron', 'boss_crusher', 'boss_gloom', 'boss_rattle', 'boss_frost', 'boss_gobbler'];
 const BOSS_LINES = {
+  boss_pomp: { intro: ['Ah, the little helper! Admire my new suit. Rockets! Lasers! A cup holder!', ['h', 'That is Professor Tinkerwell\'s suit. And you work for the Dark King?!'], 'He promised me GLORY. Statues! Songs! My face on every coin! You would not understand.', 'Now hold still while I become a legend!'],
+    low: 'Not the paint! Do you know how much this gold leaf costs?!', defeat: ['*sniff* The suit is ruined. My hair is ruined. EVERYTHING is ruined.', ['h', 'Why did you do it?'], 'Nobody ever cheered for me. Not once. The Dark King said they would...', 'He has a castle, you know. It FLIES. I was going to have the room with the balcony.'] },
+  boss_colossus: { intro: ['*CLANK* *WHIRR* ...INTRUDER. DETECTED.', ['h', 'That is the biggest robot I have ever seen.'], 'I. AM. THE. BRASSBOLT. COLOSSUS. THE WARDSTONE. IS. MINE.'],
+    low: 'WARNING. WARNING. SPRINGS. COMING. LOOSE.', defeat: ['*CLUNK* ...POWER. FAILING.', ['h', 'The Wardstone! It is in its chest!'], 'THANK. YOU. I. WAS. VERY. TIRED.', '*the ground rumbles... something enormous rises in the north*'] },
   boss_mire: { intro: ['Visitors! How lovely. Come closer, dearie, the cauldron is nice and warm.', ['h', 'What are you cooking?'], 'Oh, just a little something for a friend of mine. A BIG friend. A HUNGRY friend.'],
     low: 'My beautiful wrinkles! You scuffed them!', defeat: ['Fine! FINE! Yes, I fed the Gobbler. Boots, boats, bridges, all of it.', ['h', 'Why?!'], 'The Dark King promised to make me young again. Young! Do you know how creaky my knees are?', 'He never kept his word, of course. They never do...'] },
   boss_sogg: { intro: ['*glub* WHO DISTURBS SIR PERCIVAL SOGGINGTON?', ['h', 'Wait, another Sir Percival?'], 'There is only ONE Sir Percival! The other one is a fraud with shiny armour! CHARGE!'],
@@ -5162,7 +5556,7 @@ function musicTick() {
   const boss = player && enemies.some((e) => e.T.boss && e.inside === where && e.hp > 0 && (e.state === 'chase' || e.state === 'slam') && Math.hypot(e.pos.x - player.pos.x, e.pos.z - player.pos.z) < 32);
   if (boss) playMusic('boss');
   else if (where === 'cave') playMusic('cave');
-  else if (LANDS[where]) playMusic(where === 'marsh' ? 'marsh' : 'frost');
+  else if (LANDS[where]) playMusic(where === 'marsh' || where === 'sands' ? where : 'frost');
   else if (where !== 'out' || (player && Math.hypot(player.pos.x, player.pos.z) < 50) || (player && Math.hypot(player.pos.x - 4, player.pos.z + 64) < 28)) playMusic('village');
   else playMusic('field');
 }
@@ -5502,6 +5896,8 @@ const TOWN_BOSS = {
   glaciergate: { name: 'The Glacier Baron', model: 'skel_warrior', weapon: 'axe_2handed', drop: 'golden_crown' },
   bogbottom: { name: 'Lord Mudsworth', model: 'skel_warrior', weapon: 'axe_2handed', drop: 'ruby' },
   reedwhistle: { name: 'The Reed Hag', model: 'skel_mage', weapon: 'Skeleton_Staff', ranged: true, spread: true, drop: 'golden_crown' },
+  dunecrest: { name: 'Baron Rivet', model: 'skel_warrior', weapon: 'axe_2handed', drop: 'ruby' },
+  copperspring: { name: 'The Copper Countess', model: 'skel_mage', weapon: 'Skeleton_Staff', ranged: true, spread: true, drop: 'golden_crown' },
 };
 // which monsters guard each town: tougher towns have more of the nasty ones
 const TOWN_MIX = {
@@ -5526,10 +5922,15 @@ const TOWN_FOLK = {
     { name: 'Puddles', model: 'barbarian', look: { skin: 'tan', eyes: 'brown', eyeStyle: 'happy', mouth: 'grin', hair: 'shag', hairCol: 'chestnut', beard: 'stache', head: 'chibi' }, tint: '#c8b080' }],
   reedwhistle: [{ name: 'Piper Wren', model: 'heroine', look: { sex: 'f', skin: 'bronze', eyes: 'green', eyeStyle: 'round', mouth: 'smile', hair: 'twin', hairLen: 'shoulder', hairCol: 'ginger', mark: 'freckles' }, tint: '#b8e09a' },
     { name: 'Old Croaker', model: 'knight', look: { skin: 'green', eyes: 'gold', eyeStyle: 'sleepy', mouth: 'calm', hair: 'none', beard: 'full', hairCol: 'snow' }, tint: '#9ac08a' }],
+  dunecrest: [{ name: 'Sandy Saffron', model: 'heroine', look: { sex: 'f', skin: 'bronze', eyes: 'gold', eyeStyle: 'round', mouth: 'smile', hair: 'braid', hairLen: 'long', hairCol: 'black', mark: 'freckles' }, tint: '#f0c070' },
+    { name: 'Grandpa Gasket', model: 'barbarian', look: { skin: 'tan', eyes: 'grey', eyeStyle: 'sleepy', mouth: 'calm', hair: 'none', beard: 'long', hairCol: 'snow', head: 'chibi' }, tint: '#d8a850' }],
+  copperspring: [{ name: 'Rosie Rivets', model: 'heroine', look: { sex: 'f', skin: 'peach', eyes: 'green', eyeStyle: 'sharp', mouth: 'grin', hair: 'twin', hairLen: 'shoulder', hairCol: 'ginger', mark: 'paint' }, tint: '#e0885a' },
+    { name: 'Mr Sprocket', model: 'knight', look: { skin: 'ebony', eyes: 'sky', eyeStyle: 'round', mouth: 'smile', hair: 'short', hairCol: 'snow' }, tint: '#c8984a' }],
 };
 // frost towns are a chapter harder: they use the frost monsters, and pay (and cost) more
 const LAND_TOWN = { frost: { mobs: { skel_minion: 'frost_minion', skel_warrior: 'frost_warrior', skel_mage: 'frost_mage' }, mult: 2.5, hp: 1.8, hit: 1.7, xp: 3 },
-  marsh: { mobs: { skel_minion: 'bog_knight', skel_warrior: 'bog_knight', skel_mage: 'bog_witchling' }, mult: 5, hp: 3.2, hit: 2.8, xp: 8 } };
+  marsh: { mobs: { skel_minion: 'bog_knight', skel_warrior: 'bog_knight', skel_mage: 'bog_witchling' }, mult: 5, hp: 3.2, hit: 2.8, xp: 8 },
+  sands: { mobs: { skel_minion: 'clock_soldier', skel_warrior: 'clock_soldier', skel_mage: 'clock_conjurer' }, mult: 9, hp: 4.8, hit: 4, xp: 14 } };
 const townMult = (T) => (T.land ? LAND_TOWN[T.land].mult : 1);
 for (const T of TOWNS) {
   const tier = TOWN_TIERS[T.stars];
@@ -6150,7 +6551,7 @@ const POMP_LINES = [
 ];
 let pomp = null;
 function pompArrive(boss) {
-  if (pomp || player.dead) return;
+  if (pomp || player.dead || S.pompFree || (S.quests.st_storm && S.quests.st_storm.state === 'done')) return;
   if (roulette || bossIntro || talking) { later(1, () => pompArrive(boss)); return; }
   const a = new Actor(G.knight, { hide: ['Knight_Helmet'], scale: 1.3 });
   dressNpc(a, POMP_LOOK);
@@ -6423,7 +6824,7 @@ const plusMult = (k) => 1 + PLUS_STEP * plusOf(k);
 const plusName = (k) => `${GEAR[k].name}${plusOf(k) ? ` +${plusOf(k)}` : ''}`;
 function gearUpCost(k) {
   const n = plusOf(k) + 1, g = GEAR[k], base = g.price || (g.unique ? 600 : 120);
-  return { coins: Math.round(base * 0.2 * n + 30 * n * n), ore: g.tier === 3 ? 'mireiron_ore' : g.tier === 2 ? 'frostsilver_ore' : n <= 2 ? 'copper_ore' : 'iron_ore', count: 2 * n };
+  return { coins: Math.round(base * 0.2 * n + 30 * n * n), ore: g.tier === 4 ? 'sunstone_ore' : g.tier === 3 ? 'mireiron_ore' : g.tier === 2 ? 'frostsilver_ore' : n <= 2 ? 'copper_ore' : 'iron_ore', count: 2 * n };
 }
 function openUpgrade(npc) {
   talking = npc;
@@ -6514,6 +6915,11 @@ const LETTERS = {
   st_socket: 'Dear Hero,\n\nLooking for something? It is quite safe with me. Someone very close to your King was kind enough to hand it over.\n\nGo north if you like. It is cold there. I hope you did not pack a scarf.',
   boss_mire: 'Dear Hero,\n\nMother Mire tells me you were very rude to her. She also tells me I owe her one youth potion. I do not.\n\nPlease stop beating my helpers. Good help is so hard to find.',
   boss_gobbler: 'Dear Hero,\n\nYou made my Gobbler cough up its supper. Disgusting. Also, well done.\n\nThe stone has split, has it not? Touch the dark half. I did, long ago. It is ever so nice.',
+  boss_pomp: 'Dear Hero,\n\nPompington was supposed to be my shiniest helper. Instead he is polishing POTS.\n\nI am giving his battle-suit to someone more competent. Possibly a goat.',
+  boss_colossus: 'Dear Hero,\n\nYou broke my Colossus. It took nine hundred years to build and you broke it in an afternoon.\n\nNo matter. Look up.',
+  st_castle: 'Dear Hero,\n\nDo you like my castle? It floats. Yours does not. I win.\n\nI was a hero once, you know. I chose the dark half, just like you might. Come up and visit. I will put the kettle on.',
+  path_vamp_recruit: 'Dear Hero,\n\nWelcome to the desert, my dark little friend! Here is my offer: join me, and I will give you a castle of your very own. With a moat.\n\nThink about it. No rush. Actually, a little rush.',
+  vision_angel: 'Your halo hums, and for a moment you see a vision: a young man in shining armour, long ago, standing before the Heartstone. He reaches for the dark half. His hand trembles.\n\nA voice like warm bells whispers: "He was not born wicked. Remember that, when you meet him."',
   path_vampire: 'Dear Hero,\n\nI felt you take the dark half. Welcome, welcome! We are going to get along SPLENDIDLY.\n\nWhen you reach the desert, think about whose side you would rather be on. I have biscuits.',
   boss_frost: 'Dear Hero,\n\nYou beat the Queen. Splendid! Without her silly snow in the way, my magic flows north like warm soup.\n\nThank you so much for your help.',
 };
@@ -6532,8 +6938,10 @@ function letterTick() {
   // Flapsworth swoops down beside you
   sfx('whoosh'); burst(player.pos.clone().setY(3), '#5a3a7a', 30, 5, 1);
   const d = $('dialog');
-  d.innerHTML = `<h3>A letter from ${DARK_KING}</h3><p class="via">Delivered by Flapsworth the bat, who is shaking a little.</p><div class="letter"></div><div class="row"><button id="lbye" class="primary">Fold it away</button></div>`;
-  d.querySelector('.letter').textContent = `${LETTERS[id]}\n\nYours menacingly,\n${DARK_KING}`;
+  const vision = id.startsWith('vision_');
+  d.innerHTML = vision ? '<h3>A vision of light</h3><p class="via">Your halo glows warm and bright.</p><div class="letter"></div><div class="row"><button id="lbye" class="primary">Remember it</button></div>'
+    : `<h3>A letter from ${DARK_KING}</h3><p class="via">Delivered by Flapsworth the bat, who is shaking a little.</p><div class="letter"></div><div class="row"><button id="lbye" class="primary">Fold it away</button></div>`;
+  d.querySelector('.letter').textContent = vision ? LETTERS[id] : `${LETTERS[id]}\n\nYours menacingly,\n${DARK_KING}`;
   $('lbye').onclick = closeDialog;
   showDialog(d);
 }

@@ -3,7 +3,7 @@
 import { THREE, scene, registerMesh, toon, rng } from './engine.js';
 import { M, instanced, place, colliders, tinted, lib, S_BUILD, S_PROP, LAKE, TOWNS } from './world.js';
 
-const FX = 1000, FZ = 0, MX = 2000, MZ = 0;
+const FX = 1000, FZ = 0, MX = 2000, MZ = 0, DX = 3000, DZ = 0;
 export const LANDS = {
   frost: {
     id: 'frost', name: 'Frostwhisker Peaks', x: FX, z: FZ, r: 70,
@@ -28,6 +28,21 @@ export const LANDS = {
     },
     map: { bg: '#5e8a5a', sea: '#3f8a80', ground: '#8fb86a', zone: '#7aa65a', boss: '#4f8a78', pond: '#3f7a6a', tree: '#3f6a3a', treeHi: '#9fd07a', town: '#a8c880' },
   },
+};
+LANDS.sands = {
+  id: 'sands', name: 'Brassbolt Sands', x: DX, z: DZ, r: 70, villageName: 'Oasis Rest',
+  arrive: { x: DX, z: DZ + 49 }, captain: { x: DX + 4, z: DZ + 51 },
+  village: { x: DX, z: DZ + 30 }, elder: { x: DX - 4, z: DZ + 27 },
+  pond: { x: DX + 9, z: DZ + 22, r: 5, name: 'The Oasis' },
+  zones: {
+    sphinx: { name: 'Sphinx Engine', x: DX - 38, z: DZ - 14, r: 15 },
+    workshop: { name: 'Rustwind Yard', x: DX + 38, z: DZ - 12, r: 15 },
+    colossus: { name: 'Colossus Plaza', x: DX, z: DZ - 44, r: 15 },
+  },
+  map: { bg: '#d8b878', sea: '#4fa8c8', ground: '#f0d8a0', zone: '#e6c888', boss: '#d8b070', pond: '#5fc0d0', tree: '#5a8a3a', treeHi: '#a8d860', town: '#f5e2b0' },
+  boss: 'colossus',
+  // where you watch the Floating Castle rise after the Colossus falls
+  lookout: { x: DX, z: DZ - 22 },
 };
 LANDS.frost.map = { bg: '#c8d8ea', sea: '#4fb0e8', ground: '#f2f7ff', zone: '#e2ecf8', boss: '#bfe6fb', pond: '#a8dcf6', tree: '#2f7a6a', treeHi: '#ffffff', town: '#dce8f2' };
 LANDS.frost.villageName = 'Snowdrop';
@@ -227,6 +242,7 @@ export function buildLands() {
   pier(D.x + 1.2, D.z + 1.2, 8, Math.PI / 4);
   makeShip(D.ship.x, D.ship.z, Math.PI / 4);
   buildMarsh();
+  buildSands();
 }
 
 // ---------- Gobbler Marsh props ----------
@@ -409,4 +425,168 @@ export function makeSnow() {
     a.needsUpdate = true; pts.position.set(cx, 0, cz);
   };
   return pts;
+}
+
+// ---------- Chapter 4: Brassbolt Sands ----------
+function palm() {
+  const g = new THREE.Group();
+  for (let i = 0; i < 5; i++) { const seg = new THREE.Mesh(new THREE.CylinderGeometry(0.15 - i * 0.012, 0.18 - i * 0.012, 0.55, 7)); seg.position.set(i * 0.06, 0.28 + i * 0.52, 0); seg.rotation.z = -0.06 * i; g.add(add(seg, i % 2 ? '#a8784a' : '#b8885a')); }
+  for (let i = 0; i < 7; i++) {
+    const a = (i / 7) * Math.PI * 2, leaf = new THREE.Mesh(new THREE.ConeGeometry(0.28, 1.9, 4)); leaf.scale.set(1, 1, 0.25);
+    leaf.position.set(0.3 + Math.cos(a) * 0.75, 2.75, Math.sin(a) * 0.75); leaf.rotation.set(Math.sin(a) * 1.25, -a, -Math.cos(a) * 1.25 + 0.05);
+    g.add(add(leaf, i % 2 ? '#5a9a3a' : '#6aae44'));
+  }
+  const nut = new THREE.Mesh(new THREE.SphereGeometry(0.16, 8, 6)); nut.position.set(0.32, 2.55, 0.12); g.add(add(nut, '#6a4a2a'));
+  return g;
+}
+function cactus() {
+  const g = new THREE.Group(), col = '#6aa04a';
+  const trunk = new THREE.Mesh(new THREE.CapsuleGeometry(0.32, 1.5, 4, 10)); trunk.position.y = 1.05; g.add(add(trunk, col));
+  for (const [sx, h] of [[1, 1.1], [-1, 0.8]]) {
+    const arm = new THREE.Mesh(new THREE.CapsuleGeometry(0.2, 0.55, 4, 8)); arm.position.set(sx * 0.55, h + 0.35, 0); g.add(add(arm, col));
+    const join = new THREE.Mesh(new THREE.CapsuleGeometry(0.18, 0.3, 4, 8)); join.rotation.z = Math.PI / 2; join.position.set(sx * 0.36, h, 0); g.add(add(join, col));
+  }
+  const fl = new THREE.Mesh(new THREE.SphereGeometry(0.14, 8, 6)); fl.position.set(0, 1.95, 0); g.add(add(fl, '#ff7ab0'));
+  return g;
+}
+function tent(x, z, ry, cloth = '#e86a4a', trim = '#f5e2b0') {
+  const g = new THREE.Group();
+  const body = new THREE.Mesh(new THREE.CylinderGeometry(2.4, 2.6, 2.2, 8)); body.position.y = 1.1; g.add(add(body, trim));
+  const top = new THREE.Mesh(new THREE.ConeGeometry(3.1, 2.4, 8)); top.position.y = 3.4; g.add(add(top, cloth));
+  const flag = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.5, 0.7)); flag.position.set(0, 4.9, 0.35); g.add(add(flag, cloth));
+  const door = new THREE.Mesh(new THREE.BoxGeometry(1.1, 1.6, 0.1)); door.position.set(0, 0.8, 2.55); g.add(add(door, '#6a3a22'));
+  g.position.set(x, 0, z); g.rotation.y = ry; scene.add(g); colliders.push({ x, z, r: 2.7 });
+  return g;
+}
+function gear(r, teeth = 10, col = '#c8984a') {
+  const sh = new THREE.Shape();
+  for (let i = 0; i <= teeth * 2; i++) { const a = (i / (teeth * 2)) * Math.PI * 2, rr = i % 2 ? r * 0.82 : r; i ? sh.lineTo(Math.cos(a) * rr, Math.sin(a) * rr) : sh.moveTo(rr, 0); }
+  const hole = new THREE.Path(); hole.absarc(0, 0, r * 0.3, 0, Math.PI * 2, true); sh.holes.push(hole);
+  return add(new THREE.Mesh(new THREE.ExtrudeGeometry(sh, { depth: r * 0.22, bevelEnabled: false })), col);
+}
+export const SANDS_FX = { castle: null };
+// a choppable desert palm for Woodcutting: the full tree and its stump
+export function palmNode(x, z, sc = 1.8) {
+  const full = palm(); full.scale.setScalar(sc); full.position.set(x, 0, z); full.rotation.y = rng() * 6; scene.add(full);
+  const cut = new THREE.Group(); const st = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.24, 0.35, 8)); st.position.y = 0.17; cut.add(add(st, '#a8784a'));
+  const top = new THREE.Mesh(new THREE.CircleGeometry(0.19, 10)); top.rotation.x = -Math.PI / 2; top.position.y = 0.36; cut.add(add(top, '#f0d8a0'));
+  cut.scale.setScalar(sc); cut.position.set(x, 0, z); scene.add(cut);
+  colliders.push({ x, z, r: 0.5 });
+  return { full, cut };
+}
+export function buildSands() {
+  const L = LANDS.sands, R = L.r;
+  // rolling golden dunes, flat in the middle, rising at the edge, with a sandy bay for the harbour
+  const gGeo = new THREE.PlaneGeometry(250, 250, 110, 110); gGeo.rotateX(-Math.PI / 2);
+  const pos = gGeo.attributes.position, cols = [], cA = new THREE.Color('#f0d8a0'), cB = new THREE.Color('#e6c486'), cC = new THREE.Color('#f8e6b8'), t = new THREE.Color();
+  for (let i = 0; i < pos.count; i++) {
+    const x = pos.getX(i), z = pos.getZ(i), d = Math.hypot(x, z);
+    const n = Math.sin(x * 0.07 + z * 0.03) * Math.cos(z * 0.06) + 0.4 * Math.sin(x * 0.19 - z * 0.13);
+    t.copy(cA).lerp(n > 0 ? cC : cB, Math.min(1, Math.abs(n) * 0.7));
+    const bay = z > 44 && Math.abs(x) < 34;
+    let y = d > R + 4 ? (d - R - 4) * 0.25 * (1 + 0.6 * Math.sin(x * 0.11 + z * 0.07)) : 0;
+    if (!bay && d > 20 && d < R) y += Math.max(0, Math.sin(x * 0.09 + Math.cos(z * 0.05) * 2)) * 0.35;
+    if (bay) y = z > 56 ? -0.7 : 0;
+    pos.setY(i, y); cols.push(t.r, t.g, t.b);
+  }
+  gGeo.setAttribute('color', new THREE.Float32BufferAttribute(cols, 3)); gGeo.computeVertexNormals();
+  const ground = new THREE.Mesh(gGeo); ground.position.set(DX, 0, DZ); ground.receiveShadow = true;
+  registerMesh(ground, toon('#ffffff', { vertexColors: true })); scene.add(ground);
+  const sea = new THREE.Mesh(new THREE.PlaneGeometry(68, 70)); sea.rotation.x = -Math.PI / 2; sea.position.set(DX, -0.05, DZ + 92);
+  registerMesh(sea, toon('#4fa8c8')); scene.add(sea);
+
+  const pathM = toon('#d8b070', { polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
+  const path = (x1, z1, x2, z2, w = 3) => { const dx = x2 - x1, dz = z2 - z1, len = Math.hypot(dx, dz); const m = new THREE.Mesh(new THREE.PlaneGeometry(w, len)); m.rotation.set(-Math.PI / 2, 0, Math.atan2(dx, dz)); m.position.set((x1 + x2) / 2, 0.03, (z1 + z2) / 2); registerMesh(m, pathM); m.receiveShadow = true; scene.add(m); };
+  const disc = (x, z, r, col = '#d8b070', y = 0.035) => { const m = new THREE.Mesh(new THREE.CircleGeometry(r, 32)); m.rotation.x = -Math.PI / 2; m.position.set(x, y, z); registerMesh(m, toon(col, { polygonOffset: true, polygonOffsetFactor: -3, polygonOffsetUnits: -3 })); m.receiveShadow = true; scene.add(m); return m; };
+  const V = L.village, Z = L.zones, roads = landRoads(L);
+  for (const [x1, z1, x2, z2] of roads) path(x1, z1, x2, z2);
+  disc(V.x, V.z, 7, '#e8c890');
+  const landTowns = TOWNS.filter((T) => T.land === L.id);
+  const nearPath = (x, z) => {
+    if (landTowns.some((T) => Math.hypot(x - T.x, z - T.z) < T.r + 2)) return true;
+    for (const [x1, z1, x2, z2] of roads) { const dx = x2 - x1, dz = z2 - z1, l2 = dx * dx + dz * dz, k = Math.max(0, Math.min(1, ((x - x1) * dx + (z - z1) * dz) / l2)); if (Math.hypot(x - x1 - k * dx, z - z1 - k * dz) < 4) return true; }
+    return false;
+  };
+  const free = (x, z, pad) => colliders.every((c) => Math.hypot(c.x - x, c.z - z) > c.r + pad);
+  const away = (x, z, pad) => !nearPath(x, z) && Math.hypot(x - V.x, z - V.z) > 15 && Object.values(Z).every((q) => Math.hypot(x - q.x, z - q.z) > q.r * 0.8) && Math.hypot(x - L.pond.x, z - L.pond.z) > L.pond.r + 2 && free(x, z, pad);
+
+  // Oasis Rest: striped tents round a well, and a little palm-ringed pool
+  for (const [dx, dz, c, tr] of [[-11, -3, '#e86a4a', '#f5e2b0'], [11, -4, '#4a8ad8', '#f5e2b0'], [-11, 9, '#e8b03a', '#fff1d6'], [-2, 13, '#a85ad8', '#f5e2b0']]) tent(V.x + dx, V.z + dz, Math.atan2(-dx, -dz), c, tr);
+  place('building_well_blue', V.x, V.z - 1, S_BUILD);
+  for (const [n, dx, dz] of [['barrel', 6, 3], ['crate_A_big', -6, 4], ['sack', 7, 4], ['crate_A_small', -7, 5]]) place(n, V.x + dx, V.z + dz, S_PROP, rng() * 6, { shrink: 0.6 });
+  pier(DX, DZ + 52, 10, 0);
+  makeShip(DX, DZ + 66, 0, '#fff1d6', '#d89a3a');
+  colliders.push({ x: DX, z: DZ + 66, r: 3 });
+  const P = L.pond;
+  disc(P.x, P.z, P.r + 1.2, '#b8a060', 0.04); disc(P.x, P.z, P.r, '#5fc0d0', 0.05);
+  const palms = [], palmAt = (x, z, sc) => { palms.push(M(x, 0, z, sc, rng() * 6)); colliders.push({ x, z, r: 0.25 * sc }); };
+  for (let i = 0; i < 7; i++) { const a = (i / 7) * Math.PI * 2 + 0.3, x = P.x + Math.cos(a) * (P.r + 2.2), z = P.z + Math.sin(a) * (P.r + 2.2); if (free(x, z, 1)) palmAt(x, z, 1.6 + rng() * 0.4); }
+  for (let i = 0; i < 90; i++) {
+    const a = rng() * Math.PI * 2, rr = 52 + rng() * 22, x = DX + Math.cos(a) * rr, z = DZ + Math.sin(a) * rr;
+    if (z - DZ > 40 && Math.abs(x - DX) < 38) continue;
+    if (rng() > 0.45 || nearPath(x, z) || !free(x, z, 2)) continue;
+    palmAt(x, z, 1.5 + rng() * 0.6);
+  }
+  instanced(palm(), palms);
+  const cacti = [], rocks = [], bones = [];
+  for (let i = 0; i < 40; i++) { const a = rng() * 6.28, rr = 12 + rng() * 55, x = DX + Math.cos(a) * rr, z = DZ + Math.sin(a) * rr; if (!away(x, z, 1)) continue; cacti.push(M(x, 0, z, 1 + rng() * 0.6, rng() * 6)); colliders.push({ x, z, r: 0.5 }); }
+  for (let i = 0; i < 22; i++) { const a = rng() * 6.28, rr = 14 + rng() * 48, x = DX + Math.cos(a) * rr, z = DZ + Math.sin(a) * rr; if (!away(x, z, 1.5)) continue; rocks.push(M(x, 0, z, 3 + rng() * 2.5, rng() * 6)); colliders.push({ x, z, r: 0.8 }); }
+  instanced(cactus(), cacti);
+  if (lib.rock_single_B) instanced(tinted(lib.rock_single_B, '#d8a868'), rocks);
+  // half-buried brass gears: the old Brassbolt kingdom is under the sand
+  for (let i = 0; i < 16; i++) {
+    const a = rng() * 6.28, rr = 14 + rng() * 50, x = DX + Math.cos(a) * rr, z = DZ + Math.sin(a) * rr; if (!away(x, z, 2)) continue;
+    const r = 1 + rng() * 1.8, g = gear(r, 8 + Math.floor(rng() * 6), rng() > 0.5 ? '#c8984a' : '#b87a4a');
+    g.position.set(x, r * 0.45, z); g.rotation.set(0.15 - rng() * 0.3, rng() * 6, 0); scene.add(g); colliders.push({ x, z, r: r * 0.5 });
+  }
+
+  // the Sphinx Engine: a great sandstone cat with a brass face and glowing eyes
+  const SP = Z.sphinx;
+  disc(SP.x, SP.z, SP.r - 2, '#e0c088');
+  const sg = new THREE.Group(); sg.position.set(SP.x, 0, SP.z - 6);
+  const body = new THREE.Mesh(new THREE.BoxGeometry(5, 3, 9)); body.position.set(0, 1.5, -1); sg.add(add(body, '#e0b878'));
+  for (const sx of [-1.6, 1.6]) { const paw = new THREE.Mesh(new THREE.BoxGeometry(1.4, 1, 4)); paw.position.set(sx, 0.5, 4.5); sg.add(add(paw, '#d8b070')); }
+  const chest = new THREE.Mesh(new THREE.BoxGeometry(4.2, 4, 2.6)); chest.position.set(0, 3, 2.6); sg.add(add(chest, '#e0b878'));
+  const head = new THREE.Mesh(new THREE.BoxGeometry(3, 3, 2.8)); head.position.set(0, 6.4, 2.6); sg.add(add(head, '#c8984a'));
+  const hood = new THREE.Mesh(new THREE.ConeGeometry(2.6, 3.6, 4)); hood.rotation.y = Math.PI / 4; hood.position.set(0, 6.6, 2.2); hood.scale.set(1.1, 1, 0.8); sg.add(add(hood, '#4a8ad8'));
+  sg.add(head);
+  for (const sx of [-0.7, 0.7]) { const eye = new THREE.Mesh(new THREE.SphereGeometry(0.28, 10, 8)); eye.position.set(sx, 6.7, 4.02); registerMesh(eye, toon('#7fe8ff', { emissive: '#3fb8d8' })); sg.add(eye); }
+  const plate = new THREE.Mesh(new THREE.BoxGeometry(2, 0.6, 0.2)); plate.position.set(0, 5.6, 4.02); sg.add(add(plate, '#8a5a2a'));
+  scene.add(sg); colliders.push({ x: SP.x, z: SP.z - 7, r: 4.2 }, { x: SP.x, z: SP.z - 2.2, r: 2.6 });
+  for (let i = 0; i < 6; i++) { const a = Math.PI * 0.15 + (i / 5) * Math.PI * 0.7, x = SP.x + Math.cos(a) * (SP.r - 2), z = SP.z + Math.sin(a) * (SP.r - 2); const h = 3 + (i % 3); const col = new THREE.Mesh(new THREE.CylinderGeometry(0.55, 0.65, h, 8)); col.position.set(x, h / 2, z); scene.add(add(col, '#e8c890')); colliders.push({ x, z, r: 0.75 }); }
+
+  // Rustwind Yard: a junk heap of pipes and gears where Pompington tinkers with his battle suit
+  const WY = Z.workshop;
+  disc(WY.x, WY.z, WY.r - 3, '#b89a68');
+  for (let i = 0; i < 7; i++) {
+    const a = (i / 7) * Math.PI * 2, x = WY.x + Math.cos(a) * (WY.r - 2.5), z = WY.z + Math.sin(a) * (WY.r - 2.5);
+    if (Math.abs(a - Math.PI) < 0.5) continue;
+    const g = gear(1.4 + (i % 3) * 0.5, 10, i % 2 ? '#c8984a' : '#a86a3a'); g.position.set(x, 1.2 + (i % 3) * 0.4, z); g.rotation.y = a + Math.PI / 2; scene.add(g); colliders.push({ x, z, r: 1.2 });
+  }
+  const pipe = new THREE.Mesh(new THREE.CylinderGeometry(0.5, 0.5, 8, 12)); pipe.rotation.z = Math.PI / 2; pipe.position.set(WY.x + 4, 0.5, WY.z - WY.r + 3); scene.add(add(pipe, '#b87a4a'));
+  colliders.push({ x: WY.x + 4, z: WY.z - WY.r + 3, r: 1.5 });
+  const chimney = new THREE.Mesh(new THREE.CylinderGeometry(0.7, 0.9, 6, 10)); chimney.position.set(WY.x - 6, 3, WY.z - WY.r + 4); scene.add(add(chimney, '#8a5a3a'));
+  colliders.push({ x: WY.x - 6, z: WY.z - WY.r + 4, r: 1.1 });
+
+  // Colossus Plaza: a round brass-tiled arena where the giant sleeps
+  const CP = Z.colossus;
+  disc(CP.x, CP.z, CP.r + 1, '#b8884a', 0.034); disc(CP.x, CP.z, CP.r - 1, '#d8a858', 0.036);
+  for (let i = 0; i < 12; i++) { const a = (i / 12) * Math.PI * 2; const g = gear(0.9, 8, '#a86a3a'); g.rotation.x = -Math.PI / 2; g.position.set(CP.x + Math.cos(a) * (CP.r - 0.2), 0.05, CP.z + Math.sin(a) * (CP.r - 0.2)); scene.add(g); }
+  for (let i = 0; i < 8; i++) { const a = (i / 8) * Math.PI * 2 + 0.2; if (Math.abs(a - Math.PI / 2) < 0.4) continue; const x = CP.x + Math.cos(a) * (CP.r + 3), z = CP.z + Math.sin(a) * (CP.r + 3), h = 4 + (i % 2) * 2; const col = new THREE.Mesh(new THREE.CylinderGeometry(0.6, 0.7, h, 8)); col.position.set(x, h / 2, z); scene.add(add(col, '#c8984a')); const cap = new THREE.Mesh(new THREE.SphereGeometry(0.8, 10, 8)); cap.position.set(x, h + 0.4, z); scene.add(add(cap, '#ffd23f')); colliders.push({ x, z, r: 0.8 }); }
+
+  // the Floating Castle: hidden until the Colossus falls, then it rises over the far dunes
+  const fc = new THREE.Group();
+  const rock = new THREE.Mesh(new THREE.ConeGeometry(9, 12, 7)); rock.rotation.x = Math.PI; rock.position.y = -6; fc.add(add(rock, '#6a5a7a'));
+  const base = new THREE.Mesh(new THREE.CylinderGeometry(9, 9, 1.2, 7)); fc.add(add(base, '#5a4a6a'));
+  for (const [x, z, h, r] of [[0, 0, 9, 2.4], [-5, -2, 6, 1.4], [5, -2, 6, 1.4], [-3, 4, 4.5, 1.2], [3, 4, 4.5, 1.2]]) {
+    const tw = new THREE.Mesh(new THREE.CylinderGeometry(r, r * 1.1, h, 8)); tw.position.set(x, h / 2 + 0.6, z); fc.add(add(tw, '#3a2a4a'));
+    const sp = new THREE.Mesh(new THREE.ConeGeometry(r * 1.3, r * 2.2, 8)); sp.position.set(x, h + 0.6 + r * 1.1, z); fc.add(add(sp, '#7a3aa8'));
+    const win = new THREE.Mesh(new THREE.BoxGeometry(r * 0.6, r * 0.8, 0.1)); win.position.set(x, h * 0.7, z + r + 0.02); registerMesh(win, toon('#ff5adc', { emissive: '#a8248a' })); fc.add(win);
+  }
+  fc.position.set(DX, 15, DZ - 64); fc.scale.setScalar(1.2); fc.visible = false; scene.add(fc);
+  SANDS_FX.castle = fc;
+  // far mesas
+  const far = [];
+  for (let i = 0; i < 26; i++) { const a = (i / 26) * Math.PI * 2 + rng() * 0.1; if (Math.abs(a - Math.PI / 2) < 0.55) continue; const rr = R + 30 + rng() * 8; far.push(M(DX + Math.cos(a) * rr, -1, DZ + Math.sin(a) * rr, 10 + rng() * 4, rng() * 6)); }
+  if (lib.mountain_C_grass) instanced(tinted(lib.mountain_C_grass, '#d8a060'), far, { cast: false });
 }

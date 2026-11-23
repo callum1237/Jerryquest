@@ -110,6 +110,19 @@ const SONGS = {
              38 - - 45 - - 38 - 43 - - 50 - - 43 - 45 - - 52 - - 45 - 38 - - 45 - - - -`),
     drums: 'k--hs-h-k-khs-h-k--hs-h-k-khs-hh',
   },
+  sands: {
+    bpm: 100, leadWave: 'triangle', leadGain: 0.11, swing: 0.08,
+    // a lazy desert caravan tune in D with a raised 4th and a clockwork tick in the drums
+    lead: N(`62 . 63 . 66 . 67 . 69 . . . 67 . 66 . 63 . 62 . - . 63 . 66 . 63 . 62 . - .
+             69 . 70 . 69 . 67 . 66 . 67 . 69 . - . 74 . 72 . 70 . 69 . 67 . . . - . - .
+             62 . 63 . 66 . 67 . 69 . . . 74 . 75 . 74 . 72 . 70 . 69 . 67 . 66 . - . - .
+             67 . 66 . 63 . 62 . 63 . 66 . 63 . - . 62 . . . 57 . . . 62 . . . - . - .`),
+    bass: N(`38 - - - 45 - - - 38 - - - 45 - - - 39 - - - 46 - - - 38 - - - 45 - - -
+             38 - - - 45 - - - 43 - - - 50 - - - 46 - - - 45 - - - 43 - - - 45 - - -
+             38 - - - 45 - - - 38 - - - 45 - - - 43 - - - 46 - - - 45 - - - 43 - - -
+             43 - - - 39 - - - 38 - - - 45 - - - 38 - - - 33 - - - 38 - - - - - - -`),
+    drums: 'k-h-s-hhk-h-s-h-k-hhs-h-k-h-s-hh',
+  },
   cave: {
     bpm: 104, leadWave: 'triangle', leadGain: 0.12, swing: 0,
     // creepy-cute: plodding minor steps

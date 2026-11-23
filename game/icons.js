@@ -236,3 +236,39 @@ ICONS.fang = make((g) => {
   for (const sx of [-1, 1]) shape(g, '#ffffff', () => { g.moveTo(sx * 16, -16); g.lineTo(sx * 6, -14); g.lineTo(sx * 11, 20); g.closePath(); });
 });
 ICONS.human = make((g) => { shape(g, '#ffd8b0', () => g.arc(0, -10, 16, 0, 7)); shape(g, '#5fb3e6', () => { g.moveTo(-24, 32); g.quadraticCurveTo(-24, 8, 0, 8); g.quadraticCurveTo(24, 8, 24, 32); g.closePath(); }); shine(g, -6, -16, 4); });
+// Chapter 4: Brassbolt Sands
+ICONS.sunstone_ore = make((g) => {
+  shape(g, '#ffb347', () => { g.moveTo(0, -30); g.lineTo(24, -6); g.lineTo(14, 28); g.lineTo(-14, 28); g.lineTo(-24, -6); g.closePath(); });
+  shape(g, '#fff1a0', () => { g.moveTo(0, -18); g.lineTo(12, -2); g.lineTo(6, 16); g.lineTo(-6, 16); g.lineTo(-12, -2); g.closePath(); });
+  shine(g, -8, -10, 4);
+});
+ICONS.palm_logs = make((g) => {
+  for (const [y, c] of [[-10, '#c89a5a'], [10, '#b8884a']]) shape(g, c, () => g.rect(-28, y - 8, 56, 16));
+  for (const y of [-10, 10]) shape(g, '#f0d8a0', () => g.ellipse(28, y, 5, 8, 0, 0, 7));
+});
+ICONS.gadget = make((g) => {
+  shape(g, '#d8a850', () => { for (let i = 0; i < 16; i++) { const a = (i / 16) * Math.PI * 2, r = i % 2 ? 22 : 30; i ? g.lineTo(Math.cos(a) * r, Math.sin(a) * r) : g.moveTo(r, 0); } g.closePath(); });
+  shape(g, '#6a4a2a', () => g.arc(0, 0, 9, 0, 7));
+  shine(g, -12, -12, 4);
+});
+ICONS.pomp_monocle = make((g) => {
+  g.save(); g.lineWidth = 3; g.beginPath(); g.moveTo(14, 10); g.quadraticCurveTo(28, 26, 18, 34); g.stroke(); g.restore();
+  shape(g, '#ffd23f', () => g.arc(-2, -6, 22, 0, 7));
+  shape(g, '#cfeeff', () => g.arc(-2, -6, 15, 0, 7));
+  shine(g, -9, -13, 5);
+});
+ICONS.colossus_core = make((g) => {
+  shape(g, '#b8884a', () => g.arc(0, 0, 30, 0, 7));
+  shape(g, '#7fe8ff', () => g.arc(0, 0, 18, 0, 7));
+  shape(g, '#ffffff', () => g.arc(0, 0, 8, 0, 7));
+  shine(g, -12, -12, 4);
+});
+ICONS.sphinx_coin = make((g) => {
+  shape(g, '#e8c060', () => g.arc(0, 0, 28, 0, 7));
+  shape(g, '#b88a30', () => { g.moveTo(-14, 14); g.lineTo(-14, -2); g.quadraticCurveTo(-12, -16, 0, -18); g.quadraticCurveTo(12, -16, 14, -2); g.lineTo(14, 14); g.closePath(); });
+  shine(g, -12, -12, 4);
+});
+ICONS.crate = make((g) => {
+  shape(g, '#c8884a', () => g.rect(-26, -22, 52, 44));
+  g.save(); g.lineWidth = 4; g.strokeStyle = '#6a3a1a'; g.beginPath(); g.moveTo(-26, -22); g.lineTo(26, 22); g.moveTo(26, -22); g.lineTo(-26, 22); g.stroke(); g.restore();
+});

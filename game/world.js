@@ -18,6 +18,8 @@ export const TOWNS = [
   { id: 'glaciergate', name: 'Glacier Gate', x: 1036, z: -34, r: 14, stars: 3, land: 'frost', home: [1000, 32] },
   { id: 'bogbottom', name: 'Bogbottom', x: 1956, z: 32, r: 14, stars: 2, land: 'marsh', home: [2000, 30] },
   { id: 'reedwhistle', name: 'Reedwhistle', x: 2046, z: 34, r: 14, stars: 3, land: 'marsh', home: [2000, 30] },
+  { id: 'dunecrest', name: 'Dunecrest', x: 2954, z: 30, r: 14, stars: 2, land: 'sands', home: [3000, 30] },
+  { id: 'copperspring', name: 'Copperspring', x: 3046, z: 32, r: 14, stars: 3, land: 'sands', home: [3000, 30] },
 ];
 // which way a town's open side faces: towards its land's main village
 export const townFacing = (T) => Math.atan2((T.home ? T.home[1] : 0) - T.z, (T.home ? T.home[0] : 0) - T.x);
