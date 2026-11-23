@@ -610,8 +610,9 @@ let tool = null, rod = null, pick = null;
 const FILES = ['world', 'gear', 'interior', 'dragon', 'slime', 'bat', 'knight', 'heroine', 'mage', 'archer', 'barbarian', 'skel_warrior', 'skel_minion', 'skel_mage'];
 async function main() {
   let n = 0;
-  const loaded = await Promise.all(FILES.map((f) => loadModel(f).then((g) => { $('loadmsg').textContent = `${++n} of ${FILES.length} models`; return g; })));
+  const loaded = await Promise.all(FILES.map((f) => loadModel(f).then((g) => { $('loadmsg').textContent = `${++n} of ${FILES.length} models`; $('ldfill').style.width = `${8 + 80 * n / FILES.length}%`; return g; })));
   FILES.forEach((f, i) => { G[f] = loaded[i]; });
+  $('loadmsg').textContent = 'building the world'; $('ldfill').style.width = '94%'; await new Promise((r) => requestAnimationFrame(() => setTimeout(r, 0)));
   for (const c of G.world.scene.children) lib[c.name] = c;
   for (const c of G.gear.scene.children) lib[c.name] = c;
   for (const c of G.interior.scene.children) lib[c.name] = c;
@@ -646,6 +647,7 @@ async function main() {
   if (net.enabled && await resume()) {
     try { const d = await loadCloud(); setSlotBox(d); S = fresh(); net.on = true; } catch (e) { console.warn(e); }
   }
+  $('ldfill').style.width = '100%';
   $('loading').style.opacity = '0';
   setTimeout(() => $('loading').remove(), 700);
   showTitle(had, begin);
@@ -671,6 +673,7 @@ function titleShell(inner) {
   pick.innerHTML = `<div class="title">
     <div class="logo">${LOGO}<h1 aria-label="JerryQuest"><span>Jerry</span><span>Quest</span></h1><p class="ribbon"><span>A storybook adventure with friends</span></p></div>
     <div class="tcard panel">${inner}</div>
+    <p class="tfeat"><span>4 lands to explore</span><span>Free towns, be mayor</span><span>Play with friends</span></p>
     <p class="tfoot"><span class="srv ${net.enabled ? 'on' : ''}">${net.enabled ? 'Server online' : 'Server offline'}</span><span>Free art by KayKit and Quaternius</span><button id="t-music" class="linky" type="button">Music: tap anywhere</button></p>
   </div>`;
   pick.hidden = false; document.body.classList.add('titling');
@@ -4084,7 +4087,9 @@ let comboStep = 0, lastSwingAt = -9, dashLunge = null;
 // ---------- charged attack ----------
 // J is the normal combo. Hold K: a ring fills round your feet, and letting go unleashes a big
 // blow with up to almost three times the damage, and melee weapons send a slash wave flying ahead.
-const CHARGE_MIN = 0.45, CHARGE_FULL = 1.3;
+const CHARGE_MIN = 0.45;
+// the charge fills faster as you level: about 2 seconds at level 1, 0.6 seconds by level 100
+const chargeFull = () => 2.0 - 1.4 * (Math.min(100, Math.max(1, heroLvl())) - 1) / 99;
 let charge = null, chargeRing = null;
 function chargeStart() { if (!player || player.dead || uiLock() || talking) return; charge = { at: now, full: false }; }
 function chargeTick() {
@@ -4095,7 +4100,7 @@ function chargeTick() {
   if (!charge || !player || player.dead || uiLock()) { chargeRing.visible = false; if (charge && (!player || player.dead || uiLock())) charge = null; return; }
   const t = now - charge.at;
   if (t < CHARGE_MIN * 0.6) { chargeRing.visible = false; return; }
-  const k = Math.min(1, (t - CHARGE_MIN * 0.6) / (CHARGE_FULL - CHARGE_MIN * 0.6));
+  const k = Math.min(1, (t - CHARGE_MIN * 0.6) / (chargeFull() - CHARGE_MIN * 0.6));
   chargeRing.visible = true; chargeRing.position.set(player.pos.x, 0.18 + player.pos.y, player.pos.z);
   chargeRing.scale.setScalar(3.2 - 1.6 * k);
   chargeRing.material.color.set(k >= 1 ? (Math.sin(now * 20) > 0 ? '#ffffff' : '#ff8a3a') : '#ffd23f');
@@ -4105,7 +4110,7 @@ function chargeRelease() {
   const c = charge; charge = null; if (chargeRing) chargeRing.visible = false;
   if (!c || !player || player.dead || uiLock() || talking) return;
   const t = now - c.at; if (t < CHARGE_MIN) { attackPress(true); return; } // a quick tap of K is just a normal swing
-  chargedAttack(Math.min(1, (t - CHARGE_MIN) / (CHARGE_FULL - CHARGE_MIN)));
+  chargedAttack(Math.min(1, (t - CHARGE_MIN) / (chargeFull() - CHARGE_MIN)));
 }
 function chargedAttack(k) {
   const w = W(), A = STYLES[w.type];
@@ -6333,6 +6338,10 @@ let bossIntro = null;
 // ---------- sealed final bosses ----------
 // A chapter's last boss stays behind a shimmering seal until you've beaten the one before it.
 const BOSS_GATES = {
+  // Chapter 1: the three shard guardians wake only once Gagron is beaten
+  boss_crusher: { quest: 'st_dragon', beat: 'boss_gagron', who: 'Gagron the Hideous', r: 21 },
+  boss_gloom: { quest: 'st_dragon', beat: 'boss_gagron', who: 'Gagron the Hideous', r: 21 },
+  boss_rattle: { quest: 'st_dragon', beat: 'boss_gagron', who: 'Gagron the Hideous', r: 19 },
   boss_colossus: { quest: 'st_pomp', beat: 'boss_pomp', who: 'Sir Percival Pompington' },
   boss_frost: { quest: 'st_twins', beat: 'boss_twin_a', who: 'the Avalanche Twins' },
   boss_gobbler: { quest: 'st_lantern', who: 'the Lantern Night' },
@@ -6344,18 +6353,18 @@ function bossGateTick() {
   if (!player || player.dead) return;
   for (const e of enemies) {
     if (!BOSS_GATES[e.type] || e.inside !== where) { if (e.seal) e.seal.visible = false; continue; }
-    const locked = bossLocked(e), hx = e.home.x, hz = e.home.y;
+    const locked = bossLocked(e), hx = e.home.x, hz = e.home.y, SR = BOSS_GATES[e.type].r || SEAL_R;
     if (!e.seal) {
       // a faint wall of light round the stage
-      const m = new THREE.Mesh(new THREE.CylinderGeometry(SEAL_R, SEAL_R, 7, 72, 1, true), new THREE.MeshBasicMaterial({ color: '#c9a8ff', transparent: true, opacity: 0.16, depthWrite: false, fog: false, side: THREE.DoubleSide, blending: THREE.AdditiveBlending }));
+      const m = new THREE.Mesh(new THREE.CylinderGeometry(SR, SR, 7, 72, 1, true), new THREE.MeshBasicMaterial({ color: '#c9a8ff', transparent: true, opacity: 0.16, depthWrite: false, fog: false, side: THREE.DoubleSide, blending: THREE.AdditiveBlending }));
       m.position.set(hx, 3.5, hz); m.layers.set(1); scene.add(m); e.seal = m;
     }
     const d = Math.hypot(player.pos.x - hx, player.pos.z - hz);
-    e.seal.visible = locked && d < SEAL_R + 30;
+    e.seal.visible = locked && d < SR + 30;
     if (!locked) continue;
-    e.seal.material.opacity = 0.1 + 0.08 * Math.sin(now * 2) + (d < SEAL_R + 4 ? 0.12 : 0);
-    if (d < SEAL_R + 0.8) {
-      const k = (SEAL_R + 0.8) / (d || 1);
+    e.seal.material.opacity = 0.1 + 0.08 * Math.sin(now * 2) + (d < SR + 4 ? 0.12 : 0);
+    if (d < SR + 0.8) {
+      const k = (SR + 0.8) / (d || 1);
       player.pos.x = hx + (player.pos.x - hx) * k; player.pos.z = hz + (player.pos.z - hz) * k;
       if (performance.now() - sealSaid > 4000) { sealSaid = performance.now(); toast(`A magic seal blocks the way. Beat ${BOSS_GATES[e.type].who} first.`, ICONS.star); burst(player.pos.clone().setY(1.5), '#c9a8ff', 20, 4); }
     }
@@ -6686,6 +6695,33 @@ function openCreator(mode = 'edit') {
   player.play('Idle');
   renderCreator();
 }
+// the first time a hero steps out, a small note shows the controls (attack J, charged attack K)
+function showKeysNote() {
+  if ($('keysnote') || S.seenKeys) return;
+  const k = (a) => `<kbd>${keyOf(a)}</kbd>`;
+  const row = (keysHtml, what) => `<li><span>${keysHtml}</span><b>${what}</b></li>`;
+  const el = document.createElement('div'); el.id = 'keysnote'; el.className = 'overlay';
+  el.innerHTML = `<div class="panel knote" role="dialog" aria-labelledby="kn-h">
+    <h3 id="kn-h">How to play</h3>
+    <div class="kbig"><div><kbd class="kk">${keyOf('attack')}</kbd><b>Attack</b><small>Tap to swing. Keep tapping for a combo.</small></div>
+      <div><kbd class="kk">${keyOf('charge')}</kbd><b>Charged attack</b><small>Hold, then let go to send a slash flying.</small></div></div>
+    <ul class="klist">
+      ${row(`${k('up')}${k('left')}${k('down')}${k('right')}`, 'Move')}
+      ${row(k('sprint'), 'Sprint')}${row(k('jump'), 'Jump')}
+      ${row(k('dash'), 'Dash')}${row(k('special'), 'Special move')}
+      ${row(k('interact'), 'Talk / use')}${row(k('bag'), 'Bag')}
+      ${row(k('quests'), 'Quests')}${row(k('map'), 'Map')}
+      ${row(k('card'), 'Your hero')}${row(k('eat'), 'Eat food')}
+    </ul>
+    <p class="hint">You can change any key in Options.</p>
+    <button id="kn-ok" class="primary big" type="button">Let's go!</button>
+  </div>`;
+  document.body.appendChild(el);
+  const close = () => { S.seenKeys = true; save(); el.remove(); };
+  $('kn-ok').onclick = close;
+  el.addEventListener('pointerdown', (ev) => { if (ev.target === el) close(); });
+  setTimeout(() => $('kn-ok') && $('kn-ok').focus(), 50);
+}
 function closeCreator(keep) {
   if (!keep && creator.before) {
     const sexWas = S.look.sex;
@@ -6701,6 +6737,7 @@ function closeCreator(keep) {
   updateTitle(); save();
   if (creator.mode === 'new') {
     if (!S.welcomed) { S.welcomed = true; toast(`Welcome to Jerry Village, ${heroName()}! Look for villagers with a ! above their heads.`, null, true); }
+    if (!S.seenKeys) setTimeout(showKeysNote, 900);
     else toast(`Looking good, ${heroName()}!`, ICONS.star);
   }
 }
@@ -8467,7 +8504,7 @@ function makeGagronFriend() {
   npcs.push(gagronFriend);
 }
 
-window.__jq = { toast, setSlotBox, showSlots, get slotBox() { return slotBox; }, get guide() { return guide; }, bossNet, safeSpot, get PVP_LVL() { return PVP_LVL; }, goldNode, wbInfo, wbTick, get wb() { return wb; }, WB_SPOTS, tradeOpen, tradeNet, offerKey, get trade() { return trade; }, adv(s) { for (let t = 0; t < s; t += 0.05) { for (let i = timers.length - 1; i >= 0; i--) { timers[i].t -= 0.05; if (timers[i].t <= 0) { const f = timers[i].f; timers.splice(i, 1); f(); } } bossFxTick(0.05); } }, get party() { return party; }, BOSS_AI, PHASE_SETUP, get gulped() { return gulped; }, wriggle, toggleBigMap, spawnEnemy, openPathChoice, choosePath, startLanternNight, get lanterns() { return lanterns; }, duelOffer, duelPrize, onNet, chatCommand, canFight, openUpgrade, openBoard, boardToday, queueLetter, makeGagronFriend, net, peerActors, runeTick, bossFx, renderer, scene, openMayor, darkOmen, netWorth, liberateTown, setGolden, goldenCaught, pompArrive, get goldenE() { return goldenE; }, spinWheel, dayTick, get bossIntro() { return bossIntro; }, bossSkip, startBossScene, sailTo, regions, closeSheet, renderHotbar, crew, setCrewMode, TOWNS, liberateTown, chests, openChest, stopRoulette, enemies, startBossIntro, closeDialog, advanceDialog, dash, attackPress, craft, CRAFTS, openCreator, closeCreator, creator, rebuildHero, setZoom: (z) => { zoom = zoomGoal = z; }, hurtEnemy, goThrough, get where() { return where; }, INTERIORS, equipGear, spendPoint, giveHeroXp, heroLvl, stat, maxHp, defDiv, openWeaponShop, openKing, jump, eat, eatBest, openShop, swing, swingTarget, hitNode, projectiles, timers, get S() { return S; }, get player() { return player; }, enemies, nodes, npcs, startTask, doAction, giveXp, save, openSheet, openDialog };
+window.__jq = { toast, showKeysNote, setSlotBox, showSlots, get slotBox() { return slotBox; }, get guide() { return guide; }, bossNet, safeSpot, get PVP_LVL() { return PVP_LVL; }, goldNode, wbInfo, wbTick, get wb() { return wb; }, WB_SPOTS, tradeOpen, tradeNet, offerKey, get trade() { return trade; }, adv(s) { for (let t = 0; t < s; t += 0.05) { for (let i = timers.length - 1; i >= 0; i--) { timers[i].t -= 0.05; if (timers[i].t <= 0) { const f = timers[i].f; timers.splice(i, 1); f(); } } bossFxTick(0.05); } }, get party() { return party; }, BOSS_AI, PHASE_SETUP, get gulped() { return gulped; }, wriggle, toggleBigMap, spawnEnemy, openPathChoice, choosePath, startLanternNight, get lanterns() { return lanterns; }, duelOffer, duelPrize, onNet, chatCommand, canFight, openUpgrade, openBoard, boardToday, queueLetter, makeGagronFriend, net, peerActors, runeTick, bossFx, renderer, scene, openMayor, darkOmen, netWorth, liberateTown, setGolden, goldenCaught, pompArrive, get goldenE() { return goldenE; }, spinWheel, dayTick, get bossIntro() { return bossIntro; }, bossSkip, startBossScene, sailTo, regions, closeSheet, renderHotbar, crew, setCrewMode, TOWNS, liberateTown, chests, openChest, stopRoulette, enemies, startBossIntro, closeDialog, advanceDialog, dash, attackPress, craft, CRAFTS, openCreator, closeCreator, creator, rebuildHero, setZoom: (z) => { zoom = zoomGoal = z; }, hurtEnemy, goThrough, get where() { return where; }, INTERIORS, equipGear, spendPoint, giveHeroXp, heroLvl, stat, maxHp, defDiv, openWeaponShop, openKing, jump, eat, eatBest, openShop, swing, swingTarget, hitNode, projectiles, timers, get S() { return S; }, get player() { return player; }, enemies, nodes, npcs, startTask, doAction, giveXp, save, openSheet, openDialog };
 window.addEventListener('error', (e) => { const m = $('loadmsg'); if (m) m.textContent = `Something went wrong: ${e.message}`; });
 main().catch((err) => {
   console.error(err);

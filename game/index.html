@@ -233,8 +233,32 @@
 
   /* overlays */
   .overlay { position: fixed; inset: 0; display: grid; place-items: center; z-index: 6; padding-inline: max(16px, env(safe-area-inset-left, 0px)) max(16px, env(safe-area-inset-right, 0px)); background: radial-gradient(circle at 50% 35%, rgb(59 42 104 / .82), rgb(30 22 54 / .94)); overflow: auto; }
-  #loading { color: var(--parch); font-family: var(--display); font-size: 24px; text-align: center; transition: opacity .6s; z-index: 8; }
-  #loading small { display: block; font-family: var(--body); font-size: 14px; opacity: .85; margin-top: 6px; max-width: 420px; }
+  #loading { color: var(--parch); font-family: var(--display); text-align: center; transition: opacity .6s; z-index: 8; overflow: hidden;
+    background: radial-gradient(ellipse 70% 60% at 50% 45%, #3b2560 0%, #22163a 55%, #120b1e 100%); }
+  #loading::after { content: ''; position: absolute; inset: 0; pointer-events: none; background: radial-gradient(ellipse at 50% 50%, transparent 55%, rgb(0 0 0 / .5)); }
+  .ld { position: relative; z-index: 1; display: grid; justify-items: center; gap: 10px; width: min(420px, 100%); }
+  .ldrune { position: absolute; top: 50%; left: 50%; width: 560px; height: 560px; margin: -330px 0 0 -280px; border-radius: 50%; pointer-events: none; opacity: .22;
+    background: repeating-conic-gradient(from 0deg, #e8c46a 0 1.5deg, transparent 1.5deg 15deg); -webkit-mask: radial-gradient(circle, transparent 62%, #000 62.5% 64%, transparent 64.5% 70%, #000 70.5% 71.5%, transparent 72%); mask: radial-gradient(circle, transparent 62%, #000 62.5% 64%, transparent 64.5% 70%, #000 70.5% 71.5%, transparent 72%); animation: ldspin 40s linear infinite; }
+  .ldembers { position: fixed; inset: 0; pointer-events: none; }
+  .ldembers i { position: absolute; bottom: -10px; width: 5px; height: 5px; border-radius: 50%; background: #ffcf6a; box-shadow: 0 0 8px 2px rgb(255 190 90 / .6); opacity: 0; animation: ldember 7s linear infinite; }
+  .ldembers i:nth-child(1) { left: 8%; animation-delay: 0s; } .ldembers i:nth-child(2) { left: 18%; animation-delay: 2.1s; width: 3px; height: 3px; }
+  .ldembers i:nth-child(3) { left: 29%; animation-delay: 4.3s; } .ldembers i:nth-child(4) { left: 41%; animation-delay: 1.2s; width: 3px; height: 3px; }
+  .ldembers i:nth-child(5) { left: 53%; animation-delay: 5.5s; } .ldembers i:nth-child(6) { left: 62%; animation-delay: 3.1s; width: 4px; height: 4px; }
+  .ldembers i:nth-child(7) { left: 71%; animation-delay: .6s; } .ldembers i:nth-child(8) { left: 80%; animation-delay: 4.9s; width: 3px; height: 3px; }
+  .ldembers i:nth-child(9) { left: 89%; animation-delay: 2.7s; } .ldembers i:nth-child(10) { left: 95%; animation-delay: 6.2s; width: 3px; height: 3px; }
+  .ldcrest { width: 84px; height: auto; filter: drop-shadow(0 4px 0 rgb(0 0 0 / .45)) drop-shadow(0 0 22px rgb(255 200 90 / .35)); animation: crestBob 4s ease-in-out infinite; margin-bottom: -14px; position: relative; z-index: 1; }
+  .ldtitle { margin: 0; font-family: var(--display); font-weight: 700; font-size: clamp(44px, 10vw, 66px); line-height: .95; transform: rotate(-2.5deg); -webkit-text-stroke: 8px #2a160a; paint-order: stroke fill; text-shadow: 0 6px 0 #2a160a, 0 10px 18px rgb(0 0 0 / .5); }
+  .ldtitle span:first-child { color: #ffd84a; } .ldtitle span:last-child { color: #fff4d0; margin-left: .06em; }
+  .ldline { margin: 14px 0 0; font: 600 19px var(--display); color: #f1dcae; letter-spacing: .3px; min-height: 1.3em; }
+  .ldbar { width: min(300px, 80%); height: 14px; padding: 2px; border-radius: 99px; background: #1a1026; border: 2px solid #c9a253; box-shadow: 0 0 0 2px #2a160a, inset 0 2px 4px rgb(0 0 0 / .6); }
+  .ldbar i { display: block; height: 100%; width: 4%; border-radius: 99px; background: linear-gradient(180deg, #ffe58a, #e3a23a); box-shadow: 0 0 10px rgb(255 200 90 / .6); transition: width .35s ease-out;
+    background-image: linear-gradient(180deg, rgb(255 255 255 / .35), transparent 55%), linear-gradient(90deg, #e3a23a, #ffd84a); }
+  #loadmsg { font: 600 12.5px var(--body, system-ui); color: #b9a3d6; letter-spacing: .4px; text-transform: uppercase; }
+  .ldtip { margin: 18px 0 0; max-width: 34ch; padding: 9px 16px; border-radius: 12px; font: 500 14px/1.4 var(--body, system-ui); color: #ecdcc0; background: rgb(255 255 255 / .06); border: 1px solid rgb(201 162 83 / .35); text-wrap: balance; }
+  .ldtip b { font-family: var(--display); color: #ffd84a; margin-right: 4px; }
+  @keyframes ldspin { to { transform: rotate(360deg); } }
+  @keyframes ldember { 0% { transform: translateY(0); opacity: 0; } 10% { opacity: .9; } 80% { opacity: .6; } 100% { transform: translate(30px, -100vh); opacity: 0; } }
+  @media (prefers-reduced-motion: reduce) { .ldrune, .ldembers i, .ldcrest { animation: none; } }
   #pick .wrap { display: grid; gap: 16px; justify-items: center; padding-block: 24px; }
   #pick h1 { margin: 0; font-family: var(--display); font-weight: 700; font-size: clamp(34px, 7vw, 56px); color: var(--parch); text-shadow: 0 4px 0 var(--ink); letter-spacing: 1px; }
   #pick .sub { margin: -8px 0 0; color: #f3dfb8; font-weight: 700; text-align: center; }
@@ -372,17 +396,19 @@
   .card.begin { width: min(360px, 100%); }
 
   /* the title screen: logo, a parchment card, and the village drifting by behind */
-  #pick { background: radial-gradient(ellipse 80% 70% at 50% 42%, rgb(30 22 54 / .08), rgb(30 22 54 / .62) 100%), linear-gradient(180deg, rgb(30 22 54 / .35), transparent 30%, transparent 70%, rgb(30 22 54 / .45)); }
+  #pick { background: radial-gradient(ellipse 75% 65% at 50% 45%, rgb(30 22 54 / .1), rgb(18 11 30 / .78) 100%), linear-gradient(180deg, rgb(30 22 54 / .35), transparent 30%, transparent 70%, rgb(30 22 54 / .45)); }
   body.titling > :not(#stage):not(#pick):not(#loading):not(#toasts) { display: none !important; }
-  .title { display: grid; gap: 14px; justify-items: center; width: min(400px, 100%); padding-block: max(20px, env(safe-area-inset-top, 0px)) 18px; }
+  .title { display: grid; gap: 14px; justify-items: center; width: min(420px, 100%); padding-block: max(20px, env(safe-area-inset-top, 0px)) 18px; }
   .logo { display: grid; justify-items: center; animation: logoIn .8s cubic-bezier(.2, 1.4, .4, 1) both; }
+  .logo { position: relative; }
+  .logo::before { content: ''; position: absolute; inset: -30px -60px -10px; z-index: -1; pointer-events: none; background: radial-gradient(ellipse at 50% 55%, rgb(255 214 120 / .38), rgb(255 214 120 / 0) 65%); }
   .crest { width: 78px; height: auto; filter: drop-shadow(0 4px 0 rgb(43 22 12 / .55)); animation: crestBob 4s ease-in-out infinite; margin-bottom: -10px; position: relative; z-index: 1; }
   .logo h1 { margin: 0; font-family: var(--display); font-weight: 700; font-size: clamp(46px, 11vw, 74px); line-height: .95; letter-spacing: .5px; transform: rotate(-2.5deg);
     -webkit-text-stroke: 8px #3a1f0d; paint-order: stroke fill; text-shadow: 0 7px 0 #3a1f0d, 0 12px 16px rgb(0 0 0 / .35); }
   .logo h1 span:first-child { color: #ffd84a; }
   .logo h1 span:last-child { color: #fff4d0; margin-left: .06em; }
   .ribbon { margin: 10px 0 0; position: relative; }
-  .ribbon span { display: block; background: linear-gradient(180deg, #8f62d8, #6b3fa0); color: #fff4d0; font: 700 13.5px/1 var(--display); letter-spacing: .4px; padding: 8px 26px 9px;
+  .ribbon span { display: block; background: linear-gradient(180deg, #7a3fae, #4f2580); border-block: 2px solid #c9a253; color: #fff4d0; font: 700 13.5px/1 var(--display); letter-spacing: .4px; padding: 8px 26px 9px;
     clip-path: polygon(0 0, 100% 0, calc(100% - 12px) 50%, 100% 100%, 0 100%, 12px 50%); box-shadow: inset 0 -3px 0 rgb(0 0 0 / .15); }
   .slots { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
   .slotcard { display: grid; justify-items: center; align-content: start; gap: 3px; padding: 10px 6px; border: 2px solid var(--ink); border-radius: 14px; background: #f2e2bd; }
@@ -415,8 +441,26 @@
   .hctown span { font-size: 12px; color: #b07a10; }
   .hctown small { font-size: 11px; color: var(--ink-soft); }
   @media (max-width: 520px) { .herocard { grid-template-columns: 1fr; } .herocard .dprev { max-width: 150px; } }
-  .tcard { width: 100%; padding: 18px 20px 14px; display: grid; gap: 10px; text-align: center; animation: cardIn .55s .25s ease-out both; }
-  .tcard h2 { font-size: 26px; }
+  #keysnote { z-index: 9; }
+  .knote { width: min(440px, 100%); padding: 20px 22px 16px; display: grid; gap: 12px; text-align: center; animation: cardIn .4s ease-out both; }
+  .knote h3 { font-size: 24px; }
+  .kbig { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .kbig > div { display: grid; justify-items: center; gap: 3px; padding: 10px 8px; border: 2px solid var(--ink); border-radius: 14px; background: linear-gradient(180deg, #f2e2bd, #e0c48e); }
+  .kbig b { font: 700 15px var(--display); }
+  .kbig small { font-size: 12px; color: var(--ink-soft); line-height: 1.3; }
+  .knote kbd { display: inline-grid; place-items: center; min-width: 26px; height: 26px; padding: 0 6px; margin: 0 2px; font: 700 13px var(--display); color: var(--ink); background: #fff7e2; border: 2px solid var(--ink); border-radius: 7px; box-shadow: 0 2px 0 var(--ink); }
+  .knote kbd.kk { min-width: 48px; height: 46px; font-size: 24px; border-radius: 10px; box-shadow: 0 3px 0 var(--ink); background: linear-gradient(180deg, #ffe58a, #e3a23a); }
+  .klist { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: 1fr 1fr; gap: 6px 14px; text-align: left; }
+  .klist li { display: flex; align-items: center; justify-content: space-between; gap: 6px; padding: 3px 0; border-bottom: 1px dashed rgb(74 42 23 / .25); }
+  .klist b { font: 600 13.5px var(--body); }
+  .klist li:first-child { grid-column: 1 / -1; }
+  @media (max-width: 420px) { .klist { grid-template-columns: 1fr; } }
+  .tcard { position: relative; width: 100%; padding: 20px 22px 16px; outline: 2px solid rgb(201 162 83 / .9); outline-offset: 4px; box-shadow: 0 0 0 7px rgb(42 22 10 / .55), 0 18px 40px rgb(0 0 0 / .45); display: grid; gap: 10px; text-align: center; animation: cardIn .55s .25s ease-out both; }
+  .tcard h2 { font-size: 26px; display: flex; align-items: center; justify-content: center; gap: 10px; }
+  .tcard h2::before, .tcard h2::after { content: ''; flex: 0 1 38px; height: 2px; background: linear-gradient(90deg, transparent, #b0823a); }
+  .tcard h2::after { transform: scaleX(-1); }
+  .tfeat { display: flex; justify-content: center; flex-wrap: wrap; gap: 6px; margin: 0; }
+  .tfeat span { font: 600 12px var(--display); color: #fff3c4; background: linear-gradient(180deg, #6b3fa0, #4a2a72); border: 1.5px solid #2a160a; border-radius: 99px; padding: 3px 10px; box-shadow: 0 2px 0 rgb(42 22 10 / .5); }
   .tsub { margin: -4px 0 2px; color: var(--ink-soft); font-weight: 700; line-height: 1.4; font-size: 14.5px; text-wrap: balance; }
   .tcard .perk { display: flex; gap: 6px; justify-content: center; flex-wrap: wrap; margin: 0; }
   button.big { font-size: 20px; padding: 11px 18px; width: 100%; border-radius: 14px; }
@@ -1024,7 +1068,29 @@
   </div>
 </div>
 
-<div id="loading" class="overlay"><div>Painting the village…<small id="loadmsg">loading heroes</small></div></div>
+<div id="loading" class="overlay"><div class="ld">
+  <div class="ldrune" aria-hidden="true"></div>
+  <div class="ldembers" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
+  <svg class="ldcrest" viewBox="0 0 120 132" aria-hidden="true"><defs><linearGradient id="ldG" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#fff1a8"/><stop offset="1" stop-color="#e8a93a"/></linearGradient><linearGradient id="ldP" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#8f62d8"/><stop offset="1" stop-color="#55308f"/></linearGradient></defs><path d="M60 6 L108 22 L104 70 C100 98 82 116 60 126 C38 116 20 98 16 70 L12 22 Z" fill="url(#ldG)" stroke="#4a2a17" stroke-width="5" stroke-linejoin="round"/><path d="M60 17 L97 29 L94 69 C91 91 77 106 60 114 C43 106 29 91 26 69 L23 29 Z" fill="url(#ldP)" stroke="#4a2a17" stroke-width="2.5" stroke-linejoin="round"/><g stroke="#4a2a17" stroke-width="3" stroke-linejoin="round" stroke-linecap="round"><path d="M40 92 L76 40 L82 36 L80 43 L44 95 Z" fill="#e9eef7"/><path d="M80 92 L44 40 L38 36 L40 43 L76 95 Z" fill="#e9eef7"/><path d="M60 46 L64.5 56 L75 56.5 L67 63 L70 73.5 L60 67.5 L50 73.5 L53 63 L45 56.5 L55.5 56 Z" fill="#ffd84a"/></g></svg>
+  <h1 class="ldtitle" aria-label="JerryQuest"><span>Jerry</span><span>Quest</span></h1>
+  <p class="ldline" id="ldline">Painting the village…</p>
+  <div class="ldbar" role="progressbar" aria-label="Loading"><i id="ldfill"></i></div>
+  <small id="loadmsg">waking the heroes</small>
+  <p class="ldtip"><b>Tip</b> <span id="ldtip">Hold K to charge a slash that flies through the air.</span></p>
+</div></div>
+<script>
+(() => {
+  const tips = ['Hold K to charge a slash that flies through the air.', 'Your bank keeps coins safe. If you fall, you drop half of what you carry.', 'Free a town to become its mayor and collect taxes every week.', 'Press I to open your bag and drag items onto your hotbar.', 'Ores from the Old Quarry sell for good coin at any merchant.', 'Press Tab to see your hero, gold, net worth and towns.', 'Mythic gear is the rarest of all. Bosses guard the best of it.', 'Each level gives you 2 free stat points. Build your hero your way.', 'A magic seal guards each final boss until you beat the one before.', 'Shift to sprint, Space to jump. Dash out of a glowing floor!'];
+  const lines = ['Painting the village...', 'Sharpening swords...', 'Waking the dragon (gently)...', 'Polishing the castle...', 'Teaching slimes to bounce...', 'Hiding treasure chests...'];
+  let i = Math.floor(Math.random() * tips.length), j = 0;
+  const el = document.getElementById('ldtip'); el.textContent = tips[i];
+  const tm = setInterval(() => {
+    const ld = document.getElementById('loading'); if (!ld) return clearInterval(tm);
+    i = (i + 1) % tips.length; j = (j + 1) % lines.length;
+    el.textContent = tips[i]; document.getElementById('ldline').textContent = lines[j];
+  }, 2600);
+})();
+</script>
 
 <script type="importmap">
 { "imports": {
