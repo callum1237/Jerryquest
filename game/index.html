@@ -770,6 +770,9 @@
   .herotag em { display: block; text-align: center; font: italic 800 11px/1 var(--body, sans-serif); color: #fff; margin-bottom: 2px; text-shadow: 0 1px 0 var(--ink, #2b160c), 0 0 6px var(--ttc, #e8a93a), 0 0 2px var(--ink, #2b160c); white-space: nowrap; }
   @media (max-width: 700px) { body.sheet-bag #sheet { width: auto; } .doll { grid-template-columns: 62px 1fr 62px; } .dport { width: 88px; height: 88px; } }
   .herotag { position: fixed; transform: translate(-50%, -100%); pointer-events: none; z-index: 2; --tc: #8a8a94; }
+  .herotag .tagbar { display: block; width: 72%; height: 6px; margin: 3px auto 0; border: 1.5px solid var(--ink, #2b160c); border-radius: 99px; background: rgb(30 20 14 / .55); overflow: hidden; text-decoration: none; }
+  .herotag .tagbar u { display: block; height: 100%; width: 100%; transition: width .25s, background .25s; }
+  .herotag .tagbar[hidden] { display: none; }
   .herotag b { display: block; font: 800 12px/1 var(--display, sans-serif); color: #fff; background: var(--tc); border: 2px solid var(--ink, #2b160c); border-radius: 8px; padding: 2px 7px; white-space: nowrap; box-shadow: 0 2px 0 var(--ink, #2b160c); }
   body.creating .herotag, body:has(#bossintro:not([hidden])) .herotag, body:has(#bigmap:not([hidden])) .herotag, body:has(#roulette:not([hidden])) .herotag { display: none; }
   @media (max-width: 700px) { body.sheet-open .herotag, body.sheet-open .crewtag { display: none; } }

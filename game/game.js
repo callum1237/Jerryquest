@@ -805,7 +805,7 @@ function makePeer(id, p) {
   if (cos.cape && COS.cape[cos.cape]) capeColour(a, COS.cape[cos.cape].col, COS.cape[cos.cape].glow);
   a.root.position.set(p.x || 0, 0, p.z || 0);
   a.play('Idle');
-  const tag = document.createElement('div'); tag.className = 'herotag peer'; tag.innerHTML = '<b></b>'; document.body.appendChild(tag);
+  const tag = document.createElement('div'); tag.className = 'herotag peer'; tag.innerHTML = '<b></b><s class="tagbar"><u></u></s>'; document.body.appendChild(tag);
   const pa = { a, tag, key: JSON.stringify(look), anim: 'Idle' };
   peerActors.set(id, pa);
   return pa;
@@ -846,6 +846,8 @@ function peersTick(dt) {
     pin(pa.tag, v);
     const txt = `${p.name || 'Friend'} · Lv ${p.lvl || 1}`, col = tagColour(p.lvl || 1), tt = (p.look && p.look.ti) || '';
     if (pa.tag.dataset.t !== txt + col + tt) { pa.tag.dataset.t = txt + col + tt; pa.tag.querySelector('b').textContent = txt; pa.tag.style.setProperty('--tc', col); setTagTitle(pa.tag, tt, p.look && p.look.tc); }
+    // everyone's health shows under their name (they send it with their position)
+    if (pa.tag.dataset.h !== (p.h || '')) { pa.tag.dataset.h = p.h || ''; tagHp(pa.tag, p.h); }
   }
 }
 
@@ -7260,7 +7262,7 @@ function setTagTitle(tag, text, col) {
   em.textContent = text || ''; em.hidden = !text; em.style.setProperty('--ttc', col || '#e8a93a');
 }
 function heroTag() {
-  if (!heroTagEl) { heroTagEl = document.createElement('div'); heroTagEl.className = 'herotag'; heroTagEl.innerHTML = '<b></b>'; document.body.appendChild(heroTagEl); }
+  if (!heroTagEl) { heroTagEl = document.createElement('div'); heroTagEl.className = 'herotag'; heroTagEl.innerHTML = '<b></b><s class="tagbar"><u></u></s>'; document.body.appendChild(heroTagEl); }
   const show = player && S.started && !player.dead && !creator.open && !bossIntro && S.nameTag !== false;
   if (!show) { setShown(heroTagEl, false); return; }
   const v = tmpV.set(player.pos.x, player.pos.y + 4.4, player.pos.z).project(camera);
@@ -7269,6 +7271,15 @@ function heroTag() {
   pin(heroTagEl, v);
   const l = heroLvl(), txt = `${heroName()} · Lv ${l}`, col = tagColour(l), t = heroTitle(), tt = t ? t.name : '';
   if (heroTagEl.dataset.t !== txt + col + tt) { heroTagEl.dataset.t = txt + col + tt; heroTagEl.querySelector('b').textContent = txt; heroTagEl.style.setProperty('--tc', col); setTagTitle(heroTagEl, tt, t ? t.col : ''); }
+  const hs = `${Math.max(0, Math.round(S.hp))}/${maxHp()}`; if (heroTagEl.dataset.h !== hs) { heroTagEl.dataset.h = hs; tagHp(heroTagEl, hs); }
+}
+// a slim health bar under a name tag: green when healthy, amber when hurt, red when nearly down
+function tagHp(tag, h) {
+  const bar = tag.querySelector('.tagbar'); if (!bar) return;
+  const [a, b] = String(h || '').split('/').map(Number);
+  if (!b) { bar.hidden = true; return; }
+  const k = Math.max(0, Math.min(1, a / b)); bar.hidden = false; bar.title = `${a} / ${b}`;
+  const u = bar.firstChild; u.style.width = `${(k * 100).toFixed(0)}%`; u.style.background = k > 0.5 ? '#5ad65a' : k > 0.25 ? '#f2b632' : '#e8453c';
 }
 
 // ---------- emotes ----------
