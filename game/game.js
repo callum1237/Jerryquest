@@ -389,7 +389,7 @@ Object.assign(QUESTS, {
   },
 });
 // The story is split into chapters, and each new chapter takes you to a new land.
-// Only the Prologue and Chapter 1 are playable so far; the rest are the plan.
+// The Prologue and Chapters 1 to 4 are playable; Chapter 5 is the plan.
 const CHAPTERS = [
   { id: 'pro', tag: 'Prologue', name: 'The Crack', land: 'Jerry Valley', quests: ['st_1'] },
   { id: 'c1', tag: 'Chapter 1', name: 'The Shards', land: 'Jerry Valley', quests: ['st_dragon', 'st_crags', 'st_glimmer', 'st_hollow', 'st_socket'] },
@@ -774,6 +774,7 @@ const PARTY_MAX = 6, PVP_LVL = 5;
 const esc = (t) => String(t).replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
 let party = null; // { leader, members: [{ id, name }], dmg }
 const invites = new Map(); // id we invited -> time
+const joinAsked = new Map(); // leaders whose invite we accepted -> time
 const myId = () => (net.user ? net.user.id : 'me');
 const sys = (t) => chatLine('', t, 'sys');
 const inParty = (id) => !!party && party.members.some((m) => m.id === id);
@@ -859,7 +860,7 @@ function invitePrompt(from, name) {
   yes.onclick = () => {
     close();
     if (party) partyLeave();
-    sendNet('pa', { to: from, name: heroName() });
+    joinAsked.set(from, now); sendNet('pa', { to: from, name: heroName() });
     sys(`Joining ${name}'s party...`);
   };
   no.onclick = close;
@@ -871,6 +872,14 @@ function onNet(ev, m) {
   const me = myId(), from = m.id, peer = net.peers.get(from);
   if (['ti', 'ta', 'to', 'tx'].includes(ev)) { tradeNet(ev, from, m); return; }
   if (ev === 'wb') { wbNet(m); return; }
+  if (ev === 'qb') {
+    // a party friend beat a story boss right next to you: you get the quest credit too
+    if (!inParty(from) || m.w !== where || !player || Math.hypot(player.pos.x - m.x, player.pos.z - m.z) > 45 || !ENEMY_TYPES[m.t]) return;
+    let got = false;
+    for (const k of Object.keys(QUESTS)) if (S.quests[k].state === 'active' && QUESTS[k].bossType === m.t && !S.quests[k].boss) { S.quests[k].boss = 1; got = true; }
+    if (got) { S.beat = { ...(S.beat || {}), [m.t]: ((S.beat || {})[m.t] || 0) + 1 }; queueLetter(m.t); toast(`Your party beat ${ENEMY_TYPES[m.t].name}! It counts for your quest too.`, ICONS.star, true); refreshUI(); save(); }
+    return;
+  }
   if (ev === 'pi') { if (peer) invitePrompt(from, (peer && peer.name) || m.name || 'Someone'); return; }
   if (ev === 'pa') {
     if (!invites.has(from) || now - invites.get(from) > 60) return;
@@ -893,6 +902,8 @@ function onNet(ev, m) {
     if (p.gone) { if (party && (party.leader === from || inParty(from)) && mine) partySet(null, 'The party was disbanded.'); return; }
     if (mine) {
       const fresh = !party || party.leader !== p.leader && !inParty(from);
+      if (fresh && !(joinAsked.has(from) && now - joinAsked.get(from) < 60)) return;
+      if (fresh) joinAsked.delete(from);
       if (party && party.dmg !== p.dmg) sys(`Party damage is now ${p.dmg ? 'ON' : 'off'}.`);
       party = { leader: p.leader, members: p.members.slice(0, PARTY_MAX).map((x) => ({ id: String(x.id), name: String(x.name || 'Friend').slice(0, 16) })), dmg: !!p.dmg };
       if (fresh) { sys(`You joined ${(peer && peer.name) || 'the'} party! Type /p list to see who is in it.`); toast('You joined a party!', ICONS.star); }
@@ -1036,7 +1047,7 @@ function wbTick() {
   if (!player || now < wbAt) return;
   wbAt = now + 1;
   const I = wbInfo();
-  if (I.next < 60000 && wbWarned !== I.slot + 1 && !creator.open) {
+  if (I.next < 60000 && wbWarned !== I.slot + 1 && !creator.open && heroLvl() >= 3) {
     wbWarned = I.slot + 1; const sp = WB_SPOTS[(I.slot + 1) % WB_SPOTS.length];
     if (!landOpen(sp[0])) return;
     const t = `World boss! King Wobblegut lands on ${sp[3]} in ${landName(sp[0])} in one minute. Bring friends!`;
@@ -2745,10 +2756,11 @@ function rouletteFrame(t) {
   else if (!R.done) {
     const k = Math.min(1, (t - R.st) / R.dur), e = 1 - Math.pow(1 - k, 3);
     R.pos = R.from + (R.target - R.from) * e;
-    if (k >= 1) { R.done = true; R.pos = R.target; landRoulette(); }
+    if (k >= 1) { R.done = true; R.pos = R.target; }
   }
   const lit = Math.floor(R.pos + 0.0001) % WHEEL.length;
   if (lit !== R.lit) { if (R.lit >= 0) R.panels[R.lit].classList.remove('lit'); R.panels[lit].classList.add('lit'); R.lit = lit; sfx('tick'); }
+  if (R.done && !R.paid) { R.paid = true; landRoulette(); }
   if (!R.done || R.el.querySelector('.rl-result')) requestAnimationFrame(rouletteFrame);
 }
 function landRoulette() {
@@ -3934,6 +3946,7 @@ function hurtEnemy(e, dmg, src = null, power = 1) {
       toast(`You defeated ${e.T.name}! It dropped ${ITEMS[e.T.drop].toLowerCase()}!`, ICONS[e.T.drop], true);
       burst(e.pos.clone().setY(2), '#ffe07a', 80, 8, 1.6);
       for (const k of Object.keys(QUESTS)) if (S.quests[k].state === 'active' && QUESTS[k].bossType === e.type) S.quests[k].boss = 1;
+      if (!wbRemote && party && party.members.length > 1) sendNet('qb', { t: e.type, x: e.pos.x, z: e.pos.z, w: where });
       $('bossbar').hidden = true;
       if ((BOSS_LINES[e.type] || {}).defeat) { const be = e; later(0.5, () => { if (!bossIntro && !player.dead) startBossScene(be, 'defeat'); }); }
       if (e.T.town) { const T = TOWNS.find((t) => t.id === e.T.town); later(1.5, () => liberateTown(T)); }
