@@ -5,7 +5,7 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 export { THREE };
 
 // ---------- renderer / scene ----------
-export const PR = Math.min(window.devicePixelRatio || 1, 1.75);
+export const PR = Math.min(window.devicePixelRatio || 1, 1.5);
 export const renderer = new THREE.WebGLRenderer({ antialias: true, stencil: true, powerPreference: 'high-performance' });
 renderer.setPixelRatio(PR);
 renderer.setSize(innerWidth, innerHeight);
@@ -305,7 +305,10 @@ export function render() {
   renderer.setRenderTarget(RT.normal);
   renderer.setClearColor(0x8080ff, 1);
   renderer.clear();
+  // the shadow map was already drawn for the colour pass, so don't draw it a second time
+  renderer.shadowMap.autoUpdate = false;
   renderer.render(scene, camera);
+  renderer.shadowMap.autoUpdate = true;
   renderer.setClearColor(0x000000, 1);
   scene.overrideMaterial = null; scene.fog = fog; sky.visible = true;
   camera.layers.enableAll();

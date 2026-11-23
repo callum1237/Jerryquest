@@ -152,18 +152,18 @@ export function buildLands() {
   const free = (x, z, pad) => colliders.every((c) => Math.hypot(c.x - x, c.z - z) > c.r + pad);
   const pines = [];
   const pineAt = (x, z, s) => { pines.push(M(x, 0, z, s, rng() * 6)); colliders.push({ x, z, r: 0.25 * s }); };
-  for (let i = 0; i < 520; i++) {
+  for (let i = 0; i < 340; i++) {
     const a = rng() * Math.PI * 2, rr = 50 + rng() * 26, x = FX + Math.cos(a) * rr, z = FZ + Math.sin(a) * rr;
     if (z - FZ > 40 && Math.abs(x - FX) < 38) continue;
     if (rng() > 0.55 || nearPath(x, z) || !free(x, z, 1.2)) continue;
     pineAt(x, z, 4.2 + rng() * 1.6);
   }
-  for (let i = 0; i < 90; i++) {
+  for (let i = 0; i < 60; i++) {
     const a = rng() * Math.PI * 2, rr = 5 + rng() * (Z.woods.r + 6), x = Z.woods.x + Math.cos(a) * rr, z = Z.woods.z + Math.sin(a) * rr;
     if (nearPath(x, z) || Math.hypot(x - Z.woods.x, z - Z.woods.z) < 7 || !free(x, z, 1.4)) continue;
     pineAt(x, z, 3.8 + rng() * 1.8);
   }
-  for (let i = 0; i < 26; i++) {
+  for (let i = 0; i < 16; i++) {
     const a = rng() * Math.PI * 2, rr = 16 + rng() * 32, x = FX + Math.cos(a) * rr, z = FZ + Math.sin(a) * rr;
     if (nearPath(x, z) || Math.hypot(x - V.x, z - V.z) < 16 || Math.hypot(x - P.x, z - P.z) < P.r + 2 || Math.hypot(x - Z.palace.x, z - Z.palace.z) < Z.palace.r + 4 || !free(x, z, 2)) continue;
     pineAt(x, z, 4 + rng() * 1.2);
@@ -207,13 +207,13 @@ export function buildLands() {
 
 // Gentle snowfall that follows the camera while you're in a snowy land.
 export function makeSnow() {
-  const N = 900, geo = new THREE.BufferGeometry(), p = new Float32Array(N * 3);
+  const N = 420, geo = new THREE.BufferGeometry(), p = new Float32Array(N * 3);
   for (let i = 0; i < N; i++) { p[i * 3] = (Math.random() - 0.5) * 80; p[i * 3 + 1] = Math.random() * 30; p[i * 3 + 2] = (Math.random() - 0.5) * 80; }
   geo.setAttribute('position', new THREE.BufferAttribute(p, 3));
   const dot = document.createElement('canvas'); dot.width = dot.height = 32; const dg = dot.getContext('2d');
   const grd = dg.createRadialGradient(16, 16, 0, 16, 16, 16); grd.addColorStop(0, 'rgba(255,255,255,1)'); grd.addColorStop(0.6, 'rgba(255,255,255,.8)'); grd.addColorStop(1, 'rgba(255,255,255,0)');
   dg.fillStyle = grd; dg.fillRect(0, 0, 32, 32);
-  const pts = new THREE.Points(geo, new THREE.PointsMaterial({ color: '#ffffff', size: 0.3, map: new THREE.CanvasTexture(dot), transparent: true, opacity: 0.95, depthWrite: false, fog: false }));
+  const pts = new THREE.Points(geo, new THREE.PointsMaterial({ color: '#ffffff', size: 0.36, map: new THREE.CanvasTexture(dot), transparent: true, opacity: 0.95, depthWrite: false, fog: false }));
   pts.frustumCulled = false; pts.layers.set(1); pts.visible = false; scene.add(pts);
   pts.userData.tick = (dt, cx, cz) => {
     const a = geo.attributes.position;

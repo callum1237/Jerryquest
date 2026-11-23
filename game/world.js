@@ -361,7 +361,7 @@ export function buildWorld(library) {
 export function buildFlowers() {
   const tuft = new THREE.IcosahedronGeometry(0.55, 1);
   tuft.scale(1, 0.75, 1); tuft.translate(0, 0.3, 0);
-  const N = 110, FN = 170;
+  const N = 80, FN = 120;
   const tufts = new THREE.InstancedMesh(tuft, undefined, N);
   const flowerGeo = new THREE.IcosahedronGeometry(0.22, 0);
   flowerGeo.scale(1, 0.55, 1); flowerGeo.translate(0, 0.55, 0);
@@ -381,7 +381,7 @@ export function buildFlowers() {
     }
   }
   tufts.count = ti; flowers.count = fi;
-  tufts.castShadow = true; tufts.receiveShadow = true; flowers.receiveShadow = true;
+  tufts.castShadow = false; tufts.receiveShadow = true; flowers.receiveShadow = true;
   registerMesh(tufts, toon('#4f9d3a')); registerMesh(flowers, toon('#ffffff'));
   scene.add(tufts, flowers);
 }

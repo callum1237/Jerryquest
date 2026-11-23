@@ -2,10 +2,11 @@
 import { THREE, scene, camera, renderer, sun, sky, PRESETS, env, applyPreset, styled, setStyled, stylize, toon, registerMesh,
   loadModel, burst, updateParticles, render, rng } from './engine.js';
 import * as SkeletonUtils from 'three/addons/utils/SkeletonUtils.js';
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { buildWorld, buildFlowers, place, colliders, clouds, dynamic, LAKE, CAMP, MINE, S_NATURE, blocked, isFree, ZONES, WORLD_R, VS, TOWNS, ROADS } from './world.js';
 import { LANDS, VALLEY_DOCK, buildLands, makeSnow } from './lands.js';
 import { ICONS } from './icons.js';
-import { buildInteriors, INTERIORS } from './interiors.js';
+import { buildInteriors, INTERIORS, lavaPools } from './interiors.js';
 import { unlockAudio, playMusic, sfx, setVolumes } from './audio.js';
 
 const $ = (id) => document.getElementById(id);
@@ -367,11 +368,13 @@ async function main() {
   for (const c of G.world.scene.children) lib[c.name] = c;
   for (const c of G.gear.scene.children) lib[c.name] = c;
   for (const c of G.interior.scene.children) lib[c.name] = c;
+  const before = new Set(scene.children);
   buildWorld(lib);
   buildLands();
-  snowFx = makeSnow();
   // the tavern door sits in front of the tavern, which moved out with the rest of the village
   buildInteriors(lib, { tavern: { outside: { x: -4.0 * VS, z: -17 * VS + 4.7 }, exitTo: { x: -4.0 * VS + 0.6, z: -17 * VS + 7.6 } } });
+  groupRegions(scene.children.filter((o) => !before.has(o)));
+  snowFx = makeSnow();
   buildDoors();
   buildOccluders();
   buildChests();
@@ -381,6 +384,8 @@ async function main() {
   buildCrew();
   buildFlowers();
   buildTools();
+  mergeStatic();
+  poolLights();
   $('coinicon').src = ICONS.coins; $('hearticon').src = ICONS.heart; $('booticon').src = ICONS.boot;
   document.querySelectorAll('[data-icon]').forEach((im) => { im.src = ICONS[im.dataset.icon]; });
   const had = loadSave(); rebuildBinds(); applyTowns();
@@ -431,13 +436,15 @@ function startHero() {
 const LOOK_COLOURS = {
   none: ['Original', '#ffffff'], ruby: ['Ruby', '#ff8f8f'], ocean: ['Ocean', '#8fc2ff'], meadow: ['Meadow', '#a8ec8a'],
   plum: ['Plum', '#d0a4ff'], sunny: ['Sunny', '#ffe27a'], rose: ['Rose', '#ffb8e0'], shadow: ['Shadow', '#9a93a8'],
+  ember: ['Ember', '#ffa86a'], forest: ['Forest', '#6ab87a'], navy: ['Navy', '#6a7ad8'], snowy: ['Snowy', '#f4f8ff'],
 };
 const HAIR_COLOURS = {
   chestnut: ['Chestnut', '#8a4f2a'], black: ['Black', '#2e2630'], blonde: ['Blonde', '#f2c75c'], ginger: ['Ginger', '#e0742f'],
   snow: ['Snow', '#f1ece4'], pink: ['Pink', '#ff8fc8'], blue: ['Blue', '#5f9ef0'], green: ['Green', '#66c46a'],
+  auburn: ['Auburn', '#a8322a'], silver: ['Silver', '#b8bcc8'], purple: ['Purple', '#9a5fd8'], teal: ['Teal', '#2fb0a8'], honey: ['Honey', '#d8a04a'], mint: ['Mint', '#9fe8c8'],
 };
-const HAIR_STYLES = { short: 'Neat', hero: 'Hero spikes', spiky: 'Spiky', swept: 'Swept fringe', bob: 'Bob', hime: 'Straight bangs', long: 'Ponytail', twin: 'Pigtails', bun: 'Top bun', curls: 'Curls', mohawk: 'Mohawk', none: 'Bald' };
-const HAIR_LENGTHS = { short: 'Short', shoulder: 'Shoulder', long: 'Long', vlong: 'Very long' };
+const HAIR_STYLES = { short: 'Neat', hero: 'Hero spikes', spiky: 'Spiky', swept: 'Swept fringe', shag: 'Messy layers', wavy: 'Soft waves', bob: 'Bob', hime: 'Straight bangs', long: 'Ponytail', sidepony: 'Side ponytail', braid: 'Braid', twin: 'Pigtails', bun: 'Top bun', curls: 'Curls', mohawk: 'Mohawk', none: 'Bald' };
+const HAIR_LENGTHS = { short: 'Short', chin: 'Chin', shoulder: 'Shoulder', long: 'Long', vlong: 'Very long' };
 const SKIN_TONES = {
   porcelain: ['Porcelain', '#ffe9dc'], peach: ['Peach', '#f9cfb0'], honey: ['Honey', '#e7b085'], tan: ['Tan', '#c98d5e'],
   bronze: ['Bronze', '#b37548'], umber: ['Umber', '#93603d'], ebony: ['Ebony', '#74493a'], green: ['Orc green', '#8fc46a'], blue: ['Frost blue', '#9cc8ec'],
@@ -445,6 +452,7 @@ const SKIN_TONES = {
 const EYE_COLOURS = {
   brown: ['Brown', '#8a5228'], hazel: ['Hazel', '#a88a3a'], blue: ['Blue', '#3d8fe0'], sky: ['Sky', '#7fd0ff'], green: ['Green', '#3fae4a'],
   emerald: ['Emerald', '#1fd18a'], violet: ['Violet', '#9a5ff0'], red: ['Red', '#e0393f'], gold: ['Gold', '#f2b51c'], grey: ['Grey', '#8a96a8'],
+  pink: ['Pink', '#ff6fb0'], teal: ['Teal', '#1fb8b0'], amber: ['Amber', '#e08a1a'],
 };
 const EYE_STYLES = { round: 'Big and round', sharp: 'Determined', sleepy: 'Sleepy', happy: 'Happy', classic: 'Little dots' };
 const HEAD_SIZES = { normal: ['Normal', 1.2], big: ['Big', 1.4], chibi: ['Chibi', 1.56] };
@@ -501,7 +509,7 @@ function hairGroup(style, len = 'short', hairMats = HERO_HAIR) {
     if (kind === 'swept') { for (let i = -3; i <= 3; i++) lock(i * 0.2 - 0.1, 0.84, 0.32 + (i > 0 ? 0.08 : 0), 0.17, 0.05, -0.7, 0.45); return; }
   };
   const sidelocks = (h = 0.6) => { for (const s of [-1, 1]) lock(s * 1.0, 0.2, h, 0.12, 0.0, 0, 0.85, 1.03); };
-  const LEN = { short: 0, shoulder: 0.55, long: 0.95, vlong: 1.4 }[len] || 0;
+  const LEN = { short: 0, chin: 0.28, shoulder: 0.55, long: 0.95, vlong: 1.4 }[len] || 0;
   const backHair = (L) => {
     if (!L) return;
     for (let i = 0; i < 9; i++) { const az = Math.PI * (0.52 + i * 0.12); lock(az, 0.0, 0.55 + L * 0.65, 0.22, 0.0, 0, 0.8, 1.0); }
@@ -541,7 +549,33 @@ function hairGroup(style, len = 'short', hairMats = HERO_HAIR) {
   if (style === 'mohawk') {
     for (let i = 0; i < 6; i++) { const el = 1.15 - Math.abs(i - 2) * 0.08; lock(Math.PI * (i / 5) * 0.9 - 0.15, el, 0.5, 0.13, 2.85 - el, 0, 0.5, 0.92); }
   }
-  if (!['none', 'mohawk', 'long', 'bob', 'hime', 'twin'].includes(style)) backHair(LEN);
+  if (style === 'wavy') {
+    // soft layered waves that frame the face and fall to the chosen length
+    shell(0.44, -0.12, -0.76); bangs('side');
+    for (let i = 0; i < 13; i++) { const az = 0.95 + (i / 12) * (Math.PI * 2 - 1.9), w = i % 2 ? 0.12 : -0.12; lock(az, 0.2, 0.42 + LEN * 0.75, 0.22, -0.3, w, 0.55, 1.0); }
+    for (let i = 0; i < 9; i++) { const az = 1.2 + (i / 8) * (Math.PI * 2 - 2.4); lock(az, 0.5, 0.36 + LEN * 0.35, 0.21, -0.25, i % 2 ? -0.1 : 0.1, 0.55, 0.98); }
+    for (const s of [-1, 1]) { lock(s * 0.8, 0.36, 0.48 + LEN * 0.45, 0.15, -0.36, s * 0.15, 0.65, 1.0); }
+    if (LEN > 0.3) add(new THREE.CapsuleGeometry(0.3, 0.1 + LEN * 0.45, 4, 12), HC.x, HC.y - 0.15 - LEN * 0.3, HC.z - HR.z * 0.6, 0.1, 0, 0, 1.55, 1, 0.62);
+  }
+  if (style === 'shag') {
+    // a messy, choppy cut: lots of little layers flicking out
+    shell(0.45, -0.12, -0.7); bangs('spiky');
+    for (let i = 0; i < 14; i++) { const az = (i / 14) * Math.PI * 2 + 0.2; if (Math.cos(az) > 0.7) continue; lock(az, 0.58, 0.3, 0.15, 0.6, i % 2 ? 0.35 : -0.35, 0.6, 1.0); }
+    for (let i = 0; i < 10; i++) { const az = 1.0 + (i / 9) * (Math.PI * 2 - 2.0); lock(az, 0.18, 0.34 + LEN * 0.5, 0.16, -0.25, i % 2 ? 0.3 : -0.3, 0.65, 1.02); }
+  }
+  if (style === 'sidepony') {
+    shell(0.45, -0.05, -0.72); bangs('swept');
+    add(new THREE.SphereGeometry(0.1, 10, 8), HC.x - HR.x * 0.78, HC.y + HR.y * 0.25, HC.z - HR.z * 0.5);
+    const t = lock(-2.0, 0.28, 0.85 + LEN * 0.6, 0.21, -0.35, 0.2, 0.75, 1.16); t.position.y += 0.02;
+  }
+  if (style === 'braid') {
+    shell(0.46, -0.05, -0.76); bangs('centre'); sidelocks(0.4);
+    const n = 4 + Math.round(LEN * 4), seg = new THREE.SphereGeometry(0.12, 10, 8);
+    for (let i = 0; i < n; i++) add(seg, HC.x + (i % 2 ? 0.03 : -0.03), HC.y - 0.05 - i * 0.17, HC.z - HR.z * 1.02 - Math.min(i, 2) * 0.04, 0, 0, (i % 2 ? 0.4 : -0.4), 1, 0.85, 0.8);
+    add(new THREE.TorusGeometry(0.07, 0.03, 6, 12), HC.x, HC.y - 0.05 - n * 0.17 + 0.05, HC.z - HR.z * 1.1, Math.PI / 2);
+    lock(Math.PI, -0.2 - n * 0.12, 0.2, 0.1, 0, 0, 0.8, 1.0).position.set(HC.x, HC.y - 0.1 - n * 0.17, HC.z - HR.z * 1.1);
+  }
+  if (!['none', 'mohawk', 'long', 'bob', 'hime', 'twin', 'wavy', 'sidepony', 'braid'].includes(style)) backHair(LEN);
   hairCache.set(key, g);
   return g;
 }
@@ -598,11 +632,18 @@ const earGeo = new THREE.ConeGeometry(0.13, 0.5, 10);
 const humanEarGeo = new THREE.SphereGeometry(1, 12, 10);
 const FW = 1024, FH = 512, FX = 256, EY = 268, ESEP = 80;
 function shade(hex, k) { return `#${new THREE.Color(hex).multiplyScalar(k).getHexString()}`; }
+// Lighter/darker sliders: -1 is much darker, +1 much lighter, 0 is the swatch colour.
+const _tc = new THREE.Color(), _tw = new THREE.Color('#ffffff'), _tk = new THREE.Color('#1c1216');
+function tone(hex, s = 0) { if (!s) return hex; _tc.set(hex).lerp(s > 0 ? _tw : _tk, Math.abs(s) * (s > 0 ? 0.6 : 0.65)); return `#${_tc.getHexString()}`; }
+const skinOf = (L) => tone((SKIN_TONES[L.skin] || SKIN_TONES.peach)[1], L.skinShade);
+const hairOf = (L) => tone((HAIR_COLOURS[L.hairCol] || HAIR_COLOURS.chestnut)[1], L.hairShade);
+const eyeOf = (L) => tone((EYE_COLOURS[L.eyes] || EYE_COLOURS.brown)[1], L.eyeShade);
+const shadeKey = (L) => [L.skinShade || 0, L.hairShade || 0, L.eyeShade || 0].map((v) => Math.round(v * 20)).join(',');
 function mixHex(a, b, t) { return `#${new THREE.Color(a).lerp(new THREE.Color(b), t).getHexString()}`; }
 // One eye, centred at (x, y). side is -1 for the eye on the viewer's left, +1 for the right.
 function drawEye(g, x, y, side, L, state) {
-  const ink = '#2b160c', female = L.sex === 'f', col = (EYE_COLOURS[L.eyes] || EYE_COLOURS.brown)[1];
-  const lidCol = shade((SKIN_TONES[L.skin] || SKIN_TONES.peach)[1], 0.86);
+  const ink = '#2b160c', female = L.sex === 'f', col = eyeOf(L);
+  const lidCol = shade(skinOf(L), 0.86);
   g.save(); g.translate(x, y); g.scale(side, 1); // draw as the right eye; the outer corner is +x
   g.lineCap = 'round'; g.lineJoin = 'round';
   const lashFlicks = () => {
@@ -664,7 +705,7 @@ function drawEye(g, x, y, side, L, state) {
   g.restore();
 }
 function drawBrow(g, x, y, side, L) {
-  const hc = (HAIR_COLOURS[L.hairCol] || HAIR_COLOURS.chestnut)[1], female = L.sex === 'f';
+  const hc = hairOf(L), female = L.sex === 'f';
   g.save(); g.translate(x, y); g.scale(side, 1);
   g.strokeStyle = shade(hc, 0.7); g.lineCap = 'round'; g.lineWidth = female ? 7 : 11;
   g.beginPath();
@@ -675,7 +716,7 @@ function drawBrow(g, x, y, side, L) {
   g.stroke(); g.restore();
 }
 function drawMouth(g, x, y, L, state) {
-  const ink = '#4a1c12', skin = (SKIN_TONES[L.skin] || SKIN_TONES.peach)[1];
+  const ink = '#4a1c12', skin = skinOf(L);
   g.save(); g.translate(x, y); g.lineCap = 'round'; g.lineJoin = 'round'; g.strokeStyle = ink; g.lineWidth = 5;
   const m = state === 'hurt' ? 'hurt' : state === 'talk' ? 'talk' : L.mouth;
   if (m === 'talk') { g.fillStyle = '#7a2a22'; g.beginPath(); g.ellipse(0, 5, 12, 11, 0, 0, Math.PI * 2); g.fill(); g.fillStyle = '#ff8f8f'; g.beginPath(); g.ellipse(0, 10, 7, 4.5, 0, 0, Math.PI * 2); g.fill(); g.beginPath(); g.ellipse(0, 5, 12, 11, 0, 0, Math.PI * 2); g.stroke(); }
@@ -695,7 +736,7 @@ function drawMouth(g, x, y, L, state) {
   g.restore();
 }
 function paintFace(g, L, state) {
-  const skin = (SKIN_TONES[L.skin] || SKIN_TONES.peach)[1];
+  const skin = skinOf(L);
   g.fillStyle = skin; g.fillRect(0, 0, FW, FH);
   // a gentle darker band low on the back of the head so the toon light reads as roundness
   // cheeks
@@ -717,7 +758,7 @@ function paintFace(g, L, state) {
 }
 const faceTexCache = new Map();
 function faceTexture(L, state) {
-  const key = [L.sex, L.skin, L.eyes, L.eyeStyle, L.mouth, L.mark, L.hairCol, state].join('|');
+  const key = [L.sex, L.skin, L.eyes, L.eyeStyle, L.mouth, L.mark, L.hairCol, shadeKey(L), state].join('|');
   if (faceTexCache.has(key)) return faceTexCache.get(key);
   if (faceTexCache.size > 90) { for (const t of faceTexCache.values()) t.dispose(); faceTexCache.clear(); }
   const cv = document.createElement('canvas'); cv.width = FW; cv.height = FH;
@@ -742,13 +783,13 @@ function facePreview(L, part) {
 const portraitCache = new Map();
 let portraitFaceCv = null;
 function portrait(L) {
-  const key = [L.sex, L.skin, L.eyes, L.eyeStyle, L.mouth, L.mark, L.hair, L.hairLen, L.hairCol, L.beard, L.ears, L.hat].join('|');
+  const key = [L.sex, L.skin, L.eyes, L.eyeStyle, L.mouth, L.mark, L.hair, L.hairLen, L.hairCol, L.beard, L.ears, L.hat, shadeKey(L)].join('|');
   if (portraitCache.has(key)) return portraitCache.get(key);
   if (!portraitFaceCv) { portraitFaceCv = document.createElement('canvas'); portraitFaceCv.width = FW; portraitFaceCv.height = FH; }
   paintFace(portraitFaceCv.getContext('2d'), L, 'open');
   const cv = document.createElement('canvas'); cv.width = cv.height = 256;
   const g = cv.getContext('2d'), ink = '#2b160c';
-  const skin = (SKIN_TONES[L.skin] || SKIN_TONES.peach)[1], hair = (HAIR_COLOURS[L.hairCol] || HAIR_COLOURS.chestnut)[1], hairDk = shade(hair, 0.72);
+  const skin = skinOf(L), hair = hairOf(L), hairDk = shade(hair, 0.72);
   const cx = 128, cy = 150, rx = 98, ry = 92, H = L.hair, long = ['long', 'twin', 'hime', 'bob', 'curls'].includes(H) || ['long', 'vlong'].includes(L.hairLen) && H !== 'none' && H !== 'mohawk';
   g.lineJoin = 'round'; g.lineCap = 'round'; g.lineWidth = 7; g.strokeStyle = ink;
   // hair that hangs behind the face
@@ -841,7 +882,7 @@ function buildFace(a = player, L = S.look) {
   // the sphere's u = 0.25 column, where the face is painted, already points forward (+z)
   fg.add(head);
   a.faceMats = mats; a.faceState = 'open'; a.faceLook = L;
-  const skinMat = toon(SKIN_TONES[L.skin][1]);
+  const skinMat = toon(skinOf(L));
   for (const sx of [-1, 1]) {
     const e = new THREE.Mesh(L.ears === 'elf' ? earGeo : humanEarGeo); registerMesh(e, skinMat); e.castShadow = true;
     if (L.ears === 'elf') { e.position.set(sx * (rx + 0.1), c.y - ry * 0.02, c.z - rz * 0.08); e.rotation.set(-0.3, 0, -sx * 1.12); e.scale.set(1, 1, 0.6); }
@@ -849,7 +890,7 @@ function buildFace(a = player, L = S.look) {
     fg.add(e);
   }
   const neck = new THREE.Mesh(neckGeo); registerMesh(neck, skinMat); neck.position.set(c.x, c.y - ry * 0.95, c.z - rz * 0.05); neck.scale.set(rx * 0.42, ry * 0.7, rz * 0.42); fg.add(neck);
-  const hc = new THREE.Color((HAIR_COLOURS[L.hairCol] || HAIR_COLOURS.chestnut)[1]).multiplyScalar(0.78);
+  const hc = new THREE.Color(hairOf(L)).multiplyScalar(0.78);
   addBeard(fg, L.beard, c, rx, ry, rz, toon(`#${hc.getHexString()}`));
   a.headScale = HEAD_SIZES[L.head] ? HEAD_SIZES[L.head][1] : 1.4;
   markStencil(fg);
@@ -900,9 +941,8 @@ function applyLook() {
   const L = S.look;
   if ($('badgeicon')) $('badgeicon').src = portrait(L);
   for (const [k, g] of hairCache) if (k.endsWith(`|${HERO_HAIR.uid}`)) g.removeFromParent();
-  const hc = HAIR_COLOURS[L.hairCol] || HAIR_COLOURS.chestnut;
   // a touch darker than the swatch so sunlight doesn't bleach the top of the hair
-  const hcol = new THREE.Color(hc[1]).multiplyScalar(0.72);
+  const hcol = new THREE.Color(hairOf(L)).multiplyScalar(0.72);
   hairMats.std.color.copy(hcol); hairMats.toon.color.copy(hcol);
   const showHair = L.hair !== 'none' && !L.hat;
   const arm = ARMOUR[S.equip.armour] || ARMOUR.ar_cloth;
@@ -921,7 +961,7 @@ function applyLook() {
         o.userData.mats = o.userData.ownMats;
         o.material = styled.on ? o.userData.mats.toon : o.userData.mats.std;
       }
-      const key = isCape ? L.trim : L.outfit, col = isLimb ? arm.tint || '#ffffff' : LOOK_COLOURS[key][1];
+      const key = isCape ? L.trim : L.outfit, col = isLimb ? arm.tint || '#ffffff' : tone(LOOK_COLOURS[key][1], key === 'none' ? 0 : isCape ? L.trimShade : L.outfitShade);
       const amt = isLimb || key === 'none' ? 0 : isCape ? 1 : 0.75;
       for (const mat of [o.userData.mats.std, o.userData.mats.toon]) { colourise(mat, amt); mat.color.set(amt ? mixHex(col, '#ffffff', 0.12) : col); }
     }
@@ -1290,6 +1330,7 @@ const NPC_LOOKS = (() => {
 })();
 function npcLife(n, dt) {
   const a = n.actor;
+  if (player && Math.hypot(a.root.position.x - player.pos.x, a.root.position.z - player.pos.z) > 55) return;
   a.mixer.update(dt);
   n.marker.position.y = 4.6 + Math.sin(now * 3 + n.x) * 0.15;
   if (!a.root.visible) return;
@@ -1313,7 +1354,7 @@ function npcLife(n, dt) {
 function dressNpc(a, L) {
   buildFace(a, L);
   if (L.hair !== 'none') {
-    const col = new THREE.Color(HAIR_COLOURS[L.hairCol][1]).multiplyScalar(0.72);
+    const col = new THREE.Color(hairOf(L)).multiplyScalar(0.72);
     const mats = hairMatsFor(`#${col.getHexString()}`);
     const g = hairGroup(L.hair, L.hairLen, mats);
     a.headInfo.bone.add(g); addInk(g);
@@ -2132,7 +2173,7 @@ function dropPouch(n) {
   if (n <= 0) return;
   const m = lib.coin_stack_large.clone(true); stylize(m); m.scale.setScalar(1.4);
   m.position.set(player.pos.x, 0, player.pos.z); scene.add(m);
-  const glow = new THREE.PointLight('#ffd86b', 5, 5, 1.6); glow.position.set(player.pos.x, 1.2, player.pos.z); scene.add(glow);
+  const glow = new THREE.PointLight('#ffd86b', 5, 5, 1.6); glow.position.set(player.pos.x, 1.2, player.pos.z); lightSpots.push(glow);
   pouches.push({ m, glow, n, where, until: now + 240 });
 }
 function pouchTick() {
@@ -2142,7 +2183,7 @@ function pouchTick() {
     P.m.rotation.y += 0.03;
     const gone = now > P.until, near = P.where === where && Math.hypot(P.m.position.x - player.pos.x, P.m.position.z - player.pos.z) < 1.6;
     if (near) { S.coins += P.n; toast(`You got your ${P.n} coins back!`, ICONS.coins, true); burst(P.m.position.clone().setY(1), '#ffe07a', 30, 5); refreshUI(); save(); }
-    if (near || gone) { scene.remove(P.m, P.glow); pouches.splice(i, 1); }
+    if (near || gone) { scene.remove(P.m); const gi = lightSpots.indexOf(P.glow); if (gi >= 0) lightSpots.splice(gi, 1); pouches.splice(i, 1); }
   }
 }
 function openTalk(npc) {
@@ -2342,6 +2383,7 @@ addEventListener('keydown', (e) => {
     keys.add(mk); if (mk !== 'sprint') { cancelTask(); moveTarget = null; }
     return;
   }
+  if (bossIntro && !e.repeat && (act === 'interact' || act === 'attack' || act === 'jump')) { e.preventDefault(); bossSkip(); return; }
   if (emoteWheelOpen() && !e.repeat) { const m = /^(Digit|Numpad)([1-9])$/.exec(e.code); if (m) { e.preventDefault(); doEmote(+m[2] - 1); return; } if (e.code === 'Escape') { toggleEmotes(false); return; } }
   if (e.repeat && act !== 'interact') return;
   if (act === 'attack') attackPress(true);
@@ -2761,7 +2803,6 @@ function shoot(from, dir, kind, range, owner, onHit) {
   } else {
     mesh = new THREE.Mesh(orbGeo, new THREE.MeshBasicMaterial({ color: kind === 'dark' ? '#c58bff' : '#8ff7ff', fog: false }));
     mesh.layers.set(1);
-    mesh.add(new THREE.PointLight(kind === 'dark' ? '#b066ff' : '#6fe9ff', 12, 8, 1.5));
   }
   mesh.position.copy(from);
   mesh.lookAt(from.clone().add(dir));
@@ -2812,6 +2853,7 @@ function hurtEnemy(e, dmg, src = null, power = 1) {
   if (e.state === 'idle' || e.state === 'walk') e.state = 'chase';
   if (dmg === 0) { floatText(head, 'Miss', 'miss'); return; }
   e.hp = Math.max(0, e.hp - dmg);
+  if (e.T.boss && !e.lowSaid && e.hp > 0 && e.hp <= e.T.hp * 0.4) { e.lowSaid = true; bossShout(e); }
   floatText(head, String(dmg), e.hp <= 0 ? 'kill' : dmg >= Math.max(8, W().dmg * 1.6) ? 'big' : '');
   impact(e, dmg, src, power, e.hp <= 0);
   if (!crewHitting) giveHeroXp(dmg * HIT_HERO_XP);
@@ -2829,6 +2871,7 @@ function hurtEnemy(e, dmg, src = null, power = 1) {
       burst(e.pos.clone().setY(2), '#ffe07a', 80, 8, 1.6);
       for (const k of Object.keys(QUESTS)) if (S.quests[k].state === 'active' && QUESTS[k].bossType === e.type) S.quests[k].boss = 1;
       $('bossbar').hidden = true;
+      if ((BOSS_LINES[e.type] || {}).defeat) { const be = e; later(0.5, () => { if (!bossIntro && !player.dead) startBossScene(be, 'defeat'); }); }
       if (e.T.town) { const T = TOWNS.find((t) => t.id === e.T.town); later(1.5, () => liberateTown(T)); }
     }
     floatText(e.pos.clone().setY(2.4), `+${coins} coins`, 'gain');
@@ -3143,6 +3186,7 @@ $('dashr').addEventListener('pointerdown', (e) => { e.preventDefault(); dash(); 
 $('specialbtn').addEventListener('pointerdown', (e) => { e.preventDefault(); special(); });
 $('sprintbtn').addEventListener('pointerdown', (e) => { e.preventDefault(); sprintToggle = !sprintToggle; $('sprintbtn').setAttribute('aria-pressed', String(sprintToggle)); });
 bigMap.addEventListener('click', () => toggleBigMap(false));
+$('bosstalk').addEventListener('pointerdown', (e) => { e.preventDefault(); e.stopPropagation(); bossSkip(); });
 function drawMap(cv, full) {
   if (!player) return;
   const dpr = Math.min(devicePixelRatio || 1, 2), css = cv.clientWidth || 150;
@@ -3239,10 +3283,150 @@ function collide(p, r = 0.7) {
 }
 let stamina = 100, staminaAt = 0, sprintToggle = false;
 let lastUi = 0, lastSave = 0, regenAt = 0, lastAct = '', stuck = 0;
+// Every lamp, chest glow and lava pool used to be its own light, and each one made every
+// material do more work. Now the lamps are just spots, and four real lights hop to the
+// spots nearest the hero each frame. The count never changes, so shaders never rebuild.
+// The valley, the frost land and the rooms are far apart, so only the one the hero is in
+// gets drawn or updated at all. The others are skipped wholesale each frame.
+const regions = {};
+const regionOfX = (x) => (x > 700 ? 'frost' : x > 230 ? 'rooms' : 'valley');
+function groupRegions(objs) {
+  const box = new THREE.Box3(), c = new THREE.Vector3();
+  for (const k of ['valley', 'rooms', 'frost']) { regions[k] = new THREE.Group(); regions[k].name = 'region_' + k; scene.add(regions[k]); }
+  for (const o of objs) {
+    box.setFromObject(o); if (box.isEmpty()) c.copy(o.position); else box.getCenter(c);
+    regions[regionOfX(c.x)].attach(o);
+  }
+}
+// Hundreds of little fences, rocks, walls and barrels never move, but each was its own draw.
+// Glue the ones that share a material into one mesh per patch of ground, so the GPU gets a
+// few dozen big jobs instead of thousands of tiny ones. Anything that moves, fades or hides
+// is left alone.
+// Some models store their points squeezed into small whole numbers. Moving those into place
+// would clip them, so copy everything out as plain floats first.
+function floatGeo(src) {
+  const g = new THREE.BufferGeometry();
+  for (const [name, at] of Object.entries(src.attributes)) {
+    const n = at.count, k = at.itemSize, out = new Float32Array(n * k);
+    for (let i = 0; i < n; i++) { out[i * k] = at.getX(i); if (k > 1) out[i * k + 1] = at.getY(i); if (k > 2) out[i * k + 2] = at.getZ(i); if (k > 3) out[i * k + 3] = at.getW(i); }
+    g.setAttribute(name, new THREE.BufferAttribute(out, k));
+  }
+  if (src.index) g.setIndex(Array.from(src.index.array));
+  return g;
+}
+function mergeStatic() {
+  const keep = new Set();
+  const skip = (o) => { if (o && o.isObject3D) keep.add(o); };
+  clouds.forEach(skip); lavaPools.forEach(skip);
+  for (const k of ['flames', 'crystals']) (dynamic[k] || []).forEach(skip);
+  for (const O of occluders) skip(O.o);
+  for (const T of TOWNS) { skip(T.flagRed); skip(T.flagBlue); (T.junk || []).forEach(skip); (T.homely || []).forEach(skip); }
+  const CELL = 36, bins = new Map(), m4 = new THREE.Matrix4();
+  for (const k in regions) {
+    const R = regions[k]; R.updateMatrixWorld(true);
+    const take = [];
+    const walk = (o) => {
+      if (keep.has(o) || !o.visible || o.isLight || o.isPoints) return;
+      if (o.isMesh && !o.isInstancedMesh && !o.isSkinnedMesh && o.userData.mats && !Array.isArray(o.material) && !o.userData.isInk
+        && o.layers.mask === 1 && o.frustumCulled && !o.material.transparent && !o.geometry.morphAttributes.position) take.push(o);
+      for (const c of o.children) walk(c);
+    };
+    walk(R);
+    for (const o of take) {
+      const g = o.geometry, names = Object.keys(g.attributes).sort().join(',');
+      const c = new THREE.Vector3().setFromMatrixPosition(o.matrixWorld);
+      const key = [k, o.userData.mats.std.uuid, o.userData.mats.toon.uuid, names, !!g.index, o.castShadow, o.receiveShadow, Math.floor(c.x / CELL), Math.floor(c.z / CELL)].join('|');
+      if (!bins.has(key)) bins.set(key, { R, mats: o.userData.mats, cast: o.castShadow, recv: o.receiveShadow, list: [] });
+      bins.get(key).list.push(o);
+    }
+  }
+  let before = 0, after = 0;
+  for (const b of bins.values()) {
+    if (b.list.length < 2) continue;
+    const geos = b.list.map((o) => { m4.copy(o.matrixWorld); return floatGeo(o.geometry).applyMatrix4(m4); });
+    const merged = mergeGeometries(geos, false);
+    geos.forEach((g) => g.dispose());
+    if (!merged) continue;
+    merged.computeBoundingSphere();
+    const m = new THREE.Mesh(merged); m.castShadow = b.cast; m.receiveShadow = b.recv; m.matrixAutoUpdate = false;
+    registerMesh(m, b.mats); b.R.add(m);
+    for (const o of b.list) o.removeFromParent();
+    before += b.list.length; after++;
+  }
+  // Big batches of trees and grass were one mesh spread over the whole map, so all of them
+  // were drawn even when only a few were on screen. Cut each batch into patches of ground,
+  // and the patches off screen get skipped.
+  const inst = [];
+  for (const k in regions) regions[k].traverse((o) => { if (o.isInstancedMesh && o.count > 12 && !keep.has(o)) inst.push([o, regions[k]]); });
+  let split = 0;
+  const im = new THREE.Matrix4(), p = new THREE.Vector3(), col = new THREE.Color();
+  for (const [o, R] of inst) {
+    o.updateMatrixWorld(true);
+    const cells = new Map();
+    for (let i = 0; i < o.count; i++) {
+      o.getMatrixAt(i, im); im.premultiply(o.matrixWorld); p.setFromMatrixPosition(im);
+      const key = Math.floor(p.x / CELL) + ',' + Math.floor(p.z / CELL);
+      if (!cells.has(key)) cells.set(key, []);
+      cells.get(key).push(i);
+    }
+    if (cells.size < 2) continue;
+    for (const ids of cells.values()) {
+      const n = new THREE.InstancedMesh(o.geometry, o.material, ids.length);
+      ids.forEach((i, j) => { o.getMatrixAt(i, im); im.premultiply(o.matrixWorld); n.setMatrixAt(j, im); if (o.instanceColor) { o.getColorAt(i, col); n.setColorAt(j, col); } });
+      n.castShadow = o.castShadow; n.receiveShadow = o.receiveShadow; n.layers.mask = o.layers.mask; n.renderOrder = o.renderOrder;
+      n.matrixAutoUpdate = false; n.computeBoundingSphere();
+      if (o.userData.mats) registerMesh(n, o.userData.mats); else n.material = o.material;
+      R.add(n); // region groups sit at the origin, so world matrices go in as-is
+    }
+    o.removeFromParent(); split++;
+  }
+  console.log(`split ${split} instanced batches`);
+  // tidy away the empty groups the meshes came from
+  const prune = (o) => { for (const c of [...o.children]) prune(c); if (o.parent && !o.isMesh && !o.isLight && !o.children.length && !keep.has(o) && !o.name.startsWith('region_')) o.removeFromParent(); };
+  for (const k in regions) prune(regions[k]);
+  console.log(`merged ${before} meshes into ${after}`);
+}
+
+let regionNow = '';
+function regionTick() {
+  if (!player || !regions.valley) return;
+  const r = regionOfX(player.pos.x);
+  if (r === regionNow) return;
+  regionNow = r;
+  for (const k in regions) { const on = k === r; regions[k].visible = on; regions[k].matrixWorldAutoUpdate = on; }
+}
+
+const lightSpots = [], lightPool = [];
+function poolLights() {
+  scene.traverse((o) => { if (o.isPointLight && !lightSpots.includes(o)) lightSpots.push(o); });
+  for (const l of lightSpots) if (l.parent) l.parent.remove(l);
+  for (let i = 0; i < 4; i++) { const p = new THREE.PointLight('#ffffff', 0, 1, 1.5); scene.add(p); lightPool.push(p); }
+}
+const _lpick = [];
+function lightTick() {
+  if (!lightPool.length) return;
+  const c = player ? player.pos : camera.position;
+  _lpick.length = 0;
+  for (const l of lightSpots) {
+    if (!l.visible || l.intensity <= 0) continue;
+    const d = Math.hypot(l.position.x - c.x, l.position.z - c.z) - l.distance * 0.6;
+    if (d < 30) _lpick.push([d, l]);
+  }
+  _lpick.sort((a, b) => a[0] - b[0]);
+  for (let i = 0; i < lightPool.length; i++) {
+    const p = lightPool[i], s = _lpick[i] && _lpick[i][1];
+    if (!s) { p.intensity = 0; continue; }
+    p.position.copy(s.position); p.color.copy(s.color); p.distance = s.distance; p.decay = s.decay;
+    // fade the light in as it comes into range, so lamps don't pop
+    p.intensity = s.intensity * Math.min(1, Math.max(0, (30 - _lpick[i][0]) / 8));
+  }
+}
+
 function tick() {
   now = clock.elapsedTime;
   const dt = Math.min(clock.getDelta(), 0.05) * (now < hitStopUntil ? 0.08 : 1);
   for (let i = timers.length - 1; i >= 0; i--) { timers[i].t -= dt; if (timers[i].t <= 0) { const f = timers[i].f; timers.splice(i, 1); f(); } }
+  regionTick(); lightTick();
 
   if (player && !player.dead && !uiLock()) {
     const busy = now < player.busyUntil;
@@ -3319,7 +3503,7 @@ function tick() {
   if (marker.visible) { marker.scale.setScalar(Math.max(1, marker.scale.x - dt * 2)); marker.material.opacity = 0.6 + 0.3 * Math.sin(now * 8); }
 
   for (const e of enemies) {
-    const near = !player || Math.hypot(e.pos.x - player.pos.x, e.pos.z - player.pos.z) < 70;
+    const near = !player || Math.hypot(e.pos.x - player.pos.x, e.pos.z - player.pos.z) < 55;
     if (player && (near || e.state !== 'idle') && !bossIntro) enemyTick(e, dt);
     if (near) e.mixer.update(dt);
   }
@@ -3333,7 +3517,7 @@ function tick() {
   for (const [i, c] of dynamic.crystals.entries()) { c.position.y = 2.4 + Math.sin(now * 1.6 + i) * 0.4; c.rotation.y = now * 0.8 + i; }
   if (player) { player.mixer.update(dt); if (player.headScale && player.headInfo) player.headInfo.bone.scale.setScalar(player.headScale); faceTick(player); }
   for (const n of npcs) npcLife(n, dt);
-  crewTick(dt); crewTags(); heroTag(); emoteTick(); townTick(); if (snowFx) { snowFx.visible = where === 'frost'; if (snowFx.visible && player) snowFx.userData.tick(dt, player.pos.x, player.pos.z); } if (now > 45 && !document.body.classList.contains('nohint')) document.body.classList.add('nohint'); occluderTick(dt);
+  crewTick(dt); crewTags(); heroTag(); emoteTick(); bossShoutTick(); townTick(); if (snowFx) { snowFx.visible = where === 'frost'; if (snowFx.visible && player) snowFx.userData.tick(dt, player.pos.x, player.pos.z); } if (now > 45 && !document.body.classList.contains('nohint')) document.body.classList.add('nohint'); occluderTick(dt);
   guideTick(); musicTick();
 
   for (let i = lootPops.length - 1; i >= 0; i--) {
@@ -3453,7 +3637,27 @@ function tick() {
   const sd = P.sunDir;
   sun.position.set(focus.x + sd[0], sd[1], focus.z + sd[2]);
   sun.target.position.set(focus.x, 0, focus.z);
+  cullActors();
   render();
+  for (const r of culled) r.visible = true;
+  culled.length = 0;
+}
+
+// Characters are drawn with culling off (their poses move outside their boxes), so every one
+// on the map was drawn every frame, even miles away. Hide the ones the camera can't see just
+// for the draw, then put them straight back so nothing else notices.
+const _frus = new THREE.Frustum(), _pm = new THREE.Matrix4(), _sph = new THREE.Sphere(), culled = [];
+function cullActors() {
+  camera.updateMatrixWorld();
+  _pm.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse); _frus.setFromProjectionMatrix(_pm);
+  const test = (root) => {
+    if (!root || !root.visible) return;
+    _sph.center.set(root.position.x, root.position.y + 1.5, root.position.z); _sph.radius = 3.5 * root.scale.x;
+    if (!_frus.intersectsSphere(_sph)) { root.visible = false; culled.push(root); }
+  };
+  for (const e of enemies) test(e.root);
+  for (const n of npcs) test(n.actor.root);
+  for (const c of crew) test(c.actor.root);
 }
 addEventListener('pagehide', () => { if (!resetting) save(); });
 // sound starts on the first key or tap (browsers require that)
@@ -3470,8 +3674,14 @@ function bossIntroTick(dt = 0) {
   if (bossIntro) {
     bossIntro.t += Math.min(dt, 0.1); // frame time, capped, so a hitch never skips the show
     // the bars and title card follow the same clock, so they stay in step with the camera
-    for (const el of $('bossintro').children) el.style.animationDelay = `-${bossIntro.t.toFixed(3)}s`;
-    if (bossIntro.t > 3.2 || !player || player.dead || bossIntro.e.hp <= 0) endBossIntro();
+    const B = bossIntro, talky = B.lines.length > 0, start = B.kind === 'intro' ? 2.5 : 0.6;
+    const at = talky ? Math.min(B.t, B.kind === 'intro' && B.t < start ? B.t : 1.5) : B.t;
+    for (const el of $('bossintro').children) el.style.animationDelay = `-${at.toFixed(3)}s`;
+    if (talky && B.t >= start) {
+      if (B.li < 0 || B.t - B.lineAt > 3.4) bossNextLine();
+    }
+    const over = talky ? B.li >= B.lines.length : B.t > 3.2;
+    if (over || !player || player.dead || (B.kind === 'intro' && B.e.hp <= 0)) endBossIntro();
     return;
   }
   if (!player || creator.open || player.dead) return;
@@ -3482,9 +3692,68 @@ function bossIntroTick(dt = 0) {
     startBossIntro(e); return;
   }
 }
+// What each boss says: before the fight, when it gets low on health, and when it is beaten.
+// ['h', text] lines are your hero talking back.
+const BOSS_LINES = {
+  boss_gagron: { intro: ['WHO dares walk into my beautiful cave?', ['h', 'Um, hello? Are you Gagron the Hideous?'], 'HIDEOUS?! Who keeps calling me that?! I will roast you for that, tiny hero!'],
+    low: 'Not the face! Anything but the face!', defeat: ['Fine! Take your silly shard...', ['h', 'Thanks!'], '...but admit it. I am a little bit handsome.'] },
+  boss_crusher: { intro: ['BONECRUSHER SMASH!', 'Mum said I can keep the shiny rock if I smash everyone who comes!', ['h', 'Your mum said that?']],
+    low: "Ow! I'm telling my mum!", defeat: ['MUUUUM! The hero was mean to me!'] },
+  boss_gloom: { intro: ['Ah. More colour, walking right into my grey little forest.', ['h', 'Why did you steal all the colours?'], 'Red, green, they all look the same to me. So NOBODY gets to have them!'],
+    low: 'Stop sparkling at me!', defeat: ["The colours... they're coming back. Ugh.", "They're so... pretty."] },
+  boss_rattle: { intro: ['Yarr! Who goes there? Have ye seen me ship?', ['h', 'Your ship? This is a graveyard.'], 'No ship? Then ye be walkin\' the plank!'],
+    low: 'Me bones! Me lovely bones!', defeat: ['Arr... I only wanted me ship back...', 'If ye ever find a boat, tell her old Rattlebones misses her.'] },
+  boss_frost: { intro: ['Another warm little visitor. How dreadfully cosy.', ['h', 'Stop freezing everything, Your Majesty!'], 'Soon every land will be as quiet and lovely as mine. Frozen SOLID!'],
+    low: "You're melting my patience!", defeat: ['My palace... my lovely snow...', 'Very well. Keep your silly warm kingdom. But wear a scarf!'] },
+  thornbury_boss: { intro: ['Oi! Everything in Thornbury is MINE now!', ['h', 'Give it back!'], 'Ha! Including your pockets!'],
+    low: 'Hands off my loot!', defeat: ['Alright, alright! Take your town back.', "I'm keeping the spoons, though."] },
+  mossbrook_boss: { intro: ["Darling, you're just in time for my magic show!", 'For my next trick, I shall make YOU disappear!'],
+    low: "You're ruining my big finale!", defeat: ['Nobody appreciates true art...'] },
+  cinderholt_boss: { intro: ['KNEEL before the Lord of Cinderholt!', "It is very hot in this armour, so let's make this quick."],
+    low: 'My armour is getting toasty!', defeat: ["I'm moving somewhere with... less lava."] },
+};
+function bossNextLine() {
+  const B = bossIntro; B.li++; B.lineAt = B.t;
+  const el = $('bosstalk');
+  if (B.li >= B.lines.length) { el.hidden = true; return; }
+  const ln = B.lines[B.li], hero = Array.isArray(ln), text = hero ? ln[1] : ln, e = B.e;
+  const face = hero ? portrait(S.look) : e.T.look ? portrait({ ...NPC_BASE, ...e.T.look }) : null;
+  el.className = hero ? 'hero' : 'boss';
+  el.innerHTML = `<div class="bt-face">${face ? `<img src="${face}" alt="">` : `<span>${e.T.dragon ? '🐉' : '💀'}</span>`}</div><div class="bt-body"><b></b><p></p><small>Click or press E</small></div>`;
+  el.querySelector('b').textContent = hero ? heroName() : e.T.name; el.querySelector('p').textContent = text;
+  el.hidden = false; el.classList.remove('pop'); void el.offsetWidth; el.classList.add('pop');
+  if (hero) player.talkUntil = now + 1.2; else { e.play(e.clips.Cheer ? 'Cheer' : 'Idle_Combat', { once: true, fade: 0.15 }); sfx('slam'); }
+  $('bossintro').classList.add('talking');
+}
+function bossSkip() { if (bossIntro && bossIntro.lines.length && bossIntro.li >= 0) bossNextLine(); }
+// A boss shouts when it gets low on health: it reels back for a moment and the line pops up over its head.
+let shoutEl = null;
+function bossShout(e) {
+  const L = BOSS_LINES[e.type]; if (!L || !L.low) return;
+  if (!shoutEl) { shoutEl = document.createElement('div'); shoutEl.className = 'bossshout'; document.body.appendChild(shoutEl); }
+  shoutEl.textContent = L.low; shoutEl.dataset.until = String(now + 2.6); shoutEl.e = e;
+  shoutEl.classList.remove('pop'); void shoutEl.offsetWidth; shoutEl.classList.add('pop');
+  e.staggerUntil = now + 0.8; burst(e.pos.clone().setY(3), '#ff6b5a', 40, 6, 1.2); sfx('slam');
+}
+function bossShoutTick() {
+  if (!shoutEl) return;
+  const e = shoutEl.e, on = e && now < +shoutEl.dataset.until && e.hp > 0 && e.inside === where;
+  shoutEl.hidden = !on; if (!on) return;
+  const v = tmpV.copy(e.pos).setY((e.T.scale || 2) * 2.4 + 1.5).project(camera);
+  shoutEl.style.left = `${(v.x * 0.5 + 0.5) * innerWidth}px`; shoutEl.style.top = `${(-v.y * 0.5 + 0.5) * innerHeight}px`;
+}
+function startBossScene(e, kind) {
+  closeDialog(); closeSheet(); cancelTask(); keys.clear(); moveTarget = null;
+  const lines = (BOSS_LINES[e.type] || {})[kind] || [];
+  bossIntro = { e, t: 0, kind, lines, li: -1, lineAt: 0 };
+  const el = $('bossintro');
+  el.innerHTML = '<div class="bi-bar top"></div><div class="bi-bar bot"></div>';
+  el.hidden = false; el.classList.remove('go', 'talking'); void el.offsetWidth; el.classList.add('go');
+}
 function startBossIntro(e) {
-  e.introAt = now; closeDialog(); closeSheet(); cancelTask(); keys.clear(); moveTarget = null;
-  bossIntro = { e, t: 0 };
+  e.introAt = now; e.lowSaid = false; closeDialog(); closeSheet(); cancelTask(); keys.clear(); moveTarget = null;
+  bossIntro = { e, t: 0, kind: 'intro', lines: (BOSS_LINES[e.type] || {}).intro || [], li: -1, lineAt: 0 };
+  $('bossintro').classList.remove('talking');
   e.face(player.pos.x, player.pos.z);
   e.play(e.clips.Cheer ? 'Cheer' : e.T.dragon ? 'Spellcasting' : 'Idle_Combat', { once: true, fade: 0.15 });
   const el = $('bossintro');
@@ -3495,7 +3764,7 @@ function startBossIntro(e) {
 }
 function endBossIntro() {
   const e = bossIntro.e; bossIntro = null;
-  $('bossintro').hidden = true;
+  $('bossintro').hidden = true; $('bosstalk').hidden = true;
   if (e.hp > 0) { e.state = 'chase'; e.play('Idle_Combat'); }
 }
 function introCam(dt) {
@@ -3503,8 +3772,10 @@ function introCam(dt) {
   const p = player.pos, dx = e.pos.x - p.x, dz = e.pos.z - p.z, d = Math.hypot(dx, dz) || 1;
   const big = e.T.scale || 2;
   // stand in front of the boss, looking up at it
-  const back = 8 + big * 3.4 - k * 1.5; // starts wide and creeps in
-  const want = tmpV.set(e.pos.x - (dx / d) * back, 2 + big * 1.1, e.pos.z - (dz / d) * back);
+  const back = 9 + big * 3.4 - k * 1.5; // starts wide and creeps in
+  // swing round to the side a little, so your hero never blocks the view of the boss
+  const sw = 0.6, ux = (dx / d) * Math.cos(sw) - (dz / d) * Math.sin(sw), uz = (dx / d) * Math.sin(sw) + (dz / d) * Math.cos(sw);
+  const want = tmpV.set(e.pos.x - ux * back, 2.5 + big * 1.5, e.pos.z - uz * back);
   camPos.lerp(want, 1 - Math.pow(0.02, dt) * (1 - k * 0.5));
   camera.position.copy(camPos);
   camera.lookAt(e.pos.x, 1.2 + big * 1.0, e.pos.z);
@@ -3566,6 +3837,7 @@ function borrowKnightGear() {
 const swatchRow = (part, set) => `<div class="cc-swatches">${Object.entries(set).map(([k, [nm, c]]) => `<button class="cc-sw" data-part="${part}" data-val="${k}" title="${nm}" aria-label="${nm}" aria-pressed="${S.look[part] === k}" style="--c:${c}"></button>`).join('')}</div>`;
 const chipRow = (part, set) => `<div class="cc-chips">${Object.entries(set).map(([k, nm]) => `<button class="cc-chip" data-part="${part}" data-val="${k}" aria-pressed="${S.look[part] === k}">${Array.isArray(nm) ? nm[0] : nm}</button>`).join('')}</div>`;
 const picRow = (part, set, crop) => `<div class="cc-pics">${Object.entries(set).map(([k, nm]) => `<button class="cc-pic" data-part="${part}" data-val="${k}" aria-pressed="${S.look[part] === k}"><img alt="" src="${facePreview({ ...S.look, [part]: k }, crop)}"><span>${nm}</span></button>`).join('')}</div>`;
+const shadeSlider = (k) => `<label class="cc-shade"><span>Darker</span><input type="range" min="-100" max="100" step="5" data-shade="${k}" value="${Math.round((S.look[k] || 0) * 100)}" aria-label="Lighter or darker"><span>Lighter</span></label>`;
 const field = (label, body, note = '') => `<section class="cc-field"><h4>${label}${note ? `<small>${note}</small>` : ''}</h4>${body}</section>`;
 function renderCreator() {
   const L = S.look, el = $('creator');
@@ -3573,22 +3845,22 @@ function renderCreator() {
   let body = '';
   if (creator.tab === 'body') {
     body = field('Body', `<div class="cc-sex">${Object.entries(SEXES).map(([k, nm]) => `<button class="cc-sexbtn" data-part="sex" data-val="${k}" aria-pressed="${L.sex === k}"><b>${k === 'm' ? '&#9794;' : '&#9792;'}</b>${nm}</button>`).join('')}</div>`)
-      + field('Skin tone', swatchRow('skin', SKIN_TONES))
+      + field('Skin tone', swatchRow('skin', SKIN_TONES) + shadeSlider('skinShade'))
       + field('Head size', chipRow('head', HEAD_SIZES))
       + field('Ears', chipRow('ears', { human: 'Round', elf: 'Pointy elf' }));
   } else if (creator.tab === 'face') {
     body = field('Eyes', picRow('eyeStyle', EYE_STYLES, 'eyes'))
-      + field('Eye colour', swatchRow('eyes', EYE_COLOURS))
+      + field('Eye colour', swatchRow('eyes', EYE_COLOURS) + shadeSlider('eyeShade'))
       + field('Mouth', picRow('mouth', MOUTHS, 'mouth'))
       + field('Face marks', picRow('mark', MARKS, 'mark'))
       + field('Facial hair', chipRow('beard', BEARDS), 'matches your hair colour');
   } else if (creator.tab === 'hair') {
     body = field('Hair style', chipRow('hair', HAIR_STYLES))
       + field('Length', chipRow('hairLen', HAIR_LENGTHS), 'how far it falls down your back')
-      + field('Hair colour', swatchRow('hairCol', HAIR_COLOURS), 'eyebrows match');
+      + field('Hair colour', swatchRow('hairCol', HAIR_COLOURS) + shadeSlider('hairShade'), 'eyebrows match');
   } else {
-    body = field('Outfit colour', swatchRow('outfit', LOOK_COLOURS))
-      + field('Cape colour', swatchRow('trim', LOOK_COLOURS))
+    body = field('Outfit colour', swatchRow('outfit', LOOK_COLOURS) + shadeSlider('outfitShade'))
+      + field('Cape colour', swatchRow('trim', LOOK_COLOURS) + shadeSlider('trimShade'))
       + field('Wear', `<div class="cc-chips"><button class="cc-chip" id="cc-cape" aria-pressed="${L.cape}">Cape</button><button class="cc-chip" id="cc-hat" aria-pressed="${L.hat}">Helmet</button></div>`, 'a helmet hides your hair')
       + '<p class="cc-note">Armour you find changes the colour of your arms and legs.</p>';
   }
@@ -3621,6 +3893,12 @@ function renderCreator() {
       renderCreator();
     };
   });
+  let shadeAt = 0;
+  el.querySelectorAll('[data-shade]').forEach((r) => {
+    const upd = () => { L[r.dataset.shade] = +r.value / 100; const t = performance.now(); if (t - shadeAt > 60) { shadeAt = t; applyLook(); } };
+    r.oninput = upd; r.onchange = () => { L[r.dataset.shade] = +r.value / 100; applyLook(); };
+    r.ondblclick = () => { r.value = 0; r.onchange(); };
+  });
   const nm = $('cc-name');
   nm.oninput = () => {
     const v = cleanName(nm.value), hint = $('cc-namehint');
@@ -3651,7 +3929,7 @@ function openCreator(mode = 'edit') {
   if (mode === 'new' && !S.name) S.name = NAME_IDEAS[Math.floor(Math.random() * NAME_IDEAS.length)];
   creator.tab = 'body'; creator.close = false;
   creator.facing = player.root.rotation.y; if (!creator.near0) creator.near0 = camera.near;
-  if (!creator.light) { creator.light = new THREE.PointLight('#fff1dc', 9, 12, 1.6); scene.add(creator.light); }
+  if (!creator.light) { creator.light = new THREE.PointLight('#fff1dc', 9, 12, 1.6); lightSpots.unshift(creator.light); }
   creator.light.visible = true;
   document.body.classList.add('creating');
   $('creator').hidden = false;
@@ -3799,7 +4077,7 @@ const occluders = [];
 const occRay = new THREE.Ray();
 let occAt = 0;
 function buildOccluders() {
-  for (const o of scene.children) if (/^building_|^tent$/.test(o.name)) { o.updateMatrixWorld(true); occluders.push({ o, box: new THREE.Box3().setFromObject(o), f: 1, want: 1 }); }
+  for (const o of [...scene.children, ...(regions.valley ? regions.valley.children : [])]) if (/^building_|^tent$/.test(o.name)) { o.updateMatrixWorld(true); occluders.push({ o, box: new THREE.Box3().setFromObject(o), f: 1, want: 1 }); }
 }
 function setFade(O, f) {
   O.f = f;
@@ -4289,7 +4567,7 @@ function renderCrew(el) {
   el.querySelectorAll('[data-tactic]').forEach((b) => { b.onclick = () => { const c = crew.find((x) => x.id === b.dataset.crew); crewCfg(c).tactic = b.dataset.tactic; c.foe = null; save(); renderSheet(); }; });
 }
 
-window.__jq = { closeSheet, renderHotbar, crew, setCrewMode, TOWNS, liberateTown, chests, openChest, stopRoulette, enemies, startBossIntro, closeDialog, advanceDialog, dash, attackPress, craft, CRAFTS, openCreator, closeCreator, creator, rebuildHero, setZoom: (z) => { zoom = z; }, hurtEnemy, goThrough, get where() { return where; }, INTERIORS, equipGear, spendPoint, giveHeroXp, heroLvl, stat, maxHp, defDiv, openWeaponShop, openKing, jump, eat, eatBest, openShop, swing, swingTarget, hitNode, projectiles, timers, get S() { return S; }, get player() { return player; }, enemies, nodes, npcs, startTask, doAction, giveXp, save, openSheet, openDialog };
+window.__jq = { renderer, scene, get bossIntro() { return bossIntro; }, bossSkip, startBossScene, sailTo, regions, closeSheet, renderHotbar, crew, setCrewMode, TOWNS, liberateTown, chests, openChest, stopRoulette, enemies, startBossIntro, closeDialog, advanceDialog, dash, attackPress, craft, CRAFTS, openCreator, closeCreator, creator, rebuildHero, setZoom: (z) => { zoom = z; }, hurtEnemy, goThrough, get where() { return where; }, INTERIORS, equipGear, spendPoint, giveHeroXp, heroLvl, stat, maxHp, defDiv, openWeaponShop, openKing, jump, eat, eatBest, openShop, swing, swingTarget, hitNode, projectiles, timers, get S() { return S; }, get player() { return player; }, enemies, nodes, npcs, startTask, doAction, giveXp, save, openSheet, openDialog };
 window.addEventListener('error', (e) => { const m = $('loadmsg'); if (m) m.textContent = `Something went wrong: ${e.message}`; });
 main().catch((err) => {
   console.error(err);
