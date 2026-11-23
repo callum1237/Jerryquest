@@ -2069,6 +2069,16 @@ function tinted(obj, col) {
 }
 // Put the equipped weapon in the right hand, the shield in the left, and tint the armour.
 function handSlot(side) { let s = null; player.root.traverse((o) => { if (!s && new RegExp(`handslot${side}$`, 'i').test(o.name)) s = o; }); return s; }
+// weapons in hand are drawn a bit longer than the models come, so blades and staffs read as heroic
+function stretchBlade(m) {
+  const box = new THREE.Box3(), sz = new THREE.Vector3();
+  m.updateMatrixWorld(true);
+  const inv = new THREE.Matrix4().copy(m.matrixWorld).invert();
+  m.traverse((o) => { if (o.isMesh && o.geometry) { o.geometry.computeBoundingBox(); const b = o.geometry.boundingBox.clone().applyMatrix4(new THREE.Matrix4().multiplyMatrices(inv, o.matrixWorld)); box.union(b); } });
+  box.getSize(sz);
+  const ax = sz.x >= sz.y && sz.x >= sz.z ? 'x' : sz.y >= sz.z ? 'y' : 'z';
+  for (const k of ['x', 'y', 'z']) m.scale[k] *= k === ax ? 1.28 : 1.08;
+}
 function equipGear() {
   if (!player) return;
   const w = W(), sh = ARMOUR[S.equip.shield] || ARMOUR.sh_badge;
@@ -2077,6 +2087,7 @@ function equipGear() {
   const hold = (item, base, side) => {
     if (base) base.visible = !item.model;
     // shields are held a bit smaller so they don't hide the hero's outfit
+    if (base && side === 'r' && !item.model && !base.userData.stretched) { base.userData.stretched = true; stretchBlade(base); }
     if (base && side === 'l') { if (base.userData.s0 == null) base.userData.s0 = base.scale.x; base.scale.setScalar(base.userData.s0 * 0.64); }
     if (!item.model) { if (base) player.weapons.push(base); return; }
     if (!lib[item.model]) return;
@@ -2085,6 +2096,7 @@ function equipGear() {
     addSilhouette(m, '#ffe9a0');
     const slot = handSlot(side);
     if (side === 'l') m.scale.multiplyScalar(0.64);
+    else if (item.type !== 'ranged') stretchBlade(m);
     if (slot) slot.add(m);
     player.customs.push(m); player.weapons.push(m);
   };
@@ -3636,17 +3648,18 @@ function closeDialog() { if (dlg) dlgClosedAt = performance.now(); $('dialog').h
 const BIND_ACTIONS = [
   ['up', 'Move up', ['KeyW', 'ArrowUp']], ['down', 'Move down', ['KeyS', 'ArrowDown']],
   ['left', 'Move left', ['KeyA', 'ArrowLeft']], ['right', 'Move right', ['KeyD', 'ArrowRight']],
-  ['sprint', 'Sprint', ['ShiftLeft', 'ShiftRight']], ['attack', 'Attack', ['KeyJ', '']],
+  ['sprint', 'Sprint', ['ShiftLeft', 'ShiftRight']], ['attack', 'Attack', ['KeyJ', '']], ['charge', 'Charged attack (hold)', ['KeyK', '']],
   ['special', 'Special move', ['KeyR', '']], ['dash', 'Dash', ['KeyC', 'KeyZ']],
   ['jump', 'Jump', ['Space', '']], ['interact', 'Talk / use / skip', ['KeyE', 'KeyF']],
   ['eat', 'Eat best food', ['KeyH', '']], ['map', 'Map', ['KeyM', '']],
-  ['hero', 'Hero sheet', ['KeyK', '']], ['bag', 'Bag', ['KeyI', 'KeyB']], ['quests', 'Quests', ['KeyQ', '']],
+  ['hero', 'Hero sheet', ['KeyP', '']], ['bag', 'Bag', ['KeyI', 'KeyB']], ['quests', 'Quests', ['KeyQ', '']],
   ['craft', 'Craft', ['KeyG', '']], ['emote', 'Emote wheel', ['KeyN', '']],
   ...[1, 2, 3, 4, 5, 6, 7, 8].map((i) => [`hot${i}`, `Hotbar slot ${i}`, [`Digit${i}`, '']]),
 ];
 const MOVE_KEY = { up: 'u', down: 'd', left: 'l', right: 'r', sprint: 'sprint' };
 let codeToAct = {};
 function binds() {
+  if (S.binds && S.binds.hero && S.binds.hero.includes('KeyK') && !S.binds.charge) S.binds.hero = ['KeyP', ''];
   const b = {};
   for (const [a, , def] of BIND_ACTIONS) b[a] = (S.binds && S.binds[a]) ? S.binds[a].slice() : def.slice();
   return b;
@@ -3697,7 +3710,8 @@ addEventListener('keydown', (e) => {
   }
   if (emoteWheelOpen() && !e.repeat) { const m = /^(Digit|Numpad)([1-9])$/.exec(e.code); if (m) { e.preventDefault(); doEmote(+m[2] - 1); return; } if (e.code === 'Escape') { toggleEmotes(false); return; } }
   if (e.repeat && act !== 'interact') return;
-  if (act === 'attack') { attackPress(true); chargeStart(); }
+  if (act === 'attack') attackPress(true);
+  else if (act === 'charge') chargeStart();
   else if (act === 'dash') dash();
   else if (act === 'special') special();
   // spamming E through a conversation: the extra presses after it ends don't start it all over again
@@ -3719,7 +3733,7 @@ addEventListener('keyup', (e) => {
     keys.delete(MOVE_KEY[act]);
   }
   if (act === 'interact') held = false;
-  if (act === 'attack') chargeRelease();
+  if (act === 'charge') chargeRelease();
 });
 addEventListener('blur', () => { keys.clear(); held = false; charge = null; });
 addEventListener('blur', () => { keys.clear(); held = false; });
@@ -3917,19 +3931,19 @@ function swing() {
   }
   const w = W(), A = STYLES[w.type];
   // lighter weapons swing faster, so the animation speeds up to match
-  const sp = THREE.MathUtils.clamp(1.05 / w.cd, 0.85, 1.9);
+  const sp = THREE.MathUtils.clamp(1.05 / w.cd, 0.95, 2.2);
   showGear(null);
   if (t.e && A.proj) player.face(t.e.pos.x, t.e.pos.z); // gentle aim help for ranged
   // Combo: keep attacking within a moment of the last swing to chain up to three different moves.
   // The third is a finisher: harder, wider and it sends enemies flying.
   if (now - lastSwingAt > w.cd + 0.55 || comboStep >= 3) comboStep = 0;
   comboStep++; lastSwingAt = now;
-  const C = comboOf(w)[comboStep - 1], fin = comboStep === 3, spd = sp * C.speed * 1.2;
+  const C = comboOf(w)[comboStep - 1], fin = comboStep === 3, spd = sp * C.speed * 1.55; // snappy: swings play fast so every press feels instant
   // the wind-up is skipped so the blow lands right on the keystroke
   player.nextHit = now + w.cd * (fin ? 0.6 : 0.34);
-  const lead = 0.08 * spd, from = Math.max(0, C.hitAt - lead);
+  const lead = 0.06 * spd, from = Math.max(0, C.hitAt - lead);
   const dur = player.play(C.anim, { once: true, fade: 0.04, speed: spd, from });
-  player.busyUntil = now + Math.min(dur * 0.5, w.cd * 0.35);
+  player.busyUntil = now + Math.min(dur * 0.4, w.cd * 0.25);
   if (fin) { const fw = fwdOf(player); dashLunge = { x: fw.x, z: fw.z, left: A.proj ? 0 : 0.6 }; }
   later((C.hitAt - from) / spd, () => {
     if (player.dead) return;
@@ -3954,8 +3968,8 @@ function swing() {
 }
 let comboStep = 0, lastSwingAt = -9, dashLunge = null;
 // ---------- charged attack ----------
-// Tap J for the normal combo. Hold J: a ring fills round your feet, and letting go unleashes a big
-// blow with up to almost three times the damage and much more reach.
+// J is the normal combo. Hold K: a ring fills round your feet, and letting go unleashes a big
+// blow with up to almost three times the damage, and melee weapons send a slash wave flying ahead.
 const CHARGE_MIN = 0.45, CHARGE_FULL = 1.3;
 let charge = null, chargeRing = null;
 function chargeStart() { if (!player || player.dead || uiLock() || talking) return; charge = { at: now, full: false }; }
@@ -3976,7 +3990,7 @@ function chargeTick() {
 function chargeRelease() {
   const c = charge; charge = null; if (chargeRing) chargeRing.visible = false;
   if (!c || !player || player.dead || uiLock() || talking) return;
-  const t = now - c.at; if (t < CHARGE_MIN) return; // just a tap: the normal combo already played
+  const t = now - c.at; if (t < CHARGE_MIN) { attackPress(true); return; } // a quick tap of K is just a normal swing
   chargedAttack(Math.min(1, (t - CHARGE_MIN) / (CHARGE_FULL - CHARGE_MIN)));
 }
 function chargedAttack(k) {
@@ -3986,8 +4000,8 @@ function chargedAttack(k) {
   const mult = 1.7 + 1.1 * k, reachK = 1.45 + 0.45 * k;
   player.nextHit = now + Math.max(0.35, w.cd * 0.6); comboStep = 0;
   showGear(null); sfx('slam');
-  player.play(A.proj ? (A.proj === 'orb' ? 'Spellcast_Shoot' : '1H_Ranged_Shoot') : w.heavy ? '2H_Melee_Attack_Chop' : '1H_Melee_Attack_Chop', { once: true, fade: 0.04, speed: 1.4 });
-  player.busyUntil = now + 0.3;
+  player.play(A.proj ? (A.proj === 'orb' ? 'Spellcast_Shoot' : '1H_Ranged_Shoot') : w.heavy ? '2H_Melee_Attack_Chop' : '1H_Melee_Attack_Chop', { once: true, fade: 0.04, speed: 1.9 });
+  player.busyUntil = now + 0.22;
   const fwd = fwdOf(player), dmg = () => Math.max(1, Math.round(heroDamage() * mult));
   if (A.proj) {
     // a fan of five shots: the first one to reach a foe hits in full, extra shots on the same foe only graze,
@@ -4002,7 +4016,7 @@ function chargedAttack(k) {
   }
   const reach = w.reach * reachK, arc = 1.35;
   dashLunge = { x: fwd.x, z: fwd.z, left: 0.5 };
-  later(0.12, () => {
+  later(0.08, () => {
     if (player.dead) return;
     // a golden shockwave fan in front of you shows how far the blow reached
     const m = new THREE.Mesh(new THREE.CircleGeometry(1, 32, Math.PI / 2 - arc, arc * 2), new THREE.MeshBasicMaterial({ color: '#ffd23f', transparent: true, opacity: 0.55, depthWrite: false, fog: false, side: THREE.DoubleSide }));
@@ -4012,6 +4026,11 @@ function chargedAttack(k) {
     for (const e of enemies) if (e.hp > 0 && e.state !== 'rising' && e.state !== 'gone' && e.inside === where && inArc(e.pos.x, e.pos.z, 0.8, reach + 0.3, arc) >= 0) hurtEnemy(e, dmg(), null, 2.6);
     for (const c of crew) if (isRival(c) && crewUp(c) && c.inside === where && inArc(c.pos.x, c.pos.z, 0.7, reach + 0.3, arc) >= 0) hurtCrew(c, dmg(), player);
     if (net.on) hitPeers((x, z) => inArc(x, z, 0.7, reach + 0.3, arc) >= 0, dmg());
+    // ...and a crescent slash flies on ahead, cutting through everything in a short line
+    const struck = new Set(enemies.filter((e) => e.hp > 0 && e.inside === where && inArc(e.pos.x, e.pos.z, 0.8, reach + 0.3, arc) >= 0));
+    const wave = Math.max(1, Math.round(dmg() * 0.75));
+    shoot(player.pos.clone().setY(1.1).addScaledVector(fwd, 0.6), fwd, 'slash', 6 + 5 * k + w.reach, 'player',
+      (e) => (e.isCrew ? hurtCrew(e, wave, player) : hurtEnemy(e, wave, null, 1.8)), { pierce: struck, size: 1 + 0.5 * k });
   });
 }
 // three moves per weapon style: anim, when it lands, damage, knockback, reach and arc
@@ -4194,10 +4213,22 @@ function gatherTick(task) {
 const projectiles = [];
 const orbGeo = new THREE.IcosahedronGeometry(0.4, 1);
 // Projectiles fly in a straight line and hit whatever hitbox they pass through.
-function shoot(from, dir, kind, range, owner, onHit) {
+const slashMat = new THREE.MeshBasicMaterial({ color: '#fff1b8', transparent: true, opacity: 0.9, depthWrite: false, fog: false, side: THREE.DoubleSide, blending: THREE.AdditiveBlending });
+const slashGeo = new THREE.RingGeometry(1.05, 1.5, 36, 1, -Math.PI / 2 - 1.05, 2.1), slashGeo2 = new THREE.RingGeometry(1.2, 1.38, 36, 1, -Math.PI / 2 - 0.9, 1.8);
+function shoot(from, dir, kind, range, owner, onHit, opt = {}) {
   let mesh;
-  if (kind === 'bolt') {
-    mesh = lib.arrow.clone(true); stylize(mesh); mesh.scale.setScalar(2.2);
+  if (kind === 'slash') {
+    // a flat golden crescent with a bright core, travelling edge first
+    mesh = new THREE.Group();
+    const a = new THREE.Mesh(slashGeo, slashMat.clone()); a.rotation.x = -Math.PI / 2;
+    const b = new THREE.Mesh(slashGeo2, new THREE.MeshBasicMaterial({ color: '#ffffff', transparent: true, opacity: 1, depthWrite: false, fog: false, side: THREE.DoubleSide })); b.rotation.x = -Math.PI / 2; b.position.y = 0.02;
+    a.position.z = b.position.z = -0.9; // centre the arc on the projectile
+    for (const m of [a, b]) { m.layers.set(1); m.renderOrder = 5; mesh.add(m); }
+    mesh.scale.setScalar(opt.size || 1);
+  } else if (kind === 'bolt') {
+    // the arrow model stands upright, so lay it along the flight line (lookAt aims +Z)
+    const a = lib.arrow.clone(true); stylize(a); a.rotation.x = -Math.PI / 2; a.scale.setScalar(2.6);
+    mesh = new THREE.Group(); mesh.add(a);
   } else {
     mesh = new THREE.Mesh(orbGeo, new THREE.MeshBasicMaterial({ color: kind === 'dark' ? '#c58bff' : '#8ff7ff', fog: false }));
     mesh.layers.set(1);
@@ -4205,7 +4236,9 @@ function shoot(from, dir, kind, range, owner, onHit) {
   mesh.position.copy(from);
   mesh.lookAt(from.clone().add(dir));
   scene.add(mesh);
-  projectiles.push({ mesh, dir: dir.clone().setY(0).normalize(), kind, owner, onHit, speed: kind === 'bolt' ? 26 : kind === 'dark' ? 11 : 17, left: range + 1 });
+  const pr = { mesh, dir: dir.clone().setY(0).normalize(), kind, owner, onHit, speed: kind === 'bolt' ? 26 : kind === 'slash' ? 20 : kind === 'dark' ? 11 : 17, left: range + 1 };
+  if (opt.pierce) { pr.pierce = opt.pierce; pr.R = 1.4 * (opt.size || 1); pr.range = range + 1; }
+  projectiles.push(pr);
 }
 // Your damage: the weapon's base damage, multiplied by your Attack, with a little luck either way.
 function heroDamage() {
@@ -5980,6 +6013,16 @@ function tick() {
     pr.mesh.position.addScaledVector(pr.dir, step); pr.left -= step;
     const pp = pr.mesh.position;
     let hitSomething = false;
+    if (pr.pierce) {
+      // the slash wave cuts through: each foe is struck once, and it fades as it flies
+      for (const e of enemies) if (e.hp > 0 && !pr.pierce.has(e) && e.state !== 'rising' && e.state !== 'gone' && e.inside === where && Math.hypot(e.pos.x - pp.x, e.pos.z - pp.z) < pr.R + (e.T.boss ? 1.2 : 0.3)) { pr.pierce.add(e); pr.onHit(e); }
+      for (const c of crew) if (!pr.pierce.has(c) && isRival(c) && crewUp(c) && c.inside === where && Math.hypot(c.pos.x - pp.x, c.pos.z - pp.z) < pr.R) { pr.pierce.add(c); pr.onHit(c); }
+      const life = Math.max(0, pr.left / pr.range);
+      pr.mesh.children.forEach((m) => { m.material.opacity = (m === pr.mesh.children[0] ? 0.9 : 1) * Math.min(1, life * 2.2); });
+      if (rng() < 0.7) burst(pp.clone().addScaledVector(pr.dir, 0.4), '#ffe9a8', 1, 1.5);
+      if (pr.left <= 0) { scene.remove(pr.mesh); projectiles.splice(i, 1); }
+      continue;
+    }
     if (pr.owner === 'player' || pr.owner === 'ally') {
       for (const e of enemies) if (e.hp > 0 && e.state !== 'rising' && e.state !== 'gone' && e.inside === where && Math.hypot(e.pos.x - pp.x, e.pos.z - pp.z) < 0.95) { pr.onHit(e); hitSomething = true; break; }
       if (!hitSomething) for (const c of crew) if (isRival(c) && crewUp(c) && c.inside === where && Math.hypot(c.pos.x - pp.x, c.pos.z - pp.z) < 0.95) { pr.onHit(c); hitSomething = true; break; }
