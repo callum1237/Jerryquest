@@ -2,7 +2,7 @@
 import { THREE, scene, gradient, stylize, registerMesh, toon, rng } from './engine.js';
 
 export const S_BUILD = 5, S_NATURE = 4.5, S_PROP = 2.6;
-export const LAKE = { x: 30, z: -6, r: 12 };
+export const LAKE = { x: 37, z: -7, r: 12 };
 export const CAMP = { x: -22, z: 31 };
 export const MINE = { x: -36, z: -24 };
 export const WORLD_R = 150;
@@ -15,7 +15,7 @@ export const TOWNS = [
 ];
 // The four lands beyond the valley forest. Each has its own colour, mood, monsters and a miniboss.
 // The village is spread out a little: every village building and prop sits VS times further from the well.
-export const VS = 1.22;
+export const VS = 1.38;
 export const ZONES = {
   glimmer: { name: 'Glimmerwood', x: 108, z: 6, r: 34, grass: '#5aa6a0', grass2: '#7d7fd6' },
   crags: { name: 'Grumble Crags', x: -106, z: -4, r: 34, grass: '#9a9a78', grass2: '#b5a27e' },
@@ -148,7 +148,7 @@ export function buildWorld(library) {
     m.rotation.set(-Math.PI / 2, 0, ry); m.position.set(x, 0.03, z); m.receiveShadow = true;
     registerMesh(m, pathMats); scene.add(m);
   };
-  addPath(new THREE.CircleGeometry(8, 40), 0, 0);
+  addPath(new THREE.CircleGeometry(9.5, 40), 0, 0);
   const spoke = (tx, tz, w = 2.6, fx = 0, fz = 0) => {
     const dx = tx - fx, dz = tz - fz, len = Math.hypot(dx, dz);
     addPath(new THREE.PlaneGeometry(w, len), fx + dx / 2, fz + dz / 2, Math.atan2(dx, dz));
@@ -170,9 +170,9 @@ export function buildWorld(library) {
   wheatField(20 * VS, 14 * VS, 9, 7, 0.6);
   for (let i = 0; i < 5; i++) place(i === 2 ? 'fence_wood_straight_gate' : 'fence_wood_straight', 16 * VS + i * 3.4, 22 * VS, S_PROP + 1.4, 0, { collide: false });
   const props = [
-    ['barrel', -7, -12], ['barrel', -8.5, -12.5], ['crate_A_big', -9, -14], ['sack', 5, 11], ['sack', 6, 10.6], ['crate_B_small', 10, 11],
+    ['barrel', -7, -12], ['sack', 5, 11],
     ['weaponrack', 13, -21], ['target', 15, -17], ['wheelbarrow', -23, 11], ['resource_lumber', -24, 18], ['resource_stone', MINE.x - 1, MINE.z - 3],
-    ['bucket_water', 2.6, 2.2], ['flag_red', -3, -9], ['flag_blue', 3, -9], ['crate_A_big', 18, 6], ['barrel', 19, 7.5],
+    ['bucket_water', 2.6, 2.2],
   ];
   for (const [n, x, z] of props) { const v = n === 'resource_stone' ? 1 : VS; place(n, x * v, z * v, S_PROP, rng() * 6, { shrink: 0.6 }); }
 
@@ -250,8 +250,8 @@ export function buildWorld(library) {
   // scenery rocks, more of them in the Crags
   const rocks = { rock_single_A: [], rock_single_B: [], rock_single_C: [] };
   const addRockAt = (x, z, s) => { rocks[Object.keys(rocks)[Math.floor(rng() * 3)]].push(M(x, 0, z, s, rng() * 6)); colliders.push({ x, z, r: s * 0.18 }); };
-  for (let i = 0; i < 50; i++) {
-    const a = rng() * Math.PI * 2, rr = 12 + rng() * 40;
+  for (let i = 0; i < 18; i++) {
+    const a = rng() * Math.PI * 2, rr = 20 + rng() * 32;
     const x = Math.cos(a) * rr, z = Math.sin(a) * rr;
     if (blocked(x, z) || !isFree(x, z, 1)) continue;
     rocks[Object.keys(rocks)[Math.floor(rng() * 3)]].push(M(x, 0, z, S_NATURE * (0.8 + rng() * 0.8), rng() * 6));
@@ -361,13 +361,13 @@ export function buildWorld(library) {
 export function buildFlowers() {
   const tuft = new THREE.IcosahedronGeometry(0.55, 1);
   tuft.scale(1, 0.75, 1); tuft.translate(0, 0.3, 0);
-  const N = 260, FN = 420;
+  const N = 110, FN = 170;
   const tufts = new THREE.InstancedMesh(tuft, undefined, N);
   const flowerGeo = new THREE.IcosahedronGeometry(0.22, 0);
   flowerGeo.scale(1, 0.55, 1); flowerGeo.translate(0, 0.55, 0);
   const flowers = new THREE.InstancedMesh(flowerGeo, undefined, FN);
   const palette = ['#ff7eb6', '#ffd23f', '#ffffff', '#b78cff', '#ff9a4d', '#7fd3ff'].map((c) => new THREE.Color(c));
-  const free = (x, z) => Math.hypot(x, z) > 8.5 && Math.hypot(x - LAKE.x, z - LAKE.z) > LAKE.r + 1 && isFree(x, z);
+  const free = (x, z) => Math.hypot(x, z) > 16 && Math.hypot(x - LAKE.x, z - LAKE.z) > LAKE.r + 1 && isFree(x, z);
   let ti = 0, fi = 0, guard = 0;
   while ((ti < N || fi < FN) && guard++ < 20000) {
     const a = rng() * Math.PI * 2, rr = 6 + rng() * 52;

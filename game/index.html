@@ -543,8 +543,9 @@
 
   /* ---------- compact HUD: everything is still here, it just takes far less room ---------- */
   #menu { padding: 5px; gap: 5px; }
-  #menu button { width: 44px; height: 44px; padding: 0; justify-content: center; font-size: 0; gap: 0; border-radius: 50%; }
-  #menu button img { width: 24px; height: 24px; }
+  #menu button { width: 38px; height: 38px; padding: 0; justify-content: center; font-size: 0; gap: 0; border-radius: 50%; border-width: 2px; box-shadow: inset 0 2px 0 rgb(255 255 255 / .5), 0 3px 0 var(--ink); }
+  #menu button img { width: 20px; height: 20px; }
+  @media (min-width: 701px) { #menu { background: none; border: none; box-shadow: none; padding: 0; opacity: .82; transition: opacity .15s; } #menu:hover { opacity: 1; } }
   #sheet { top: calc(env(safe-area-inset-top, 0px) + 66px); }
   #menutoggle { display: none; }
   #hotbar .hot.empty { display: none; }
@@ -594,12 +595,16 @@
     #bossbar { bottom: auto; top: calc(env(safe-area-inset-top, 0px) + 112px); }
     body.sheet-open #menutoggle { z-index: 6; }
   }
+  #dialog .crewnow { font-size: .85em; opacity: .75; margin-top: -4px; }
+  #status .who > div { flex: 1; min-width: 0; justify-items: start; row-gap: 2px; }
+  #status .who h2 { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; line-height: 1.1; }
+  .chaptag { font: 800 10px/1 var(--display, inherit); color: #fff; background: #8a5ad8; border: 2px solid var(--ink, #2b160c); border-radius: 999px; padding: 2px 7px; white-space: nowrap; box-shadow: 0 2px 0 var(--ink, #2b160c); }
 </style>
 
 <div id="stage"></div>
 
 <section id="status" class="panel" aria-label="Your hero">
-  <div class="who"><div class="badge"><img id="badgeicon" alt=""><b id="badgelvl">1</b></div><div><h2 id="pname">Hero</h2><span id="pclass">Knight</span></div><button id="hudmore" aria-label="Show more" aria-expanded="false">▾</button></div>
+  <div class="who"><div class="badge"><img id="badgeicon" alt=""><b id="badgelvl">1</b></div><div><h2 id="pname">Hero</h2><b id="pchapter" class="chaptag">Prologue</b><span id="pclass">Knight</span></div><button id="hudmore" aria-label="Show more" aria-expanded="false">▾</button></div>
   <div class="barrow"><img id="hearticon" alt=""><div class="bar" aria-label="Health"><i id="hpfill" style="width:100%"></i><b id="hptext">50 / 50</b></div></div>
   <div class="barrow stamrow"><img id="booticon" alt=""><div class="bar stam" aria-label="Stamina"><i id="stamfill" style="width:100%"></i></div></div>
   <div id="coins"><img id="coinicon" alt=""><span id="coinval">0</span> coins</div>

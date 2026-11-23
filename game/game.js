@@ -155,7 +155,7 @@ const QUESTS = {
 // Chapter 1, "The Seal Breaks". More chapters and, far in the future, the Dark King himself.
 Object.assign(QUESTS, {
   st_1: {
-    story: true, chapter: 'Chapter 1', name: 'Darkness Stirs', giver: 'king', after: [],
+    story: true, chapter: 'Prologue', name: 'Darkness Stirs', giver: 'king', after: [],
     intro: `For a hundred years the Heartstone kept the dark magic sealed away, and the kingdom knew only peace. Last night the Heartstone cracked. The seal is broken, and ${DARK_KING}'s servants are waking. The skeletons south-west of the village are the first of them. Show me you can stand against them: defeat 3.`,
     ready: 'You stood firm. Good. The kingdom will need that courage, for this is only the beginning.',
     done: 'The Heartstone shattered into shards when the seal broke. Find them, hero.',
@@ -186,6 +186,28 @@ Object.assign(QUESTS, {
     need: { boss: 1 }, reward: { coins: 150, xp: { hero: 500 } }, desc: 'Defeat Captain Rattlebones in Haunted Hollow (north).',
   },
 });
+// The story is split into chapters, and each new chapter takes you to a new land.
+// Only the Prologue and Chapter 1 are playable so far; the rest are the plan.
+const CHAPTERS = [
+  { id: 'pro', tag: 'Prologue', name: 'The Crack', land: 'Jerry Valley', quests: ['st_1'] },
+  { id: 'c1', tag: 'Chapter 1', name: 'The Shards', land: 'Jerry Valley', quests: ['st_dragon', 'st_crags', 'st_glimmer', 'st_hollow'] },
+  { id: 'c2', tag: 'Chapter 2', name: 'The Frozen North', land: 'Frostwhisker Peaks', quests: [], soon: true },
+  { id: 'c3', tag: 'Chapter 3', name: 'The Hungry Swamp', land: 'Gobbler Marsh', quests: [], soon: true },
+  { id: 'c4', tag: 'Chapter 4', name: 'The Clockwork Ruins', land: 'Brassbolt Sands', quests: [], soon: true },
+  { id: 'c5', tag: 'Chapter 5', name: 'The Dark King', land: 'The Floating Castle', quests: [], soon: true },
+];
+function chapterNow() {
+  for (const c of CHAPTERS) if (c.soon || c.quests.some((k) => !S.quests[k] || S.quests[k].state !== 'done')) return c;
+  return CHAPTERS[CHAPTERS.length - 1];
+}
+let shownChapter = null;
+function renderChapter() {
+  const c = chapterNow(), el = $('pchapter'); if (!el) return;
+  el.textContent = c.tag === 'Prologue' ? 'Prologue' : c.tag.replace('Chapter ', 'Ch ');
+  el.title = `${c.tag}: ${c.name} (${c.land})${c.soon ? '. Coming soon!' : ''}`;
+  if (shownChapter && shownChapter !== c.id) toast(c.soon ? `${c.tag}: ${c.name} is coming soon! You've finished every chapter so far.` : `${c.tag}: ${c.name} begins!`, ICONS.quests || null, true);
+  shownChapter = c.id;
+}
 const storyOpen = (k) => (S.quests[k] && S.quests[k].state !== 'todo') || (QUESTS[k].after || []).every((a) => S.quests[a] && S.quests[a].state === 'done');
 const storyStep = () => Object.keys(QUESTS).filter((k) => QUESTS[k].story && storyOpen(k) && S.quests[k].state !== 'done');
 
@@ -819,8 +841,8 @@ function faceTick(a = player) {
   }
 }
 // Bold storybook ink lines around characters: an inverted shell pushed out a fixed number of pixels.
-const inkW = { value: 0.0026 };
-const inkMat = new THREE.MeshBasicMaterial({ color: '#1f1009', side: THREE.BackSide, fog: false });
+const inkW = { value: 0.0015 };
+const inkMat = new THREE.MeshBasicMaterial({ color: '#4a2a1c', side: THREE.BackSide, fog: false });
 inkMat.onBeforeCompile = (sh) => {
   sh.uniforms.inkW = inkW;
   sh.vertexShader = 'uniform float inkW;\n' + sh.vertexShader.replace('#include <project_vertex>', `
@@ -1733,6 +1755,7 @@ function refreshUI() {
   $('hpfill').style.width = `${Math.max(0, (S.hp / mh) * 100)}%`;
   $('hptext').textContent = `${Math.max(0, Math.ceil(S.hp))} / ${mh}`;
   $('coinval').textContent = S.coins;
+  renderChapter();
   const active = Object.keys(QUESTS).filter((k) => S.quests[k].state === 'active');
   renderHotbar();
   const tracked = trackedQuest();
@@ -2224,7 +2247,7 @@ addEventListener('keydown', (e) => {
   if (act === 'attack') attackPress(true);
   else if (act === 'dash') dash();
   else if (act === 'special') special();
-  else if (act === 'interact') { if (!e.repeat) { held = true; doAction(); } }
+  else if (act === 'interact') { if (!e.repeat) { held = true; const t = !talking && swingTarget(), rc = !talking && (!t || t.type === 'attack') && nearCrew(5); if (rc && !uiLock() && !player.dead) openCrewTalk(rc); else doAction(); } }
   else if (act === 'jump') jump();
   else if (act === 'eat') eatBest();
   else if (act === 'map') toggleBigMap();
@@ -2324,7 +2347,7 @@ function swingTarget() {
   for (const c of chests) if (!c.open && Math.hypot(c.x - p.x, c.z - p.z) < c.reach) return { type: 'chest', n: c };
   if (!mouseHeld && !forceAttack) for (const n of npcs) if ((n.inside || 'out') === where && Math.hypot(n.x - p.x, n.z - p.z) < n.reach + 0.6) return { type: 'npc', n };
   const brawl = enemies.some((e) => e.hp > 0 && (e.state === 'chase' || e.state === 'slam') && Math.hypot(e.pos.x - p.x, e.pos.z - p.z) < 10);
-  if (!mouseHeld && !forceAttack && !brawl) for (const c of crew) if (!isRival(c) && crewUp(c) && c.inside === where && Math.hypot(c.x - p.x, c.z - p.z) < 2.6) return { type: 'npc', n: c };
+  if (!mouseHeld && !forceAttack && !brawl) for (const c of crew) if (!isRival(c) && crewUp(c) && c.inside === where && Math.hypot(c.x - p.x, c.z - p.z) < 3.8) return { type: 'npc', n: c };
   for (const n of nodes) if (n.alive && n.def.skill === 'fishing' && Math.hypot(n.x - p.x, n.z - p.z) < n.reach + 0.6) return { type: 'node', n };
   let foe = null, fd = 1e9;
   const reach = w.reach;
@@ -2334,7 +2357,15 @@ function swingTarget() {
   if (node && (!foe || fd > 5)) return { type: 'gather', n: node };
   return { type: 'attack', e: foe };
 }
+// the nearest crew member of any side (rivals too), so you can always talk things over
+function nearCrew(r) {
+  if (!player) return null; let best = null, bd = r;
+  for (const c of crew) { if (!crewUp(c) || c.inside !== where) continue; const d = Math.hypot(c.x - player.pos.x, c.z - player.pos.z); if (d < bd) { bd = d; best = c; } }
+  return best;
+}
 function describe(t) {
+  const rv = (!t || t.type === 'attack') && !matchMedia('(pointer: coarse)').matches && nearCrew(6);
+  if (rv && isRival(rv)) return { label: 'Attack', icon: ICONS[W().type], hint: `${rv.name} wants a duel! Press ${keyOf('interact')} to talk instead.`, ok: true };
   const hint = matchMedia('(pointer: coarse)').matches ? 'Tap here to swing at whatever is in front of you.' : `Click or press ${keyOf('attack')} to attack. ${keyOf('jump')} jumps, ${keyOf('sprint')} sprints, ${keyOf('dash')} dashes.`;
   if (!t) return { label: 'Attack', icon: ICONS[W().type], hint, ok: true };
   if (t.type === 'npc') return { label: 'Talk', icon: ICONS.magic, hint: t.n.name, ok: true };
@@ -3165,7 +3196,7 @@ function tick() {
   for (const [i, c] of dynamic.crystals.entries()) { c.position.y = 2.4 + Math.sin(now * 1.6 + i) * 0.4; c.rotation.y = now * 0.8 + i; }
   if (player) { player.mixer.update(dt); if (player.headScale && player.headInfo) player.headInfo.bone.scale.setScalar(player.headScale); faceTick(player); }
   for (const n of npcs) npcLife(n, dt);
-  crewTick(dt); crewTags(); townTick(); if (now > 180 && !document.body.classList.contains('nohint')) document.body.classList.add('nohint'); occluderTick(dt);
+  crewTick(dt); crewTags(); townTick(); if (now > 45 && !document.body.classList.contains('nohint')) document.body.classList.add('nohint'); occluderTick(dt);
   guideTick(); musicTick();
 
   for (let i = lootPops.length - 1; i >= 0; i--) {
@@ -3932,13 +3963,18 @@ function openCrewTalk(c) {
   talking = c;
   const m = crewCfg(c).mode, S2 = c.def.say;
   const text = m === 'ally' ? S2.talkAlly : m === 'rival' ? S2.talkRival : S2.hi;
-  const opts = [['ally', 'Join my crew!'], ['neutral', 'Do your own thing'], ['rival', 'Be my rival!']].filter(([k]) => k !== m);
+  const now0 = { ally: 'in your crew', neutral: 'doing their own thing', rival: 'your rival' }[m];
+  const opts = [['ally', m === 'rival' ? "Let's be friends. Join my crew!" : 'Join my crew!'], ['neutral', m === 'ally' ? 'You can go your own way now' : m === 'rival' ? "Let's call a truce" : 'Do your own thing'], ['rival', m === 'ally' ? "I challenge you. Be my rival!" : 'Be my rival!']].filter(([k]) => k !== m);
   const d = $('dialog');
-  d.innerHTML = '<h3></h3><p></p><div class="row"></div>';
+  d.innerHTML = '<h3></h3><p></p><p class="crewnow"></p><div class="row"></div>';
   d.querySelector('h3').textContent = c.name;
   d.querySelector('p').textContent = text;
-  for (const [k, label] of opts) { const b = document.createElement('button'); b.textContent = label; b.onclick = () => { closeDialog(); setCrewMode(c, k); }; d.querySelector('.row').appendChild(b); }
-  const bye = document.createElement('button'); bye.textContent = 'Bye'; bye.onclick = closeDialog; d.querySelector('.row').appendChild(bye);
+  d.querySelector('.crewnow').textContent = `Right now ${c.name.split(' ').pop()} is ${now0}.`;
+  const row = d.querySelector('.row');
+  const add = (label, fn) => { const b = document.createElement('button'); b.textContent = label; b.onclick = fn; row.appendChild(b); };
+  for (const [k, label] of opts) add(label, () => { closeDialog(); setCrewMode(c, k); });
+  if (m === 'ally') for (const [k, [nm]] of Object.entries(CREW_TACTICS)) if (crewCfg(c).tactic !== k) add(nm, () => { crewCfg(c).tactic = k; c.foe = null; save(); closeDialog(); say(c, { charge: 'Charging in!', guard: "I've got your back!", follow: "I'll stay close." }[k]); });
+  add('Bye', () => { closeDialog(); if (isRival(c)) c.calmUntil = now + 2; });
   showDialog(d, { talky: true });
   c.actor.face(player.pos.x, player.pos.z);
 }
