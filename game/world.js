@@ -6,6 +6,13 @@ export const LAKE = { x: 30, z: -6, r: 12 };
 export const CAMP = { x: -22, z: 31 };
 export const MINE = { x: -36, z: -24 };
 export const WORLD_R = 150;
+// Little towns out in the woods that monsters have taken over. Free them to fly your flag there.
+// stars = how tough the monsters are (they range from a bit tougher than the camp to really nasty).
+export const TOWNS = [
+  { id: 'thornbury', name: 'Thornbury', x: 64, z: 62, r: 15, stars: 1 },
+  { id: 'mossbrook', name: 'Mossbrook', x: -66, z: 62, r: 15, stars: 2 },
+  { id: 'cinderholt', name: 'Cinderholt', x: -62, z: -70, r: 15, stars: 3 },
+];
 // The four lands beyond the valley forest. Each has its own colour, mood, monsters and a miniboss.
 // The village is spread out a little: every village building and prop sits VS times further from the well.
 export const VS = 1.22;
@@ -16,7 +23,7 @@ export const ZONES = {
   hollow: { name: 'Haunted Hollow', x: -10, z: -112, r: 30, grass: '#4f6b58', grass2: '#6a5f78' },
 };
 // Roads out of the valley: [toX, toZ, fromX, fromZ]
-export const ROADS = [[62, -55, 25, -21], [ZONES.glimmer.x - 20, 6, 22, 10], [-86, -4, -28, -4], [4, 86, 0, 30], [-16, -58, 0, -40], [-10, -92, -16, -58]];
+export const ROADS = [[58, 58, 2, 46], [-60, 58, 1, 40], [-56, -66, -16, -58], [62, -55, 25, -21], [ZONES.glimmer.x - 20, 6, 22, 10], [-86, -4, -28, -4], [4, 86, 0, 30], [-16, -58, 0, -40], [-10, -92, -16, -58]];
 const nearRoad = (x, z, pad) => ROADS.some(([tx, tz, fx, fz]) => {
   const dx = tx - fx, dz = tz - fz, L2 = dx * dx + dz * dz;
   const t = Math.max(0, Math.min(1, ((x - fx) * dx + (z - fz) * dz) / L2));
@@ -67,7 +74,7 @@ export function place(name, x, z, s, ry = 0, { collide = true, y = 0, shrink = 0
 }
 const faceCenter = (x, z) => Math.atan2(-x, -z);
 export const blocked = (x, z) => Math.hypot(x - LAKE.x, z - LAKE.z) < LAKE.r + 3 || Math.hypot(x - CAMP.x, z - CAMP.z) < 11
-  || Math.hypot(x - 4, z + 66) < 18 || Math.hypot(x - 62, z + 63) < 11 || Math.hypot(x - MINE.x, z - MINE.z) < 9;
+  || TOWNS.some((T) => Math.hypot(x - T.x, z - T.z) < T.r + 3) || Math.hypot(x - 4, z + 66) < 18 || Math.hypot(x - 62, z + 63) < 11 || Math.hypot(x - MINE.x, z - MINE.z) < 9;
 export const isFree = (x, z, pad = 0) => !colliders.some((c) => Math.hypot(c.x - x, c.z - z) < c.r + pad);
 
 export function buildWorld(library) {
@@ -167,6 +174,7 @@ export function buildWorld(library) {
   place('tent', CAMP.x - 5, CAMP.z + 1, S_PROP + 1, 0.8);
   place('tent', CAMP.x + 4, CAMP.z + 6, S_PROP + 1, -0.6);
   buildCampfire(CAMP.x, CAMP.z - 2);
+  for (const T of TOWNS) buildTown(T);
 
   // forest belt around the valley, with gaps where the roads leave
   const kinds = { trees_A_large: [], trees_B_large: [], trees_A_medium: [], trees_B_medium: [] };
@@ -351,4 +359,34 @@ function buildCampfire(x, z) {
   dynamic.fireLight.position.set(x, 2.2, z);
   scene.add(dynamic.fireLight);
   colliders.push({ x, z, r: 1.4 });
+}
+
+// A town: a sandy square, a ring of houses facing it, a big flag in the middle and fences round the edge.
+// While monsters hold it there are tents, junk and a red flag. Freeing it swaps in the blue flag.
+function buildTown(T) {
+  const sq = new THREE.Mesh(new THREE.CircleGeometry(7.5, 40));
+  sq.rotation.x = -Math.PI / 2; sq.position.set(T.x, 0.035, T.z); sq.receiveShadow = true;
+  registerMesh(sq, toon('#e9c98f', { polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }));
+  scene.add(sq);
+  const houses = ['building_home_A_red', 'building_home_B_yellow', 'building_home_A_blue', 'building_market_yellow', 'building_home_B_blue'];
+  const n = houses.length, spin = T.x * 0.37;
+  for (let i = 0; i < n; i++) {
+    const a = spin + (i / n) * Math.PI * 2;
+    // leave the side facing the village open as the way in
+    const toVillage = Math.atan2(-T.z, -T.x); let gap = a - toVillage; gap = Math.atan2(Math.sin(gap), Math.cos(gap));
+    if (Math.abs(gap) < 0.5) continue;
+    const x = T.x + Math.cos(a) * 11.5, z = T.z + Math.sin(a) * 11.5;
+    place(houses[(i + T.stars) % houses.length], x, z, S_BUILD, Math.atan2(T.x - x, T.z - z));
+  }
+  T.flagRed = place('flag_red', T.x, T.z, S_PROP * 2.4, 0, { shrink: 0.25 });
+  T.flagBlue = place('flag_blue', T.x, T.z, S_PROP * 2.4, 0, { collide: false });
+  T.flagBlue.visible = false;
+  // the monsters' mess: tents, crates, barrels and bones
+  T.junk = [];
+  const junk = [['tent', 5.5, 0.8, S_PROP + 1], ['tent', -5, 2.2, S_PROP + 1], ['crate_A_big', 3, 4.5, S_PROP], ['barrel', -3.2, -4.6, S_PROP], ['barrel', -2.2, -5.4, S_PROP], ['crate_B_small', 4.4, -3.8, S_PROP], ['resource_stone', 1.6, 5.6, S_PROP]];
+  for (const [nm, dx, dz, sc] of junk) { const o = place(nm, T.x + dx, T.z + dz, sc, rng() * 6, { shrink: 0.6 }); if (o) T.junk.push(o); }
+  // a few homely things that appear once the town is free
+  T.homely = [];
+  const homely = [['bucket_water', 2.2, -2.4], ['sack', -4.6, 3.4], ['sack', -4, 4.2], ['wheelbarrow', 5.2, 3.6], ['resource_lumber', -6.2, -2]];
+  for (const [nm, dx, dz] of homely) { const o = place(nm, T.x + dx, T.z + dz, S_PROP, rng() * 6, { collide: false }); if (o) { o.visible = false; T.homely.push(o); } }
 }

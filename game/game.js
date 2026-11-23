@@ -2,7 +2,7 @@
 import { THREE, scene, camera, renderer, sun, sky, PRESETS, env, applyPreset, styled, setStyled, stylize, toon, registerMesh,
   loadModel, burst, updateParticles, render, rng } from './engine.js';
 import * as SkeletonUtils from 'three/addons/utils/SkeletonUtils.js';
-import { buildWorld, buildFlowers, place, colliders, clouds, dynamic, LAKE, CAMP, MINE, S_NATURE, blocked, isFree, ZONES, WORLD_R, VS } from './world.js';
+import { buildWorld, buildFlowers, place, colliders, clouds, dynamic, LAKE, CAMP, MINE, S_NATURE, blocked, isFree, ZONES, WORLD_R, VS, TOWNS } from './world.js';
 import { ICONS } from './icons.js';
 import { buildInteriors, INTERIORS } from './interiors.js';
 import { unlockAudio, playMusic, sfx, setVolumes } from './audio.js';
@@ -327,11 +327,12 @@ async function main() {
   buildNodes();
   buildNpcs();
   buildEnemies();
+  buildCrew();
   buildFlowers();
   buildTools();
   $('coinicon').src = ICONS.coins; $('hearticon').src = ICONS.heart; $('booticon').src = ICONS.boot;
   document.querySelectorAll('[data-icon]').forEach((im) => { im.src = ICONS[im.dataset.icon]; });
-  const had = loadSave(); rebuildBinds();
+  const had = loadSave(); rebuildBinds(); applyTowns();
   applyPreset(S.preset || 'day');
   $('loading').style.opacity = '0';
   setTimeout(() => $('loading').remove(), 700);
@@ -1094,7 +1095,7 @@ function buildNpcs() {
     { id: 'pip', name: 'Granny Pip', model: 'mage', x: ZONES.meadow.x - 6, z: ZONES.meadow.z + 1, hide: [], tint: '#ffc0d8',
       lines: ['Back in my day, skeletons said please before they stabbed you.', 'Have you tried my apple pie? Marta in the village sells it. I taught her!', 'The windmill squeaks a little song at night. Listen closely.'] },
     { id: 'crier', name: 'Bertram the Town Crier', model: 'knight', x: -6 * VS, z: 5 * VS, hide: ['Knight_Helmet'], tint: '#ffd08a',
-      lines: ['Hear ye! Four lands lie beyond the woods: Glimmerwood to the east, Grumble Crags to the west, Honeymeadow to the south and Haunted Hollow to the north!', 'Hear ye! Each land has a fearsome boss. Watch for the red glow on the ground and get out of the way!', 'Hear ye! Hold Shift to sprint, press C (or tap any direction twice) to dash in any direction, J or click to attack, R for your special attack, and M for the map. Hear ye!', 'Hear ye! Coins in the bank are safe. Coins in your pocket? Half of them fall out when you get knocked out!'] },
+      lines: ['Hear ye! Four lands lie beyond the woods: Glimmerwood to the east, Grumble Crags to the west, Honeymeadow to the south and Haunted Hollow to the north!', 'Hear ye! Each land has a fearsome boss. Watch for the red glow on the ground and get out of the way!', 'Hear ye! Hold Shift to sprint, press C (or tap any direction twice) to dash in any direction, J or click to attack, R for your special attack, and M for the map. Hear ye!', 'Hear ye! Coins in the bank are safe. Coins in your pocket? Half of them fall out when you get knocked out!', 'Hear ye! Adventurers wander the valley. Talk to them or open the Crew menu to make them allies, leave them be, or make them your rivals!', 'Hear ye! Monsters have taken Thornbury, Mossbrook and Cinderholt! Defeat each town\'s tyrant to free it, and the townsfolk will send you coins.'] },
     { id: 'lumi', name: 'Lumi the Wisp-keeper', model: 'mage', x: ZONES.glimmer.x - 14, z: ZONES.glimmer.z + 4, hide: [], tint: '#9ff0ff',
       lines: ['The Gloomcaster stole the colour from half my mushrooms. The rest glow twice as bright out of spite!', 'Glimmerwood hums at night. Can you hear it? No? Try humming back.'] },
     { id: 'dot', name: 'Prospector Dot', model: 'heroine', x: ZONES.crags.x + 15, z: ZONES.crags.z + 4, hide: [], tint: '#e8b080',
@@ -1104,8 +1105,11 @@ function buildNpcs() {
     { id: 'penny', name: 'Penny the Banker', model: 'mage', x: -3 * VS, z: 13.5 * VS, hide: [], bank: true, tint: '#ffe08a' },
     { id: 'tom', name: 'Old Tom the Barkeep', model: 'barbarian', x: INTERIORS.tavern.barkeep.x, z: INTERIORS.tavern.barkeep.z, hide: [], shop: 'food', tint: '#e8c89a', inside: 'tavern', face: 'south' },
   ];
-  for (const d of defs) {
-    const look = NPC_LOOKS[d.id] || NPC_LOOKS[d.id.replace(/\d+$/, '')];
+  for (const d of defs) makeNpc(d);
+}
+function makeNpc(d) {
+  {
+    const look = d.look ? { ...NPC_BASE, ...d.look } : NPC_LOOKS[d.id] || NPC_LOOKS[d.id.replace(/\d+$/, '')];
     const hide = [...d.hide];
     if (look && !look.hat) hide.push('Barbarian_Hat', 'Mage_Hat', 'Knight_Helmet');
     const a = new Actor(G[d.model], { hide, scale: 1.3 });
@@ -1124,7 +1128,9 @@ function buildNpcs() {
     });
     const m = markerSprite(); m.position.set(d.x, 4.6, d.z); scene.add(m);
     colliders.push({ x: d.x, z: d.z, r: 0.9 });
-    npcs.push({ ...d, actor: a, marker: m, reach: 3.2, accent: d.king ? '#e0a21c' : d.shop ? '#e8743a' : d.bank ? '#d9a21c' : d.lines ? '#3a9ad9' : '#8f62d8' });
+    const n = { ...d, actor: a, marker: m, reach: 3.2, accent: d.king ? '#e0a21c' : d.shop ? '#e8743a' : d.bank ? '#d9a21c' : d.lines ? '#3a9ad9' : '#8f62d8' };
+    npcs.push(n);
+    return n;
   }
 }
 // Each villager gets a hand-made look in the same chibi style as the hero: big head, painted face, hair.
@@ -1197,7 +1203,7 @@ function spawnEnemy(k, x, z) {
   e.root.position.set(x, 0, z); e.root.rotation.y = rng() * 6;
   e.hp = T.hp; e.state = 'idle'; e.timer = rng() * 3; e.target = new THREE.Vector2(); e.nextHit = 0; e.swings = 0;
   e.play('Idle');
-  if (T.boss) e.root.traverse((o) => { if (o.isMesh && /Body|Head/.test(o.name)) tinted(o, k === 'boss_gloom' ? '#c8a8ff' : k === 'boss_crusher' ? '#ffd0a0' : '#c0ffc8'); });
+  if (T.boss || T.tint) e.root.traverse((o) => { if (o.isMesh && (T.town && !T.boss ? /Body/ : /Body|Head/).test(o.name)) tinted(o, T.tint || (k === 'boss_gloom' ? '#c8a8ff' : k === 'boss_crusher' ? '#ffd0a0' : '#c0ffc8')); });
   if (T.boss) addSilhouette(e.root, '#ff8a9a');
   if (!T.boss) { const bar = document.createElement('div'); bar.className = 'hpbar'; bar.hidden = true; bar.innerHTML = '<i></i>'; document.body.appendChild(bar); e.bar = bar; }
   else e.bar = { hidden: true, style: {}, firstChild: { style: {} } };
@@ -1223,6 +1229,7 @@ function buildEnemies() {
   spawnEnemy('boss_gloom', ZONES.glimmer.x + 4, ZONES.glimmer.z);
   spawnEnemy('boss_rattle', ZONES.hollow.x, ZONES.hollow.z + 2);
   spawnEnemy('boss_gagron', INTERIORS.cave.lair.x, INTERIORS.cave.lair.z);
+  buildTownMonsters();
 }
 
 // ---------- inventory, xp, quests ----------
@@ -1397,7 +1404,8 @@ let zoneNow = null;
 function zoneBanner() {
   if (!player || where !== 'out') return;
   const z = Object.values(ZONES).find((Z) => Math.hypot(player.pos.x - Z.x, player.pos.z - Z.z) < Z.r + 4);
-  const name = z ? z.name : Math.hypot(player.pos.x, player.pos.z) < 46 ? 'Jerry Village' : Math.hypot(player.pos.x - 4, player.pos.z + 64) < 28 ? 'Castle grounds' : null;
+  const tw = TOWNS.find((T) => Math.hypot(player.pos.x - T.x, player.pos.z - T.z) < T.r + 4);
+  const name = tw ? `${tw.name} ${stars(tw.stars)}${townFree(tw.id) ? '' : ' · held by monsters'}` : z ? z.name : Math.hypot(player.pos.x, player.pos.z) < 46 ? 'Jerry Village' : Math.hypot(player.pos.x - 4, player.pos.z + 64) < 28 ? 'Castle grounds' : null;
   if (name && name !== zoneNow) {
     const el = $('banner'); el.textContent = name; el.classList.remove('show'); void el.offsetWidth; el.classList.add('show');
   }
@@ -1654,6 +1662,7 @@ function refreshUI() {
 function renderSheet() {
   const el = $('sheet');
   if (sheetMode === 'craft') { renderCraft(el); return; }
+  if (sheetMode === 'crew') { renderCrew(el); return; }
   if (sheetMode === 'skills') {
     const L = heroLvl(), cur = XPT[L], next = XPT[Math.min(99, L + 1)], free = freePoints();
     const pct = L >= 99 ? 100 : ((S.hero.xp - cur) / (next - cur)) * 100;
@@ -1753,10 +1762,10 @@ let resetting = false;
 function openSheet(mode) {
   if (sheetMode === mode && !$('sheet').hidden) { closeSheet(); return; }
   sheetMode = mode; $('sheet').hidden = false; renderSheet(); document.body.classList.add('sheet-open');
-  for (const m of ['skills', 'bag', 'quests', 'craft', 'look', 'opts']) $(`b-${m}`).setAttribute('aria-pressed', String(m === mode));
+  for (const m of ['skills', 'bag', 'quests', 'craft', 'crew', 'look', 'opts']) $(`b-${m}`).setAttribute('aria-pressed', String(m === mode));
 }
-function closeSheet() { document.body.classList.remove('sheet-open'); $('sheet').hidden = true; sheetMode = null; for (const m of ['skills', 'bag', 'quests', 'craft', 'look', 'opts']) $(`b-${m}`).setAttribute('aria-pressed', 'false'); }
-for (const m of ['skills', 'bag', 'quests', 'craft', 'look', 'opts']) $(`b-${m}`).addEventListener('click', () => (m === 'look' ? openCreator('edit') : openSheet(m)));
+function closeSheet() { document.body.classList.remove('sheet-open'); $('sheet').hidden = true; sheetMode = null; for (const m of ['skills', 'bag', 'quests', 'craft', 'crew', 'look', 'opts']) $(`b-${m}`).setAttribute('aria-pressed', 'false'); }
+for (const m of ['skills', 'bag', 'quests', 'craft', 'crew', 'look', 'opts']) $(`b-${m}`).addEventListener('click', () => (m === 'look' ? openCreator('edit') : openSheet(m)));
 
 // dialogue
 let talking = null;
@@ -1956,6 +1965,7 @@ function finishQuest(id, npc) {
   refreshUI(); save();
 }
 function openDialog(npc) {
+  if (npc.crew) { openCrewTalk(npc); return; }
   if (npc.lines) { openTalk(npc); return; }
   if (npc.king) { openKing(npc); return; }
   if (npc.bank) { openBank(npc); return; }
@@ -2150,6 +2160,7 @@ function targetAt(x, z) {
   let best = null, bd = 1e9;
   const consider = (t, tx, tz, r) => { const d = Math.hypot(tx - x, tz - z); if (d < r && d < bd) { bd = d; best = t; } };
   for (const n of npcs) consider({ type: 'npc', n }, n.x, n.z, 2);
+  for (const c of crew) if (!isRival(c) && crewUp(c) && c.inside === where) consider({ type: 'npc', n: c }, c.x, c.z, 1.6);
   for (const c of chests) if (!c.open) consider({ type: 'chest', n: c }, c.x, c.z, 1.8);
   for (const n of nodes) if (n.alive && n.def.skill === 'fishing') consider({ type: 'node', n }, n.x, n.z, 2.2);
   return best;
@@ -2215,7 +2226,9 @@ function swingTarget() {
   if (!player) return null;
   const p = player.pos, w = W(), A = STYLES[w.type];
   for (const c of chests) if (!c.open && Math.hypot(c.x - p.x, c.z - p.z) < c.reach) return { type: 'chest', n: c };
-  if (!mouseHeld && !forceAttack) for (const n of npcs) if (Math.hypot(n.x - p.x, n.z - p.z) < n.reach + 0.6) return { type: 'npc', n };
+  if (!mouseHeld && !forceAttack) for (const n of npcs) if ((n.inside || 'out') === where && Math.hypot(n.x - p.x, n.z - p.z) < n.reach + 0.6) return { type: 'npc', n };
+  const brawl = enemies.some((e) => e.hp > 0 && (e.state === 'chase' || e.state === 'slam') && Math.hypot(e.pos.x - p.x, e.pos.z - p.z) < 10);
+  if (!mouseHeld && !forceAttack && !brawl) for (const c of crew) if (!isRival(c) && crewUp(c) && c.inside === where && Math.hypot(c.x - p.x, c.z - p.z) < 2.6) return { type: 'npc', n: c };
   for (const n of nodes) if (n.alive && n.def.skill === 'fishing' && Math.hypot(n.x - p.x, n.z - p.z) < n.reach + 0.6) return { type: 'node', n };
   let foe = null, fd = 1e9;
   const reach = w.reach;
@@ -2341,7 +2354,7 @@ function swing() {
       const shots = fin && A.proj === 'bolt' ? [-0.12, 0.12] : [0];
       for (const a of shots) {
         const d = fwd.clone().applyAxisAngle(new THREE.Vector3(0, 1, 0), a);
-        shoot(player.pos.clone().add(new THREE.Vector3(0, 1.8, 0)).addScaledVector(d, 0.8), d, A.proj, w.reach, 'player', (e) => hurtEnemy(e, dmg(), null, C.power));
+        shoot(player.pos.clone().add(new THREE.Vector3(0, 1.8, 0)).addScaledVector(d, 0.8), d, A.proj, w.reach, 'player', (e) => (e.isCrew ? hurtCrew(e, dmg(), player) : hurtEnemy(e, dmg(), null, C.power)));
       }
       if (fin) burst(player.pos.clone().setY(1.8).addScaledVector(fwd, 1), A.proj === 'orb' ? '#bff6ff' : '#ffe9a8', 18, 4);
       return;
@@ -2349,7 +2362,8 @@ function swing() {
     const reach = w.reach * C.reach;
     burst(player.pos.clone().setY(1.5).addScaledVector(fwd, reach * 0.55), fin ? '#ffd27a' : '#fff2a8', fin ? 26 : 14, fin ? 7 : 5);
     let hit = false;
-    for (const e of enemies) if (e.hp > 0 && e.state !== 'rising' && inArc(e.pos.x, e.pos.z, 0.8, reach + 0.3, C.arc) >= 0) { hurtEnemy(e, dmg(), null, C.power); hit = true; }
+    for (const e of enemies) if (e.hp > 0 && e.state !== 'rising' && e.state !== 'gone' && e.inside === where && inArc(e.pos.x, e.pos.z, 0.8, reach + 0.3, C.arc) >= 0) { hurtEnemy(e, dmg(), null, C.power); hit = true; }
+    for (const c of crew) if (isRival(c) && crewUp(c) && c.inside === where && inArc(c.pos.x, c.pos.z, 0.7, reach + 0.3, C.arc) >= 0) { hurtCrew(c, dmg(), player); hit = true; }
     if (!hit) for (const n of nodes) if (n.alive && n.def.skill !== 'fishing' && inArc(n.x, n.z, n.r, w.reach) >= 0) { burst(new THREE.Vector3(n.x, 1.4, n.z), '#ffe9a8', 6, 3); break; }
   });
 }
@@ -2572,7 +2586,7 @@ function hurtEnemy(e, dmg, src = null, power = 1) {
   e.hp = Math.max(0, e.hp - dmg);
   floatText(head, String(dmg), e.hp <= 0 ? 'kill' : dmg >= Math.max(8, W().dmg * 1.6) ? 'big' : '');
   impact(e, dmg, src, power, e.hp <= 0);
-  giveHeroXp(dmg * HIT_HERO_XP);
+  if (!crewHitting) giveHeroXp(dmg * HIT_HERO_XP);
   if (e.hp <= 0) {
     e.state = 'dead'; e.bar.hidden = true;
     e.play('Death_A', { once: true, clamp: true, fade: 0.1 });
@@ -2587,11 +2601,13 @@ function hurtEnemy(e, dmg, src = null, power = 1) {
       burst(e.pos.clone().setY(2), '#ffe07a', 80, 8, 1.6);
       for (const k of Object.keys(QUESTS)) if (S.quests[k].state === 'active' && QUESTS[k].bossType === e.type) S.quests[k].boss = 1;
       $('bossbar').hidden = true;
+      if (e.T.town) { const T = TOWNS.find((t) => t.id === e.T.town); later(1.5, () => liberateTown(T)); }
     }
     floatText(e.pos.clone().setY(2.4), `+${coins} coins`, 'gain');
     for (const k of Object.keys(QUESTS)) if (S.quests[k].state === 'active' && QUESTS[k].need.kills !== undefined) S.quests[k].kills++;
     refreshUI();
     later(e.T.boss ? 90 : 16, () => {
+      if (e.T.town && townFree(e.T.town)) return; // freed towns stay free
       e.hp = e.T.hp; e.state = 'rising';
       reassemble(e);
       const ok = e.play('Spawn_Ground_Skeletons', { once: true, clamp: true, onFinish: () => { e.state = 'idle'; e.play('Idle'); } });
@@ -2737,21 +2753,26 @@ let shake = 0;
 function enemyTick(e, dt) {
   const ep = e.pos;
   knockTick(e, dt);
-  if (e.state === 'dead' || e.state === 'rising') return;
+  if (e.state === 'dead' || e.state === 'rising' || e.state === 'gone') return;
   if (now < e.staggerUntil && e.state !== 'slam') return;
-  const toP = Math.hypot(player.pos.x - ep.x, player.pos.z - ep.z);
+  // a crew member who hit it gets its attention instead of you
+  let foe = e.foe;
+  if (foe && (e.T.boss || !crewUp(foe) || foe.inside !== e.inside || Math.hypot(foe.pos.x - ep.x, foe.pos.z - ep.z) > 12)) foe = e.foe = null;
+  const tp = foe ? foe.pos : player.pos;
+  const toP = Math.hypot(tp.x - ep.x, tp.z - ep.z), toHero = Math.hypot(player.pos.x - ep.x, player.pos.z - ep.z);
   const fromHome = Math.hypot(ep.x - e.home.x, ep.z - e.home.y);
   const big = e.T.boss, reach = e.T.ranged ? (big ? 10 : 8) : big ? 3.6 : 2.4;
-  if (player.dead && (e.state === 'chase')) e.state = 'return';
-  if (where !== e.inside && e.state === 'chase') e.state = 'return';
-  if ((e.state === 'idle' || e.state === 'walk') && toP < (big ? 11 : 6.5) && !player.dead && !uiLock() && where === e.inside
+  if (player.dead && (e.state === 'chase') && !foe) e.state = 'return';
+  if (where !== e.inside && e.state === 'chase' && !foe) e.state = 'return';
+  if ((e.state === 'idle' || e.state === 'walk') && foe) e.state = 'chase';
+  if ((e.state === 'idle' || e.state === 'walk') && toHero < (big ? 11 : 6.5) && !player.dead && !uiLock() && where === e.inside
     && (big || enemies.filter((o) => o.state === 'chase' && !o.T.boss).length < 3)) e.state = 'chase';
   if (e.state === 'slam') return;
   if (e.state === 'chase') {
     if (fromHome > (big ? 28 : 20)) { e.state = 'return'; return; }
-    e.face(player.pos.x, player.pos.z);
+    e.face(tp.x, tp.z);
     if (toP > reach) {
-      const dx = player.pos.x - ep.x, dz = player.pos.z - ep.z;
+      const dx = tp.x - ep.x, dz = tp.z - ep.z;
       ep.x += (dx / toP) * 4.2 * dt; ep.z += (dz / toP) * 4.2 * dt;
       if (e.name !== '1H_Melee_Attack_Chop' && e.name !== 'Spellcast_Shoot' && e.name !== 'Hit_A') e.play('Running_A', { fade: 0.15 });
     } else if (now > e.nextHit) {
@@ -2761,19 +2782,25 @@ function enemyTick(e, dt) {
       if (big && ++e.swings % 3 === 0) { bossSlam(e); return; }
       if (e.T.ranged) {
         e.play('Spellcast_Shoot', { once: true, fade: 0.08, onFinish: () => e.play('Idle_Combat') });
+        const tgt = foe;
         later(0.35, () => {
-          if (e.hp <= 0 || player.dead) return;
-          const dir = new THREE.Vector3(player.pos.x - ep.x, 0, player.pos.z - ep.z);
+          if (e.hp <= 0 || (tgt ? !crewUp(tgt) : player.dead)) return;
+          const tq = tgt ? tgt.pos : player.pos;
+          const dir = new THREE.Vector3(tq.x - ep.x, 0, tq.z - ep.z);
           const spreads = e.T.spread ? [-0.3, 0, 0.3] : [0];
           for (const sp of spreads) {
             const d2 = dir.clone().applyAxisAngle(new THREE.Vector3(0, 1, 0), sp);
-            shoot(ep.clone().setY(big ? 3 : 1.8).addScaledVector(d2.clone().normalize(), big ? 1.4 : 0.6), d2, 'dark', big ? 15 : 12, 'enemy', () => hurtPlayer(dmg));
+            shoot(ep.clone().setY(big ? 3 : 1.8).addScaledVector(d2.clone().normalize(), big ? 1.4 : 0.6), d2, 'dark', big ? 15 : 12, 'enemy', () => (tgt ? hurtCrew(tgt, dmg, e) : hurtPlayer(dmg)));
+            if (tgt) projectiles[projectiles.length - 1].tgt = tgt;
           }
         });
       } else {
         e.play('1H_Melee_Attack_Chop', { once: true, fade: 0.08, onFinish: () => e.play('Idle_Combat') });
+        const tgt = foe;
         later(0.4, () => {
-          if (e.hp <= 0 || Math.hypot(player.pos.x - ep.x, player.pos.z - ep.z) >= reach + 1) return;
+          const tq = tgt ? tgt.pos : player.pos;
+          if (e.hp <= 0 || Math.hypot(tq.x - ep.x, tq.z - ep.z) >= reach + 1) return;
+          if (tgt) { hurtCrew(tgt, dmg, e); return; }
           if (dodging()) { floatText(player.pos.clone().setY(3.6), 'Dodged!', 'miss'); return; }
           hurtPlayer(dmg);
         });
@@ -2804,7 +2831,7 @@ function enemyTick(e, dt) {
 // ---------- minimap ----------
 const MAP_R = 165, MAP_PX = 1024;
 const mapBg = document.createElement('canvas'); mapBg.width = mapBg.height = MAP_PX;
-const PLACES = [['Village', 0, -4], ['Skeleton camp', CAMP.x, CAMP.z + 9], ['Mine', MINE.x, MINE.z - 9], ['Castle', 4, -54], ...Object.values(ZONES).map((Z) => [Z.name, Z.x, Z.z - Z.r * 0.55])];
+const PLACES = [['Village', 0, -4], ['Skeleton camp', CAMP.x, CAMP.z + 9], ['Mine', MINE.x, MINE.z - 9], ['Castle', 4, -54], ...Object.values(ZONES).map((Z) => [Z.name, Z.x, Z.z - Z.r * 0.55]), ...TOWNS.map((T) => [T.name, T.x, T.z - 9])];
 // Photograph the world from straight above once, and use it as the map picture.
 function bakeMap() {
   const cam = new THREE.OrthographicCamera(-MAP_R, MAP_R, MAP_R, -MAP_R, 1, 500);
@@ -2997,6 +3024,7 @@ function tick() {
   for (const [i, c] of dynamic.crystals.entries()) { c.position.y = 2.4 + Math.sin(now * 1.6 + i) * 0.4; c.rotation.y = now * 0.8 + i; }
   if (player) { player.mixer.update(dt); if (player.headScale && player.headInfo) player.headInfo.bone.scale.setScalar(player.headScale); faceTick(player); }
   for (const n of npcs) npcLife(n, dt);
+  crewTick(dt); crewTags(); townTick();
   guideTick(); musicTick();
 
   for (let i = lootPops.length - 1; i >= 0; i--) {
@@ -3024,8 +3052,11 @@ function tick() {
     pr.mesh.position.addScaledVector(pr.dir, step); pr.left -= step;
     const pp = pr.mesh.position;
     let hitSomething = false;
-    if (pr.owner === 'player') {
-      for (const e of enemies) if (e.hp > 0 && e.state !== 'rising' && Math.hypot(e.pos.x - pp.x, e.pos.z - pp.z) < 0.95) { pr.onHit(e); hitSomething = true; break; }
+    if (pr.owner === 'player' || pr.owner === 'ally') {
+      for (const e of enemies) if (e.hp > 0 && e.state !== 'rising' && e.state !== 'gone' && e.inside === where && Math.hypot(e.pos.x - pp.x, e.pos.z - pp.z) < 0.95) { pr.onHit(e); hitSomething = true; break; }
+      if (!hitSomething) for (const c of crew) if (isRival(c) && crewUp(c) && c.inside === where && Math.hypot(c.pos.x - pp.x, c.pos.z - pp.z) < 0.95) { pr.onHit(c); hitSomething = true; break; }
+    } else if (pr.tgt) {
+      if (crewUp(pr.tgt) && Math.hypot(pr.tgt.pos.x - pp.x, pr.tgt.pos.z - pp.z) < 0.9) { pr.onHit(); hitSomething = true; }
     } else if (player && !player.dead && Math.abs(player.pos.y + 1.6 - pp.y) < 1.4 && Math.hypot(player.pos.x - pp.x, player.pos.z - pp.z) < 0.8) { pr.onHit(); hitSomething = true; }
     if (!hitSomething) for (const c of colliders) if (c.r > 0.9 && Math.hypot(c.x - pp.x, c.z - pp.z) < c.r * 0.8) { hitSomething = true; break; }
     if (hitSomething || pr.left <= 0) {
@@ -3126,7 +3157,7 @@ function bossIntroTick(dt = 0) {
     bossIntro.t += Math.min(dt, 0.1); // frame time, capped, so a hitch never skips the show
     // the bars and title card follow the same clock, so they stay in step with the camera
     for (const el of $('bossintro').children) el.style.animationDelay = `-${bossIntro.t.toFixed(3)}s`;
-    if (bossIntro.t > 3.2 || !player || player.dead) endBossIntro();
+    if (bossIntro.t > 3.2 || !player || player.dead || bossIntro.e.hp <= 0) endBossIntro();
     return;
   }
   if (!player || creator.open || player.dead) return;
@@ -3143,7 +3174,7 @@ function startBossIntro(e) {
   e.face(player.pos.x, player.pos.z);
   e.play(e.clips.Cheer ? 'Cheer' : e.T.dragon ? 'Spellcasting' : 'Idle_Combat', { once: true, fade: 0.15 });
   const el = $('bossintro');
-  el.innerHTML = `<div class="bi-bar top"></div><div class="bi-bar bot"></div><div class="bi-card"><small>${BOSS_TITLES[e.type] || 'A fearsome foe'}</small><b>${e.T.name}</b></div>`;
+  el.innerHTML = `<div class="bi-bar top"></div><div class="bi-bar bot"></div><div class="bi-card"><small>${BOSS_TITLES[e.type] || e.T.title || 'A fearsome foe'}</small><b>${e.T.name}</b></div>`;
   el.hidden = false; el.classList.remove('go'); void el.offsetWidth; el.classList.add('go');
   sfx('bossintro'); later(0.9, () => sfx('slam'));
   later(0.9, () => { if (bossIntro) burst(e.pos.clone().setY(2), '#ff6b5a', 60, 8, 1.6); });
@@ -3445,7 +3476,401 @@ function renderCraft(el) {
   el.querySelectorAll('[data-craftall]').forEach((b) => { b.onclick = () => craft(CRAFTS[+b.dataset.craftall], 99); });
 }
 
-window.__jq = { chests, openChest, stopRoulette, enemies, startBossIntro, closeDialog, advanceDialog, dash, attackPress, craft, CRAFTS, openCreator, closeCreator, creator, rebuildHero, setZoom: (z) => { zoom = z; }, hurtEnemy, goThrough, get where() { return where; }, INTERIORS, equipGear, spendPoint, giveHeroXp, heroLvl, stat, maxHp, defDiv, openWeaponShop, openKing, jump, eat, eatBest, openShop, swing, swingTarget, hitNode, projectiles, timers, get S() { return S; }, get player() { return player; }, enemies, nodes, npcs, startTask, doAction, giveXp, save, openSheet, openDialog };
+
+// ---------- monster towns ----------
+// Monsters have taken over little towns in the woods. Each town has a star rating: the monsters there are
+// tougher than out in the fields, and the more stars, the nastier they get. Beat the town's tyrant to free it,
+// fly your flag, and the grateful townsfolk send coins to your bank every few minutes.
+const TOWN_TIERS = {
+  1: { hp: 1.6, hit: 2, xp: 1.8, tint: '#e8b070', tag: 'Tough' },
+  2: { hp: 2.4, hit: 4, xp: 2.8, tint: '#e07a6a', tag: 'Fierce' },
+  3: { hp: 3.4, hit: 6, xp: 4, tint: '#9a7ae8', tag: 'Dreadful' },
+};
+const TOWN_BOSS = {
+  thornbury: { name: 'Gristle the Grabby', model: 'skel_minion', weapon: 'axe_1handed', drop: 'silver_ring' },
+  mossbrook: { name: 'Madame Marrow', model: 'skel_mage', weapon: 'Skeleton_Staff', ranged: true, spread: true, drop: 'ruby' },
+  cinderholt: { name: 'Lord Cinderbones', model: 'skel_warrior', weapon: 'axe_2handed', drop: 'golden_crown' },
+};
+// which monsters guard each town: tougher towns have more of the nasty ones
+const TOWN_MIX = {
+  1: ['skel_minion', 'skel_minion', 'skel_warrior', 'skel_minion', 'skel_mage'],
+  2: ['skel_warrior', 'skel_mage', 'skel_minion', 'skel_warrior', 'skel_mage', 'skel_minion'],
+  3: ['skel_warrior', 'skel_warrior', 'skel_mage', 'skel_mage', 'skel_warrior', 'skel_minion', 'skel_mage'],
+};
+const TOWN_FOLK = {
+  thornbury: [{ name: 'Mayor Tuppence', model: 'barbarian', look: { skin: 'tan', eyes: 'brown', eyeStyle: 'happy', mouth: 'grin', hair: 'none', beard: 'curly', hairCol: 'snow', head: 'chibi' }, tint: '#ffd9a8' },
+    { name: 'Clover', model: 'heroine', look: { sex: 'f', skin: 'peach', eyes: 'green', eyeStyle: 'round', mouth: 'smile', hair: 'twin', hairLen: 'shoulder', hairCol: 'ginger', mark: 'freckles' }, tint: '#c8f0a0' }],
+  mossbrook: [{ name: 'Elder Willow', model: 'mage', look: { sex: 'f', skin: 'porcelain', eyes: 'sky', eyeStyle: 'sleepy', mouth: 'calm', hair: 'bun', hairCol: 'snow', mark: 'rosy' }, tint: '#a8e0c8' },
+    { name: 'Pebble', model: 'knight', look: { skin: 'bronze', eyes: 'gold', eyeStyle: 'round', mouth: 'grin', hair: 'spiky', hairCol: 'black' }, tint: '#ffe08a' }],
+  cinderholt: [{ name: 'Baroness Ember', model: 'mage', look: { sex: 'f', skin: 'ebony', eyes: 'red', eyeStyle: 'sharp', mouth: 'cat', hair: 'hime', hairLen: 'long', hairCol: 'pink', mark: 'star' }, tint: '#ffb0a0' },
+    { name: 'Old Flint', model: 'barbarian', look: { skin: 'honey', eyes: 'grey', eyeStyle: 'sleepy', mouth: 'calm', hair: 'none', beard: 'full', hairCol: 'chestnut' }, tint: '#d0c0a0' }],
+};
+for (const T of TOWNS) {
+  const tier = TOWN_TIERS[T.stars];
+  for (const k of ['skel_minion', 'skel_warrior', 'skel_mage']) {
+    const b = ENEMY_TYPES[k];
+    ENEMY_TYPES[`${T.id}_${k}`] = { ...b, model: k, name: `${tier.tag} ${b.name}`, hp: Math.round(b.hp * tier.hp), maxHit: b.maxHit + tier.hit, xp: Math.round(b.xp * tier.xp), tint: tier.tint, town: T.id, coins: [5 * T.stars, 12 * T.stars] };
+  }
+  ENEMY_TYPES[`${T.id}_boss`] = { ...TOWN_BOSS[T.id], title: `Tyrant of ${T.name}`, hp: 110 + 90 * T.stars, maxHit: 5 + 2 * T.stars, xp: 500 + 400 * T.stars, boss: true,
+    scale: 2 + 0.15 * T.stars, coins: [80 * T.stars, 140 * T.stars], slam: 4.5 + T.stars * 0.5, town: T.id, tint: tier.tint };
+}
+const stars = (n) => '★'.repeat(n) + '☆'.repeat(3 - n);
+const townFree = (id) => !!(S.towns && S.towns[id]);
+function buildTownMonsters() {
+  for (const T of TOWNS) {
+    const mix = TOWN_MIX[T.stars];
+    mix.forEach((k, i) => { const a = (i / mix.length) * Math.PI * 2 + 0.3, r = 4.5 + (i % 2) * 2.5; spawnEnemy(`${T.id}_${k}`, T.x + Math.cos(a) * r, T.z + Math.sin(a) * r); });
+    spawnEnemy(`${T.id}_boss`, T.x + 2.6, T.z + 1.2);
+  }
+}
+// after loading a save: towns you already freed stay free
+function applyTowns() {
+  for (const T of TOWNS) if (townFree(T.id)) liberateTown(T, true);
+}
+function liberateTown(T, quiet = false) {
+  S.towns = S.towns || {}; S.towns[T.id] = true;
+  T.flagRed.visible = false; T.flagBlue.visible = true;
+  for (const o of T.junk) o.visible = false;
+  for (const o of T.homely) o.visible = true;
+  for (const e of enemies) {
+    if (e.T.town !== T.id) continue;
+    if (quiet) { e.hp = 0; e.state = 'gone'; e.root.visible = false; e.bar.hidden = true; continue; }
+    if (e.hp > 0) {
+      // the rest of the gang falls apart when their tyrant goes down
+      e.hp = 0; e.state = 'dead'; e.bar.hidden = true;
+      later(0.2 + rng() * 0.8, () => { e.play('Death_A', { once: true, clamp: true, fade: 0.1 }); later(0.75, () => collapse(e)); });
+    }
+    later(5, () => { e.state = 'gone'; if (e.pile) { scene.remove(e.pile.g); piles.splice(piles.indexOf(e.pile), 1); e.pile = null; } e.root.visible = false; });
+  }
+  if (!T.folk) {
+    T.folk = (TOWN_FOLK[T.id] || []).map((f, i) => {
+      const a = (i ? -0.9 : 0.9) + Math.atan2(-T.z, -T.x);
+      return makeNpc({ id: `${T.id}_folk${i}`, name: f.name, model: f.model, x: T.x + Math.cos(a) * 4, z: T.z + Math.sin(a) * 4, hide: [], tint: f.tint, look: f.look,
+        lines: [`Thank you, hero! ${T.name} is ours again!`, `We send a share of our coins to your bank every few minutes. It is the least we can do.`, `The monsters left an awful mess. And they never once wiped their feet.`] });
+    });
+  }
+  if (quiet) return;
+  const coins = 120 * T.stars, xp = 600 * T.stars;
+  S.coins += coins; giveHeroXp(xp, new THREE.Vector3(T.x, 5, T.z));
+  later(1.2, () => { sfx('win'); toast(`${T.name} is free! The townsfolk cheer and give you ${coins} coins. From now on they send coins to your bank.`, ICONS.coins, true); });
+  burst(new THREE.Vector3(T.x, 4, T.z), '#8fd0ff', 90, 9, 1.8);
+  burst(new THREE.Vector3(T.x, 2, T.z), '#ffe07a', 60, 6, 1.4);
+  floatText(new THREE.Vector3(T.x, 6, T.z), `${T.name} freed!`, 'gain');
+  refreshUI(); save();
+}
+let taxAt = 240;
+function townTick() {
+  if (!player || now < taxAt) return;
+  taxAt = now + 240;
+  const freed = TOWNS.filter((T) => townFree(T.id));
+  if (!freed.length) return;
+  const amount = freed.reduce((a, T) => a + 15 * T.stars, 0);
+  S.bank = (S.bank || 0) + amount; sfx('coin');
+  toast(`${freed.map((T) => T.name).join(' and ')} sent ${amount} coins to your bank.`, ICONS.coins);
+  refreshUI(); save();
+}
+
+// ---------- crew ----------
+// Adventurers who live around the valley. Talk to them (or open the Crew menu) to set each one as:
+//   Ally    - follows you everywhere and fights by your side (you pick how: charge in, protect you, or just follow)
+//   Neutral - lives their own life near home and only fights monsters that come too close
+//   Rival   - hunts you down for a duel whenever you wander near. Beat them for coins and XP!
+const CREW_DEFS = [
+  { id: 'bramble', name: 'Sir Bramble', title: 'Knight of the Hedgerow', model: 'knight', hide: ['Knight_Helmet'], style: 'melee', anim: '1H_Melee_Attack_Slice_Diagonal', hp: 60, hit: [3, 6], cd: 1.0, reach: 2.4, tint: '#a8d8ff', home: [9, 36],
+    look: { skin: 'peach', eyes: 'blue', eyeStyle: 'round', mouth: 'grin', hair: 'hero', hairCol: 'blonde' },
+    say: { hi: 'Ho there, friend! Sir Bramble, knight of the hedgerow, at your service. Shall we ride together?', ally: ['Onward!', 'I have your back!', 'For glory!'], hit: ['Have at thee!', 'Hah!', 'Take that, rascal!'], hurt: ['Oof!', 'A mere scratch!'], ko: 'I shall... rest my eyes... briefly...', rival: ['En garde!', 'A duel! At last!'], lose: 'You fight well! I yield... for now.', win: 'Victory! Better luck next time, friend.', idle: ['Polishing my sword. Again.', 'Lovely day for a quest, is it not?', 'I once fought a goose. It won.'], talkAlly: 'Where to next, partner? Point me at a monster!', talkRival: 'Ha! Come to settle our duel, have you?' } },
+  { id: 'saffy', name: 'Saffy Quickshot', title: 'Wandering Crossbow', model: 'heroine', weapon: 'crossbow_1handed', style: 'ranged', anim: '1H_Ranged_Shoot', hp: 45, hit: [2, 6], cd: 1.0, reach: 9, tint: '#c8f0a0', home: [11, 27],
+    look: { sex: 'f', skin: 'tan', eyes: 'green', eyeStyle: 'sharp', mouth: 'fang', hair: 'long', hairLen: 'long', hairCol: 'ginger', mark: 'freckles' },
+    say: { hi: 'Name is Saffy. Fastest crossbow in the valley. Need a sharp eye on your team?', ally: ['Got it in my sights!', 'Right behind you!', 'Let us go!'], hit: ['Bullseye!', 'Too easy!', 'Got one!'], hurt: ['Hey!', 'Ow, rude!'], ko: 'Ugh... somebody... bring snacks...', rival: ['Try and keep up!', 'Bet you cannot dodge this!'], lose: 'Fine, fine. You win this round!', win: 'Ha! Too slow!', idle: ['Just counting my bolts. Forty two. Again.', 'Saw a squirrel earlier. Very suspicious.'], talkAlly: 'I will cover you from back here. Lead the way!', talkRival: 'Back for another lesson?' } },
+  { id: 'gus', name: 'Big Gus', title: 'Gentle Giant', model: 'barbarian', hide: ['Mug'], weapon: 'axe_2handed', style: 'melee', heavy: true, anim: '2H_Melee_Attack_Chop', hp: 85, hit: [4, 9], cd: 1.6, reach: 2.8, tint: '#ffcf9a', home: [-6, 31],
+    look: { skin: 'bronze', eyes: 'brown', eyeStyle: 'happy', mouth: 'grin', hair: 'mohawk', hairCol: 'black', beard: 'full', head: 'chibi' },
+    say: { hi: 'Gus big. Gus strong. Gus also likes flowers. You want Gus to come smash things?', ally: ['Gus coming!', 'Smash time!', 'Gus help friend!'], hit: ['SMASH!', 'Bonk!', 'Gus hit good!'], hurt: ['Gus not like that.', 'Ouchie.'], ko: 'Gus... take... little nap...', rival: ['Gus fight you now. Sorry.', 'No hard feelings. SMASH!'], lose: 'You strong! Gus proud of you!', win: 'Gus win! You want hug?', idle: ['This flower called Daisy. Gus named her.', 'Gus hungry. Gus always hungry.'], talkAlly: 'Gus stay close. Gus protect friend!', talkRival: 'Gus ready for rematch!' } },
+  { id: 'nyx', name: 'Nyx', title: 'Mischief Mage', model: 'mage', style: 'magic', anim: 'Spellcast_Shoot', hp: 40, hit: [3, 7], cd: 1.3, reach: 9, tint: '#e0b0ff', home: [-30, 3],
+    look: { sex: 'f', skin: 'porcelain', eyes: 'violet', eyeStyle: 'sleepy', mouth: 'cat', hair: 'bob', hairCol: 'pink', mark: 'star', ears: 'elf', hat: true },
+    say: { hi: 'Oh! A hero. How delightful. I am Nyx. I do magic, mostly on purpose. Want some on your side?', ally: ['Ooh, sparkly!', 'Magic time!', 'Leave it to me!'], hit: ['Kazam!', 'Fizz!', 'Oops, was that you?'], hurt: ['Rude!', 'My hat!'], ko: 'I meant to do that...', rival: ['Hee hee, let us play!', 'Prepare to be turned into a toad! Probably.'], lose: 'Hmph. Lucky shot. I let you win.', win: 'Toad time! Kidding. Mostly.', idle: ['I turned a frog into a slightly different frog today.', 'Do you smell burnt toast? That might be me.'], talkAlly: 'Lead on! I will make things go boom.', talkRival: 'Oh, you again! Shall we sparkle?' } },
+];
+const CREW_STYLE = { melee: 'Sword', ranged: 'Crossbow', magic: 'Magic' };
+const CREW_MODES = { ally: ['Ally', 'Follows you and fights with you'], neutral: ['Neutral', 'Does their own thing'], rival: ['Rival', 'Hunts you for a duel'] };
+const CREW_TACTICS = { charge: ['Charge in', 'Attacks any monster near you'], guard: ['Protect me', 'Only fights monsters that go for you'], follow: ['Just follow', 'Stays out of fights'] };
+const crew = [];
+const pickOne = (arr) => arr[Math.floor(rng() * arr.length)];
+const crewCfg = (c) => { S.crew = S.crew || {}; return (S.crew[c.id] = S.crew[c.id] || { mode: 'neutral', tactic: 'charge' }); };
+const isRival = (c) => crewCfg(c).mode === 'rival';
+const crewMax = (c) => Math.round((c.def.hp + heroLvl() * 5) * (isRival(c) ? 0.75 : 1)); // rivals are a fair duel, not a wall
+const crewUp = (c) => c.hp > 0 && c.state !== 'ko';
+const dist2d = (a, b) => Math.hypot(a.x - b.x, a.z - b.z);
+const NPC_BASE = { skin: 'peach', eyes: 'brown', eyeStyle: 'round', mouth: 'smile', mark: 'none', hair: 'short', hairLen: 'short', hairCol: 'chestnut', ears: 'human', head: 'big', beard: 'none', hat: false, sex: 'm' };
+function buildCrew() {
+  for (const d of CREW_DEFS) {
+    const L = { ...NPC_BASE, ...d.look };
+    const hide = [...(d.hide || [])];
+    if (!L.hat) hide.push('Barbarian_Hat', 'Mage_Hat', 'Knight_Helmet');
+    const a = new Actor(G[d.model], { hide, scale: 1.3 });
+    dressNpc(a, L);
+    if (d.weapon && lib[d.weapon]) { const w = lib[d.weapon].clone(true); stylize(w); a.attach(w); addInk(w); }
+    a.root.traverse((o) => {
+      if (!o.isMesh || !o.userData.mats || !/_(Body)$/.test(o.name)) return;
+      const m = { std: o.userData.mats.std.clone(), toon: o.userData.mats.toon.clone() };
+      m.toon.onBeforeCompile = o.userData.mats.toon.onBeforeCompile;
+      m.std.color.set(d.tint); m.toon.color.set(d.tint); registerMesh(o, m);
+    });
+    a.root.position.set(d.home[0], 0, d.home[1]); pushOut(a.root.position, 0.8);
+    a.play('Idle');
+    const tag = document.createElement('div'); tag.className = 'crewtag'; tag.hidden = true;
+    tag.innerHTML = '<span class="cs" hidden></span><b></b><i><u></u></i>';
+    tag.querySelector('b').textContent = d.name;
+    document.body.appendChild(tag);
+    const c = {
+      crew: true, isCrew: true, def: d, id: d.id, name: d.name, actor: a, look: L, reach: 3, hp: null, inside: 'out', tag,
+      home: new THREE.Vector2(a.pos.x, a.pos.z), state: 'idle', nextHit: 0, busyUntil: 0, wanderAt: 0, wander: null, koUntil: 0, calmUntil: 0, sayUntil: 0, hurtAt: -99,
+      kb: new THREE.Vector2(), foe: null, stuckT: 0,
+      get x() { return this.actor.pos.x; }, get z() { return this.actor.pos.z; }, get pos() { return this.actor.pos; },
+      get accent() { const m = crewCfg(this).mode; return m === 'ally' ? '#3aa860' : m === 'rival' ? '#d8433a' : '#8f62d8'; },
+    };
+    crew.push(c);
+  }
+}
+function say(c, text) {
+  if (!text) return;
+  c.sayUntil = now + 2.8;
+  const s = c.tag.querySelector('.cs'); s.textContent = text; s.hidden = false;
+  s.classList.remove('pop'); void s.offsetWidth; s.classList.add('pop');
+}
+// Walk towards a spot; returns how far is left. Slides round trees, and warps if properly stuck.
+function crewMove(c, x, z, speed, dt, stopAt = 0.3) {
+  const p = c.pos, dx = x - p.x, dz = z - p.z, d = Math.hypot(dx, dz);
+  if (d <= stopAt) return d;
+  const ox = p.x, oz = p.z, st = Math.min(d - stopAt, speed * dt);
+  p.x += (dx / d) * st; p.z += (dz / d) * st;
+  collide(p, 0.6);
+  // bumped into something: try sliding along it
+  if (Math.hypot(p.x - ox, p.z - oz) < st * 0.4) { const side = (c.id.length % 2 ? 1 : -1); p.x = ox + (-dz / d) * st * side; p.z = oz + (dx / d) * st * side; collide(p, 0.6); }
+  c.stuckT = Math.hypot(p.x - ox, p.z - oz) < st * 0.2 ? c.stuckT + dt : 0;
+  const want = Math.atan2(dx, dz); let diff = want - c.actor.root.rotation.y; diff = Math.atan2(Math.sin(diff), Math.cos(diff));
+  c.actor.root.rotation.y += diff * Math.min(1, dt * 12);
+  if (now > c.busyUntil) c.actor.play(speed > 5 ? 'Running_A' : 'Walking_A', { fade: 0.12, speed: speed > 9 ? 1.4 : 1.1 });
+  return d;
+}
+function crewIdle(c, combat) { if (now > c.busyUntil && c.actor.name !== 'Lie_Idle') c.actor.play(combat ? '2H_Melee_Idle' : 'Idle', { fade: 0.2 }); }
+function crewWarp(c, x, z) { burst(c.pos.clone().setY(1), '#ffffff', 14, 3); c.pos.set(x, 0, z); collide(c.pos, 0.6); burst(c.pos.clone().setY(1), '#ffffff', 14, 3); c.stuckT = 0; }
+// the nearest thing this crew member should hit: monsters (and rivals, for allies)
+function crewFindFoe(c, center, radius, onlyAngry) {
+  let best = null, bd = 1e9;
+  for (const e of enemies) {
+    if (e.hp <= 0 || e.state === 'dead' || e.state === 'rising' || e.state === 'gone' || e.inside !== c.inside) continue;
+    if (onlyAngry && e.state !== 'chase' && e.state !== 'slam') continue;
+    if (dist2d(e.pos, center) > radius) continue;
+    const d = dist2d(e.pos, c.pos); if (d < bd) { bd = d; best = e; }
+  }
+  if (crewCfg(c).mode === 'ally') for (const o of crew) {
+    if (o === c || !isRival(o) || !crewUp(o) || o.inside !== c.inside || dist2d(o.pos, center) > radius) continue;
+    const d = dist2d(o.pos, c.pos); if (d < bd) { bd = d; best = o; }
+  }
+  return best;
+}
+const foeAlive = (f) => f && (f === player ? !player.dead : f.isCrew ? crewUp(f) && isRival(f) : f.hp > 0 && f.state !== 'dead' && f.state !== 'gone' && f.state !== 'rising');
+const crewDmg = (c) => (rng() < 0.12 ? 0 : Math.round((c.def.hit[0] + rng() * (c.def.hit[1] - c.def.hit[0])) * (1 + (heroLvl() - 1) * 0.07)));
+let crewHitting = false;
+// a crew member lands a blow on t (a monster, a rival, or you)
+function crewStrike(c, t) {
+  const dmg = crewDmg(c);
+  if (t === player) { const d = Math.round(dmg * 0.6); if (dodging()) { floatText(player.pos.clone().setY(3.6), 'Dodged!', 'miss'); return; } hurtPlayer(d); return; }
+  if (t.isCrew) { hurtCrew(t, dmg, c); return; }
+  const hs = hitStopUntil; crewHitting = true;
+  hurtEnemy(t, dmg, c.pos, c.def.heavy ? 1.3 : 1);
+  crewHitting = false; hitStopUntil = hs;
+  if (!t.T.boss && t.hp > 0) t.foe = c;
+  if (rng() < 0.18) say(c, pickOne(c.def.say.hit));
+}
+function crewFight(c, foe, dt) {
+  const fp = foe.pos, d = dist2d(fp, c.pos), D = c.def, far = D.style !== 'melee';
+  if (d > D.reach) { crewMove(c, fp.x, fp.z, 7.6, dt, D.reach * 0.85); return; }
+  c.actor.face(fp.x, fp.z);
+  if (now < c.nextHit) { crewIdle(c, true); return; }
+  c.nextHit = now + D.cd + rng() * 0.5; c.busyUntil = now + 0.6;
+  c.actor.play(D.anim, { once: true, fade: 0.08, speed: 1.2, onFinish: () => crewIdle(c, true) });
+  later(far ? 0.3 : 0.32, () => {
+    if (!crewUp(c) || !foeAlive(foe)) return;
+    if (far) {
+      const dir = new THREE.Vector3(fp.x - c.pos.x, 0, fp.z - c.pos.z).normalize();
+      const owner = foe === player ? 'enemy' : 'ally';
+      shoot(c.pos.clone().setY(1.7).addScaledVector(dir, 0.8), dir, D.style === 'ranged' ? 'bolt' : 'orb', D.reach + 3, owner, (t) => crewStrike(c, t || player));
+      if (foe === player) projectiles[projectiles.length - 1].onHit = () => crewStrike(c, player);
+    } else if (dist2d(fp, c.pos) < D.reach + 1) {
+      burst(c.pos.clone().setY(1.4).addScaledVector(fwdOf(c.actor), 1.4), '#fff2a8', 10, 4);
+      sfx('swing'); crewStrike(c, foe);
+    }
+  });
+}
+function hurtCrew(c, dmg, src) {
+  if (!crewUp(c)) return;
+  const head = c.pos.clone().setY(3.4);
+  if (dmg === 0) { floatText(head, 'Miss', 'miss'); return; }
+  c.hp = Math.max(0, c.hp - dmg); c.hurtAt = now; c.actor.hurtFace = now + 0.45;
+  floatText(head, String(dmg), isRival(c) ? (c.hp <= 0 ? 'kill' : '') : 'hurt');
+  const s = src ? (src.pos || src) : player.pos, dx = c.pos.x - s.x, dz = c.pos.z - s.z, d = Math.hypot(dx, dz) || 1;
+  c.kb.set((dx / d) * 4, (dz / d) * 4);
+  sfx('hit'); burst(head.setY(1.6), '#ff8a7a', 10, 4);
+  if (c.hp <= 0) { crewKo(c, src); return; }
+  if (now > c.busyUntil) c.actor.play('Hit_A', { once: true, fade: 0.05, speed: 1.3, onFinish: () => crewIdle(c) });
+  if (rng() < 0.25) say(c, pickOne(c.def.say.hurt));
+}
+function crewKo(c, by) {
+  c.state = 'ko'; c.foe = null;
+  const rival = isRival(c);
+  c.koUntil = now + (rival ? 25 : 12);
+  c.actor.play('Death_A', { once: true, clamp: true, fade: 0.1, onFinish: () => { if (c.state === 'ko') c.actor.play('Lie_Idle', { fade: 0.3 }); } });
+  if (rival && by === player) {
+    const coins = 25 + heroLvl() * 6;
+    S.coins += coins; giveHeroXp(80 + heroLvl() * 15, c.pos.clone().setY(4)); later(0.25, () => sfx('coin'));
+    floatText(c.pos.clone().setY(2.4), `+${coins} coins`, 'gain');
+    say(c, c.def.say.lose); c.calmUntil = now + 60;
+    toast(`You won the duel against ${c.name}! +${coins} coins`, ICONS.coins, true);
+    refreshUI();
+  } else {
+    say(c, c.def.say.ko);
+    if (crewCfg(c).mode === 'ally') toast(`${c.name} is knocked out! They will be back on their feet soon.`, null);
+  }
+}
+function crewGetUp(c) {
+  c.state = 'idle'; c.hp = Math.round(crewMax(c) * (isRival(c) ? 1 : 0.6));
+  c.actor.play('Cheer', { once: true, fade: 0.2, onFinish: () => crewIdle(c) }); c.busyUntil = now + 1;
+  burst(c.pos.clone().setY(1), '#b9ff8a', 20, 4);
+}
+function setCrewMode(c, mode) {
+  const cf = crewCfg(c); cf.mode = mode; c.foe = null; c.taunted = false;
+  c.calmUntil = mode === 'rival' ? now + 2.5 : 0;
+  if (crewUp(c)) { c.actor.hopUntil = now + 0.35; c.actor.play('Cheer', { once: true, fade: 0.15, speed: 1.3, onFinish: () => crewIdle(c) }); c.busyUntil = now + 0.8; }
+  say(c, mode === 'ally' ? pickOne(c.def.say.ally) : mode === 'rival' ? pickOne(c.def.say.rival) : 'See you around!');
+  toast(mode === 'ally' ? `${c.name} joined your crew!` : mode === 'rival' ? `${c.name} is now your rival. Watch out!` : `${c.name} is doing their own thing.`, null);
+  save(); if (sheetMode === 'crew' && !$('sheet').hidden) renderSheet();
+}
+function openCrewTalk(c) {
+  talking = c;
+  const m = crewCfg(c).mode, S2 = c.def.say;
+  const text = m === 'ally' ? S2.talkAlly : m === 'rival' ? S2.talkRival : S2.hi;
+  const opts = [['ally', 'Join my crew!'], ['neutral', 'Do your own thing'], ['rival', 'Be my rival!']].filter(([k]) => k !== m);
+  const d = $('dialog');
+  d.innerHTML = '<h3></h3><p></p><div class="row"></div>';
+  d.querySelector('h3').textContent = c.name;
+  d.querySelector('p').textContent = text;
+  for (const [k, label] of opts) { const b = document.createElement('button'); b.textContent = label; b.onclick = () => { closeDialog(); setCrewMode(c, k); }; d.querySelector('.row').appendChild(b); }
+  const bye = document.createElement('button'); bye.textContent = 'Bye'; bye.onclick = closeDialog; d.querySelector('.row').appendChild(bye);
+  showDialog(d, { talky: true });
+  c.actor.face(player.pos.x, player.pos.z);
+}
+function crewTick(dt) {
+  if (!player) return;
+  let slot = 0;
+  for (const c of crew) {
+    const a = c.actor, p = a.pos, cf = crewCfg(c), m = cf.mode;
+    if (c.hp === null) c.hp = crewMax(c);
+    // allies follow you through doors; everyone else stays outside
+    if (m === 'ally' && c.inside !== where) { c.inside = where; const b = player.root.rotation.y + Math.PI; p.set(player.pos.x + Math.sin(b) * 2, 0, player.pos.z + Math.cos(b) * 2); collide(p, 0.6); }
+    if (m !== 'ally' && c.inside !== 'out') { c.inside = 'out'; p.set(c.home.x, 0, c.home.y); }
+    const here = c.inside === where, near = here && dist2d(p, player.pos) < 70;
+    a.root.visible = here;
+    if (near) {
+      a.mixer.update(dt);
+      if (a.headInfo && a.headScale) a.headInfo.bone.scale.setScalar(a.headScale);
+      faceTick(a);
+      const hop = Math.max(0, (a.hopUntil || 0) - now);
+      p.y = hop > 0 ? Math.sin((1 - hop / 0.35) * Math.PI) * 0.45 : 0;
+    }
+    if (Math.abs(c.kb.x) + Math.abs(c.kb.y) > 0.05) { p.x += c.kb.x * dt; p.z += c.kb.y * dt; c.kb.multiplyScalar(Math.exp(-10 * dt)); collide(p, 0.6); }
+    if (c.state === 'ko') { if (now > c.koUntil) crewGetUp(c); continue; }
+    if (now - c.hurtAt > 6 && c.hp < crewMax(c)) c.hp = Math.min(crewMax(c), c.hp + dt * 2);
+    if (talking === c || bossIntro || creator.open) { if (talking === c) a.face(player.pos.x, player.pos.z); crewIdle(c); continue; }
+    // don't bunch up: nudge away from other crew and from you
+    for (const o of crew) if (o !== c && o.inside === c.inside && crewUp(o)) { const dx = p.x - o.pos.x, dz = p.z - o.pos.z, d = Math.hypot(dx, dz); if (d < 1.3 && d > 0.001) { p.x += (dx / d) * (1.3 - d) * 0.5; p.z += (dz / d) * (1.3 - d) * 0.5; } }
+    if (c.inside === where && !isRival(c)) { const dx = p.x - player.pos.x, dz = p.z - player.pos.z, d = Math.hypot(dx, dz); if (d < 1.1 && d > 0.001) { p.x += (dx / d) * (1.1 - d); p.z += (dz / d) * (1.1 - d); } }
+    if (m === 'ally') crewAlly(c, dt, slot++);
+    else if (m === 'rival') crewRival(c, dt);
+    else crewNeutral(c, dt);
+  }
+}
+function crewAlly(c, dt, slot) {
+  const t = crewCfg(c).tactic, pp = player.pos;
+  let foe = foeAlive(c.foe) && dist2d(c.foe.pos, pp) < 16 ? c.foe : null;
+  if (!foe && t !== 'follow' && !player.dead) foe = crewFindFoe(c, pp, t === 'charge' ? 13 : 8, t === 'guard');
+  c.foe = foe;
+  if (foe && t !== 'follow') { crewFight(c, foe, dt); return; }
+  // stand in a little fan behind the hero
+  const b = player.root.rotation.y + Math.PI + (slot - 1) * 0.75, spot = { x: pp.x + Math.sin(b) * 2.8, z: pp.z + Math.cos(b) * 2.8 };
+  const d = dist2d(spot, c.pos);
+  if (d > 40 || c.stuckT > 1.5) { crewWarp(c, spot.x, spot.z); return; }
+  if (d > 1) crewMove(c, spot.x, spot.z, d > 8 ? 11 : 8, dt, 0.6);
+  else { crewIdle(c); let diff = player.root.rotation.y - c.actor.root.rotation.y; diff = Math.atan2(Math.sin(diff), Math.cos(diff)); c.actor.root.rotation.y += diff * Math.min(1, dt * 4); }
+  if (rng() < dt * 0.01) say(c, pickOne(c.def.say.ally));
+}
+function crewRival(c, dt) {
+  const toP = dist2d(c.pos, player.pos), fromHome = Math.hypot(c.pos.x - c.home.x, c.pos.z - c.home.y);
+  if (player.dead && c.taunted) { say(c, c.def.say.win); c.taunted = false; c.calmUntil = now + 30; }
+  const hunt = now > c.calmUntil && !player.dead && where === c.inside && !uiLock() && !talking && toP < 16 && fromHome < 45;
+  if (!hunt) { if (toP > 24) c.taunted = false; crewNeutral(c, dt); return; }
+  if (!c.taunted) { c.taunted = true; say(c, pickOne(c.def.say.rival)); }
+  crewFight(c, player, dt);
+}
+function crewNeutral(c, dt) {
+  // stand up for yourself if a monster comes close
+  const foe = foeAlive(c.foe) && dist2d(c.foe.pos, c.pos) < 10 ? c.foe : crewFindFoe(c, c.pos, 5.5, false);
+  c.foe = foe;
+  if (foe) { crewFight(c, foe, dt); return; }
+  const fromHome = Math.hypot(c.pos.x - c.home.x, c.pos.z - c.home.y);
+  if (fromHome > 22) c.wander = { x: c.home.x, z: c.home.y };
+  if (c.stuckT > 2) { crewWarp(c, c.home.x, c.home.y); c.wander = null; }
+  if (c.wander) {
+    if (crewMove(c, c.wander.x, c.wander.z, 2.2, dt, 0.4) <= 0.4) { c.wander = null; c.wanderAt = now + 3 + rng() * 4; crewIdle(c); }
+    return;
+  }
+  if (now > c.wanderAt) {
+    // wander, or do something characterful for a moment
+    if (rng() < 0.4) {
+      const act = pickOne(['Interact', 'Cheer', 'PickUp', 'Use_Item', 'Sit_Floor_Idle']);
+      c.actor.play(act, { once: act !== 'Sit_Floor_Idle', fade: 0.2, onFinish: () => crewIdle(c) }); c.busyUntil = now + (act === 'Sit_Floor_Idle' ? 5 : 1.5);
+      c.wanderAt = now + (act === 'Sit_Floor_Idle' ? 6 : 3);
+    } else {
+      const ang = rng() * 6.28, r = 2 + rng() * 6;
+      c.wander = { x: c.home.x + Math.cos(ang) * r, z: c.home.y + Math.sin(ang) * r };
+    }
+  } else if (now > c.busyUntil) crewIdle(c);
+  // say hello when you walk past
+  const toP = dist2d(c.pos, player.pos);
+  if (where === c.inside && toP < 6 && !c.greeted) { c.greeted = true; c.actor.face(player.pos.x, player.pos.z); say(c, pickOne(c.def.say.idle)); }
+  else if (toP > 12) c.greeted = false;
+}
+// name tags with a health bar and speech bubbles, drawn over each crew member
+function crewTags() {
+  for (const c of crew) {
+    const show = c.inside === where && player && dist2d(c.pos, player.pos) < 34 && !creator.open && !bossIntro;
+    if (!show) { c.tag.hidden = true; continue; }
+    const v = tmpV.set(c.pos.x, c.pos.y + 4.3, c.pos.z).project(camera);
+    if (v.z > 1) { c.tag.hidden = true; continue; }
+    c.tag.hidden = false;
+    c.tag.style.left = `${(v.x * 0.5 + 0.5) * innerWidth}px`; c.tag.style.top = `${(-v.y * 0.5 + 0.5) * innerHeight}px`;
+    const m = crewCfg(c).mode; if (c.tag.dataset.mode !== m) c.tag.dataset.mode = m;
+    c.tag.querySelector('u').style.width = `${(Math.max(0, c.hp || 0) / crewMax(c)) * 100}%`;
+    if (now > c.sayUntil) { const s = c.tag.querySelector('.cs'); if (!s.hidden) s.hidden = true; }
+  }
+}
+const crewFaces = {};
+function renderCrew(el) {
+  el.innerHTML = `<h3>Crew <small>Pick a side for each adventurer</small></h3><div class="crewlist">${crew.map((c) => {
+    const cf = crewCfg(c), D = c.def;
+    if (!crewFaces[c.id]) crewFaces[c.id] = facePreview(c.look);
+    const status = c.state === 'ko' ? `Knocked out, back in ${Math.max(1, Math.ceil(c.koUntil - now))}s` : cf.mode === 'ally' ? (c.foe ? 'Fighting!' : 'Following you') : cf.mode === 'rival' ? (now < c.calmUntil ? 'Sulking after your last duel' : 'Looking for you...') : 'Hanging around near home';
+    return `<div class="crewcard" style="--c:${D.tint}">
+      <div class="ctop"><img class="cface" src="${crewFaces[c.id]}" alt=""><div class="cinfo"><b>${D.name}</b><small>${D.title} · ${CREW_STYLE[D.style]}</small><div class="chp"><i style="width:${(Math.max(0, c.hp || 0) / crewMax(c)) * 100}%"></i></div><small class="cstat">${status}</small></div></div>
+      <div class="seg" role="group" aria-label="${D.name}'s side">${Object.entries(CREW_MODES).map(([k, [nm, tip]]) => `<button data-crew="${c.id}" data-mode="${k}" class="m-${k}" aria-pressed="${cf.mode === k}" title="${tip}">${nm}</button>`).join('')}</div>
+      ${cf.mode === 'ally' ? `<div class="seg tac" role="group" aria-label="How ${D.name} fights">${Object.entries(CREW_TACTICS).map(([k, [nm, tip]]) => `<button data-crew="${c.id}" data-tactic="${k}" aria-pressed="${cf.tactic === k}" title="${tip}">${nm}</button>`).join('')}</div>` : ''}
+    </div>`;
+  }).join('')}</div>
+  <p class="hint"><b>Ally</b>: follows you everywhere (even indoors) and fights by your side. <b>Neutral</b>: lives near home and only fights monsters that get too close. <b>Rival</b>: challenges you to a duel whenever you wander near. Beat a rival for coins and XP! You can also talk to them to change sides.</p>`;
+  el.querySelectorAll('[data-mode]').forEach((b) => { b.onclick = () => { const c = crew.find((x) => x.id === b.dataset.crew); if (crewCfg(c).mode !== b.dataset.mode) setCrewMode(c, b.dataset.mode); }; });
+  el.querySelectorAll('[data-tactic]').forEach((b) => { b.onclick = () => { const c = crew.find((x) => x.id === b.dataset.crew); crewCfg(c).tactic = b.dataset.tactic; c.foe = null; save(); renderSheet(); }; });
+}
+
+window.__jq = { crew, setCrewMode, TOWNS, liberateTown, chests, openChest, stopRoulette, enemies, startBossIntro, closeDialog, advanceDialog, dash, attackPress, craft, CRAFTS, openCreator, closeCreator, creator, rebuildHero, setZoom: (z) => { zoom = z; }, hurtEnemy, goThrough, get where() { return where; }, INTERIORS, equipGear, spendPoint, giveHeroXp, heroLvl, stat, maxHp, defDiv, openWeaponShop, openKing, jump, eat, eatBest, openShop, swing, swingTarget, hitNode, projectiles, timers, get S() { return S; }, get player() { return player; }, enemies, nodes, npcs, startTask, doAction, giveXp, save, openSheet, openDialog };
 window.addEventListener('error', (e) => { const m = $('loadmsg'); if (m) m.textContent = `Something went wrong: ${e.message}`; });
 main().catch((err) => {
   console.error(err);

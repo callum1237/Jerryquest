@@ -486,6 +486,33 @@
   .rl-result.jackpot { background: linear-gradient(180deg, #fff3a0, #ffc93a); }
   body.rouletting #hotbar, body.rouletting #actionbar, body.rouletting #specialbtn { visibility: hidden; }
   /* boss intro */
+
+  /* crew: name tags, speech bubbles and the Crew menu */
+  .crewtag { position: fixed; transform: translate(-50%, -100%); display: flex; flex-direction: column; align-items: center; gap: 2px; pointer-events: none; z-index: 2; --m: #8f62d8; }
+  .crewtag[data-mode="ally"] { --m: #3aa860; } .crewtag[data-mode="rival"] { --m: #d8433a; }
+  .crewtag b { font: 800 12px/1 var(--display); color: #fff; background: var(--m); border: 2px solid var(--ink); border-radius: 8px; padding: 2px 7px; white-space: nowrap; }
+  .crewtag i { display: block; width: 46px; height: 6px; border: 2px solid var(--ink); border-radius: 5px; background: #6b3a2a; overflow: hidden; }
+  .crewtag u { display: block; height: 100%; background: #7ee05a; }
+  .crewtag .cs { order: -1; max-width: 190px; font: 700 13px/1.25 var(--body, inherit); color: var(--ink); background: #fffaf0; border: 2.5px solid var(--ink); border-radius: 12px; padding: 5px 9px; margin-bottom: 4px; text-align: center; position: relative; box-shadow: 0 3px 0 rgb(0 0 0 / .2); }
+  .crewtag .cs::after { content: ''; position: absolute; left: 50%; bottom: -8px; transform: translateX(-50%); border: 6px solid transparent; border-top-color: var(--ink); }
+  .crewtag .cs.pop { animation: cspop .3s cubic-bezier(.2, 1.6, .4, 1); }
+  @keyframes cspop { from { transform: scale(.4); opacity: 0; } }
+  body.talking .crewtag, body:has(#roulette:not([hidden])) .crewtag { display: none; }
+  .crewlist { display: grid; gap: 10px; }
+  .crewcard { border: 2.5px solid var(--ink); border-radius: 14px; padding: 9px; background: color-mix(in srgb, var(--c) 30%, #fffaf0); }
+  .crewcard .ctop { display: flex; gap: 10px; align-items: center; }
+  .crewcard .cface { width: 64px; height: 64px; object-fit: cover; border-radius: 50%; border: 2.5px solid var(--ink); background: #f6e1cf; flex: none; }
+  .crewcard .cinfo { min-width: 0; flex: 1; display: grid; gap: 2px; }
+  .crewcard .cinfo b { font: 800 16px/1.1 var(--display); }
+  .crewcard .chp { height: 8px; border: 2px solid var(--ink); border-radius: 5px; background: #6b3a2a; overflow: hidden; }
+  .crewcard .chp i { display: block; height: 100%; background: #7ee05a; }
+  .crewcard .cstat { opacity: .75; }
+  .crewcard .seg { display: grid; grid-template-columns: repeat(3, 1fr); gap: 5px; margin-top: 8px; }
+  .crewcard .seg button { padding: 6px 4px; font-size: 13px; }
+  .crewcard .seg .m-ally[aria-pressed="true"] { background: #3aa860; color: #fff; }
+  .crewcard .seg .m-neutral[aria-pressed="true"] { background: #8f62d8; color: #fff; }
+  .crewcard .seg .m-rival[aria-pressed="true"] { background: #d8433a; color: #fff; }
+  .crewcard .seg.tac button[aria-pressed="true"] { background: #ffd84a; }
   #bossintro { position: fixed; inset: 0; z-index: 6; pointer-events: none; }
   .bi-bar { position: absolute; left: 0; right: 0; height: 13vh; background: #120a08; }
   .bi-bar.top { top: 0; transform: translateY(-100%); } .bi-bar.bot { bottom: 0; transform: translateY(100%); }
@@ -515,6 +542,7 @@
   <button id="b-bag" aria-pressed="false"><img data-icon="bag" alt="">Bag</button>
   <button id="b-quests" aria-pressed="false"><img data-icon="scroll" alt="">Quests</button>
   <button id="b-craft" aria-pressed="false"><img data-icon="hammer" alt="">Craft</button>
+  <button id="b-crew" aria-pressed="false"><img data-icon="shield" alt="">Crew</button>
   <button id="b-look" aria-pressed="false"><img data-icon="mirror" alt="">Look</button>
   <button id="b-opts" aria-pressed="false"><img data-icon="gear" alt="">Options</button>
 </nav>
