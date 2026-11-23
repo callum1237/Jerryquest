@@ -13,6 +13,8 @@ export const net = {
   board: null, // last rich list from the server
   onTowns: null, // called after each towns refresh
   onPeerGone: null,
+  onChat: null,
+  onNet: null, // called with (event, payload) for party, duel and other player-to-player messages // called with { id, name, text } for each chat message from another player
 };
 let sb = null, channel = null;
 
@@ -129,9 +131,15 @@ export async function connect(profile) {
   channel.on('broadcast', { event: 'p' }, ({ payload: p }) => {
     const peer = net.peers.get(p.id);
     if (!peer) return;
-    Object.assign(peer, { where: p.w, gx: p.x, gz: p.z, ry: p.r, a: p.a, t: performance.now() });
+    Object.assign(peer, { where: p.w, gx: p.x, gz: p.z, ry: p.r, a: p.a, h: p.h, t: performance.now() });
     if (peer.x === undefined) { peer.x = p.x; peer.z = p.z; }
   });
+  channel.on('broadcast', { event: 'c' }, ({ payload: m }) => {
+    if (!m || typeof m.text !== 'string' || !net.onChat) return;
+    const peer = net.peers.get(m.id);
+    net.onChat({ id: m.id, name: (peer && peer.name) || String(m.name || 'Someone').slice(0, 16), text: cleanChat(m.text) });
+  });
+  for (const ev of NET_EVENTS) channel.on('broadcast', { event: ev }, ({ payload }) => { if (payload && net.onNet && (!payload.to || payload.to === net.user.id)) net.onNet(ev, payload); });
   channel.on('presence', { event: 'sync' }, () => {
     const st = channel.presenceState(), seen = new Set();
     for (const [id, metas] of Object.entries(st)) {
@@ -145,17 +153,39 @@ export async function connect(profile) {
   });
   channel.subscribe((status) => { if (status === 'SUBSCRIBED') channel.track(me); });
 }
+// ---------- player-to-player messages ----------
+// Parties (invite, accept, state, leave), duels (hit, knock-out) and shared party XP.
+const NET_EVENTS = ['pi', 'pa', 'ps', 'pl', 'hit', 'ko', 'px'];
+export function sendNet(ev, payload = {}) {
+  if (!channel || !net.on || !NET_EVENTS.includes(ev)) return;
+  channel.send({ type: 'broadcast', event: ev, payload: { ...payload, id: net.user.id } });
+}
+// ---------- chat ----------
+// Short messages to everyone on the server. No more than 3 messages in 8 seconds from one player.
+export const CHAT_MAX = 120;
+export const cleanChat = (t) => String(t || '').replace(/[\u0000-\u001f\u007f]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, CHAT_MAX);
+const chatTimes = [];
+export function sendChat(text) {
+  const t = cleanChat(text);
+  if (!t) return { error: 'empty' };
+  const nowMs = performance.now();
+  while (chatTimes.length && nowMs - chatTimes[0] > 8000) chatTimes.shift();
+  if (chatTimes.length >= 3) return { error: 'Slow down a little! Wait a few seconds.' };
+  chatTimes.push(nowMs);
+  if (channel && net.on) channel.send({ type: 'broadcast', event: 'c', payload: { id: net.user.id, name: net.user.name, text: t } });
+  return { text: t };
+}
 // name, level or looks changed
 export function updateProfile(profile) {
   me = { ...me, ...profile };
   if (channel) channel.track(me);
 }
 // Position updates: about 6 a second while moving, once a second while standing still.
-export function sendPos(x, z, ry, a, w) {
+export function sendPos(x, z, ry, a, w, h = '') {
   if (!channel || !net.on) return;
-  const t = performance.now(), moved = !lastPos || Math.hypot(x - lastPos[0], z - lastPos[1]) > 0.05 || a !== lastPos[2] || w !== lastPos[3];
+  const t = performance.now(), moved = !lastPos || Math.hypot(x - lastPos[0], z - lastPos[1]) > 0.05 || a !== lastPos[2] || w !== lastPos[3] || h !== lastPos[4];
   if (t < sendAt || (!moved && t < sendAt + 840)) return;
-  sendAt = t + 160; lastPos = [x, z, a, w];
+  sendAt = t + 160; lastPos = [x, z, a, w, h];
   me.x = x; me.z = z; me.w = w;
-  channel.send({ type: 'broadcast', event: 'p', payload: { id: net.user.id, x: +x.toFixed(2), z: +z.toFixed(2), r: +ry.toFixed(2), a, w } });
+  channel.send({ type: 'broadcast', event: 'p', payload: { id: net.user.id, x: +x.toFixed(2), z: +z.toFixed(2), r: +ry.toFixed(2), a, w, h } });
 }

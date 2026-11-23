@@ -8,7 +8,7 @@ import { LANDS, VALLEY_DOCK, buildLands, makeSnow } from './lands.js';
 import { ICONS } from './icons.js';
 import { buildInteriors, INTERIORS, lavaPools } from './interiors.js';
 import { unlockAudio, playMusic, sfx, setVolumes } from './audio.js';
-import { net, resume, signIn, signOut, loadCloud, cloudSave, flushSave, refreshBoard, setTown, connect, updateProfile, sendPos } from './online.js';
+import { net, resume, signIn, signOut, loadCloud, cloudSave, flushSave, refreshBoard, setTown, connect, updateProfile, sendPos, sendChat, cleanChat, sendNet } from './online.js';
 
 const $ = (id) => document.getElementById(id);
 const clock = new THREE.Clock();
@@ -571,8 +571,9 @@ let profileKey = '';
 function profile() { return { name: heroName(), lvl: heroLvl(), look: S.look, w: where, x: player ? player.pos.x : 0, z: player ? player.pos.z : 0 }; }
 function goOnline() {
   net.onTowns = syncTowns;
-  net.onPeerGone = dropPeer;
-  connect(profile()).then(() => toast(`Online as ${net.user.name}. Friends who are playing show up in the world.`, ICONS.star));
+  net.onPeerGone = (id) => { dropPeer(id); partyPeerGone(id); };
+  net.onNet = onNet;
+  connect(profile()).then(() => { toast(`Online as ${net.user.name}. Friends who are playing show up in the world.`, ICONS.star); sys('Press Enter to chat with everyone. Type /p and a name to invite a friend to your party.'); });
   save();
 }
 
@@ -598,7 +599,7 @@ function dropPeer(id) {
 const ONE_SHOT = /Attack|Hit_|Death|Jump|Dodge|Use_Item|Interact|Cheer|Spellcast|Block/;
 function peersTick(dt) {
   if (!net.on || !player) return;
-  sendPos(player.pos.x, player.pos.z, player.root.rotation.y, player.name || 'Idle', where);
+  sendPos(player.pos.x, player.pos.z, player.root.rotation.y, player.name || 'Idle', where, `${Math.max(0, Math.round(S.hp))}/${maxHp()}`);
   const key = `${heroName()}|${heroLvl()}|${JSON.stringify(S.look)}`;
   if (key !== profileKey) { profileKey = key; updateProfile(profile()); }
   for (const [id, p] of net.peers) {
@@ -616,7 +617,7 @@ function peersTick(dt) {
     let dr = (p.ry || 0) - pa.a.root.rotation.y; dr = Math.atan2(Math.sin(dr), Math.cos(dr));
     pa.a.root.rotation.y += dr * k;
     if (p.a && p.a !== pa.anim) { pa.anim = p.a; pa.a.play(p.a, { once: ONE_SHOT.test(p.a), clamp: /Death/.test(p.a) }); }
-    pa.a.mixer.update(dt);
+    pa.a.mixer.update(dt); headPose(pa.a);
     const v = tmpV.set(p.x, 4.4, p.z).project(camera);
     if (v.z > 1 || bossIntro) { pa.tag.hidden = true; continue; }
     pa.tag.hidden = false;
@@ -625,6 +626,263 @@ function peersTick(dt) {
     if (pa.tag.dataset.t !== txt + col) { pa.tag.dataset.t = txt + col; pa.tag.firstChild.textContent = txt; pa.tag.style.setProperty('--tc', col); }
   }
 }
+
+
+// ---------- parties and duels ----------
+// Type in chat: /p name (or /party name) to invite, /p list, /p leave. The leader also has
+// /p kick name, /p damage on|off and /p disband. A party of one disbands by itself.
+// Party members show on each other's map with their health, share some monster XP,
+// and can't hurt each other unless the leader turns party damage on.
+// Outside the villages and indoors, players level 5 and up can fight each other.
+const PARTY_MAX = 6, PVP_LVL = 5;
+const esc = (t) => String(t).replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
+let party = null; // { leader, members: [{ id, name }], dmg }
+const invites = new Map(); // id we invited -> time
+const myId = () => (net.user ? net.user.id : 'me');
+const sys = (t) => chatLine('', t, 'sys');
+const inParty = (id) => !!party && party.members.some((m) => m.id === id);
+const peerByName = (n) => { n = String(n || '').trim().toLowerCase(); for (const [id, p] of net.peers) if ((p.name || '').toLowerCase() === n) return [id, p]; return null; };
+function partyPush() { if (party && party.leader === myId()) sendNet('ps', { party }); renderParty(); }
+function partySet(p, why) {
+  const was = party; party = p;
+  if (!p && was && why) { sys(why); toast(why, ICONS.star); }
+  renderParty();
+}
+function chatCommand(line) {
+  const [cmd, ...rest] = line.slice(1).split(/\s+/), arg = rest.join(' ');
+  if (!/^(p|party)$/i.test(cmd)) { sys('Commands: /p name to invite, /p list, /p leave, /p kick name, /p damage on|off, /p disband'); return; }
+  if (!net.on) { sys('Parties need the game server.'); return; }
+  const sub = (rest[0] || '').toLowerCase(), me = myId(), lead = party && party.leader === me;
+  if (!sub || sub === 'help') { sys('Party: /p name invites someone. /p list shows your party. /p leave. Leader only: /p kick name, /p damage on or off, /p disband.'); return; }
+  if (sub === 'list') {
+    if (!party) { sys('You are not in a party. Invite someone with /p name'); return; }
+    sys(`Party (${party.members.length}/${PARTY_MAX}), damage between members ${party.dmg ? 'ON' : 'off'}: ${party.members.map((m) => `${m.id === party.leader ? '★ ' : ''}${m.id === me ? heroName() : m.name}${m.id !== me ? ` (${(net.peers.get(m.id) || {}).h || '?'} HP)` : ''}`).join(', ')}`);
+    return;
+  }
+  if (sub === 'leave') { if (!party) { sys('You are not in a party.'); return; } partyLeave(); return; }
+  if (sub === 'disband') {
+    if (!party) { sys('You are not in a party.'); return; }
+    if (!lead) { sys('Only the party leader can disband. Use /p leave to leave.'); return; }
+    sendNet('ps', { party: { ...party, gone: true } }); partySet(null, 'You disbanded the party.'); return;
+  }
+  if (sub === 'kick') {
+    if (!lead) { sys(party ? 'Only the party leader can kick.' : 'You are not in a party.'); return; }
+    const nm = rest.slice(1).join(' ').toLowerCase(), m = party.members.find((x) => x.id !== me && (x.name || '').toLowerCase() === nm);
+    if (!m) { sys(`Nobody called "${rest.slice(1).join(' ')}" is in your party.`); return; }
+    party.members = party.members.filter((x) => x !== m);
+    sys(`${m.name} was removed from the party.`);
+    partyPush(); partyCheckSize(); return;
+  }
+  if (sub === 'damage') {
+    if (!lead) { sys(party ? 'Only the party leader can change that.' : 'You are not in a party.'); return; }
+    const on = /^on$/i.test(rest[1] || '') ? true : /^off$/i.test(rest[1] || '') ? false : !party.dmg;
+    party.dmg = on; sys(`Party members ${on ? 'CAN now' : 'can no longer'} hurt each other.`); partyPush(); return;
+  }
+  // otherwise it's an invite
+  if (party && !lead) { sys('Only the party leader can invite people.'); return; }
+  const found = peerByName(arg);
+  if (!found) { sys(`Nobody called "${arg}" is online right now.`); return; }
+  const [id, p] = found;
+  if (inParty(id)) { sys(`${p.name} is already in your party.`); return; }
+  if (party && party.members.length >= PARTY_MAX) { sys(`A party can have ${PARTY_MAX} heroes at most.`); return; }
+  invites.set(id, now);
+  sendNet('pi', { to: id, name: heroName() });
+  sys(`Party invite sent to ${p.name}.`);
+}
+function partyLeave() {
+  const me = myId();
+  if (!party) return;
+  if (party.leader === me) {
+    // hand the crown to the next hero in line, then step out
+    const rest = party.members.filter((m) => m.id !== me);
+    if (rest.length >= 2) sendNet('ps', { party: { ...party, leader: rest[0].id, members: rest } });
+    else sendNet('ps', { party: { ...party, gone: true } });
+  } else sendNet('pl', { to: party.leader });
+  partySet(null, 'You left the party.');
+}
+function partyCheckSize() {
+  if (party && party.members.length < 2) { sendNet('ps', { party: { ...party, gone: true } }); partySet(null, 'Your party disbanded because nobody else is left.'); }
+}
+function partyPeerGone(id) {
+  if (!party || !inParty(id)) return;
+  const me = myId();
+  const m = party.members.find((x) => x.id === id);
+  party.members = party.members.filter((x) => x.id !== id);
+  sys(`${m ? m.name : 'Someone'} left the game and the party.`);
+  // if the leader went, the next hero in the list takes over
+  if (party.leader === id) party.leader = party.members[0] ? party.members[0].id : me;
+  if (party.leader === me) { partyPush(); partyCheckSize(); } else renderParty();
+}
+function invitePrompt(from, name) {
+  const el = document.createElement('div'); el.className = 'pinvite panel';
+  el.innerHTML = `<p><b></b> invites you to a party!</p><div class="row"><button class="primary" type="button">Join</button><button type="button">No thanks</button></div>`;
+  el.querySelector('b').textContent = name;
+  const [yes, no] = el.querySelectorAll('button');
+  const close = () => el.remove();
+  yes.onclick = () => {
+    close();
+    if (party) partyLeave();
+    sendNet('pa', { to: from, name: heroName() });
+    sys(`Joining ${name}'s party...`);
+  };
+  no.onclick = close;
+  setTimeout(close, 30000);
+  document.body.appendChild(el);
+  sfx('coin');
+}
+function onNet(ev, m) {
+  const me = myId(), from = m.id, peer = net.peers.get(from);
+  if (ev === 'pi') { if (peer) invitePrompt(from, (peer && peer.name) || m.name || 'Someone'); return; }
+  if (ev === 'pa') {
+    if (!invites.has(from) || now - invites.get(from) > 60) return;
+    invites.delete(from);
+    if (!party) party = { leader: me, members: [{ id: me, name: heroName() }], dmg: false };
+    if (party.leader !== me || party.members.length >= PARTY_MAX || inParty(from)) return;
+    party.members.push({ id: from, name: (peer && peer.name) || m.name || 'Friend' });
+    sys(`${(peer && peer.name) || m.name} joined your party!`); toast(`${(peer && peer.name) || m.name} joined your party!`, ICONS.star);
+    partyPush(); return;
+  }
+  if (ev === 'pl') {
+    if (!party || party.leader !== me || !inParty(from)) return;
+    const who = party.members.find((x) => x.id === from);
+    party.members = party.members.filter((x) => x.id !== from);
+    sys(`${who.name} left the party.`); partyPush(); partyCheckSize(); return;
+  }
+  if (ev === 'ps') {
+    const p = m.party; if (!p || !Array.isArray(p.members)) return;
+    const mine = p.members.some((x) => x.id === me);
+    if (p.gone) { if (party && (party.leader === from || inParty(from)) && mine) partySet(null, 'The party was disbanded.'); return; }
+    if (mine) {
+      const fresh = !party || party.leader !== p.leader && !inParty(from);
+      if (party && party.dmg !== p.dmg) sys(`Party damage is now ${p.dmg ? 'ON' : 'off'}.`);
+      party = { leader: p.leader, members: p.members.slice(0, PARTY_MAX).map((x) => ({ id: String(x.id), name: String(x.name || 'Friend').slice(0, 16) })), dmg: !!p.dmg };
+      if (fresh) { sys(`You joined ${(peer && peer.name) || 'the'} party! Type /p list to see who is in it.`); toast('You joined a party!', ICONS.star); }
+      renderParty();
+    } else if (party && party.leader === from && party.leader !== me) partySet(null, 'You were removed from the party.');
+    return;
+  }
+  if (ev === 'hit') { if (canFight(from, true)) hurtPlayer(Math.max(1, Math.min(9999, +m.dmg || 0)), from); return; }
+  if (ev === 'ko') {
+    const c = Math.max(0, Math.min(1e7, Math.floor(+m.coins || 0)));
+    S.coins += c; giveHeroXp(60 + heroLvl() * 10);
+    toast(`You won the duel against ${(peer && peer.name) || 'a hero'}!${c ? ` +${fmt(c)} coins` : ''}`, ICONS.coins, true); sfx('win'); refreshUI(); save(); return;
+  }
+  if (ev === 'px') {
+    if (!inParty(from) || m.w !== where || !player || player.dead) return;
+    if (Math.hypot(player.pos.x - m.x, player.pos.z - m.z) > 40) return;
+    giveHeroXp(Math.max(1, Math.round((+m.xp || 0) * 0.4)), player.pos.clone().setY(4.4));
+  }
+}
+// a monster your party helped with: nearby members get a share of its XP
+function partyShareXp(xp, pos) { if (party && party.members.length > 1) sendNet('px', { xp, x: pos.x, z: pos.z, w: where }); }
+// Villages, town squares and indoors are safe. Out in the wild, heroes level 5+ can duel.
+function safeSpot(x, z, w) {
+  if (w !== 'out' && !LANDS[w]) return true;
+  if (Math.hypot(x, z) < 34) return true;
+  for (const L of Object.values(LANDS)) if (L.village && Math.hypot(x - L.village.x, z - L.village.z) < 24) return true;
+  for (const T of TOWNS) if (Math.hypot(x - T.x, z - T.z) < 12) return true;
+  return false;
+}
+function canFight(id, incoming = false) {
+  const p = net.peers.get(id);
+  if (!p || !player || player.dead || p.where !== where) return false;
+  if (inParty(id) && !party.dmg) return false;
+  if (heroLvl() < PVP_LVL || (p.lvl || 1) < PVP_LVL) return false;
+  if (safeSpot(player.pos.x, player.pos.z, where) || safeSpot(p.x, p.z, p.where)) return false;
+  if (incoming && Math.hypot(player.pos.x - p.x, player.pos.z - p.z) > 30) return false;
+  return true;
+}
+// called from the attack code: strike any other hero inside the hit shape
+function hitPeers(test, dmg) {
+  let n = 0;
+  for (const [id, p] of net.peers) {
+    if (p.where !== where || !test(p.x, p.z)) continue;
+    if (!canFight(id)) continue;
+    sendNet('hit', { to: id, dmg: Math.round(dmg) });
+    burst(new THREE.Vector3(p.x, 1.5, p.z), '#ff8a7a', 10, 4); floatText(new THREE.Vector3(p.x, 3.8, p.z), String(Math.round(dmg)), 'big');
+    n++;
+  }
+  return n;
+}
+// party frame under the hero card: names and health bars
+function renderParty() {
+  let el = $('partyframe');
+  if (!party || party.members.length < 2) { if (el) el.hidden = true; return; }
+  if (!el) { el = document.createElement('div'); el.id = 'partyframe'; el.className = 'panel'; document.body.appendChild(el); }
+  el.hidden = false;
+  const me = myId();
+  const rows = party.members.filter((m) => m.id !== me).map((m) => {
+    const p = net.peers.get(m.id) || {}, [h, mx] = String(p.h || '0/1').split('/').map(Number), k = mx ? Math.max(0, Math.min(1, h / mx)) : 0;
+    const far = p.where !== where ? ' far' : '';
+    return `<div class="pm${far}"><span>${m.id === party.leader ? '★ ' : ''}${esc(m.name)}${far ? ' · elsewhere' : ''}</span><i><b style="width:${(k * 100).toFixed(0)}%"></b></i><small>${p.h ? `${h} / ${mx}` : '...'}</small></div>`;
+  }).join('');
+  const html = `<h4>${party.leader === me ? '★ Your party' : 'Party'}${party.dmg ? ' · damage on' : ''}</h4>${rows}`;
+  if (el.dataset.h !== html) { el.dataset.h = html; el.innerHTML = html; }
+}
+let partyUiAt = 0;
+function partyTick() { if (party && now > partyUiAt) { partyUiAt = now + 0.5; renderParty(); } }
+
+// ---------- chat ----------
+// Enter opens the chat box; Enter again sends to everyone on the server. Messages fade from the corner
+// after a while and pop up in a speech bubble over the speaker's head.
+const chatEl = { box: $('chat'), log: $('chatlog'), form: $('chatform'), inp: $('chatin'), btn: $('chatbtn') };
+let chatUnread = 0;
+const chatSpam = new Map(); // id -> recent message times, so one noisy player can't flood everyone
+function chatLine(name, text, cls = '') {
+  const p = document.createElement('p'); if (cls) p.className = cls;
+  if (name) { const b = document.createElement('b'); b.textContent = `${name}: `; p.appendChild(b); }
+  p.appendChild(document.createTextNode(text));
+  chatEl.log.appendChild(p);
+  while (chatEl.log.children.length > 50) chatEl.log.firstChild.remove();
+  chatEl.log.scrollTop = chatEl.log.scrollHeight;
+  setTimeout(() => p.classList.add('old'), 14000);
+  if (!chatEl.box.classList.contains('open') && !cls) { chatUnread++; chatBadge(); }
+}
+function chatBadge() {
+  let n = chatEl.btn.querySelector('small');
+  if (!chatUnread) { if (n) n.remove(); return; }
+  if (!n) { n = document.createElement('small'); chatEl.btn.appendChild(n); }
+  n.textContent = chatUnread > 9 ? '9+' : chatUnread;
+}
+function sayBubble(tag, text) {
+  if (!tag) return;
+  let i = tag.querySelector('i');
+  if (!i) { i = document.createElement('i'); tag.appendChild(i); }
+  i.textContent = text.length > 80 ? `${text.slice(0, 78)}...` : text;
+  clearTimeout(i.timer); i.timer = setTimeout(() => i.remove(), 4000 + text.length * 60);
+}
+function openChat() {
+  chatEl.box.classList.add('open'); chatUnread = 0; chatBadge();
+  keys.clear();
+  chatEl.inp.focus();
+  chatEl.log.scrollTop = chatEl.log.scrollHeight;
+}
+function closeChat() { chatEl.box.classList.remove('open'); chatEl.inp.blur(); chatEl.inp.value = ''; }
+chatEl.btn.onclick = openChat;
+chatEl.inp.addEventListener('keydown', (e) => { if (e.key === 'Escape') { e.preventDefault(); closeChat(); } e.stopPropagation(); });
+chatEl.inp.addEventListener('keyup', (e) => e.stopPropagation());
+chatEl.form.addEventListener('submit', (e) => {
+  e.preventDefault();
+  const raw = chatEl.inp.value;
+  if (!cleanChat(raw)) { closeChat(); return; }
+  if (/^\//.test(raw.trim())) { chatCommand(raw.trim()); chatEl.inp.value = ''; if (matchMedia('(pointer: coarse)').matches) closeChat(); return; }
+  if (!net.on && !DEV) { chatLine('', 'Chat needs the game server. Try again in a moment.', 'sys'); return; }
+  const r = sendChat(raw);
+  if (r.error) { chatLine('', r.error, 'sys'); return; }
+  chatLine(heroName(), r.text, 'me');
+  heroTag(); sayBubble(heroTagEl, r.text);
+  chatEl.inp.value = '';
+  if (matchMedia('(pointer: coarse)').matches) closeChat();
+  else chatEl.inp.focus();
+});
+net.onChat = (m) => {
+  const t = performance.now(), list = (chatSpam.get(m.id) || []).filter((x) => t - x < 8000);
+  if (list.length >= 4 || !m.text) return;
+  list.push(t); chatSpam.set(m.id, list);
+  chatLine(m.name, m.text);
+  const pa = peerActors.get(m.id);
+  if (pa) sayBubble(pa.tag, m.text);
+};
 
 function startHero() {
   player = new Actor(heroModel());
@@ -826,6 +1084,15 @@ function headParts(a = player) {
   }
   a.headInfo = { head, bone, box: headRef };
   return a.headInfo;
+}
+// The big chibi head sits low on the shoulders, so there is no long bare neck.
+// Animations may or may not move the head bone, so only lower it when the mixer has just set it.
+const NECK_DROP = 0.2;
+function headPose(a) {
+  if (!a || !a.headInfo || !a.headScale) return;
+  const b = a.headInfo.bone; b.scale.setScalar(a.headScale);
+  if (b.position.y !== a.headY) a.headBase = b.position.y;
+  b.position.y = a.headBase - NECK_DROP * a.headScale; a.headY = b.position.y;
 }
 const headGeo = (() => {
   const g = new THREE.SphereGeometry(1, 56, 40), p = g.attributes.position, v = new THREE.Vector3();
@@ -1552,7 +1819,7 @@ function npcLife(n, dt) {
   a.mixer.update(dt);
   n.marker.position.y = 4.6 + Math.sin(now * 3 + n.x) * 0.15;
   if (!a.root.visible) return;
-  if (a.headInfo && a.headScale) a.headInfo.bone.scale.setScalar(a.headScale);
+  headPose(a);
   faceTick(a);
   // a gentle squash-and-stretch breath, bouncier while chatting
   const chat = talking === n, hop = Math.max(0, (a.hopUntil || 0) - now);
@@ -2607,6 +2874,7 @@ addEventListener('keydown', (e) => {
   if (e.code === 'Escape') { closeSheet(); closeDialog(); }
   if (!player || uiLock()) return;
   if (e.target && /INPUT|TEXTAREA|SELECT/.test(e.target.tagName)) return;
+  if ((e.code === 'Enter' || e.code === 'NumpadEnter') && !codeToAct[e.code] && !creator.open) { e.preventDefault(); openChat(); return; }
   const act = codeToAct[e.code];
   if (!act) return;
   e.preventDefault();
@@ -2868,6 +3136,7 @@ function swing() {
     let hit = false;
     for (const e of enemies) if (e.hp > 0 && e.state !== 'rising' && e.state !== 'gone' && e.inside === where && inArc(e.pos.x, e.pos.z, 0.8, reach + 0.3, C.arc) >= 0) { hurtEnemy(e, dmg(), null, C.power); hit = true; }
     for (const c of crew) if (isRival(c) && crewUp(c) && c.inside === where && inArc(c.pos.x, c.pos.z, 0.7, reach + 0.3, C.arc) >= 0) { hurtCrew(c, dmg(), player); hit = true; }
+    if (net.on && hitPeers((x, z) => inArc(x, z, 0.7, reach + 0.3, C.arc) >= 0, dmg())) hit = true;
     if (!hit) for (const n of nodes) if (n.alive && n.def.skill !== 'fishing' && inArc(n.x, n.z, n.r, w.reach) >= 0) { burst(new THREE.Vector3(n.x, 1.4, n.z), '#ffe9a8', 6, 3); break; }
   });
 }
@@ -2902,7 +3171,7 @@ function special() {
   specialReady = now + SP.cd; player.nextHit = now + 0.6; sfx('special');
   const big = w.unique ? 1.25 : 1;
   const fwd = fwdOf(player), pp = player.pos;
-  const hitIn = (cx, cz, R, mult) => { let n = 0; for (const e of enemies) if (e.hp > 0 && e.state !== 'rising' && e.inside === where && Math.hypot(e.pos.x - cx, e.pos.z - cz) < R + (e.T.boss ? 1.2 : 0.5)) { hurtEnemy(e, Math.round(heroDamage() * mult) || 1, { x: cx, z: cz }, 1.7); n++; } return n; };
+  const hitIn = (cx, cz, R, mult) => { let n = 0; for (const e of enemies) if (e.hp > 0 && e.state !== 'rising' && e.inside === where && Math.hypot(e.pos.x - cx, e.pos.z - cz) < R + (e.T.boss ? 1.2 : 0.5)) { hurtEnemy(e, Math.round(heroDamage() * mult) || 1, { x: cx, z: cz }, 1.7); n++; } if (net.on) n += hitPeers((x, z) => Math.hypot(x - cx, z - cz) < R + 0.5, Math.round(heroDamage() * mult) || 1); return n; };
   const ring = (cx, cz, R, col) => {
     const m = new THREE.Mesh(new THREE.RingGeometry(0.7, 1, 48), new THREE.MeshBasicMaterial({ color: col, transparent: true, opacity: 0.85, depthWrite: false, fog: false, side: THREE.DoubleSide }));
     m.rotation.x = -Math.PI / 2; m.position.set(cx, 0.2, cz); m.layers.set(1); scene.add(m);
@@ -3107,7 +3376,7 @@ function hurtEnemy(e, dmg, src = null, power = 1) {
     e.state = 'dead'; e.bar.hidden = true;
     e.play('Death_A', { once: true, clamp: true, fade: 0.1 });
     if (!e.T.noBones) later(0.75, () => { if (e.state === 'dead') collapse(e); });
-    giveHeroXp(e.T.xp, e.pos.clone().setY(4));
+    giveHeroXp(e.T.xp, e.pos.clone().setY(4)); partyShareXp(e.T.xp, e.pos);
     const coins = e.T.coins ? e.T.coins[0] + Math.floor(rng() * (e.T.coins[1] - e.T.coins[0])) : 3 + Math.floor(rng() * 9);
     S.coins += coins; addItem('bones'); later(0.25, () => sfx('coin'));
     rollLoot(e);
@@ -3143,7 +3412,7 @@ function hurtEnemy(e, dmg, src = null, power = 1) {
   }
 }
 let lastHurt = -10;
-function hurtPlayer(dmg) {
+function hurtPlayer(dmg, from = null) {
   if (player.dead || creator.open) return;
   const head = player.pos.clone().setY(3.6);
   if (dmg === 0) { floatText(head, 'Miss', 'miss'); return; }
@@ -3158,8 +3427,13 @@ function hurtPlayer(dmg) {
     S.hp = 0; player.dead = true; cancelTask(); moveTarget = null;
     player.play('Death_A', { once: true, clamp: true, fade: 0.1 });
     const lost = Math.floor(S.coins / 2);
-    if (lost > 0) { S.coins -= lost; dropPouch(lost); }
-    toast(lost > 0 ? `You were knocked out and dropped ${lost} coins where you fell! Go back for them, or bank your coins next time.` : 'You were knocked out! You wake up by the well.', null, true);
+    const foe = from && net.peers.get(from);
+    if (foe) {
+      // beaten in a duel: the winner takes the coins you were carrying
+      S.coins -= lost; sendNet('ko', { to: from, coins: lost });
+      toast(`${foe.name || 'Another hero'} beat you in a duel${lost > 0 ? ` and took ${fmt(lost)} coins` : ''}! Bank your coins to keep them safe.`, null, true);
+    } else if (lost > 0) { S.coins -= lost; dropPouch(lost); }
+    if (!foe) toast(lost > 0 ? `You were knocked out and dropped ${lost} coins where you fell! Go back for them, or bank your coins next time.` : 'You were knocked out! You wake up by the well.', null, true);
     later(3, () => {
       player.root.position.set(0, 0, 6); player.air = false; where = 'out'; camPos.set(0, 30, 40);
       S.hp = maxHp(); player.dead = false; player.play('Idle'); refreshUI(); save();
@@ -3788,6 +4062,7 @@ function drawMap(cv, full) {
   const chestIcon = (x, z) => { const [u, v] = toPx(x, z), w = 7 * S1; g.fillStyle = '#ffd23f'; g.strokeStyle = '#3a2010'; g.lineWidth = 1.5 * S1; g.beginPath(); g.roundRect(u - w, v - w * 0.7, w * 2, w * 1.4, 2 * S1); g.fill(); g.stroke(); g.beginPath(); g.moveTo(u - w, v - w * 0.1); g.lineTo(u + w, v - w * 0.1); g.stroke(); };
   for (const c of chests) if (!c.open) chestIcon(c.x, c.z);
   for (const e of enemies) if (e.hp > 0 && e.state !== 'rising' && e.state !== 'gone' && e.inside === where) { if (e.T.boss) skull(e.pos.x, e.pos.z, 8); else dot(e.pos.x, e.pos.z, full ? 2.5 : 3.5, '#ff5a4a'); }
+  if (party) for (const m of party.members) { const p = net.peers.get(m.id); if (p && p.where === where && m.id !== myId()) { dot(p.x, p.z, full ? 6 : 5.5, '#4fc3ff'); if (full) { const [u, v] = toPx(p.x, p.z); g.font = `800 ${11 * dpr}px Fredoka, sans-serif`; g.textAlign = 'center'; g.lineWidth = 3 * dpr; g.strokeStyle = '#3a2010'; g.strokeText(m.name, u, v - 9 * dpr); g.fillStyle = '#bfe9ff'; g.fillText(m.name, u, v - 9 * dpr); } } }
   for (const c of crew) if (c.inside === where) dot(c.x, c.z, full ? 3.5 : 4, crewCfg(c).mode === 'ally' ? '#5ad87a' : crewCfg(c).mode === 'rival' ? '#ff7a3a' : '#c8a8ff');
   for (const T of TOWNS) if ((T.land || null) === (Lm ? Lm.id : null)) flag(T.x - 5, T.z - 3, townFree(T.id) ? '#3a8fe8' : '#d8324a');
   for (const n of npcs) {
@@ -4132,9 +4407,9 @@ function tick() {
   bossUi();
   zoneBanner();
   for (const [i, c] of dynamic.crystals.entries()) { c.position.y = 2.4 + Math.sin(now * 1.6 + i) * 0.4; c.rotation.y = now * 0.8 + i; }
-  if (player) { player.mixer.update(dt); if (player.headScale && player.headInfo) player.headInfo.bone.scale.setScalar(player.headScale); faceTick(player); }
+  if (player) { player.mixer.update(dt); headPose(player); faceTick(player); }
   for (const n of npcs) npcLife(n, dt);
-  crewTick(dt); crewTags(); heroTag(); peersTick(dt); emoteTick(); bossShoutTick(); townTick(); letterTick(); if (snowFx) { snowFx.visible = where === 'frost'; if (snowFx.visible && player) snowFx.userData.tick(dt, player.pos.x, player.pos.z); } if (now > 45 && !document.body.classList.contains('nohint')) document.body.classList.add('nohint'); occluderTick(dt);
+  crewTick(dt); crewTags(); heroTag(); peersTick(dt); partyTick(); emoteTick(); bossShoutTick(); townTick(); letterTick(); if (snowFx) { snowFx.visible = where === 'frost'; if (snowFx.visible && player) snowFx.userData.tick(dt, player.pos.x, player.pos.z); } if (now > 45 && !document.body.classList.contains('nohint')) document.body.classList.add('nohint'); occluderTick(dt);
   guideTick(); musicTick();
 
   for (let i = lootPops.length - 1; i >= 0; i--) {
@@ -5081,7 +5356,7 @@ function crewTick(dt) {
     a.root.visible = here;
     if (near) {
       a.mixer.update(dt);
-      if (a.headInfo && a.headScale) a.headInfo.bone.scale.setScalar(a.headScale);
+      headPose(a);
       faceTick(a);
       const hop = Math.max(0, (a.hopUntil || 0) - now);
       p.y = hop > 0 ? Math.sin((1 - hop / 0.35) * Math.PI) * 0.45 : 0;
@@ -5432,7 +5707,7 @@ function pompLeave() {
 function pompTick(dt) {
   if (!pomp) return;
   pomp.mixer.update(dt);
-  if (pomp.headInfo && pomp.headScale) pomp.headInfo.bone.scale.setScalar(pomp.headScale);
+  headPose(pomp);
   faceTick(pomp);
 }
 
@@ -5808,7 +6083,7 @@ function makeGagronFriend() {
   npcs.push(gagronFriend);
 }
 
-window.__jq = { openUpgrade, openBoard, boardToday, queueLetter, makeGagronFriend, net, peerActors, runeTick, bossFx, renderer, scene, openMayor, darkOmen, netWorth, liberateTown, spots, spotEffect, setGolden, goldenCaught, pompArrive, get goldenE() { return goldenE; }, spinWheel, dayTick, get bossIntro() { return bossIntro; }, bossSkip, startBossScene, sailTo, regions, closeSheet, renderHotbar, crew, setCrewMode, TOWNS, liberateTown, chests, openChest, stopRoulette, enemies, startBossIntro, closeDialog, advanceDialog, dash, attackPress, craft, CRAFTS, openCreator, closeCreator, creator, rebuildHero, setZoom: (z) => { zoom = z; }, hurtEnemy, goThrough, get where() { return where; }, INTERIORS, equipGear, spendPoint, giveHeroXp, heroLvl, stat, maxHp, defDiv, openWeaponShop, openKing, jump, eat, eatBest, openShop, swing, swingTarget, hitNode, projectiles, timers, get S() { return S; }, get player() { return player; }, enemies, nodes, npcs, startTask, doAction, giveXp, save, openSheet, openDialog };
+window.__jq = { get party() { return party; }, onNet, chatCommand, canFight, openUpgrade, openBoard, boardToday, queueLetter, makeGagronFriend, net, peerActors, runeTick, bossFx, renderer, scene, openMayor, darkOmen, netWorth, liberateTown, spots, spotEffect, setGolden, goldenCaught, pompArrive, get goldenE() { return goldenE; }, spinWheel, dayTick, get bossIntro() { return bossIntro; }, bossSkip, startBossScene, sailTo, regions, closeSheet, renderHotbar, crew, setCrewMode, TOWNS, liberateTown, chests, openChest, stopRoulette, enemies, startBossIntro, closeDialog, advanceDialog, dash, attackPress, craft, CRAFTS, openCreator, closeCreator, creator, rebuildHero, setZoom: (z) => { zoom = z; }, hurtEnemy, goThrough, get where() { return where; }, INTERIORS, equipGear, spendPoint, giveHeroXp, heroLvl, stat, maxHp, defDiv, openWeaponShop, openKing, jump, eat, eatBest, openShop, swing, swingTarget, hitNode, projectiles, timers, get S() { return S; }, get player() { return player; }, enemies, nodes, npcs, startTask, doAction, giveXp, save, openSheet, openDialog };
 window.addEventListener('error', (e) => { const m = $('loadmsg'); if (m) m.textContent = `Something went wrong: ${e.message}`; });
 main().catch((err) => {
   console.error(err);
