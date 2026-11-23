@@ -466,6 +466,21 @@ function gear(r, teeth = 10, col = '#c8984a') {
 }
 export const SANDS_FX = { castle: null };
 // a choppable desert palm for Woodcutting: the full tree and its stump
+// A choppable round toy tree (matches the round forest trees): oak ones are bigger and carry apples.
+export function roundNode(x, z, oak = false, sc = 2.4) {
+  const g = new THREE.Group(), ball = new THREE.SphereGeometry(1, 16, 12);
+  const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.14, 0.7, 10)); trunk.position.y = 0.35; g.add(add(trunk, '#8a5530'));
+  const leaf = oak ? '#3f9a3e' : '#5cc443';
+  const blobs = oak ? [[0, 0.95, 0, 0.5], [0.34, 0.8, 0.08, 0.34], [-0.32, 0.82, -0.08, 0.33], [0.02, 1.32, 0, 0.32], [0.05, 0.8, 0.33, 0.3]] : [[0, 0.9, 0, 0.42], [0.26, 0.76, 0.06, 0.28], [-0.24, 0.78, -0.06, 0.27], [0.02, 1.2, 0, 0.27]];
+  for (const [bx, by, bz, r] of blobs) { const m = new THREE.Mesh(ball); m.position.set(bx, by, bz); m.scale.set(r, r * 0.92, r); g.add(add(m, leaf)); }
+  if (oak) for (const [ax, ay, az] of [[0.28, 0.82, 0.38], [-0.34, 1.0, 0.24], [0.08, 0.66, -0.44], [0.42, 1.1, -0.12], [-0.12, 1.5, 0.2]]) { const a = new THREE.Mesh(new THREE.SphereGeometry(0.07, 8, 6)); a.position.set(ax, ay, az); g.add(add(a, '#e8402f')); }
+  g.scale.setScalar(sc * (0.9 + rng() * 0.2)); g.position.set(x, 0, z); g.rotation.y = rng() * 6; scene.add(g);
+  const cut = new THREE.Group(); const st = new THREE.Mesh(new THREE.CylinderGeometry(0.13, 0.16, 0.22, 10)); st.position.y = 0.11; cut.add(add(st, '#8a5530'));
+  const top = new THREE.Mesh(new THREE.CircleGeometry(0.12, 12)); top.rotation.x = -Math.PI / 2; top.position.y = 0.225; cut.add(add(top, '#f0d8a0'));
+  cut.scale.setScalar(sc); cut.position.set(x, 0, z); scene.add(cut);
+  colliders.push({ x, z, r: 0.8 });
+  return { full: g, cut };
+}
 export function palmNode(x, z, sc = 1.8) {
   const full = palm(); full.scale.setScalar(sc); full.position.set(x, 0, z); full.rotation.y = rng() * 6; scene.add(full);
   const cut = new THREE.Group(); const st = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.24, 0.35, 8)); st.position.y = 0.17; cut.add(add(st, '#a8784a'));

@@ -206,8 +206,8 @@ export function buildWorld(library) {
     if ((dynamic.lavas || []).some((L) => Math.hypot(x - L.x, z - L.z) < L.r + 3)) return;
     // mostly round, bouncy storybook trees, with a few pines mixed in
     if (rng() < 0.7) { rounds['ABC'[Math.floor(rng() * 3)]].push(M(x, 0, z, S_NATURE * (big ? 1.15 : 0.95) * (0.85 + rng() * 0.35), rng() * 6)); colliders.push({ x, z, r: big ? 1.35 : 1.0 }); return; }
-    const k = big ? (rng() > 0.5 ? 'trees_A_large' : 'trees_B_large') : (rng() > 0.5 ? 'trees_A_medium' : 'trees_B_medium');
-    kinds[k].push(M(x, 0, z, S_NATURE * (0.85 + rng() * 0.35), rng() * 6));
+    // (sharp pines are kept for the snowy north; the valley is all round toy trees now)
+    rounds['ABC'[Math.floor(rng() * 3)]].push(M(x, 0, z, S_NATURE * (big ? 1.15 : 0.95) * (0.85 + rng() * 0.35), rng() * 6));
     colliders.push({ x, z, r: big ? 1.35 : 1.0 });
   };
   for (let i = 0; i < 1400; i++) {

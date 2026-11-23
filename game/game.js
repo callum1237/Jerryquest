@@ -4,7 +4,7 @@ import { THREE, scene, camera, renderer, sun, sky, PRESETS, env, applyPreset, bl
 import * as SkeletonUtils from 'three/addons/utils/SkeletonUtils.js';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { buildWorld, buildFlowers, place, tentAt, S_PROP, S_BUILD, colliders, clouds, dynamic, LAKE, CAMP, MINE, S_NATURE, blocked, isFree, ZONES, WORLD_R, VS, TOWNS, ROADS, townFacing } from './world.js';
-import { LANDS, VALLEY_DOCK, buildLands, makeSnow, landRoads, SANDS_FX, palmNode } from './lands.js';
+import { LANDS, VALLEY_DOCK, buildLands, makeSnow, landRoads, SANDS_FX, palmNode, roundNode } from './lands.js';
 import { ICONS } from './icons.js';
 import { buildInteriors, INTERIORS, lavaPools } from './interiors.js';
 import { unlockAudio, playMusic, sfx, setVolumes } from './audio.js';
@@ -1511,7 +1511,7 @@ const headGeo = (() => {
 })();
 const earGeo = new THREE.ConeGeometry(0.13, 0.5, 10);
 const humanEarGeo = new THREE.SphereGeometry(1, 12, 10);
-const FW = 1024, FH = 512, FX = 256, EY = 268, ESEP = 80;
+const FW = 1024, FH = 512, FX = 256, EY = 268, ESEP = 92, EYE_K = 1.32;
 function shade(hex, k) { return `#${new THREE.Color(hex).multiplyScalar(k).getHexString()}`; }
 // Lighter/darker sliders: -1 is much darker, +1 much lighter, 0 is the swatch colour.
 const _tc = new THREE.Color(), _tw = new THREE.Color('#ffffff'), _tk = new THREE.Color('#1c1216');
@@ -1525,7 +1525,7 @@ function mixHex(a, b, t) { return `#${new THREE.Color(a).lerp(new THREE.Color(b)
 function drawEye(g, x, y, side, L, state) {
   const ink = '#2b160c', female = L.sex === 'f', col = eyeOf(L);
   const lidCol = shade(skinOf(L), 0.86);
-  g.save(); g.translate(x, y); g.scale(side, 1); // draw as the right eye; the outer corner is +x
+  g.save(); g.translate(x, y); g.scale(side * EYE_K, EYE_K); // draw as the right eye; the outer corner is +x
   g.lineCap = 'round'; g.lineJoin = 'round';
   const lashFlicks = () => {
     if (!female) return;
@@ -1566,6 +1566,7 @@ function drawEye(g, x, y, side, L, state) {
   g.beginPath(); g.ellipse(ix - 9, iy - 14, 9, 11, -0.3, 0, Math.PI * 2); g.fill();
   g.beginPath(); g.arc(ix + 10, iy + 16, 4.5, 0, Math.PI * 2); g.fill();
   g.globalAlpha = 0.55; g.beginPath(); g.arc(ix + 12, iy - 6, 3, 0, Math.PI * 2); g.fill(); g.globalAlpha = 1;
+  g.beginPath(); for (let k = 0; k < 8; k++) { const r = k % 2 ? 2.2 : 7, a = k * Math.PI / 4; g.lineTo(ix + 9 + Math.cos(a) * r, iy - 20 + Math.sin(a) * r); } g.closePath(); g.fill();
   // shadow from the upper lid
   g.fillStyle = 'rgba(60,30,20,0.18)'; g.beginPath(); g.ellipse(0, -ry + 6, rx + 4, 14, 0, 0, Math.PI * 2); g.fill();
   // lids: determined eyes are cut by a slanted lid, sleepy ones are half closed
@@ -1630,7 +1631,7 @@ function paintFace(g, L, state) {
   }
   // little nose
   g.fillStyle = shade(skin, 0.78); g.beginPath(); g.ellipse(FX + 2, EY + 46, 5, 3.5, 0, 0, Math.PI * 2); g.fill();
-  for (const s of [-1, 1]) { drawEye(g, FX + s * ESEP, EY, s, L, state); drawBrow(g, FX + s * (ESEP - 4), EY - 62, s, L); }
+  for (const s of [-1, 1]) { drawEye(g, FX + s * ESEP, EY, s, L, state); drawBrow(g, FX + s * (ESEP - 4), EY - 78, s, L); }
   drawMouth(g, FX, EY + 82, L, state);
   if (L.mark === 'freckles') { g.fillStyle = shade(skin, 0.68); for (const [dx, dy] of [[-120, 44], [-104, 56], [-92, 42], [-112, 66], [92, 42], [104, 56], [120, 44], [112, 66], [-12, 40], [14, 40]]) { g.beginPath(); g.arc(FX + dx, EY + dy, 3.5, 0, Math.PI * 2); g.fill(); } }
   if (L.mark === 'scar') { g.strokeStyle = shade(skin, 0.62); g.lineWidth = 6; g.lineCap = 'round'; g.beginPath(); g.moveTo(FX - 44, EY + 18); g.lineTo(FX + 36, EY + 58); g.stroke(); g.strokeStyle = '#ffd9cc'; g.lineWidth = 2; g.stroke(); }
@@ -2057,10 +2058,7 @@ function hpNode(n) {
 function buildNodes() {
   const addTree = (x, z, kind) => {
     if (blocked(x, z) || !isFree(x, z, 2.5) || Math.hypot(x, z) < 12) return;
-    const v = kind === 'oak' ? 'B' : 'A';
-    const s = kind === 'oak' ? S_NATURE * 1.25 : S_NATURE;
-    const full = place(`tree_single_${v}`, x, z, s, rng() * 6, { shrink: 0.35 });
-    const cut = place(`tree_single_${v}_cut`, x, z, s, full.rotation.y, { collide: false });
+    const { full, cut } = roundNode(x, z, kind === 'oak', kind === 'oak' ? 2.5 : 2.1); addInk(full); addInk(cut);
     cut.visible = false;
     nodes.push(hpNode({ kind, def: NODES[kind], x, z, full, cut, alive: true, respawnAt: 0, reach: 2.6, r: 1.1 }));
   };
@@ -2328,6 +2326,13 @@ const npcIdle = (n) => n.actor.play(n.id === 'fenwick' ? 'Spellcasting' : 'Idle'
 // ---------- enemies ----------
 for (const k of ['mud_gloop', 'boss_gobbler', 'sand_gloop']) ENEMY_TYPES[k].alias = ENEMY_TYPES.bog_slime.alias;
 ENEMY_TYPES.dust_bat.alias = ENEMY_TYPES.mire_bat.alias;
+// Valley critters: round, goofy monsters alongside the skeletons (Quaternius CC0 slime and bat)
+Object.assign(ENEMY_TYPES, {
+  jelly_slime: { name: 'Jelly Slime', model: 'slime', hp: 14, maxHit: 3, xp: 18, scale: 0.6, noBones: true, poof: true, tintAll: '#ff8ac8', mass: 0.9, coins: [3, 10], alias: ENEMY_TYPES.bog_slime.alias },
+  honey_slime: { name: 'Honey Slime', model: 'slime', hp: 20, maxHit: 4, xp: 24, scale: 0.7, noBones: true, poof: true, tintAll: '#ffc83a', mass: 1, coins: [4, 12], alias: ENEMY_TYPES.bog_slime.alias },
+  mint_slime: { name: 'Mint Slime', model: 'slime', hp: 22, maxHit: 4, xp: 26, scale: 0.7, noBones: true, poof: true, tintAll: '#7fe8c8', mass: 1, coins: [4, 12], alias: ENEMY_TYPES.bog_slime.alias },
+  hollow_bat: { name: 'Hollow Bat', model: 'bat', hp: 16, maxHit: 4, xp: 24, scale: 0.6, noBones: true, poof: true, fly: 1.5, mass: 0.6, tintAll: '#8a6ac8', coins: [4, 12], alias: ENEMY_TYPES.mire_bat.alias },
+});
 function spawnEnemy(k, x, z) {
   const T = ENEMY_TYPES[k];
   const e = new Actor(G[T.model || k], { scale: T.scale || 1.3 });
@@ -2384,8 +2389,11 @@ function buildEnemies() {
   for (const [k, dx, dz] of [['skel_warrior', -3, -4], ['skel_minion', -6, 3], ['skel_mage', 2, 6], ['skel_minion', 5, -1], ['skel_minion', -1, 9]]) spawnEnemy(k, CAMP.x + dx, CAMP.z + dz);
   const ring = (Z, list, r) => list.forEach((k, i) => { const a = (i / list.length) * Math.PI * 2 + 0.4; spawnEnemy(k, Z.x + Math.cos(a) * r, Z.z + Math.sin(a) * r); });
   ring(ZONES.crags, ['skel_warrior', 'skel_minion', 'skel_warrior', 'skel_minion'], 16);
-  ring(ZONES.glimmer, ['skel_mage', 'skel_minion', 'skel_mage', 'skel_mage'], 17);
-  ring(ZONES.hollow, ['skel_minion', 'skel_warrior', 'skel_minion', 'skel_mage', 'skel_minion'], 14);
+  ring(ZONES.glimmer, ['skel_mage', 'mint_slime', 'skel_mage', 'mint_slime', 'jelly_slime'], 17);
+  ring(ZONES.hollow, ['skel_minion', 'hollow_bat', 'skel_warrior', 'hollow_bat', 'skel_mage', 'hollow_bat'], 14);
+  ring(ZONES.meadow, ['honey_slime', 'jelly_slime', 'honey_slime', 'jelly_slime', 'honey_slime'], 14);
+  // a few soft starter critters on the roads near the village
+  for (const [x, z] of [[30, 34], [-34, 40], [44, -30]]) spawnEnemy('jelly_slime', x, z);
   spawnEnemy('boss_crusher', ZONES.crags.x, ZONES.crags.z);
   spawnEnemy('boss_gloom', ZONES.glimmer.x + 4, ZONES.glimmer.z);
   spawnEnemy('boss_rattle', ZONES.hollow.x, ZONES.hollow.z + 2);
@@ -2569,7 +2577,7 @@ function questProgress(id) {
   const q = QUESTS[id], st = S.quests[id];
   return Object.entries(q.need).map(([k, n]) => {
     const have = Math.min(n, needHave(k, st));
-    return `${k === 'kills' ? (q.land ? 'Monsters' : 'Skeletons') : k === 'boss' ? ENEMY_TYPES[q.bossType].name : k === 'lanterns' ? 'Lanterns lit' : k === 'choice' ? 'Choice made' : k === 'riddles' ? 'Riddles answered' : k === 'crates' ? 'Crates found' : k === 'castle' ? 'Lookout reached' : ITEMS[k]} ${have}/${n}`;
+    return `${k === 'kills' ? 'Monsters' : k === 'boss' ? ENEMY_TYPES[q.bossType].name : k === 'lanterns' ? 'Lanterns lit' : k === 'choice' ? 'Choice made' : k === 'riddles' ? 'Riddles answered' : k === 'crates' ? 'Crates found' : k === 'castle' ? 'Lookout reached' : ITEMS[k]} ${have}/${n}`;
   }).join(', ');
 }
 
