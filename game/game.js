@@ -3538,7 +3538,7 @@ addEventListener('keydown', (e) => {
   }
   if (emoteWheelOpen() && !e.repeat) { const m = /^(Digit|Numpad)([1-9])$/.exec(e.code); if (m) { e.preventDefault(); doEmote(+m[2] - 1); return; } if (e.code === 'Escape') { toggleEmotes(false); return; } }
   if (e.repeat && act !== 'interact') return;
-  if (act === 'attack') attackPress(true);
+  if (act === 'attack') { attackPress(true); chargeStart(); }
   else if (act === 'dash') dash();
   else if (act === 'special') special();
   // spamming E through a conversation: the extra presses after it ends don't start it all over again
@@ -3560,8 +3560,9 @@ addEventListener('keyup', (e) => {
     keys.delete(MOVE_KEY[act]);
   }
   if (act === 'interact') held = false;
+  if (act === 'attack') chargeRelease();
 });
-addEventListener('blur', () => { keys.clear(); held = false; });
+addEventListener('blur', () => { keys.clear(); held = false; charge = null; });
 addEventListener('blur', () => { keys.clear(); held = false; });
 
 let moveTarget = null, pending = null;
@@ -3793,6 +3794,64 @@ function swing() {
   });
 }
 let comboStep = 0, lastSwingAt = -9, dashLunge = null;
+// ---------- charged attack ----------
+// Tap J for the normal combo. Hold J: a ring fills round your feet, and letting go unleashes a big
+// blow with up to almost three times the damage and much more reach.
+const CHARGE_MIN = 0.45, CHARGE_FULL = 1.3;
+let charge = null, chargeRing = null;
+function chargeStart() { if (!player || player.dead || uiLock() || talking) return; charge = { at: now, full: false }; }
+function chargeTick() {
+  if (!chargeRing) {
+    chargeRing = new THREE.Mesh(new THREE.RingGeometry(0.82, 1, 48), new THREE.MeshBasicMaterial({ color: '#ffd23f', transparent: true, opacity: 0.85, depthWrite: false, fog: false, side: THREE.DoubleSide }));
+    chargeRing.rotation.x = -Math.PI / 2; chargeRing.layers.set(1); chargeRing.visible = false; scene.add(chargeRing);
+  }
+  if (!charge || !player || player.dead || uiLock()) { chargeRing.visible = false; if (charge && (!player || player.dead || uiLock())) charge = null; return; }
+  const t = now - charge.at;
+  if (t < CHARGE_MIN * 0.6) { chargeRing.visible = false; return; }
+  const k = Math.min(1, (t - CHARGE_MIN * 0.6) / (CHARGE_FULL - CHARGE_MIN * 0.6));
+  chargeRing.visible = true; chargeRing.position.set(player.pos.x, 0.18 + player.pos.y, player.pos.z);
+  chargeRing.scale.setScalar(3.2 - 1.6 * k);
+  chargeRing.material.color.set(k >= 1 ? (Math.sin(now * 20) > 0 ? '#ffffff' : '#ff8a3a') : '#ffd23f');
+  if (k >= 1 && !charge.full) { charge.full = true; sfx('door'); burst(player.pos.clone().setY(1.4), '#ffd23f', 24, 4); floatText(player.pos.clone().setY(3.8), 'Charged!', 'gain'); }
+}
+function chargeRelease() {
+  const c = charge; charge = null; if (chargeRing) chargeRing.visible = false;
+  if (!c || !player || player.dead || uiLock() || talking) return;
+  const t = now - c.at; if (t < CHARGE_MIN) return; // just a tap: the normal combo already played
+  chargedAttack(Math.min(1, (t - CHARGE_MIN) / (CHARGE_FULL - CHARGE_MIN)));
+}
+function chargedAttack(k) {
+  const w = W(), A = STYLES[w.type];
+  if (now - aim.at < 2.5) { player.face(aim.x, aim.z); aim.at = -99; }
+  if (player.task) cancelTask();
+  const mult = 1.7 + 1.1 * k, reachK = 1.45 + 0.45 * k;
+  player.nextHit = now + Math.max(0.35, w.cd * 0.6); comboStep = 0;
+  showGear(null); sfx('slam');
+  player.play(A.proj ? (A.proj === 'orb' ? 'Spellcast_Shoot' : '1H_Ranged_Shoot') : w.heavy ? '2H_Melee_Attack_Chop' : '1H_Melee_Attack_Chop', { once: true, fade: 0.04, speed: 1.4 });
+  player.busyUntil = now + 0.3;
+  const fwd = fwdOf(player), dmg = () => Math.max(1, Math.round(heroDamage() * mult));
+  if (A.proj) {
+    for (const a of [-0.24, -0.12, 0, 0.12, 0.24]) {
+      const d = fwd.clone().applyAxisAngle(new THREE.Vector3(0, 1, 0), a);
+      shoot(player.pos.clone().add(new THREE.Vector3(0, 1.8, 0)).addScaledVector(d, 0.8), d, A.proj, w.reach * 1.35, 'player', (e) => (e.isCrew ? hurtCrew(e, dmg(), player) : hurtEnemy(e, dmg(), null, 2)));
+    }
+    burst(player.pos.clone().setY(1.8).addScaledVector(fwd, 1.2), A.proj === 'orb' ? '#bff6ff' : '#ffe9a8', 30, 6);
+    return;
+  }
+  const reach = w.reach * reachK, arc = 1.35;
+  dashLunge = { x: fwd.x, z: fwd.z, left: 0.5 };
+  later(0.12, () => {
+    if (player.dead) return;
+    // a golden shockwave fan in front of you shows how far the blow reached
+    const m = new THREE.Mesh(new THREE.CircleGeometry(1, 32, Math.PI / 2 - arc, arc * 2), new THREE.MeshBasicMaterial({ color: '#ffd23f', transparent: true, opacity: 0.55, depthWrite: false, fog: false, side: THREE.DoubleSide }));
+    m.rotation.x = -Math.PI / 2; m.rotation.z = player.root.rotation.y + Math.PI; m.position.set(player.pos.x, 0.2, player.pos.z); m.layers.set(1); scene.add(m);
+    fx.push({ m, t: 0, dur: 0.35, R: reach + 0.3 });
+    burst(player.pos.clone().setY(1.2).addScaledVector(fwd, reach * 0.6), '#ffd27a', 40, 8, 1.3);
+    for (const e of enemies) if (e.hp > 0 && e.state !== 'rising' && e.state !== 'gone' && e.inside === where && inArc(e.pos.x, e.pos.z, 0.8, reach + 0.3, arc) >= 0) hurtEnemy(e, dmg(), null, 2.6);
+    for (const c of crew) if (isRival(c) && crewUp(c) && c.inside === where && inArc(c.pos.x, c.pos.z, 0.7, reach + 0.3, arc) >= 0) hurtCrew(c, dmg(), player);
+    if (net.on) hitPeers((x, z) => inArc(x, z, 0.7, reach + 0.3, arc) >= 0, dmg());
+  });
+}
 // three moves per weapon style: anim, when it lands, damage, knockback, reach and arc
 function comboOf(w) {
   if (w.type === 'magic') return [
@@ -5721,7 +5780,7 @@ function tick() {
   if (player) { player.mixer.update(dt); headPose(player); faceTick(player); }
   for (const n of npcs) npcLife(n, dt);
   crewTick(dt); crewTags(); heroTag(); peersTick(dt); partyTick(); emoteTick(); bossShoutTick(); townTick(); letterTick(); if (snowFx) { snowFx.visible = where === 'frost'; if (snowFx.visible && player) snowFx.userData.tick(dt, player.pos.x, player.pos.z); } if (now > 45 && !document.body.classList.contains('nohint')) document.body.classList.add('nohint'); occluderTick(dt);
-  guideTick(); musicTick();
+  guideTick(); chargeTick(); musicTick();
 
   for (let i = lootPops.length - 1; i >= 0; i--) {
     const L = lootPops[i]; L.t += dt;
