@@ -12,7 +12,13 @@ export const TOWNS = [
   { id: 'thornbury', name: 'Thornbury', x: 64, z: 62, r: 15, stars: 1 },
   { id: 'mossbrook', name: 'Mossbrook', x: -66, z: 62, r: 15, stars: 2 },
   { id: 'cinderholt', name: 'Cinderholt', x: -62, z: -70, r: 15, stars: 3 },
+  // Chapter 2: Frostwhisker Peaks (the land sits at x = 1000). Each faces Snowdrop village.
+  { id: 'iciclehollow', name: 'Icicle Hollow', x: 1040, z: 36, r: 14, stars: 1, land: 'frost', home: [1000, 32] },
+  { id: 'pinecrest', name: 'Pinecrest', x: 954, z: 30, r: 14, stars: 2, land: 'frost', home: [1000, 32] },
+  { id: 'glaciergate', name: 'Glacier Gate', x: 1036, z: -34, r: 14, stars: 3, land: 'frost', home: [1000, 32] },
 ];
+// which way a town's open side faces: towards its land's main village
+export const townFacing = (T) => Math.atan2((T.home ? T.home[1] : 0) - T.z, (T.home ? T.home[0] : 0) - T.x);
 // The four lands beyond the valley forest. Each has its own colour, mood, monsters and a miniboss.
 // The village is spread out a little: every village building and prop sits VS times further from the well.
 export const VS = 1.38;
@@ -418,7 +424,7 @@ function buildTown(T) {
   for (let i = 0; i < n; i++) {
     const a = spin + (i / n) * Math.PI * 2;
     // leave the side facing the village open as the way in
-    const toVillage = Math.atan2(-T.z, -T.x); let gap = a - toVillage; gap = Math.atan2(Math.sin(gap), Math.cos(gap));
+    const toVillage = townFacing(T); let gap = a - toVillage; gap = Math.atan2(Math.sin(gap), Math.cos(gap));
     if (Math.abs(gap) < 0.5) continue;
     const x = T.x + Math.cos(a) * 11.5, z = T.z + Math.sin(a) * 11.5;
     place(houses[(i + T.stars) % houses.length], x, z, S_BUILD, Math.atan2(T.x - x, T.z - z));

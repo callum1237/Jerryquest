@@ -3,7 +3,7 @@ import { THREE, scene, camera, renderer, sun, sky, PRESETS, env, applyPreset, bl
   loadModel, burst, updateParticles, render, rng } from './engine.js';
 import * as SkeletonUtils from 'three/addons/utils/SkeletonUtils.js';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
-import { buildWorld, buildFlowers, place, tentAt, S_PROP, S_BUILD, colliders, clouds, dynamic, LAKE, CAMP, MINE, S_NATURE, blocked, isFree, ZONES, WORLD_R, VS, TOWNS, ROADS } from './world.js';
+import { buildWorld, buildFlowers, place, tentAt, S_PROP, S_BUILD, colliders, clouds, dynamic, LAKE, CAMP, MINE, S_NATURE, blocked, isFree, ZONES, WORLD_R, VS, TOWNS, ROADS, townFacing } from './world.js';
 import { LANDS, VALLEY_DOCK, buildLands, makeSnow } from './lands.js';
 import { ICONS } from './icons.js';
 import { buildInteriors, INTERIORS, lavaPools } from './interiors.js';
@@ -55,10 +55,10 @@ const SPECIALS = {
 };
 const specialOf = (w) => (w.type === 'magic' ? 'nova' : w.type === 'ranged' ? 'volley' : w.heavy ? 'quake' : 'whirl');
 const ITEMS = {
-  logs: 'Logs', oak_logs: 'Oak logs', copper_ore: 'Copper ore', iron_ore: 'Iron ore', shrimp: 'Raw shrimp', trout: 'Raw trout', bones: 'Bones',
+  logs: 'Logs', oak_logs: 'Oak logs', copper_ore: 'Copper ore', iron_ore: 'Iron ore', frostsilver_ore: 'Frostsilver ore', shrimp: 'Raw shrimp', trout: 'Raw trout', bones: 'Bones',
   bread: 'Bread', pie: 'Apple pie', stew: 'Hearty stew', grilled_shrimp: 'Grilled shrimp', grilled_trout: 'Grilled trout', fish_pie: 'Fish pie',
   bone_dust: 'Bone dust', dark_essence: 'Dark essence',
-  dragon_scale: "Gagron's fire scale", silver_ring: 'Silver ring', ruby: 'Ruby', golden_crown: 'Tiny golden crown',
+  dragon_scale: "Gagron's fire scale", silver_ring: 'Silver ring', ruby: 'Ruby', golden_crown: 'Tiny golden crown', frost_gem: 'Frost gem',
   lucky_sock: "Bonecrusher's lucky sock", frost_crown: "Queen Frostwhisker's ice crown", gloom_hat: "Gloomcaster's droopy hat", rattle_tooth: "Rattlebones' gold tooth",
   dark_omen: 'Dark Omen',
 };
@@ -86,6 +86,12 @@ const WEAPONS = {
   k_cleaver: { type: 'melee', name: "Bonecrusher's Cleaver", dmg: 15, reach: 3.4, cd: 1.2, price: 0, unique: true, model: 'axe_2handed', tint: '#ff9a7a', heavy: true },
   m_gloom: { type: 'magic', name: 'Gloomstaff', dmg: 15, reach: 14, cd: 1.0, price: 0, unique: true, model: 'staff', tint: '#b07aff' },
   k_flame: { type: 'melee', name: "Gagron's Flamebrand", dmg: 14, reach: 3.0, cd: 0.9, price: 0, unique: true, model: 'sword_2handed_color', tint: '#ff8a3a', heavy: true },
+  // Chapter 2: Frostsilver, sold by Frida in Snowdrop
+  f_blade: { type: 'melee', tier: 2, name: 'Frostsilver blade', dmg: 17, reach: 2.9, cd: 0.85, price: 1400, model: 'sword_1handed', tint: '#9fe6ff' },
+  f_maul: { type: 'melee', tier: 2, name: 'Glacier maul', dmg: 24, reach: 3.3, cd: 1.3, price: 2200, model: 'axe_2handed', tint: '#bfefff', heavy: true },
+  f_rime: { type: 'magic', tier: 2, name: 'Rime staff', dmg: 17, reach: 14, cd: 1.1, price: 1500, model: 'staff', tint: '#9fe6ff' },
+  f_bow: { type: 'ranged', tier: 2, name: 'Icicle crossbow', dmg: 16, reach: 15, cd: 0.75, price: 1500, model: 'crossbow_1handed', tint: '#9fe6ff' },
+  a_twin: { type: 'ranged', name: 'Avalanche Twinbow', dmg: 20, reach: 15, cd: 0.6, price: 0, unique: true, model: 'crossbow_2handed', tint: '#e0f4ff' },
   a_rattle: { type: 'ranged', name: "Rattlebones' Repeater", dmg: 12, reach: 14, cd: 0.55, price: 0, unique: true, model: 'crossbow_2handed', tint: '#9effa8' },
 };
 // Shields and armour add Defense on top of your Defense points.
@@ -97,6 +103,8 @@ const ARMOUR = {
   ar_leather: { slot: 'armour', name: 'Leather armour', def: 2, price: 60, tint: '#e0b088' },
   ar_chain: { slot: 'armour', name: 'Chainmail', def: 4, price: 160, tint: '#cfd9e6' },
   ar_gold: { slot: 'armour', name: 'Golden plate', def: 7, price: 450, tint: '#ffe070' },
+  sh_frost: { slot: 'shield', tier: 2, name: 'Frostsilver shield', def: 10, price: 1200, model: 'shield_square_color' },
+  ar_frost: { slot: 'armour', tier: 2, name: 'Frostsilver plate', def: 11, price: 1600, tint: '#bfefff' },
 };
 for (const w of Object.values(WEAPONS)) w.slot = 'weapon';
 const GEAR = { ...WEAPONS, ...ARMOUR };
@@ -108,20 +116,21 @@ const gearStats = (g) => (g.slot === 'weapon'
   : `+${g.def} defense`);
 
 // Who drops what. Regular monsters roll this table; bosses always drop their trophy and may drop their weapon.
-const BOSS_WEAPON = { boss_gagron: 'k_flame', boss_crusher: 'k_cleaver', boss_gloom: 'm_gloom', boss_rattle: 'a_rattle' };
+const BOSS_WEAPON = { boss_gagron: 'k_flame', boss_crusher: 'k_cleaver', boss_gloom: 'm_gloom', boss_rattle: 'a_rattle', boss_twin_a: 'a_twin' };
 const DARK_KING = 'Morgoth the Menacing'; // working name, change it here
 // Everything can be sold. Treasures (rings, rubies, crowns) are rare drops worth a lot.
-const SELL = { grilled_shrimp: 5, grilled_trout: 12, fish_pie: 26, dragon_scale: 90, bread: 4, pie: 10, stew: 20, silver_ring: 40, ruby: 120, golden_crown: 400, bone_dust: 3, dark_essence: 15, lucky_sock: 60, frost_crown: 300, gloom_hat: 60, rattle_tooth: 60, dark_omen: 500, logs: 3, oak_logs: 6, copper_ore: 4, iron_ore: 8, shrimp: 3, trout: 8, bones: 2 };
+const SELL = { grilled_shrimp: 5, grilled_trout: 12, fish_pie: 26, dragon_scale: 90, bread: 4, pie: 10, stew: 20, silver_ring: 40, ruby: 120, golden_crown: 400, frost_gem: 260, bone_dust: 3, dark_essence: 15, lucky_sock: 60, frost_crown: 300, gloom_hat: 60, rattle_tooth: 60, dark_omen: 500, logs: 3, oak_logs: 6, copper_ore: 4, iron_ore: 8, frostsilver_ore: 22, shrimp: 3, trout: 8, bones: 2 };
 const NODES = {
   tree: { skill: 'woodcutting', req: 1, xp: 25, item: 'logs', name: 'Tree', verb: 'Chop', doing: 'Chopping', deplete: 0.3, respawn: 14 },
   oak: { skill: 'woodcutting', req: 5, xp: 40, item: 'oak_logs', name: 'Oak tree', verb: 'Chop', doing: 'Chopping', deplete: 0.22, respawn: 20 },
   copper: { skill: 'mining', req: 1, xp: 18, item: 'copper_ore', name: 'Copper rock', verb: 'Mine', doing: 'Mining', deplete: 0.6, respawn: 10 },
+  frostsilver: { skill: 'mining', req: 15, xp: 70, item: 'frostsilver_ore', name: 'Frostsilver rock', verb: 'Mine', doing: 'Mining', deplete: 0.75, respawn: 24 },
   iron: { skill: 'mining', req: 6, xp: 35, item: 'iron_ore', name: 'Iron rock', verb: 'Mine', doing: 'Mining', deplete: 0.7, respawn: 18 },
   shrimp: { skill: 'fishing', req: 1, xp: 12, item: 'shrimp', name: 'Shrimp spot', verb: 'Fish', doing: 'Fishing', deplete: 0, respawn: 0 },
   trout: { skill: 'fishing', req: 5, xp: 45, item: 'trout', name: 'Trout spot', verb: 'Fish', doing: 'Fishing', deplete: 0, respawn: 0 },
 };
 // How many hits of health each tree/rock has, and the size of its hitbox.
-const NODE_HP = { tree: 5, oak: 9, copper: 5, iron: 8 };
+const NODE_HP = { tree: 5, oak: 9, copper: 5, iron: 8, frostsilver: 11 };
 const ENEMY_TYPES = {
   skel_minion: { name: 'Skeleton', hp: 16, maxHit: 3, weapon: 'Skeleton_Blade', xp: 15 },
   skel_warrior: { name: 'Skeleton Warrior', hp: 28, maxHit: 5, weapon: 'Skeleton_Blade', xp: 30 },
@@ -137,7 +146,14 @@ const ENEMY_TYPES = {
   frost_minion: { name: 'Frost Skeleton', model: 'skel_minion', hp: 48, maxHit: 7, weapon: 'Skeleton_Blade', xp: 70, tint: '#bfe6ff', inside: 'frost', coins: [10, 22] },
   frost_warrior: { name: 'Icebone Warrior', model: 'skel_warrior', hp: 80, maxHit: 9, weapon: 'Skeleton_Blade', xp: 120, tint: '#9fd0ff', inside: 'frost', coins: [16, 30] },
   frost_mage: { name: 'Frost Caster', model: 'skel_mage', hp: 56, maxHit: 8, weapon: 'Skeleton_Staff', xp: 100, ranged: true, tint: '#d8c8ff', inside: 'frost', coins: [14, 26] },
-  boss_frost: { name: 'Queen Frostwhisker', model: 'mage', hp: 420, maxHit: 12, weapon: 'Skeleton_Staff', xp: 3000, boss: true, scale: 2.4, coins: [300, 450], drop: 'frost_crown', ranged: true, spread: true, slam: 5.5, inside: 'frost', tint: '#cfeaff',
+  boss_grumble: { name: 'Grumblefrost', title: 'Ogre of the Pass', model: 'barbarian', hp: 1000, maxHit: 13, weapon: 'axe_2handed', xp: 4000, boss: true, scale: 2.7, coins: [250, 380], drop: 'frost_gem', slam: 6, stuck: 2.2, stuckLine: 'Axe... frozen... in ice!', inside: 'frost', tint: '#e8f4ff',
+    look: { skin: 'porcelain', eyes: 'sky', eyeStyle: 'sleepy', mouth: 'fang', hair: 'none', beard: 'full', hairCol: 'snow', head: 'chibi' } },
+  boss_twin_a: { name: 'Avalanche Twin: Hail', title: 'The Avalanche Twins', model: 'archer', hp: 1200, maxHit: 12, weapon: 'crossbow_1handed', xp: 3000, boss: true, scale: 2.2, coins: [200, 300], drop: 'frost_gem', ranged: true, inside: 'frost', tint: '#cfe8ff', twin: 'boss_twin_b',
+    look: { skin: 'peach', eyes: 'blue', eyeStyle: 'sharp', mouth: 'grin', hair: 'spiky', hairCol: 'snow' } },
+  boss_twin_b: { name: 'Avalanche Twin: Sleet', title: 'The Avalanche Twins', model: 'mage', hp: 1200, maxHit: 12, weapon: 'Skeleton_Staff', xp: 3000, boss: true, scale: 2.2, coins: [200, 300], drop: 'frost_gem', ranged: true, spread: true, slam: 5, inside: 'frost', tint: '#e0d8ff', twin: 'boss_twin_a',
+    look: { sex: 'f', skin: 'peach', eyes: 'blue', eyeStyle: 'sharp', mouth: 'cat', hair: 'pony', hairLen: 'long', hairCol: 'snow' } },
+  thaw_shadow: { name: 'Shadow Wolf', model: 'skel_minion', hp: 70, maxHit: 9, weapon: 'Skeleton_Blade', xp: 90, tint: '#5a3a8a', inside: 'frost', coins: [8, 16] },
+  boss_frost: { name: 'Queen Frostwhisker', model: 'mage', hp: 1400, maxHit: 13, weapon: 'Skeleton_Staff', xp: 3000, boss: true, scale: 2.4, coins: [300, 450], drop: 'frost_crown', ranged: true, spread: true, slam: 5.5, inside: 'frost', tint: '#cfeaff',
     look: { sex: 'f', skin: 'porcelain', eyes: 'sky', eyeStyle: 'sharp', mouth: 'cat', hair: 'hime', hairLen: 'long', hairCol: 'snow', mark: 'star', ears: 'elf' } },
 };
 const QUESTS = {
@@ -215,11 +231,30 @@ Object.assign(QUESTS, {
     ready: 'You fought them off! Snowdrop has not been this brave in years. Come, warm your hands, and I will tell you about the Queen.', done: 'Snowdrop is safer thanks to you. The Queen still sits in her Ice Palace to the north.',
     need: { kills: 6 }, reward: { coins: 300, xp: { hero: 2500 } }, desc: 'Defeat 6 frost monsters in Frostwhisker Peaks.',
   },
+  st_grumble: {
+    story: true, chapter: 'Chapter 2', name: 'The Ogre of the Pass', giver: 'elder', after: ['st_frost1'], bossType: 'boss_grumble', land: 'frost',
+    intro: 'The path to the Ice Palace is blocked by Grumblefrost, a snow ogre the size of a house. He rolls snowballs bigger than my cottage. When you see the long line on the ground, get out of its way! And when his axe sticks in the ice, hit him hard.',
+    ready: 'Grumblefrost is snoring in a snowdrift! The pass is open.', done: 'The pass to the palace is clear, thanks to you.',
+    need: { boss: 1 }, reward: { coins: 600, xp: { hero: 6000 } }, desc: 'Defeat Grumblefrost on the path to the Ice Palace (north of Snowdrop).',
+  },
+  st_twins: {
+    story: true, chapter: 'Chapter 2', name: 'The Avalanche Twins', giver: 'elder', after: ['st_grumble'], bossType: 'boss_twin_a', land: 'frost',
+    intro: 'Hail and Sleet, the Avalanche Twins, guard Snowman Hills for the Queen. They share one strength between them: hurt one and the other gets furious. Bring a friend if you can, one for each twin!',
+    ready: 'Both twins beaten at once! The snowmen are cheering. Well, they would be, if they could move.', done: 'Snowman Hills is quiet again.',
+    need: { boss: 1 }, reward: { coins: 700, xp: { hero: 7000 } }, desc: 'Defeat the Avalanche Twins in Snowman Hills (east).',
+  },
   st_frost_boss: {
-    story: true, chapter: 'Chapter 2', name: 'The Ice Queen', giver: 'elder', after: ['st_frost1'], bossType: 'boss_frost', land: 'frost',
+    story: true, chapter: 'Chapter 2', name: 'The Ice Queen', giver: 'elder', after: ['st_twins'], bossType: 'boss_frost', land: 'frost',
     intro: 'Queen Frostwhisker wants every land frozen solid, yours included. She thinks the cracked Heartstone means nobody can stop her. Her Ice Palace is straight north up the snowy path. Watch for her icy blasts, and when the ground glows, move!',
     ready: 'The Queen is beaten and the snow is just snow again! You are a hero of the north as well as the valley.', done: 'Frostwhisker Peaks is free. The Queen sulks in her palace, much less frosty.',
     need: { boss: 1 }, reward: { coins: 800, xp: { hero: 8000 } }, desc: 'Defeat Queen Frostwhisker in the Ice Palace (north).',
+  },
+  st_thaw: {
+    story: true, chapter: 'Chapter 2', name: 'Thaw', giver: 'elder', after: ['st_frost_boss'], land: 'frost', onStart: () => startThaw(),
+    intro: 'Oh dear, oh dear. The Queen was right: her cold was holding the darkness back. The Wardstone of the North is cracking, and shadow wolves are coming for it. She will re-freeze it, but she needs time. Go to the palace and hold them off!',
+    ready: 'The Wardstone is frozen solid again! The Queen sends her thanks... and a warning. A man in VERY shiny armour came to her palace last month, asking all about Wardstones.',
+    done: 'The north is safe. But who was the shiny man? Chapter 3 is coming soon.',
+    need: { kills: 12 }, reward: { coins: 1200, xp: { hero: 12000 } }, desc: 'Defend the Wardstone at the Ice Palace: defeat 12 shadow wolves or frost monsters.',
   },
 });
 // The story is split into chapters, and each new chapter takes you to a new land.
@@ -227,7 +262,7 @@ Object.assign(QUESTS, {
 const CHAPTERS = [
   { id: 'pro', tag: 'Prologue', name: 'The Crack', land: 'Jerry Valley', quests: ['st_1'] },
   { id: 'c1', tag: 'Chapter 1', name: 'The Shards', land: 'Jerry Valley', quests: ['st_dragon', 'st_crags', 'st_glimmer', 'st_hollow', 'st_socket'] },
-  { id: 'c2', tag: 'Chapter 2', name: 'The Frozen North', land: 'Frostwhisker Peaks', quests: ['st_frost1', 'st_frost_boss'] },
+  { id: 'c2', tag: 'Chapter 2', name: 'The Frozen North', land: 'Frostwhisker Peaks', quests: ['st_frost1', 'st_grumble', 'st_twins', 'st_frost_boss', 'st_thaw'] },
   { id: 'c3', tag: 'Chapter 3', name: 'The Hungry Swamp', land: 'Gobbler Marsh', quests: [], soon: true },
   { id: 'c4', tag: 'Chapter 4', name: 'The Clockwork Ruins', land: 'Brassbolt Sands', quests: [], soon: true },
   { id: 'c5', tag: 'Chapter 5', name: 'The Dark King', land: 'The Floating Castle', quests: [], soon: true },
@@ -1341,7 +1376,7 @@ function buildNodes() {
   const addRock = (x, z, kind) => {
     place(rng() > 0.5 ? 'rock_single_D' : 'rock_single_E', x, z, S_NATURE * 2.6, rng() * 6, { shrink: 0.5 });
     const gems = new THREE.Group();
-    const mats = toon(kind === 'copper' ? '#ff9b3d' : '#a8c8f0', { emissive: kind === 'copper' ? '#5a2600' : '#1b2f52' });
+    const mats = toon(kind === 'copper' ? '#ff9b3d' : kind === 'frostsilver' ? '#7fe8ff' : '#a8c8f0', { emissive: kind === 'copper' ? '#5a2600' : kind === 'frostsilver' ? '#1a5a70' : '#1b2f52' });
     for (let i = 0; i < 4; i++) {
       const c = new THREE.Mesh(crystalGeo);
       const a = (i / 4) * Math.PI * 2 + rng();
@@ -1355,6 +1390,8 @@ function buildNodes() {
   };
   const rockSpots = [[-4, 2, 'copper'], [2, 4, 'copper'], [5, -2, 'copper'], [-2, -5, 'copper'], [-7, -3, 'iron'], [7, 4, 'iron'], [1, 9, 'iron'], [-6, 7, 'copper']];
   for (const [dx, dz, k] of rockSpots) addRock(MINE.x + dx, MINE.z + dz, k);
+  // Frostsilver only grows in the north, around Snowman Hills
+  for (const [dx, dz] of [[-20, -14], [-24, -8], [-18, -4], [-12, 18], [-20, 14]]) addRock(LANDS.frost.zones.hills.x + dx, LANDS.frost.zones.hills.z + dz, 'frostsilver');
 
   const ringGeo = new THREE.RingGeometry(0.6, 0.9, 24);
   const spots = [[Math.PI * 0.82, 'shrimp'], [Math.PI * 1.02, 'shrimp'], [Math.PI * 0.6, 'trout']];
@@ -1451,6 +1488,8 @@ function buildNpcs() {
       look: { skin: 'tan', eyes: 'blue', eyeStyle: 'happy', mouth: 'grin', hair: 'short', beard: 'full', hairCol: 'ginger' } },
     { id: 'elder', name: 'Elder Mittens', model: 'mage', x: LANDS.frost.elder.x, z: LANDS.frost.elder.z, hide: [], tint: '#9fd0ff', inside: 'frost',
       look: { sex: 'f', skin: 'porcelain', eyes: 'sky', eyeStyle: 'happy', mouth: 'smile', hair: 'bun', hairCol: 'snow', mark: 'rosy', hat: true } },
+    { id: 'frida', name: 'Frida the Frostsmith', model: 'barbarian', x: LANDS.frost.village.x - 7, z: LANDS.frost.village.z + 6, hide: [], shop: 'frost', tint: '#9fd8ff', inside: 'frost',
+      look: { sex: 'f', skin: 'tan', eyes: 'sky', eyeStyle: 'sharp', mouth: 'grin', hair: 'braid', hairLen: 'long', hairCol: 'snow' } },
     { id: 'snowkid', name: 'Pip Snowdrift', model: 'heroine', x: LANDS.frost.village.x + 6, z: LANDS.frost.village.z + 5, hide: [], tint: '#ff9ab8', inside: 'frost',
       look: { sex: 'f', skin: 'peach', eyes: 'green', eyeStyle: 'round', mouth: 'grin', hair: 'twin', hairLen: 'shoulder', hairCol: 'ginger', mark: 'freckles' },
       lines: ['I built every snowman on Snowman Hills! Well, most of them. Some of them built themselves...', 'Queen Frostwhisker used to be nice, Granny says. Then she got bored of everyone being warm.', 'Watch out on the frozen pond. It is very slippy. I know from experience!'] },
@@ -1609,6 +1648,9 @@ function buildEnemies() {
   fring(FZs.hills, ['frost_mage', 'frost_minion', 'frost_warrior', 'frost_minion'], 10);
   fring({ x: FZs.palace.x, z: FZs.palace.z + 18 }, ['frost_warrior', 'frost_mage', 'frost_warrior'], 6);
   spawnEnemy('boss_frost', FZs.palace.x, FZs.palace.z - 1);
+  spawnEnemy('boss_grumble', FZs.palace.x + 2, FZs.palace.z + 30);
+  spawnEnemy('boss_twin_a', FZs.hills.x - 3, FZs.hills.z + 2);
+  spawnEnemy('boss_twin_b', FZs.hills.x + 3, FZs.hills.z - 2);
 }
 
 // ---------- inventory, xp, quests ----------
@@ -2310,7 +2352,7 @@ function openWeaponShop(npc) {
   talking = npc;
   const type = npc.shop, d = $('dialog');
   const lines = { melee: 'Finest steel this side of the mountains! Swords, axes, shields and armour. A longer blade swings wider, a lighter one swings faster.', magic: 'Wands and staves, darling, humming with power. Hold one and your blows become bolts of magic you can throw from afar.', ranged: 'Crossbows I made myself. Hold one and you shoot from a safe distance. Lighter ones shoot faster.' };
-  const sells = (g) => (g.slot === 'weapon' ? g.type === type : type === 'melee');
+  const sells = (g) => (type === 'frost' ? g.tier === 2 : !g.tier && (g.slot === 'weapon' ? g.type === type : type === 'melee'));
   const list = Object.entries(GEAR).filter(([, g]) => !g.unique && g.price > 0 && sells(g));
   const spare = S.owned.map((k) => [k, GEAR[k]]).filter(([k, g]) => g && sells(g) && gearValue(g) > 0 && S.equip[g.slot] !== k);
   d.innerHTML = `<h3>${npc.name}</h3><p>${lines[type]}</p>
@@ -2425,7 +2467,7 @@ function openDialog(npc) {
   let text, buttons;
   if (st.state === 'todo') {
     text = q.intro;
-    buttons = [['Accept quest', 'primary', () => { st.state = 'active'; S.track = qid; toast(`Quest started: ${q.name}`); refreshUI(); save(); closeDialog(); }], ['Not now', '', closeDialog]];
+    buttons = [['Accept quest', 'primary', () => { st.state = 'active'; S.track = qid; if (q.onStart) later(0.5, q.onStart); toast(`Quest started: ${q.name}`); refreshUI(); save(); closeDialog(); }], ['Not now', '', closeDialog]];
   } else if (questReady(qid)) {
     text = q.ready;
     buttons = [['Hand it over', 'primary', () => { finishQuest(qid, npc); closeDialog(); }]];
@@ -3048,6 +3090,14 @@ function hurtEnemy(e, dmg, src = null, power = 1) {
   if (e.shield) { dmg = Math.max(1, Math.round(dmg * 0.25)); if (rng() < 0.4) floatText(head.clone().setY(4.6), 'Shielded! Break the glowing crystal', 'miss'); }
   else if (now < (e.dizzyUntil || 0)) dmg = Math.round(dmg * 1.5);
   e.hp = Math.max(0, e.hp - dmg);
+  // the Avalanche Twins share one strength: hurt one and the other feels it (and gets angry)
+  if (e.T.twin) {
+    const p = enemies.find((o) => o.type === e.T.twin);
+    if (p && p.hp > 0 && p.state !== 'dead') {
+      if (e.hp <= 0) { p.hp = 1; later(0.3, () => { if (p.hp > 0) hurtEnemy(p, 1); }); }
+      else { p.hp = e.hp; phaseCheck(p); if (p.state === 'idle' || p.state === 'walk' || p.state === 'return') p.state = 'chase'; p.nextHit = Math.min(p.nextHit, now + 0.4); }
+    }
+  }
   phaseCheck(e);
   if (e.T.boss && !PHASE_LINES[e.type] && !e.lowSaid && e.hp > 0 && e.hp <= e.T.hp * 0.4) { e.lowSaid = true; bossShout(e); }
   floatText(head, String(dmg), e.hp <= 0 ? 'kill' : dmg >= Math.max(8, W().dmg * 1.6) ? 'big' : '');
@@ -3243,7 +3293,7 @@ function bossAdd(boss, k, x, z) {
   return a;
 }
 function bossCleanup(e) {
-  e.phase = 1; e.shield = false; e.dizzyUntil = 0; e.flyN = 0; e.root.position.y = 0;
+  e.phase = 1; e.shield = false; e.dizzyUntil = 0; e.flyN = 0; e.root.position.y = 0; frostCleanup(e);
   for (const r of e.runes || []) { scene.remove(r.g); }
   e.runes = null;
   for (const a of e.adds || []) if (enemies.includes(a)) { if (a.hp > 0) { a.hp = 0; a.state = 'dead'; a.bar.hidden = true; a.play('Death_A', { once: true, clamp: true }); later(0.75, () => collapse(a)); } later(4, () => removeEnemy(a)); }
@@ -3411,6 +3461,99 @@ const BOSS_AI = {
   },
 };
 
+// ---------- Chapter 2 bosses ----------
+// Grumblefrost rolls giant snowballs down a line you can see coming.
+function snowball(e) {
+  e.face(player.pos.x, player.pos.z); e.state = 'slam';
+  e.play('2H_Melee_Attack_Chop', { once: true, fade: 0.1 }) || e.play('1H_Melee_Attack_Chop', { once: true });
+  const toward = Math.atan2(player.pos.x - e.pos.x, player.pos.z - e.pos.z), len = 18;
+  hazard({ x: e.pos.x, z: e.pos.z, R: len, dir: toward + Math.PI, half: 0.12, dur: 1.2, dmg: Math.round(e.T.maxHit * 1.6), col: '#e8f4ff' });
+  const ball = new THREE.Mesh(new THREE.IcosahedronGeometry(1.4, 1), new THREE.MeshLambertMaterial({ color: '#f6fbff', flatShading: true }));
+  const sx = e.pos.x, sz = e.pos.z; ball.position.set(sx, 1.4, sz); scene.add(ball);
+  later(0.9, () => tween(0.7, (k) => { ball.position.set(sx + Math.sin(toward) * len * k, 1.4, sz + Math.cos(toward) * len * k); ball.rotation.x += 0.35; if (rng() < 0.5) burst(ball.position.clone().setY(0.4), '#ffffff', 3, 3, 0.5); },
+    () => { scene.remove(ball); burst(ball.position.clone(), '#ffffff', 40, 7, 1.2); }));
+  later(1.4, () => { if (e.hp > 0 && e.state === 'slam') { e.state = 'chase'; e.play('Idle_Combat'); } });
+}
+// Queen Frostwhisker: icicles rain in phase 2, then a blizzard in phase 3. Stand by a lit brazier to stay warm.
+function icicles(e) {
+  e.play('Spellcasting', { once: true, fade: 0.1, onFinish: () => e.play('Idle_Combat') });
+  for (let i = 0; i < 5; i++) later(i * 0.3, () => {
+    if (e.hp <= 0 || player.dead) return;
+    const a = rng() * 6.28, r = i === 0 ? 0 : 1.5 + rng() * 3.5;
+    hazard({ x: player.pos.x + Math.cos(a) * r, z: player.pos.z + Math.sin(a) * r, R: 2.2, dur: 1.0, dmg: Math.round(e.T.maxHit * 1.1), col: '#9fe6ff' });
+  });
+}
+function makeBraziers(e) {
+  e.braziers = [];
+  for (let i = 0; i < 4; i++) {
+    const a = i * Math.PI / 2 + Math.PI / 4, x = e.home.x + Math.cos(a) * 8, z = e.home.y + Math.sin(a) * 8;
+    const g = new THREE.Group(); g.position.set(x, 0, z);
+    const bowl = new THREE.Mesh(new THREE.CylinderGeometry(0.8, 0.45, 0.6, 10), new THREE.MeshLambertMaterial({ color: '#6a5a6a' })); bowl.position.y = 1.2;
+    const leg = new THREE.Mesh(new THREE.CylinderGeometry(0.15, 0.25, 1.0, 6), new THREE.MeshLambertMaterial({ color: '#4a3a4a' })); leg.position.y = 0.5;
+    const fire = new THREE.Mesh(new THREE.ConeGeometry(0.55, 1.2, 8), new THREE.MeshBasicMaterial({ color: '#ffb347' })); fire.position.y = 2;
+    const glow = new THREE.Mesh(new THREE.CircleGeometry(3.4, 32), new THREE.MeshBasicMaterial({ color: '#ffb347', transparent: true, opacity: 0.18, depthWrite: false, fog: false }));
+    glow.rotation.x = -Math.PI / 2; glow.position.y = 0.12; glow.layers.set(1);
+    g.add(bowl, leg, fire, glow); scene.add(g);
+    e.braziers.push({ g, fire, x, z });
+  }
+  e.blizzard = true;
+}
+let chillAt = 0;
+function blizzardTick(dt) {
+  const q = enemies.find((e) => e.blizzard && e.hp > 0);
+  const on = !!q && where === q.inside && !player.dead && Math.hypot(player.pos.x - q.pos.x, player.pos.z - q.pos.z) < 32;
+  document.body.classList.toggle('blizzard', on);
+  if (!q) return;
+  for (const b of q.braziers) { b.fire.scale.setScalar(0.85 + 0.2 * Math.sin(now * 9 + b.x)); if (rng() < dt * 6) burst(new THREE.Vector3(b.x, 2.4, b.z), '#ffb347', 2, 2, 0.5); }
+  if (!on) return;
+  const warm = q.braziers.some((b) => Math.hypot(player.pos.x - b.x, player.pos.z - b.z) < 3.4);
+  if (!warm && now > chillAt) { chillAt = now + 1.5; hurtPlayer(Math.max(2, Math.round(maxHp() * 0.04 * defDiv()))); floatText(player.pos.clone().setY(4.2), 'Brrr! Find a brazier!', 'miss'); }
+  if (warm && rng() < dt * 3) burst(player.pos.clone().setY(1.5), '#ffd08a', 2, 2, 0.6);
+}
+function frostCleanup(e) {
+  for (const b of e.braziers || []) scene.remove(b.g);
+  e.braziers = null; e.blizzard = false; document.body.classList.remove('blizzard');
+}
+Object.assign(PHASE_LINES, {
+  boss_grumble: ['Grumblefrost ROLL BIGGER!', 'Grumblefrost very cross now!'],
+  boss_frost: ['Icicles, my darlings! Fall!', 'Then let the blizzard take you!'],
+  boss_twin_a: ['Sleet! They hurt me!', 'Together, sister! Now!'],
+  boss_twin_b: ['Hail! Are you alright?!', 'Together, brother! Now!'],
+});
+Object.assign(PHASE_SETUP, {
+  boss_frost: (e, ph) => {
+    if (ph === 2) for (let i = 0; i < 2; i++) { const a = i * 3.14 + rng(); bossAdd(e, 'frost_minion', e.pos.x + Math.cos(a) * 5, e.pos.z + Math.sin(a) * 5); }
+    if (ph === 3) makeBraziers(e);
+  },
+  boss_grumble: (e, ph) => { if (ph === 3) bossAdd(e, 'frost_warrior', e.pos.x + 4, e.pos.z); },
+});
+Object.assign(BOSS_AI, {
+  boss_grumble(e, toP) {
+    e.flyN = (e.flyN || 0) + 1; const ph = e.phase || 1;
+    if (e.flyN % (ph >= 2 ? 2 : 3) === 0 || toP > 5) { snowball(e); if (ph === 3) later(1.6, () => { if (e.hp > 0) snowball(e); }); return true; }
+    return false;
+  },
+  boss_frost(e) {
+    e.flyN = (e.flyN || 0) + 1; const ph = e.phase || 1;
+    if (ph >= 2 && e.flyN % 2 === 0) { icicles(e); return true; }
+    return false;
+  },
+});
+// the Thaw: Elder Mittens' last Chapter 2 job. Shadow wolves rush the cracked Wardstone at the palace.
+function startThaw() {
+  const P = LANDS.frost.zones.palace;
+  toast('Defend the Wardstone! Shadow wolves are coming from every side.', ICONS.dark_omen, true);
+  for (let w = 0; w < 3; w++) later(2 + w * 18, () => {
+    if (S.quests.st_thaw.state !== 'active') return;
+    toast(`Wave ${w + 1} of 3!`, ICONS.dark_omen);
+    for (let i = 0; i < 4 + w; i++) {
+      const a = (i / (4 + w)) * Math.PI * 2 + rng(), x = P.x + Math.cos(a) * 11, z = P.z + Math.sin(a) * 11;
+      const m = spawnEnemy('thaw_shadow', x, z); m.temp = true; m.state = 'chase';
+      burst(new THREE.Vector3(x, 1, z), '#5a3a8a', 30, 5, 1.2);
+    }
+  });
+}
+
 // The miniboss's big move: a red circle grows on the ground, then BOOM. Jump or get out!
 const slamGeo = new THREE.CircleGeometry(1, 40);
 function bossSlam(e) {
@@ -3555,7 +3698,7 @@ function bakeMap() {
   g.fillStyle = '#8fd16a'; g.fillRect(0, 0, MAP_PX, MAP_PX);
   g.beginPath(); g.arc(M2(0), M2(0), R2(WORLD_R), 0, 7); g.fillStyle = '#7cc35a'; g.fill();
   for (const Z of Object.values(ZONES)) { g.beginPath(); g.arc(M2(Z.x), M2(Z.z), R2(Z.r + 4), 0, 7); g.fillStyle = Z.grass; g.fill(); g.lineWidth = 4; g.strokeStyle = 'rgba(58,32,16,.45)'; g.setLineDash([10, 8]); g.stroke(); g.setLineDash([]); }
-  for (const T of TOWNS) { g.beginPath(); g.arc(M2(T.x), M2(T.z), R2(T.r), 0, 7); g.fillStyle = '#b8d878'; g.fill(); }
+  for (const T of TOWNS) { if (T.land) continue; g.beginPath(); g.arc(M2(T.x), M2(T.z), R2(T.r), 0, 7); g.fillStyle = '#b8d878'; g.fill(); }
   g.beginPath(); g.arc(M2(LAKE.x), M2(LAKE.z), R2(LAKE.r), 0, 7); g.fillStyle = '#4aa8f0'; g.fill(); g.lineWidth = 5; g.strokeStyle = '#f1d79c'; g.stroke();
   const road = (x1, z1, x2, z2, w) => { g.lineCap = 'round'; g.beginPath(); g.moveTo(M2(x1), M2(z1)); g.lineTo(M2(x2), M2(z2)); g.lineWidth = w + 5; g.strokeStyle = ink; g.stroke(); g.lineWidth = w; g.strokeStyle = '#f5dfa6'; g.stroke(); };
   for (const [tx, tz, fx, fz] of ROADS) road(fx, fz, tx, tz, 9);
@@ -3597,7 +3740,8 @@ function landMap(L) {
   g.beginPath(); g.arc(M2x(L.x), M2z(L.z), R2(L.r), 0, 7); g.lineWidth = 8; g.strokeStyle = ink; g.stroke();
   // the ship in the harbour
   g.fillStyle = '#8a5230'; g.beginPath(); g.ellipse(M2x(L.x), M2z(L.z + 66), R2(2), R2(4), 0, 0, 7); g.fill(); g.strokeStyle = ink; g.lineWidth = 2; g.stroke();
-  L.places = [['Snowdrop', V.x, V.z - 9], ['Harbour', L.x, L.z + 58], ...Object.values(Z).map((z2) => [z2.name, z2.x, z2.z - z2.r * 0.6]), ['Frozen Pond', L.pond.x, L.pond.z - L.pond.r - 2]];
+  for (const T of TOWNS) if (T.land === L.id) { g.beginPath(); g.arc(M2x(T.x), M2z(T.z), R2(T.r), 0, 7); g.fillStyle = '#dce8f2'; g.fill(); g.beginPath(); g.arc(M2x(T.x), M2z(T.z), R2(7.5), 0, 7); g.fillStyle = '#f5dfa6'; g.fill(); road(V.x, V.z, T.x, T.z); }
+  L.places = [...TOWNS.filter((T) => T.land === L.id).map((T) => [T.name, T.x, T.z - 9]), ['Snowdrop', V.x, V.z - 9], ['Harbour', L.x, L.z + 58], ...Object.values(Z).map((z2) => [z2.name, z2.x, z2.z - z2.r * 0.6]), ['Frozen Pond', L.pond.x, L.pond.z - L.pond.r - 2]];
   return (landMaps[L.id] = cv);
 }
 const mini = $('minimap'), bigMap = $('bigmap');
@@ -3645,7 +3789,7 @@ function drawMap(cv, full) {
   for (const c of chests) if (!c.open) chestIcon(c.x, c.z);
   for (const e of enemies) if (e.hp > 0 && e.state !== 'rising' && e.state !== 'gone' && e.inside === where) { if (e.T.boss) skull(e.pos.x, e.pos.z, 8); else dot(e.pos.x, e.pos.z, full ? 2.5 : 3.5, '#ff5a4a'); }
   for (const c of crew) if (c.inside === where) dot(c.x, c.z, full ? 3.5 : 4, crewCfg(c).mode === 'ally' ? '#5ad87a' : crewCfg(c).mode === 'rival' ? '#ff7a3a' : '#c8a8ff');
-  if (!Lm) for (const T of TOWNS) flag(T.x - 5, T.z - 3, townFree(T.id) ? '#3a8fe8' : '#d8324a');
+  for (const T of TOWNS) if ((T.land || null) === (Lm ? Lm.id : null)) flag(T.x - 5, T.z - 3, townFree(T.id) ? '#3a8fe8' : '#d8324a');
   for (const n of npcs) {
     if ((n.inside || 'out') !== where) continue;
     const qid = Object.keys(QUESTS).find((q) => QUESTS[q].giver === n.id && !QUESTS[q].story);
@@ -3664,9 +3808,10 @@ function drawMap(cv, full) {
       g.fillStyle = '#fff3c4'; g.fillText(name, u, v + 1 * dpr);
     }
     // under each town: who is mayor, or that monsters hold it
-    if (!Lm) {
+    {
       g.font = `700 ${fs * 0.82 * dpr}px Fredoka, Trebuchet MS, sans-serif`;
       for (const T of TOWNS) {
+        if ((T.land || null) !== (Lm ? Lm.id : null)) continue;
         const [u, v] = toPx(T.x, T.z - 9), txt = townFree(T.id) ? `Mayor ${mayorName(T)}` : 'Monsters!';
         g.lineWidth = 3 * dpr; g.strokeStyle = '#3a2010'; g.strokeText(txt, u, v + fs * 1.45 * dpr); g.fillStyle = townFree(T.id) ? '#bfe6ff' : '#ffb0b8'; g.fillText(txt, u, v + fs * 1.45 * dpr);
       }
@@ -3980,6 +4125,7 @@ function tick() {
   slamTick(dt);
   hazardTick(dt);
   bossFxTick(dt);
+  if (player) blizzardTick(dt);
   fxTick(dt);
   pileTick(dt);
   pouchTick();
@@ -4178,7 +4324,11 @@ const BOSS_LINES = {
   boss_rattle: { intro: ['Yarr! Who goes there? Have ye seen me ship?', ['h', 'Your ship? This is a graveyard.'], 'No ship? Then ye be walkin\' the plank!'],
     low: 'Me bones! Me lovely bones!', defeat: ['Arr... I only wanted me ship back...', 'If ye ever find a boat, tell her old Rattlebones misses her.'] },
   boss_frost: { intro: ['Another warm little visitor. How dreadfully cosy.', ['h', 'Stop freezing everything, Your Majesty!'], 'Soon every land will be as quiet and lovely as mine. Frozen SOLID!'],
-    low: "You're melting my patience!", defeat: ['My palace... my lovely snow...', 'Very well. Keep your silly warm kingdom. But wear a scarf!'] },
+    defeat: ['Wait... stop! Look at the sky!', ['h', "It's... turning purple?"], 'You fool! My cold was the only thing slowing the dark magic down!', 'Without my snow, the Wardstone of the North will crack. Go to Elder Mittens. Hurry!'] },
+  boss_grumble: { intro: ['WHO walks on Grumblefrost\'s path?!', ['h', 'Just passing through!'], 'Nobody passes! Grumblefrost guards the Queen. Grumblefrost ROLL you flat!'],
+    defeat: ['Grumblefrost... sleepy now...', 'Wake Grumblefrost in spring. Or never. Never is good.'] },
+  boss_twin_a: { intro: ['Two heroes against one? No, no...', 'TWO twins against one hero! Ha!', ['h', 'Can we talk about this?'], 'Hurt one of us and you hurt both. Try it!'],
+    defeat: ['Sleet... we lost...', 'At least we lost TOGETHER.'] },
   thornbury_boss: { intro: ['Oi! Everything in Thornbury is MINE now!', ['h', 'Give it back!'], 'Ha! Including your pockets!'],
     low: 'Hands off my loot!', defeat: ['Alright, alright! Take your town back.', "I'm keeping the spoons, though."] },
   mossbrook_boss: { intro: ["Darling, you're just in time for my magic show!", 'For my next trick, I shall make YOU disappear!'],
@@ -4609,6 +4759,9 @@ const TOWN_BOSS = {
   thornbury: { name: 'Gristle the Grabby', model: 'skel_minion', weapon: 'axe_1handed', drop: 'silver_ring' },
   mossbrook: { name: 'Madame Marrow', model: 'skel_mage', weapon: 'Skeleton_Staff', ranged: true, spread: true, drop: 'ruby' },
   cinderholt: { name: 'Lord Cinderbones', model: 'skel_warrior', weapon: 'axe_2handed', drop: 'golden_crown' },
+  iciclehollow: { name: 'Sir Shiverbones', model: 'skel_minion', weapon: 'Skeleton_Blade', drop: 'frost_gem' },
+  pinecrest: { name: 'Granny Frostbite', model: 'skel_mage', weapon: 'Skeleton_Staff', ranged: true, spread: true, drop: 'frost_gem' },
+  glaciergate: { name: 'The Glacier Baron', model: 'skel_warrior', weapon: 'axe_2handed', drop: 'golden_crown' },
 };
 // which monsters guard each town: tougher towns have more of the nasty ones
 const TOWN_MIX = {
@@ -4623,15 +4776,25 @@ const TOWN_FOLK = {
     { name: 'Pebble', model: 'knight', look: { skin: 'bronze', eyes: 'gold', eyeStyle: 'round', mouth: 'grin', hair: 'spiky', hairCol: 'black' }, tint: '#ffe08a' }],
   cinderholt: [{ name: 'Baroness Ember', model: 'mage', look: { sex: 'f', skin: 'ebony', eyes: 'red', eyeStyle: 'sharp', mouth: 'cat', hair: 'hime', hairLen: 'long', hairCol: 'pink', mark: 'star' }, tint: '#ffb0a0' },
     { name: 'Old Flint', model: 'barbarian', look: { skin: 'honey', eyes: 'grey', eyeStyle: 'sleepy', mouth: 'calm', hair: 'none', beard: 'full', hairCol: 'chestnut' }, tint: '#d0c0a0' }],
+  iciclehollow: [{ name: 'Mitzi Snowdrift', model: 'heroine', look: { sex: 'f', skin: 'porcelain', eyes: 'blue', eyeStyle: 'round', mouth: 'smile', hair: 'bob', hairCol: 'snow', mark: 'rosy' }, tint: '#cfe8ff' },
+    { name: 'Bjorn Mittens', model: 'barbarian', look: { skin: 'peach', eyes: 'brown', eyeStyle: 'happy', mouth: 'grin', hair: 'none', beard: 'full', hairCol: 'ginger', head: 'chibi' }, tint: '#a8c8ff' }],
+  pinecrest: [{ name: 'Old Needles', model: 'mage', look: { skin: 'tan', eyes: 'green', eyeStyle: 'sleepy', mouth: 'calm', hair: 'none', beard: 'long', hairCol: 'snow' }, tint: '#9fd8b0' },
+    { name: 'Juniper', model: 'heroine', look: { sex: 'f', skin: 'bronze', eyes: 'gold', eyeStyle: 'sharp', mouth: 'grin', hair: 'pony', hairLen: 'long', hairCol: 'black' }, tint: '#c8f0d8' }],
+  glaciergate: [{ name: 'Captain Floe', model: 'knight', look: { skin: 'ebony', eyes: 'sky', eyeStyle: 'round', mouth: 'smile', hair: 'short', hairCol: 'snow' }, tint: '#bfe6ff' },
+    { name: 'Lady Hailstone', model: 'mage', look: { sex: 'f', skin: 'porcelain', eyes: 'violet', eyeStyle: 'sharp', mouth: 'cat', hair: 'hime', hairLen: 'long', hairCol: 'lilac', mark: 'star' }, tint: '#d8c8ff' }],
 };
+// frost towns are a chapter harder: they use the frost monsters, and pay (and cost) more
+const LAND_TOWN = { frost: { mobs: { skel_minion: 'frost_minion', skel_warrior: 'frost_warrior', skel_mage: 'frost_mage' }, mult: 2.5 } };
+const townMult = (T) => (T.land ? LAND_TOWN[T.land].mult : 1);
 for (const T of TOWNS) {
   const tier = TOWN_TIERS[T.stars];
+  const m = townMult(T), inside = T.land || 'out';
   for (const k of ['skel_minion', 'skel_warrior', 'skel_mage']) {
-    const b = ENEMY_TYPES[k];
-    ENEMY_TYPES[`${T.id}_${k}`] = { ...b, model: k, name: `${tier.tag} ${b.name}`, hp: Math.round(b.hp * tier.hp), maxHit: b.maxHit + tier.hit, xp: Math.round(b.xp * tier.xp), tint: tier.tint, town: T.id, coins: [5 * T.stars, 12 * T.stars] };
+    const b = ENEMY_TYPES[T.land ? LAND_TOWN[T.land].mobs[k] : k];
+    ENEMY_TYPES[`${T.id}_${k}`] = { ...b, model: k, name: `${tier.tag} ${b.name}`, hp: Math.round(b.hp * tier.hp), maxHit: b.maxHit + tier.hit, xp: Math.round(b.xp * tier.xp), tint: tier.tint, town: T.id, inside, coins: [Math.round(5 * T.stars * m), Math.round(12 * T.stars * m)] };
   }
-  ENEMY_TYPES[`${T.id}_boss`] = { ...TOWN_BOSS[T.id], title: `Tyrant of ${T.name}`, hp: 110 + 90 * T.stars, maxHit: 5 + 2 * T.stars, xp: 500 + 400 * T.stars, boss: true,
-    scale: 2 + 0.15 * T.stars, coins: [80 * T.stars, 140 * T.stars], slam: 4.5 + T.stars * 0.5, town: T.id, tint: tier.tint };
+  ENEMY_TYPES[`${T.id}_boss`] = { ...TOWN_BOSS[T.id], title: `Tyrant of ${T.name}`, hp: Math.round((110 + 90 * T.stars) * (T.land ? 1.8 : 1)), maxHit: Math.round((5 + 2 * T.stars) * (T.land ? 1.7 : 1)), xp: Math.round((500 + 400 * T.stars) * (T.land ? 3 : 1)), boss: true,
+    scale: 2 + 0.15 * T.stars, coins: [Math.round(80 * T.stars * m), Math.round(140 * T.stars * m)], slam: 4.5 + T.stars * 0.5, town: T.id, tint: tier.tint, inside };
 }
 const stars = (n) => '★'.repeat(n) + '☆'.repeat(3 - n);
 const townFree = (id) => !!((S.towns && S.towns[id]) || remoteMayor(id));
@@ -4675,7 +4838,7 @@ function liberateTown(T, quiet = false, remote = false) {
   }
   if (!T.folk) {
     T.folk = (TOWN_FOLK[T.id] || []).map((f, i) => {
-      const a = (i ? -0.9 : 0.9) + Math.atan2(-T.z, -T.x);
+      const a = (i ? -0.9 : 0.9) + townFacing(T);
       return makeNpc({ id: `${T.id}_folk${i}`, name: f.name, model: f.model, x: T.x + Math.cos(a) * 4, z: T.z + Math.sin(a) * 4, hide: [], tint: f.tint, look: f.look,
         clerk: i === 0 ? T.id : undefined,
         lines: [`Thank you, Mayor! ${T.name} is ours again!`, `We pay our taxes into your bank every game week. Talk to the town clerk to spend them on the town!`, `The monsters left an awful mess. And they never once wiped their feet.`] });
@@ -5287,8 +5450,8 @@ const TOWN_LEVELS = [
 const townLvl = (T) => { const r = remoteMayor(T.id); return r ? r.lvl || 0 : (S.townLvl && S.townLvl[T.id]) || 0; };
 const townBuild = (T) => !remoteMayor(T.id) && S.townBuild && S.townBuild[T.id];
 const mayorName = (T) => { const r = remoteMayor(T.id); if (r) return r.mayor_name || 'a friend'; return typeof (S.towns || {})[T.id] === 'string' ? S.towns[T.id] : heroName(); };
-const weeklyTax = (T) => Math.round(400 * T.stars * (1 + 0.75 * townLvl(T)));
-const upgradeCost = (T, l) => TOWN_LEVELS[l].cost * T.stars;
+const weeklyTax = (T) => Math.round(400 * T.stars * townMult(T) * (1 + 0.75 * townLvl(T)));
+const upgradeCost = (T, l) => Math.round(TOWN_LEVELS[l].cost * T.stars * townMult(T));
 function townValue(T) {
   let v = 1000 * T.stars + weeklyTax(T) * 2;
   for (let l = 1; l <= townLvl(T); l++) v += upgradeCost(T, l);
@@ -5321,7 +5484,7 @@ function signTexture(T) {
   return c;
 }
 function buildTownSign(T) {
-  const a0 = Math.atan2(-T.z, -T.x), x = T.x + Math.cos(a0) * 9.5, z = T.z + Math.sin(a0) * 9.5;
+  const a0 = townFacing(T), x = T.x + Math.cos(a0) * 9.5, z = T.z + Math.sin(a0) * 9.5;
   const g = new THREE.Group(); g.position.set(x, 0, z); g.rotation.y = Math.atan2(Math.cos(a0), Math.sin(a0));
   const wood = toon('#7a4a26');
   for (const sx of [-1.25, 1.25]) { const p = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.14, 2.6, 8)); p.position.set(sx, 1.3, 0); registerMesh(p, wood); p.castShadow = true; g.add(p); }
@@ -5341,7 +5504,7 @@ function refreshSign(T) { if (T.signTex) signTexture(T); }
 function townExtras(T, lvl) {
   T.extras = T.extras || {};
   if (T.extras[lvl]) return;
-  const a0 = Math.atan2(-T.z, -T.x), at = (a, r) => [T.x + Math.cos(a) * r, T.z + Math.sin(a) * r], objs = [];
+  const a0 = townFacing(T), at = (a, r) => [T.x + Math.cos(a) * r, T.z + Math.sin(a) * r], objs = [];
   const put = (name, a, r, s, opt) => { const [x, z] = at(a, r); const o = place(name, x, z, s, Math.atan2(T.x - x, T.z - z), opt); if (o) objs.push(o); };
   if (lvl === 1) {
     for (const [da, col] of [[2.3, '#e8743a'], [-2.3, '#3a8fe8']]) { const [x, z] = at(a0 + da, 7.6); const t = tentAt(x, z, Math.atan2(T.x - x, T.z - z), col); if (t) objs.push(t); }
@@ -5367,7 +5530,7 @@ function townExtras(T, lvl) {
 function buildSite(T, on) {
   if (T.site) { T.site.forEach((o) => scene.remove(o)); T.site = null; }
   if (!on) return;
-  const b = townBuild(T), a0 = Math.atan2(-T.z, -T.x), a = b.lvl === 1 ? a0 + 2.3 : b.lvl === 2 ? a0 + Math.PI : a0 + Math.PI;
+  const b = townBuild(T), a0 = townFacing(T), a = b.lvl === 1 ? a0 + 2.3 : b.lvl === 2 ? a0 + Math.PI : a0 + Math.PI;
   const r = b.lvl === 2 ? 15.5 : 7, x = T.x + Math.cos(a) * r, z = T.z + Math.sin(a) * r;
   T.site = [place('resource_lumber', x, z, S_PROP, 0.4, { collide: false }), place('resource_stone', x + 1.6, z + 0.8, S_PROP, 1.1, { collide: false }), place('wheelbarrow', x - 1.4, z + 1.1, S_PROP, 2.2, { collide: false })].filter(Boolean);
   T.siteAt = { x, z };
@@ -5515,7 +5678,7 @@ const plusMult = (k) => 1 + PLUS_STEP * plusOf(k);
 const plusName = (k) => `${GEAR[k].name}${plusOf(k) ? ` +${plusOf(k)}` : ''}`;
 function gearUpCost(k) {
   const n = plusOf(k) + 1, g = GEAR[k], base = g.price || (g.unique ? 600 : 120);
-  return { coins: Math.round(base * 0.2 * n + 30 * n * n), ore: n <= 2 ? 'copper_ore' : 'iron_ore', count: 2 * n };
+  return { coins: Math.round(base * 0.2 * n + 30 * n * n), ore: g.tier === 2 ? 'frostsilver_ore' : n <= 2 ? 'copper_ore' : 'iron_ore', count: 2 * n };
 }
 function openUpgrade(npc) {
   talking = npc;

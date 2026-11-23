@@ -1,7 +1,7 @@
 // Continents: each story chapter takes you to a new land, reached by ship.
 // Every land is built far away from the valley (x ≈ 1000+), and sailing moves you there through a fade.
 import { THREE, scene, registerMesh, toon, rng } from './engine.js';
-import { M, instanced, place, colliders, tinted, lib, S_BUILD, S_PROP, LAKE } from './world.js';
+import { M, instanced, place, colliders, tinted, lib, S_BUILD, S_PROP, LAKE, TOWNS } from './world.js';
 
 const FX = 1000, FZ = 0;
 export const LANDS = {
@@ -126,6 +126,8 @@ export function buildLands() {
   path(V.x, V.z, Z.palace.x, Z.palace.z + Z.palace.r);
   path(V.x, V.z, Z.woods.x + 8, Z.woods.z + 10);
   path(V.x, V.z, Z.hills.x - 8, Z.hills.z + 4);
+  const landTowns = TOWNS.filter((T) => T.land === L.id);
+  for (const T of landTowns) path(V.x, V.z, T.x, T.z);
   disc(V.x, V.z, 7);
 
   // Snowdrop village
@@ -145,7 +147,8 @@ export function buildLands() {
 
   // trees: a belt of snowy pines, thicker in Icicle Woods
   const nearPath = (x, z) => {
-    const segs = [[L.arrive.x, L.arrive.z + 5, V.x, V.z], [V.x, V.z, Z.palace.x, Z.palace.z + Z.palace.r], [V.x, V.z, Z.woods.x + 8, Z.woods.z + 10], [V.x, V.z, Z.hills.x - 8, Z.hills.z + 4]];
+    if (landTowns.some((T) => Math.hypot(x - T.x, z - T.z) < T.r + 2)) return true;
+    const segs = [[L.arrive.x, L.arrive.z + 5, V.x, V.z], [V.x, V.z, Z.palace.x, Z.palace.z + Z.palace.r], [V.x, V.z, Z.woods.x + 8, Z.woods.z + 10], [V.x, V.z, Z.hills.x - 8, Z.hills.z + 4], ...landTowns.map((T) => [V.x, V.z, T.x, T.z])];
     for (const [x1, z1, x2, z2] of segs) { const dx = x2 - x1, dz = z2 - z1, l2 = dx * dx + dz * dz, k = Math.max(0, Math.min(1, ((x - x1) * dx + (z - z1) * dz) / l2)); if (Math.hypot(x - x1 - k * dx, z - z1 - k * dz) < 4) return true; }
     return false;
   };

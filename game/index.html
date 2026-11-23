@@ -297,6 +297,8 @@
   .shop.sell { grid-template-columns: repeat(auto-fill, minmax(118px, 1fr)); }
   .shop.sell .buy img { width: 34px; height: 34px; }
   .shop.sell .buy em { color: #2f7d32; font-weight: 800; }
+  body.blizzard #stage::after { content: ''; position: fixed; inset: 0; pointer-events: none; background: radial-gradient(ellipse at 50% 50%, transparent 35%, rgb(220 240 255 / .55) 100%); animation: blizz 2s ease-in-out infinite alternate; }
+  @keyframes blizz { to { opacity: .7; } }
   .upgs, .orders { display: grid; gap: 8px; margin: 10px 0; }
   .upg, .order { display: grid; grid-template-columns: 44px 1fr auto; align-items: center; gap: 2px 10px; text-align: left; padding: 8px 10px; font-size: 14px; }
   .order { grid-template-columns: 1fr auto; }

@@ -38,6 +38,7 @@ export const ICONS = {
   oak_logs: make((g) => log(g, '#6e4423', '#d9a560')),
   copper_ore: make((g) => ore(g, '#ff9b3d')),
   iron_ore: make((g) => ore(g, '#a8c8f0')),
+  frostsilver_ore: make((g) => ore(g, '#7fe8ff')),
   shrimp: make((g) => {
     shape(g, '#ff8f7a', () => { g.arc(0, 4, 22, Math.PI * 1.05, Math.PI * 2.1); g.arc(2, 6, 10, Math.PI * 2.1, Math.PI * 1.05, true); g.closePath(); });
     g.save(); g.lineWidth = 3; for (const a of [3.6, 4.2, 4.8, 5.4]) { g.beginPath(); g.moveTo(Math.cos(a) * 11, 4 + Math.sin(a) * 11); g.lineTo(Math.cos(a) * 21, 4 + Math.sin(a) * 21); g.stroke(); } g.restore();
@@ -169,6 +170,11 @@ export const ICONS = {
   }),
   ruby: make((g) => {
     shape(g, '#ff3b5c', () => { g.moveTo(-18, -22); g.lineTo(18, -22); g.lineTo(32, -6); g.lineTo(0, 30); g.lineTo(-32, -6); g.closePath(); });
+    g.save(); g.lineWidth = 3; g.beginPath(); g.moveTo(-32, -6); g.lineTo(32, -6); g.moveTo(-8, -22); g.lineTo(-12, -6); g.lineTo(0, 30); g.lineTo(12, -6); g.lineTo(8, -22); g.stroke(); g.restore();
+    shine(g, -14, -14, 5);
+  }),
+  frost_gem: make((g) => {
+    shape(g, '#7fd3ff', () => { g.moveTo(-18, -22); g.lineTo(18, -22); g.lineTo(32, -6); g.lineTo(0, 30); g.lineTo(-32, -6); g.closePath(); });
     g.save(); g.lineWidth = 3; g.beginPath(); g.moveTo(-32, -6); g.lineTo(32, -6); g.moveTo(-8, -22); g.lineTo(-12, -6); g.lineTo(0, 30); g.lineTo(12, -6); g.lineTo(8, -22); g.stroke(); g.restore();
     shine(g, -14, -14, 5);
   }),
