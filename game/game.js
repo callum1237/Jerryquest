@@ -2181,7 +2181,7 @@ function doAction() {
   if (now < player.nextHit) { attackQueued = now; return; }
   swing();
 }
-const GRAV = 34;
+const GRAV = 50;
 // Dash: a quick sidestep to the left or right of the screen. Brief dodge window, short cooldown.
 let dashUntil = 0, dashReady = 0, dashDir = { x: 0, z: 0 }, dashLeft = 0;
 const dodging = () => player.pos.y > 0.7 || now < dashUntil + 0.08 || dashLeft > 0;
@@ -2198,7 +2198,7 @@ function dash(dir) {
     dir = [x, z];
   }
   const L = Math.hypot(dir[0], dir[1]) || 1;
-  dashDir = { x: dir[0] / L, z: dir[1] / L }; dashUntil = now + 0.2; dashReady = now + 0.75; dashLeft = 3.6;
+  dashDir = { x: dir[0] / L, z: dir[1] / L }; dashUntil = now + 0.18; dashReady = now + 0.55; dashLeft = 4.2;
   stamina = Math.max(0, stamina - 12); staminaAt = now + 1;
   burst(player.pos.clone().setY(0.4), '#f3e2bd', 12, 3);
 }
@@ -2206,8 +2206,8 @@ function jump() {
   if (!player || player.dead || uiLock() || player.air) return;
   if (talking) closeDialog();
   if (player.task) cancelTask();
-  player.air = true; player.vy = 11;
-  player.play(player.clips.Jump_Full_Short ? 'Jump_Full_Short' : 'Cheer', { once: true, fade: 0.06, speed: 1.35 });
+  player.air = true; player.vy = 13.5;
+  player.play(player.clips.Jump_Full_Short ? 'Jump_Full_Short' : 'Cheer', { once: true, fade: 0.05, speed: 1.65 });
   burst(player.pos.clone().setY(0.2), '#f3e2bd', 8, 2);
 }
 function showGear(which) {
@@ -2217,7 +2217,7 @@ function showGear(which) {
 // One swing: chop, mine, hit with a weapon, or shoot, in the direction you face.
 // One press = one attack. A press during the current swing is remembered for a moment
 // and fires the instant the swing allows, so fast tapping chains the combo in rhythm.
-let attackQueued = -9, forceAttack = false;
+let attackQueued = -9, forceAttack = false, mouseAimed = false;
 function attackPress(viaKey) {
   if (!player || player.dead || uiLock() || talking) return;
   if (now < player.nextHit) { attackQueued = now; return; }
@@ -2227,7 +2227,13 @@ function swing() {
   if (!player || player.dead || now < player.nextHit) return;
   if (mouseHeld && now - aim.at < 0.1) { player.face(aim.x, aim.z); }
   if (player.task) cancelTask();
-  if (now - aim.at < 2.5) { player.face(aim.x, aim.z); aim.at = -99; }
+  if (now - aim.at < 2.5) { player.face(aim.x, aim.z); aim.at = -99; mouseAimed = true; }
+  else {
+    // no mouse? swing the way your arrow keys / WASD point, so the game plays fine on a keyboard alone
+    const kx = (keys.has('r') ? 1 : 0) - (keys.has('l') ? 1 : 0), kz = (keys.has('d') ? 1 : 0) - (keys.has('u') ? 1 : 0);
+    if (kx || kz) player.root.rotation.y = Math.atan2(kx, kz);
+    mouseAimed = false;
+  }
   const t = swingTarget();
   if (t.type === 'npc') { held = false; player.face(t.n.x, t.n.z); openDialog(t.n); return; }
   if (t.type === 'chest') { held = false; player.face(t.n.x, t.n.z); openChest(t.n); return; }
@@ -2260,16 +2266,16 @@ function swing() {
   // The third is a finisher: harder, wider and it sends enemies flying.
   if (now - lastSwingAt > w.cd + 0.55 || comboStep >= 3) comboStep = 0;
   comboStep++; lastSwingAt = now;
-  const C = comboOf(w)[comboStep - 1], fin = comboStep === 3, spd = sp * C.speed;
+  const C = comboOf(w)[comboStep - 1], fin = comboStep === 3, spd = sp * C.speed * 1.2;
   // the wind-up is skipped so the blow lands right on the keystroke
-  player.nextHit = now + w.cd * (fin ? 0.85 : 0.48);
+  player.nextHit = now + w.cd * (fin ? 0.6 : 0.34);
   const lead = 0.08 * spd, from = Math.max(0, C.hitAt - lead);
   const dur = player.play(C.anim, { once: true, fade: 0.04, speed: spd, from });
-  player.busyUntil = now + Math.min(dur * 0.6, w.cd * 0.5);
+  player.busyUntil = now + Math.min(dur * 0.5, w.cd * 0.35);
   if (fin) { const fw = fwdOf(player); dashLunge = { x: fw.x, z: fw.z, left: A.proj ? 0 : 0.6 }; }
   later((C.hitAt - from) / spd, () => {
     if (player.dead) return;
-    const fwd = fwdOf(player), dmg = () => Math.max(1, Math.round(heroDamage() * C.mult));
+    const fwd = fwdOf(player), dmg = () => Math.max(1, Math.round(heroDamage() * C.mult * 0.8)); // faster swings, slightly lighter hits
     if (A.proj) {
       const shots = fin && A.proj === 'bolt' ? [-0.12, 0.12] : [0];
       for (const a of shots) {
@@ -2854,7 +2860,7 @@ function tick() {
       else { moveTarget = null; marker.visible = false; if (pending) { const t = pending; pending = null; startTask(t); } }
     }
     if (dashLunge && dashLunge.left > 0) { const st = Math.min(dashLunge.left, 9 * dt); dashLunge.left -= st; pp.x += dashLunge.x * st; pp.z += dashLunge.z * st; collide(pp); }
-    if (dashLeft > 0) { const st = Math.min(dashLeft, 18 * dt); dashLeft -= st; pp.x += dashDir.x * st; pp.z += dashDir.z * st; collide(pp); if (dashLeft <= 0) dashUntil = Math.min(dashUntil, now); player.root.rotation.z = -dashDir.x * 0.25; player.root.rotation.x = dashDir.z * 0.18; if (rng() < 0.6) burst(pp.clone().setY(0.9), '#ffffff', 2, 1.5, 0.6); }
+    if (dashLeft > 0) { const st = Math.min(dashLeft, 25 * dt); dashLeft -= st; pp.x += dashDir.x * st; pp.z += dashDir.z * st; collide(pp); if (dashLeft <= 0) dashUntil = Math.min(dashUntil, now); player.root.rotation.z = -dashDir.x * 0.25; player.root.rotation.x = dashDir.z * 0.18; if (rng() < 0.6) burst(pp.clone().setY(0.9), '#ffffff', 2, 1.5, 0.6); }
     else if (player.root.rotation.z || player.root.rotation.x) { player.root.rotation.z = 0; player.root.rotation.x = 0; }
     // you can always move, even mid-swing; while a swing plays you keep facing where you aimed
     if (mx || mz) {
@@ -2862,7 +2868,7 @@ function tick() {
       const len = Math.hypot(mx, mz); mx /= len; mz /= len;
       const sprinting = (keys.has('sprint') || sprintToggle) && stamina > 1 && !busy;
       if (sprinting) { stamina = Math.max(0, stamina - dt * 22); staminaAt = now + 1; if (stamina <= 1) sprintToggle = false; }
-      const speed = 6.5 * (1 + (lvl('speed') - 1) * 0.006) * (sprinting ? 1.65 : 1);
+      const speed = 7.8 * (1 + (lvl('speed') - 1) * 0.006) * (sprinting ? 1.55 : 1);
       const ox = pp.x, oz = pp.z;
       pp.x += mx * speed * dt; pp.z += mz * speed * dt;
       collide(pp); collide(pp);
@@ -2888,11 +2894,11 @@ function tick() {
       // give up on a tap target we can't reach
       stuck = moved < speed * dt * 0.2 ? stuck + dt : 0;
       if (stuck > 1.2 && moveTarget) { moveTarget = null; marker.visible = false; if (pending) { const t = pending; pending = null; startTask(t); } stuck = 0; }
-      if (!busy) {
+      if (!busy || (!mouseAimed && !moveTarget)) {
         const want = Math.atan2(mx, mz);
         let diff = want - player.root.rotation.y; diff = Math.atan2(Math.sin(diff), Math.cos(diff));
-        player.root.rotation.y += diff * Math.min(1, dt * 14);
-        if (!player.air) player.play('Running_A', { fade: 0.12, speed: sprinting ? 1.35 : 1 });
+        player.root.rotation.y += diff * Math.min(1, dt * (busy ? 20 : 14));
+        if (!player.air && !busy) player.play('Running_A', { fade: 0.08, speed: sprinting ? 1.55 : 1.2 });
         if (sprinting && rng() < 0.3) burst(pp.clone().setY(0.15), '#f3e2bd', 1, 1.5);
       }
     } else if (!busy && player.task) {

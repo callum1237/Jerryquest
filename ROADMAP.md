@@ -14,6 +14,7 @@
 - **Everything can be sold:** Marta buys anything in your bag, the smiths buy back spare gear. Monsters and bosses sometimes drop valuable treasures (silver rings, rubies, tiny golden crowns).
 - **Every weapon has a basic attack and a special (R):** swords Whirlwind, heavy weapons Ground Slam, magic Starburst, crossbows Volley. Specials hit an area and have a cooldown.
 - **Attacks follow your key presses:** each press of J (or a click) swings at once, and quick presses chain a 3-hit combo. Hits knock enemies back a short way; bosses barely move.
+- **Keyboard-only play:** with no mouse, attacks go the way your arrow keys / WASD point.
 - **Dash** in any direction (C, or double-tap a direction) to dodge attacks.
 - **Keybinds:** every control can be changed in Options (two keys per action, with a reset).
 - **Hotbar:** 8 slots (keys 1-8). Put food or gear on it from the Bag; pressing the slot eats or equips.
