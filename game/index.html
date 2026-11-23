@@ -144,6 +144,17 @@
   .slot { aspect-ratio: 1; background: #fff7e2; border: 2px solid var(--ink); border-radius: 12px; position: relative; display: grid; place-items: center; }
   .slot img { width: 70%; height: 70%; }
   .slot span { position: absolute; left: 5px; top: 2px; font: 700 13px var(--display); font-variant-numeric: tabular-nums; }
+  .bagbar { display: flex; align-items: center; gap: 6px; margin: 0 0 8px; }
+  .bagbar span { flex: 1; font: 700 12px var(--display); color: var(--ink-soft); }
+  .bagbar button { padding: 4px 10px; font-size: 12px; }
+  .bag .slot[data-drag], #hotbar .hot[data-drag] { touch-action: pan-y; cursor: grab; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; }
+  .bag .slot.pinned::after { content: ''; position: absolute; right: 4px; top: 4px; width: 7px; height: 7px; border-radius: 50%; background: var(--gold); box-shadow: 0 0 0 1.5px var(--ink); }
+  .slot.dragging, .hot.dragging { opacity: .35; }
+  .bag .slot img, #hotbar .hot img { -webkit-user-drag: none; user-drag: none; }
+  .dropover { outline: 3px solid var(--gold); outline-offset: 1px; transform: scale(1.06); }
+  .dragghost { position: fixed; left: 0; top: 0; width: 48px; height: 48px; pointer-events: none; z-index: 99; display: grid; place-items: center; background: #fff7e2; border: 2px solid var(--ink); border-radius: 12px; box-shadow: 0 6px 16px rgb(0 0 0 / .3); }
+  .dragghost img { width: 34px; height: 34px; }
+  body.dragging-item, body.dragging-item * { cursor: grabbing !important; }
   .slot.empty { background: rgb(255 247 226 / .45); border-style: dashed; }
   .hint { font-size: 12.5px; font-weight: 700; color: var(--ink-soft); margin: 10px 0 0; line-height: 1.4; }
   .quest { background: #fff7e2; border: 2px solid var(--ink); border-radius: 12px; padding: 8px 10px; margin-bottom: 8px; }

@@ -754,7 +754,8 @@ function makePeer(id, p) {
   pathDecor(a, look.path);
   const cos = look.cos || {};
   setFlair(a, { rank: rankOf(p.lvl || 1), aura: cos.aura, trail: cos.trail, hat: cos.hat, helmet: look.hat });
-  if (cos.outfit && COS.outfit[cos.outfit]) paintOutfit(a, COS.outfit[cos.outfit]);
+  if (cos.outfit && COS.outfit[cos.outfit]) { paintOutfit(a, COS.outfit[cos.outfit]); dressOutfit(a, COS.outfit[cos.outfit], look.sex === 'f' ? G.heroine : G.knight); }
+  a.root.scale.setScalar(heroScale(look));
   if (cos.cape && COS.cape[cos.cape]) capeColour(a, COS.cape[cos.cape].col, COS.cape[cos.cape].glow);
   a.root.position.set(p.x || 0, 0, p.z || 0);
   a.play('Idle');
@@ -1369,7 +1370,9 @@ const EYE_COLOURS = {
   pink: ['Pink', '#ff6fb0'], teal: ['Teal', '#1fb8b0'], amber: ['Amber', '#e08a1a'],
 };
 const EYE_STYLES = { round: 'Big and round', sharp: 'Determined', sleepy: 'Sleepy', happy: 'Happy', classic: 'Little dots' };
-const HEAD_SIZES = { normal: ['Normal', 1.2], big: ['Big', 1.4], chibi: ['Chibi', 1.56] };
+const HEAD_SIZES = { normal: ['Normal', 1.1], big: ['Big', 1.28], chibi: ['Chibi', 1.43] };
+// height slider: -1 (short) to 1 (tall); everyone is a touch bigger than before so outfits read clearly
+const heroScale = (L) => 1.3 * 1.04 * (1 + Math.max(-1, Math.min(1, +(L && L.height) || 0)) * 0.1);
 // a lower, closer camera than a straight top-down view, so you can see everyone's faces
 const CAM_OFF = new THREE.Vector3(0, 15, 26);
 const BEARDS = { none: 'None', stache: 'Moustache', curly: 'Curly moustache', goatee: 'Goatee', full: 'Big beard', wizard: 'Wizard beard' };
@@ -1815,7 +1818,7 @@ function buildFace(a = player, L = S.look) {
     fg.add(e);
   }
   // the face group grows with the head bone, so shrink the neck by the head size or it pokes out of the collar
-  const hsz = HEAD_SIZES[L.head] ? HEAD_SIZES[L.head][1] : 1.4, nk = 1.4 / hsz;
+  const hsz = HEAD_SIZES[L.head] ? HEAD_SIZES[L.head][1] : 1.28, nk = 1.4 / hsz;
   const neck = new THREE.Mesh(neckGeo); registerMesh(neck, skinMat); neck.position.set(c.x, c.y - ry * (0.78 + 0.12 * nk), c.z - rz * 0.05); neck.scale.set(rx * 0.42 * Math.min(1, nk * 1.1), ry * 0.45 * nk, rz * 0.42 * Math.min(1, nk * 1.1)); fg.add(neck);
   // lift the knight helmet so its visor clears the big eyes and the chin guard stops hanging over the chest
   a.root.traverse((o) => {
@@ -1825,7 +1828,7 @@ function buildFace(a = player, L = S.look) {
   });
   const hc = new THREE.Color(hairOf(L)).multiplyScalar(0.78);
   addBeard(fg, L.beard, c, rx, ry, rz, toon(`#${hc.getHexString()}`));
-  a.headScale = HEAD_SIZES[L.head] ? HEAD_SIZES[L.head][1] : 1.4;
+  a.headScale = HEAD_SIZES[L.head] ? HEAD_SIZES[L.head][1] : 1.28;
   markStencil(fg);
   addInk(fg);
 }
@@ -1902,6 +1905,7 @@ function applyLook() {
   });
   dressArmour();
   const ofC = cosState().eq.outfit; if (ofC && COS.outfit[ofC]) paintOutfit(player, COS.outfit[ofC]);
+  player.baseScale = heroScale(L); if (!tinyUntil) player.root.scale.setScalar(player.baseScale);
   const capeC = cosState().eq.cape; if (capeC && COS.cape[capeC]) capeColour(player, COS.cape[capeC].col, COS.cape[capeC].glow);
   addInk(player.root);
   heroFlair();
@@ -1918,11 +1922,47 @@ function capeColour(a, col, glow = 0) {
 function paintOutfit(a, c) {
   a.root.traverse((o) => {
     if (!o.isMesh || !o.userData.mats || Array.isArray(o.userData.mats.toon)) return;
-    const body = /_Body$/.test(o.name), cape = /_Cape$/.test(o.name); if (!body && !cape) return;
+    const body = /_Body$/.test(o.name), cape = /_Cape$/.test(o.name), arm = /_Arm(Left|Right)$/.test(o.name), leg = /_Leg(Left|Right)$/.test(o.name);
+    if (!body && !cape && !arm && !leg) return;
     if (!o.userData.ownMats) { o.userData.ownMats = { std: o.userData.mats.std.clone(), toon: o.userData.mats.toon.clone() }; o.userData.ownMats.toon.onBeforeCompile = o.userData.mats.toon.onBeforeCompile; o.userData.mats = o.userData.ownMats; o.material = styled.on ? o.userData.mats.toon : o.userData.mats.std; }
-    const col = body ? c.body : c.trim;
-    for (const m of [o.userData.mats.std, o.userData.mats.toon]) { colourise(m, body ? 0.9 : 1); m.color.set(col); if (m.emissive) m.emissive.set(col).multiplyScalar(c.glow || 0); }
+    // the whole hero wears the outfit: tunic and sleeves in the main colour, legs a blend toward the trim
+    const col = body ? c.body : arm ? mixHex(c.body, '#000000', 0.08) : leg ? mixHex(c.trim, c.body, 0.4) : c.trim;
+    for (const m of [o.userData.mats.std, o.userData.mats.toon]) { colourise(m, cape ? 1 : 0.85); m.color.set(col); if (m.emissive) m.emissive.set(col).multiplyScalar((c.glow || 0) * (body || cape ? 1 : 0.5)); }
   });
+}
+// Outfits get a few clean trim pieces in their second colour: a collar, a belt with a buckle,
+// a sash on some, and a glowing chest charm on the rarer ones. Simple shapes, bold colours.
+const OUTFIT_TRIM = { ranger: 'sash', pirate: 'sash', nomad: 'sash', shadow: 'sash', bog: 'sash' };
+const sashGeo = new THREE.TorusGeometry(1, 0.1, 6, 32), collarGeo = new THREE.TorusGeometry(1, 0.22, 8, 28), charmGeo = new THREE.OctahedronGeometry(1, 0);
+function dressOutfit(a, c, model, armour = null) {
+  if (a.outfitParts) for (const m of a.outfitParts) m.removeFromParent();
+  a.outfitParts = [];
+  if (!c || !model) return;
+  if (!restRigs.has(model)) { const r = SkeletonUtils.clone(model.scene); r.scale.setScalar(1.3); r.updateMatrixWorld(true); const b = {}; r.traverse((o) => { if (o.isBone) b[o.name.replace(/[^a-z]/gi, '').toLowerCase()] = o; }); restRigs.set(model, b); }
+  const rest = restRigs.get(model), live = {};
+  a.root.traverse((o) => { if (o.isBone) live[o.name.replace(/[^a-z]/gi, '').toLowerCase()] = o; });
+  if (!rest.chest || !live.chest) return;
+  const r = c.r || 0, glow = c.glow || 0;
+  const trim = toon(c.trim, glow ? { emissive: new THREE.Color(c.trim).multiplyScalar(glow * 0.8) } : {});
+  const W2L = new THREE.Matrix4(), M = new THREE.Matrix4(), q = new THREE.Quaternion(), sc = new THREE.Vector3();
+  const put = (bn, geo, mats, pos, rot, size) => {
+    const bone = rest[bn], key = bn; if (!bone || !live[key]) return;
+    const m = new THREE.Mesh(geo); registerMesh(m, mats); m.castShadow = true;
+    q.setFromEuler(rot); M.compose(pos, q, sc.copy(size));
+    W2L.copy(bone.matrixWorld).invert().multiply(M); W2L.decompose(m.position, m.quaternion, m.scale);
+    live[key].add(m); a.outfitParts.push(m); return m;
+  };
+  const wp = (b) => new THREE.Vector3().setFromMatrixPosition(rest[b].matrixWorld);
+  const S1 = 1.3, ch = wp('chest');
+  if (!(armour && armour.gorget)) put('chest', collarGeo, trim, ch.clone().add(new THREE.Vector3(0, 0.34 * S1, 0.01 * S1)), new THREE.Euler(Math.PI / 2, 0, 0), new THREE.Vector3(0.22 * S1, 0.2 * S1, 0.22 * S1));
+  if (OUTFIT_TRIM[c.id || ''] === 'sash' || c.sash) put('chest', sashGeo, trim, ch.clone().add(new THREE.Vector3(0, 0.06 * S1, 0.02 * S1)), new THREE.Euler(Math.PI / 2, 0, 0.62, 'ZYX'), new THREE.Vector3(0.43 * S1, 0.36 * S1, 0.9 * S1));
+  if (rest.hips && !(armour && armour.belt)) {
+    const hp = wp('hips');
+    put('hips', sashGeo, trim, hp.clone().add(new THREE.Vector3(0, 0.12 * S1, 0.01 * S1)), new THREE.Euler(Math.PI / 2, 0, 0), new THREE.Vector3(0.41 * S1, 0.35 * S1, 1.1 * S1));
+    put('hips', charmGeo, toon(r >= 3 ? c.trim : '#ffd34a', { emissive: r >= 3 ? new THREE.Color(c.trim).multiplyScalar(0.4) : '#3a2400' }), hp.clone().add(new THREE.Vector3(0, 0.12 * S1, 0.36 * S1)), new THREE.Euler(0, 0, Math.PI / 4), new THREE.Vector3(0.07 * S1, 0.07 * S1, 0.035 * S1));
+  }
+  if (r >= 3 && !(armour && armour.gem)) put('chest', charmGeo, toon(c.trim, { emissive: new THREE.Color(c.trim).multiplyScalar(0.5 + glow) }), ch.clone().add(new THREE.Vector3(0, 0.14 * S1, 0.35 * S1)), new THREE.Euler(0, 0, 0), new THREE.Vector3(0.075 * S1, 0.1 * S1, 0.04 * S1));
+  for (const m of a.outfitParts) { markStencil(m); addInk(m); }
 }
 // shimmering looks (mythic outfits, prism cape) slowly cycle through the colours
 const _shim = new THREE.Color();
@@ -1950,6 +1990,7 @@ const ARMOUR_LOOK = {
 const restRigs = new Map();
 const padGeo = new THREE.SphereGeometry(1, 20, 12, 0, Math.PI * 2, 0, Math.PI / 2), ringGeo = new THREE.TorusGeometry(1, 0.16, 8, 28), gemGeo = new THREE.OctahedronGeometry(1, 0), spikeGeo = new THREE.ConeGeometry(1, 2.4, 8);
 function dressArmour() {
+  { const oc = cosState().eq.outfit; dressOutfit(player, oc && COS.outfit[oc], heroModel(), ARMOUR_LOOK[S.equip.armour]); }
   if (player.armourParts) for (const m of player.armourParts) m.removeFromParent();
   player.armourParts = [];
   const A = ARMOUR_LOOK[S.equip.armour];
@@ -2009,7 +2050,7 @@ function colourise(mat, amt) {
         `#ifdef USE_MAP
           vec4 texel = texture2D(map, vMapUv);
           float lum = dot(texel.rgb, vec3(0.299, 0.587, 0.114));
-          diffuseColor *= vec4(mix(texel.rgb, vec3(min(1.0, 0.35 + lum * 1.25)), colourise), texel.a);
+          diffuseColor *= vec4(mix(texel.rgb, vec3(min(1.0, 0.62 + lum * 0.55)), colourise), texel.a);
         #endif`);
     };
     mat.customProgramCacheKey = () => 'colourise';
@@ -2035,12 +2076,15 @@ function equipGear() {
   player.customs = []; player.weapons = [];
   const hold = (item, base, side) => {
     if (base) base.visible = !item.model;
+    // shields are held a bit smaller so they don't hide the hero's outfit
+    if (base && side === 'l') { if (base.userData.s0 == null) base.userData.s0 = base.scale.x; base.scale.setScalar(base.userData.s0 * 0.64); }
     if (!item.model) { if (base) player.weapons.push(base); return; }
     if (!lib[item.model]) return;
     const m = lib[item.model].clone(true); stylize(m);
     if (item.tint) tinted(m, item.tint);
     addSilhouette(m, '#ffe9a0');
     const slot = handSlot(side);
+    if (side === 'l') m.scale.multiplyScalar(0.64);
     if (slot) slot.add(m);
     player.customs.push(m); player.weapons.push(m);
   };
@@ -2075,7 +2119,7 @@ function useHotbar(i) {
   const k = hotbar()[i];
   const slotEl = $('hotbar').children[i];
   if (slotEl) { slotEl.classList.remove('used'); void slotEl.offsetWidth; slotEl.classList.add('used'); }
-  if (!k) { hotPick = i; openSheet('bag'); toast(`Pick something in your bag for slot ${i + 1} (press +).`); renderHotbar(); return; }
+  if (!k) { hotPick = i; bagTab = 'items'; if (sheetMode !== 'bag') openSheet('bag'); else renderSheet(); toast(`Pick something in your bag for slot ${i + 1} (press +).`); renderHotbar(); return; }
   if (FOOD[k]) { if (!S.inv[k]) { toast(`You're out of ${ITEMS[k]}.`, ICONS[k]); return; } eat(k); renderHotbar(); return; }
   const g = GEAR[k];
   if (!g && ITEMS[k]) { toast(`${ITEMS[k]}: ${S.inv[k] || 0} in your bag.`, ICONS[k]); return; }
@@ -2108,7 +2152,7 @@ function renderHotbar() {
     if (!g && !item) return `<button class="hot empty" data-hot="${i}"><kbd>${key}</kbd></button>`;
     const on = g && S.equip[g.slot] === k;
     const tip = food ? `Eat ${ITEMS[k]} (heals ${food.heal})` : g ? `Equip ${g.name}` : `${ITEMS[k]} (${n} in your bag)`;
-    return `<button class="hot${on ? ' on' : ''}${!g && !n ? ' out' : ''}" data-hot="${i}" title="${tip}. Right-click to clear."><img src="${g ? gearIcon(g) : ICONS[k]}" alt=""><kbd>${key}</kbd>${!g ? `<span>${n}</span>` : ''}</button>`;
+    return `<button class="hot${on ? ' on' : ''}${!g && !n ? ' out' : ''}" data-hot="${i}" data-drag="${k}" title="${tip}. Drag to move, right-click to clear."><img src="${g ? gearIcon(g) : ICONS[k]}" alt=""><kbd>${key}</kbd>${!g ? `<span>${n}</span>` : ''}</button>`;
   }).join('');
   el.querySelectorAll('[data-hot]').forEach((b) => {
     const i = +b.dataset.hot;
@@ -3662,7 +3706,7 @@ addEventListener('keydown', (e) => {
   else if (act === 'eat') eatBest();
   else if (act === 'map') toggleBigMap();
   else if (act === 'hero') openSheet('skills');
-  else if (act === 'bag') openSheet('bag');
+  else if (act === 'bag') { if (sheetMode !== 'bag') bagTab = 'items'; openSheet('bag'); }
   else if (act === 'quests') openSheet('quests');
   else if (act === 'craft') openSheet('craft');
   else if (act === 'emote') toggleEmotes();
@@ -6291,6 +6335,7 @@ function renderCreator() {
     body = field('Body', `<div class="cc-sex">${Object.entries(SEXES).map(([k, nm]) => `<button class="cc-sexbtn" data-part="sex" data-val="${k}" aria-pressed="${L.sex === k}"><b>${k === 'm' ? '&#9794;' : '&#9792;'}</b>${nm}</button>`).join('')}</div>`)
       + field('Skin tone', swatchRow('skin', SKIN_TONES) + shadeSlider('skinShade'))
       + field('Head size', chipRow('head', HEAD_SIZES))
+      + field('Height', `<label class="cc-shade"><span>Shorter</span><input type="range" min="-100" max="100" step="5" data-shade="height" value="${Math.round((L.height || 0) * 100)}" aria-label="Height"><span>Taller</span></label>`)
       + field('Ears', chipRow('ears', { human: 'Round', elf: 'Pointy elf' }));
   } else if (creator.tab === 'face') {
     body = field('Eyes', picRow('eyeStyle', EYE_STYLES, 'eyes'))
@@ -7165,7 +7210,7 @@ function spotEffect(kind, s) {
   }
   refreshUI(); save();
 }
-let tinyUntil = 0;
+var tinyUntil = 0;
 function setTiny(sec) {
   if (!sec) return;
   if (!player.baseScale) player.baseScale = player.root.scale.x;
@@ -7289,6 +7334,7 @@ const COS = {
     shadow: { name: 'Shadow trail', r: 4, col: '#6a3aa8', how: 'Reach level 90 (Mythic)' }, rainbow: { name: 'Rainbow trail', r: 5, col: '#ff6ad5', shimmer: true, how: 'drop' },
   },
 };
+for (const [id, c] of Object.entries(COS.outfit)) c.id = id;
 // how cosmetics drop: monsters rarely, bosses often. Better lands roll better rarities.
 const COS_ODDS = { out: [70, 24, 5, 1, 0, 0], frost: [50, 32, 13, 4.5, 0.5, 0], marsh: [35, 33, 20, 10, 1.8, 0.2], sands: [22, 30, 25, 17, 5.2, 0.8] };
 function cosDrop(e, at, boss) {
@@ -7633,6 +7679,81 @@ function dollList() {
   return `<h4 class="sub">${SLOT_NAMES[dollSlot]}</h4><div class="gearlist">${mine.map((k) => { const g = GEAR[k], on = S.equip[dollSlot] === k, [rc, rn] = gearRarity(g);
     return `<div class="gearwrap"><button class="gearbtn ${rc}" data-gear="${k}" aria-pressed="${on}"><b><img src="${gearIcon(g)}" alt="">${plusOf(k) ? plusName(k) : g.name}</b><span>${gearStats(g)} · <i class="rar">${rn}</i>${on ? '' : ` ${gearDelta(g, cur)}`}</span></button><button class="pin" data-pin="${k}" title="Put on hotbar" aria-label="Put ${g.name} on the hotbar" aria-pressed="${(S.hotbar || []).includes(k)}">+</button></div>`; }).join('')}</div>${dollSlot === 'gadget' && S.equip.gadget ? '<p class="hint">Tap your gadget again to take it off.</p>' : ''}`;
 }
+// ---------- bag order and drag and drop ----------
+// Your bag holds materials, food, treasures and spare gear (gear you own but aren't wearing).
+// S.bagOrder remembers how you arranged it; new things go at the end.
+function bagKeys() {
+  const worn = Object.values(S.equip);
+  const have = (k) => (GEAR[k] ? S.owned.includes(k) && !worn.includes(k) : (S.inv[k] || 0) > 0 && ITEMS[k]);
+  const order = (Array.isArray(S.bagOrder) ? S.bagOrder : []).filter((k, i, a) => have(k) && a.indexOf(k) === i);
+  for (const k of Object.keys(S.inv)) if (have(k) && !order.includes(k)) order.push(k);
+  for (const k of S.owned) if (have(k) && !order.includes(k)) order.push(k);
+  S.bagOrder = order;
+  return order;
+}
+function bagSort(how) {
+  const keys = bagKeys(), rar = (k) => (GEAR[k] ? gearRarIx(GEAR[k]) : itemRarIx(k));
+  const kind = (k) => (GEAR[k] ? 0 : FOOD[k] ? 1 : SELL[k] && SELL[k] >= 50 ? 2 : 3);
+  const name = (k) => (GEAR[k] ? GEAR[k].name : ITEMS[k] || k);
+  keys.sort(how === 'rar' ? (a, b) => rar(b) - rar(a) || kind(a) - kind(b) || name(a).localeCompare(name(b)) : (a, b) => kind(a) - kind(b) || rar(b) - rar(a) || name(a).localeCompare(name(b)));
+  S.bagOrder = keys; save();
+}
+// Pointer-based dragging, so it works with a mouse and on touch screens (hold, then drag).
+let drag = null;
+function dragStart(e) {
+  const src = e.target.closest('[data-drag]'); if (!src || e.button > 0) return;
+  const fromHot = src.dataset.hot != null;
+  if (e.pointerType === 'mouse') e.preventDefault(); // stop the browser's own image drag, which cancels ours
+  drag = { k: src.dataset.drag, from: fromHot ? +src.dataset.hot : -1, src, x: e.clientX, y: e.clientY, on: false, id: e.pointerId, touch: e.pointerType !== 'mouse', t0: performance.now() };
+}
+function dragMove(e) {
+  if (!drag || e.pointerId !== drag.id) return;
+  const far = Math.hypot(e.clientX - drag.x, e.clientY - drag.y);
+  if (!drag.on) {
+    // on touch, a quick swipe scrolls; holding still for a moment picks the item up
+    if (drag.touch && performance.now() - drag.t0 < 220) { if (far > 10) drag = null; return; }
+    if (far < 6) return;
+    drag.on = true;
+    const img = drag.src.querySelector('img');
+    const gh = document.createElement('div'); gh.className = 'dragghost'; gh.innerHTML = img ? `<img src="${img.src}" alt="">` : ''; document.body.appendChild(gh);
+    drag.ghost = gh; drag.src.classList.add('dragging'); document.body.classList.add('dragging-item');
+  }
+  e.preventDefault();
+  drag.ghost.style.transform = `translate(${e.clientX - 24}px, ${e.clientY - 24}px)`;
+  const over = document.elementFromPoint(e.clientX, e.clientY), tgt = over && over.closest('[data-hot], [data-bagdrop]');
+  document.querySelectorAll('.dropover').forEach((x) => x !== tgt && x.classList.remove('dropover'));
+  if (tgt && tgt !== drag.src) tgt.classList.add('dropover');
+}
+function dragEnd(e) {
+  if (!drag || e.pointerId !== drag.id) return;
+  const d = drag; drag = null;
+  if (!d.on) return;
+  d.ghost.remove(); d.src.classList.remove('dragging'); document.body.classList.remove('dragging-item');
+  document.querySelectorAll('.dropover').forEach((x) => x.classList.remove('dropover'));
+  dragJustEnded = performance.now();
+  const over = document.elementFromPoint(e.clientX, e.clientY), hot = over && over.closest('#hotbar [data-hot]'), bag = over && over.closest('[data-bagdrop]');
+  const hb = hotbar();
+  if (hot) {
+    const to = +hot.dataset.hot;
+    if (d.from >= 0) [hb[to], hb[d.from]] = [hb[d.from], hb[to]]; // swap two hotbar slots
+    else { const was = hb.indexOf(d.k); if (was >= 0) hb[was] = hb[to]; hb[to] = d.k; }
+    hotPick = -1; sfx('equip');
+  } else if (bag && d.from < 0) {
+    const keys = bagKeys(), a = keys.indexOf(d.k), b = +bag.dataset.bagdrop;
+    if (a >= 0) { if (b < keys.length) [keys[a], keys[b]] = [keys[b], keys[a]]; else { keys.splice(a, 1); keys.push(d.k); } S.bagOrder = keys; }
+  } else if (d.from >= 0 && !(over && over.closest('#hotbar'))) {
+    hb[d.from] = null; // dragged off the bar: clear the slot
+  }
+  save(); renderHotbar(); if (sheetMode === 'bag') renderSheet();
+}
+let dragJustEnded = 0;
+addEventListener('pointerdown', dragStart);
+addEventListener('pointermove', dragMove, { passive: false });
+addEventListener('pointerup', dragEnd);
+addEventListener('pointercancel', (e) => { if (drag && drag.on) dragEnd(e); else drag = null; });
+// a drag shouldn't also count as a click on what you dropped it on
+addEventListener('click', (e) => { if (performance.now() - dragJustEnded < 250) { e.stopPropagation(); e.preventDefault(); } }, true);
+
 function renderBag(el) {
   const tabs = { gear: 'Gear', items: 'Bag', style: 'Style' };
   let body = '';
@@ -7647,19 +7768,22 @@ function renderBag(el) {
       <div class="dstats"><div><img src="${ICONS[w.type]}" alt=""><span>Hit</span><b>${Math.round(w.dmg * dmgMult() * pathDmg())}</b></div><div><img src="${ICONS.shield}" alt=""><span>Defense</span><b>${totalDef()}</b></div><div><img src="${ICONS.heart}" alt=""><span>Health</span><b>${maxHp()}</b></div><div><img src="${ICONS.star}" alt=""><span>Renown</span><b>+${Math.round((renown() - 1) * 100)}%</b></div></div>
       ${dollList()}`;
   } else if (bagTab === 'items') {
-    const items = Object.entries(S.inv), slots = [];
-    for (let i = 0; i < Math.max(20, Math.ceil(items.length / 5) * 5); i++) {
-      const it = items[i];
-      if (!it) { slots.push('<div class="slot empty"></div>'); continue; }
-      const [rc] = itemRarity(it[0]);
-      slots.push(`<button class="slot ${rc}${bagPick === it[0] ? ' on' : ''}" data-item="${it[0]}" title="${ITEMS[it[0]]}"><img src="${ICONS[it[0]]}" alt="${ITEMS[it[0]]}"><span>${it[1]}</span></button>`);
+    const keys = bagKeys(), slots = [];
+    for (let i = 0; i < Math.max(20, Math.ceil((keys.length + 1) / 5) * 5); i++) {
+      const k = keys[i];
+      if (!k) { slots.push(`<div class="slot empty" data-bagdrop="${i}"></div>`); continue; }
+      const g = GEAR[k], [rc] = g ? gearRarity(g) : itemRarity(k), nm = g ? g.name : ITEMS[k];
+      slots.push(`<button class="slot ${rc}${bagPick === k ? ' on' : ''}${(S.hotbar || []).includes(k) ? ' pinned' : ''}" data-item="${k}" data-drag="${k}" data-bagdrop="${i}" title="${nm}"><img src="${g ? gearIcon(g) : ICONS[k]}" alt="${nm}">${g ? (plusOf(k) ? `<span>+${plusOf(k)}</span>` : '') : `<span>${S.inv[k]}</span>`}</button>`);
     }
-    let info = '<p class="hint">Tap an item to see what it is worth. Marta at the market buys anything, and food heals you.</p>';
-    if (bagPick && S.inv[bagPick]) {
+    let info = '<p class="hint">Drag things to rearrange your bag, or drag them onto the hotbar. Drag a hotbar slot off the bar to clear it. Tap an item to see what it is worth.</p>';
+    if (bagPick && GEAR[bagPick] && S.owned.includes(bagPick)) {
+      const k = bagPick, g = GEAR[k], [rc, rn] = gearRarity(g);
+      info = `<div class="iteminfo ${rc}"><img src="${gearIcon(g)}" alt=""><div><b>${g.name}${plusOf(k) ? ` +${plusOf(k)}` : ''}</b><small><i class="rar">${rn}</i> · ${SLOT_NAMES[g.slot]} · spare, not equipped</small></div><div class="row"><button class="primary" data-equip="${k}">Equip</button><button data-pin="${k}" aria-pressed="${(S.hotbar || []).includes(k)}">Hotbar</button></div></div>`;
+    } else if (bagPick && S.inv[bagPick]) {
       const k = bagPick, [rc, rn] = itemRarity(k), f = FOOD[k];
       info = `<div class="iteminfo ${rc}"><img src="${ICONS[k]}" alt=""><div><b>${ITEMS[k]}</b><small><i class="rar">${rn}</i> · ${S.inv[k]} in your bag${SELL[k] ? ` · sells for ${fmt(SELL[k])} each` : ''}${f ? ` · heals ${f.heal}` : ''}</small></div><div class="row">${f ? `<button class="primary" data-eat="${k}">Eat</button>` : ''}<button data-pin="${k}" aria-pressed="${(S.hotbar || []).includes(k)}">Hotbar</button></div></div>`;
     }
-    body = `<div class="bag five">${slots.join('')}</div>${info}`;
+    body = `<div class="bagbar"><span>${keys.length} things</span><button data-bagsort="kind">Sort by type</button><button data-bagsort="rar">Sort by rarity</button></div><div class="bag five">${slots.join('')}</div>${info}`;
   } else {
     const C = cosState(), T = titleList(), cur = heroTitle();
     const total = Object.values(COS).reduce((a, s) => a + Object.keys(s).length, 0), have = Object.keys(C.got).length;
@@ -7673,6 +7797,8 @@ function renderBag(el) {
   el.querySelectorAll('[data-dslot]').forEach((b) => { b.onclick = () => { dollSlot = b.dataset.dslot; bagTab = 'gear'; renderSheet(); }; });
   el.querySelectorAll('[data-item]').forEach((b) => { b.onclick = () => { bagPick = bagPick === b.dataset.item ? null : b.dataset.item; renderSheet(); }; });
   el.querySelectorAll('[data-eat]').forEach((b) => { b.onclick = () => { eat(b.dataset.eat); renderSheet(); }; });
+  el.querySelectorAll('[data-equip]').forEach((b) => { b.onclick = () => { const k = b.dataset.equip, g = GEAR[k]; if (!g || !S.owned.includes(k)) return; S.equip[g.slot] = k; bagPick = null; cancelTask(); equipGear(); buildGearBar(); updateTitle(); save(); renderSheet(); renderHotbar(); sfx('equip'); toast(`Equipped ${g.name}.`, gearIcon(g)); }; });
+  el.querySelectorAll('[data-bagsort]').forEach((b) => { b.onclick = () => { bagSort(b.dataset.bagsort); renderSheet(); }; });
   el.querySelectorAll('[data-pin]').forEach((b) => { b.onclick = () => { pinToHotbar(b.dataset.pin); renderSheet(); }; });
   el.querySelectorAll('[data-gear]').forEach((b) => { b.onclick = () => { const g = GEAR[b.dataset.gear]; S.equip[g.slot] = g.slot === 'gadget' && S.equip.gadget === b.dataset.gear ? null : b.dataset.gear; cancelTask(); equipGear(); buildGearBar(); updateTitle(); save(); renderSheet(); burst(player.pos.clone().setY(1.6), '#ffe07a', 20, 4); sfx('equip'); }; });
   el.querySelectorAll('[data-cos]').forEach((b) => { b.onclick = () => { const [sl, k] = b.dataset.cos.split(':'); const C = cosState(); C.eq[sl] = k && C.eq[sl] !== k ? k : null; if (sl === 'cape' || sl === 'outfit') applyLook(); heroFlair(); save(); renderSheet(); burst(player.pos.clone().setY(1.6), '#ffe07a', 24, 4); }; });
