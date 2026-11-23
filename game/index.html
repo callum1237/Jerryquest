@@ -490,7 +490,7 @@
   .rl-stop { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); width: 32%; aspect-ratio: 1; border-radius: 50%; font: 800 clamp(18px, 5vw, 26px)/1 var(--display); color: #fff; background: radial-gradient(circle at 35% 30%, #ff8a7a, #d8243a); border: 5px solid var(--ink); box-shadow: 0 6px 0 var(--ink); text-shadow: 0 2px 0 #6a0a1a; animation: rlpulse .5s ease-in-out infinite alternate; }
   @keyframes rlpulse { to { transform: translate(-50%, -50%) scale(1.07); } }
   .rl-hint { margin-top: 10px; color: #fff6dc; font: 700 14px/1.2 var(--display); text-shadow: 0 2px 0 rgb(0 0 0 / .5); }
-  .rl-result { position: absolute; left: 50%; bottom: -14px; transform: translateX(-50%); display: flex; gap: 10px; align-items: center; background: #fffdf4; border: 4px solid var(--ink); border-radius: 18px; padding: 10px 14px; box-shadow: 0 5px 0 var(--ink); white-space: nowrap; font: 800 17px/1.2 var(--display); animation: dlgpop2 .35s cubic-bezier(.3, 1.6, .5, 1) both; }
+  .rl-result { position: absolute; left: 50%; bottom: -62px; transform: translateX(-50%); display: flex; gap: 10px; align-items: center; background: #fffdf4; border: 4px solid var(--ink); border-radius: 18px; padding: 10px 14px; box-shadow: 0 5px 0 var(--ink); white-space: nowrap; font: 800 17px/1.2 var(--display); animation: dlgpop2 .35s cubic-bezier(.3, 1.6, .5, 1) both; }
   .rl-result img { width: 34px; height: 34px; }
   .rl-result.jackpot { background: linear-gradient(180deg, #fff3a0, #ffc93a); }
   body.rouletting #hotbar, body.rouletting #actionbar, body.rouletting #specialbtn { visibility: hidden; }
@@ -603,7 +603,8 @@
   .chaptag { font: 800 10px/1 var(--display, inherit); color: #fff; background: #8a5ad8; border: 2px solid var(--ink, #2b160c); border-radius: 999px; padding: 2px 7px; white-space: nowrap; box-shadow: 0 2px 0 var(--ink, #2b160c); }
   .herotag { position: fixed; transform: translate(-50%, -100%); pointer-events: none; z-index: 2; --tc: #8a8a94; }
   .herotag b { display: block; font: 800 12px/1 var(--display, sans-serif); color: #fff; background: var(--tc); border: 2px solid var(--ink, #2b160c); border-radius: 8px; padding: 2px 7px; white-space: nowrap; box-shadow: 0 2px 0 var(--ink, #2b160c); }
-  body.creating .herotag, body:has(#bossintro:not([hidden])) .herotag { display: none; }
+  body.creating .herotag, body:has(#bossintro:not([hidden])) .herotag, body:has(#bigmap:not([hidden])) .herotag, body:has(#roulette:not([hidden])) .herotag { display: none; }
+  @media (max-width: 700px) { body.sheet-open .herotag, body.sheet-open .crewtag { display: none; } }
   #emotewheel { position: fixed; inset: 0; z-index: 30; background: rgb(30 18 10 / .25); }
   #emotewheel .ew-ring { position: absolute; left: 50%; top: 50%; width: 300px; height: 300px; transform: translate(-50%, -50%); }
   #emotewheel button { position: absolute; transform: translate(-50%, -50%); width: 70px; height: 70px; border-radius: 50%; border: 3px solid var(--ink, #2b160c); background: #fff8e4; box-shadow: 0 4px 0 var(--ink, #2b160c); display: grid; place-items: center; align-content: center; padding: 0; cursor: pointer; }
@@ -633,6 +634,26 @@
   .bossshout.pop { animation: emotepop .35s cubic-bezier(.3,1.6,.5,1); }
   .cc-shade { display: flex; align-items: center; gap: 8px; margin-top: 8px; font: 700 11px/1 var(--display, sans-serif); color: var(--ink-soft, #6a4a3a); }
   .cc-shade input { flex: 1; min-width: 0; accent-color: #8a5ad8; }
+
+  /* ---- v28 polish: gentle entrances so nothing just blinks into place ---- */
+  #sheet:not([hidden]) { animation: sheetin .22s cubic-bezier(.2, 1.2, .4, 1) both; }
+  @keyframes sheetin { from { opacity: 0; transform: translateX(18px); } }
+  #bigmap:not([hidden]) { animation: rlfade .18s both; }
+  #bigmap:not([hidden]) .mapwrap { animation: mapin .25s cubic-bezier(.2, 1.3, .4, 1) both; }
+  @keyframes mapin { from { opacity: 0; transform: scale(.94); } }
+  /* while the prize wheel is up, keep messages at the bottom so they never sit on the banner */
+  body:has(#roulette:not([hidden])) #toasts { z-index: 8; top: auto; bottom: calc(env(safe-area-inset-bottom, 0px) + 18px); }
+  .rl-result ~ .rl-hint, .rl-wrap:has(.rl-result) .rl-hint { visibility: hidden; }
+  button { transition: transform .08s ease, filter .12s ease; }
+  button:active:not(:disabled) { transform: translateY(1px) scale(.98); }
+  @media (prefers-reduced-motion: reduce) { #sheet, #bigmap .mapwrap, #creator > div { animation: none !important; } }
+  .maplegend { display: flex; flex-wrap: wrap; gap: 6px 14px; justify-content: center; font: 700 13px/1 var(--body); color: var(--ink-soft); margin: 2px 0 4px; }
+  .maplegend span { display: inline-flex; align-items: center; gap: 5px; }
+  .maplegend i { width: 11px; height: 11px; border-radius: 50%; border: 1.5px solid var(--ink); display: inline-block; }
+  #bigmap .hint { text-align: center; margin: 2px 0 0; font-size: 12px; opacity: .8; }
+  .seg { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; }
+  .seg button { padding: 7px 4px; font-size: 13px; }
+  .seg button[aria-pressed="true"] { background: linear-gradient(180deg, #8a5cf0, #6a3fd0); color: #fff; }
 </style>
 
 <div id="stage"></div>
@@ -666,7 +687,7 @@
 </div>
 
 <canvas id="minimap" class="panel" title="Map (M)" hidden></canvas>
-<div id="bigmap" class="overlay" hidden><div class="panel mapwrap"><h3>Map of the valley</h3><canvas></canvas><p class="hint">Chests are gold boxes, skulls are bosses, red dots are monsters. Red flags are towns held by monsters, blue flags are towns you freed. Yellow dots have a quest for you, green ones are ready to hand in. Your crew show as green (ally), lilac (neutral) or orange (rival). Tap anywhere to close.</p></div></div>
+<div id="bigmap" class="overlay" hidden><div class="panel mapwrap"><h3>Map of the valley</h3><canvas></canvas><div class="maplegend"><span><i style="background:#ffd23f;border-radius:2px"></i>Chest</span><span><i style="background:#e8304a"></i>Monster</span><span><i style="background:#fff;box-shadow:inset 0 0 0 3px #e8304a"></i>Boss</span><span><i style="background:#ffd23f"></i>Quest</span><span><i style="background:#5ad06a"></i>Hand in</span><span><i style="background:#c9a8ff"></i>Crew</span></div><p class="hint">Tap anywhere to close.</p></div></div>
 <button id="jumpbtn" class="panel" aria-label="Jump">Jump</button>
 <button id="specialbtn" class="panel" aria-label="Special attack (R)" title="Special attack (R)"><img data-icon="star" alt=""><span>Special</span></button>
 <button id="dashr" class="panel dash" aria-label="Dash">&raquo;</button>

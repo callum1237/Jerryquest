@@ -33,6 +33,13 @@ export const PRESETS = {
     hemiSky: '#ffe0c4', hemiGround: '#5d6e48', hemiI: 1.05,
     rim: '#ffb36b', rimI: 0.75, motes: 1.0, fire: 1.0,
   },
+  // a storybook night: deep blue but never murky, with a cool moon and lots of fireflies
+  night: {
+    top: '#1c2a6b', horizon: '#6b6fb8', fog: '#4a5290',
+    sun: '#b8ccff', sunI: 1.35, sunDir: [-30, 52, 22],
+    hemiSky: '#9aaaf0', hemiGround: '#46506e', hemiI: 1.15,
+    rim: '#a8c4ff', rimI: 0.7, motes: 1.4, fire: 1.3, night: 1,
+  },
 };
 const rimUniform = { value: new THREE.Color(PRESETS.day.rim) };
 const rimStrength = { value: PRESETS.day.rimI };
@@ -64,16 +71,26 @@ sky.renderOrder = -10;
 scene.add(sky);
 scene.fog = new THREE.Fog(0xffffff, 95, 230);
 
-export const env = { preset: 'day' };
+export const env = { preset: 'day', cur: { motes: 0.55, fire: 0.6, night: 0, sunDir: [26, 48, 18] } };
 export function applyPreset(name) {
   env.preset = name;
-  const p = PRESETS[name];
-  skyUniforms.top.value.set(p.top);
-  skyUniforms.horizon.value.set(p.horizon);
-  scene.fog.color.set(p.fog);
-  sun.color.set(p.sun); sun.intensity = p.sunI;
-  hemi.color.set(p.hemiSky); hemi.groundColor.set(p.hemiGround); hemi.intensity = p.hemiI;
-  rimUniform.value.set(p.rim); rimStrength.value = p.rimI;
+  blendPresets(name, name, 0);
+}
+// Mix two lighting moods, so day can slide into golden hour and on into night.
+const _ca = new THREE.Color(), _cb = new THREE.Color();
+const mixC = (target, a, b, k) => target.copy(_ca.set(a)).lerp(_cb.set(b), k);
+const mixN = (a, b, k) => a + (b - a) * k;
+export function blendPresets(na, nb, k) {
+  const a = PRESETS[na], b = PRESETS[nb];
+  mixC(skyUniforms.top.value, a.top, b.top, k);
+  mixC(skyUniforms.horizon.value, a.horizon, b.horizon, k);
+  mixC(scene.fog.color, a.fog, b.fog, k);
+  mixC(sun.color, a.sun, b.sun, k); sun.intensity = mixN(a.sunI, b.sunI, k);
+  mixC(hemi.color, a.hemiSky, b.hemiSky, k); mixC(hemi.groundColor, a.hemiGround, b.hemiGround, k); hemi.intensity = mixN(a.hemiI, b.hemiI, k);
+  mixC(rimUniform.value, a.rim, b.rim, k); rimStrength.value = mixN(a.rimI, b.rimI, k);
+  const n = env.cur;
+  n.motes = mixN(a.motes, b.motes, k); n.fire = mixN(a.fire, b.fire, k); n.night = mixN(a.night || 0, b.night || 0, k);
+  for (let i = 0; i < 3; i++) n.sunDir[i] = mixN(a.sunDir[i], b.sunDir[i], k);
 }
 applyPreset('day');
 
@@ -210,7 +227,8 @@ export function burst(p, color, n = 24, spd = 6, up = 0.9) {
   }
 }
 export function updateParticles(dt, t, center) {
-  moteMat.opacity = PRESETS[env.preset].motes * 0.7;
+  moteMat.opacity = env.cur.motes * 0.7;
+  moteMat.color.setRGB(1 - env.cur.night * 0.1, 1, 1 - env.cur.night * 0.55); // fireflies turn yellow-green at night
   for (let i = 0; i < MOTES; i++) {
     const s = moteSeed[i];
     let x = motePos[i * 3] + Math.sin(t * 0.4 + s) * dt * 0.6;

@@ -1,5 +1,5 @@
 // JerryQuest: playable single-player slice. One hero shaped by gear and stat points, skills that level by use, gathering, combat and quests.
-import { THREE, scene, camera, renderer, sun, sky, PRESETS, env, applyPreset, styled, setStyled, stylize, toon, registerMesh,
+import { THREE, scene, camera, renderer, sun, sky, PRESETS, env, applyPreset, blendPresets, styled, setStyled, stylize, toon, registerMesh,
   loadModel, burst, updateParticles, render, rng } from './engine.js';
 import * as SkeletonUtils from 'three/addons/utils/SkeletonUtils.js';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
@@ -385,11 +385,12 @@ async function main() {
   buildFlowers();
   buildTools();
   mergeStatic();
+  buildSpots();
   poolLights();
   $('coinicon').src = ICONS.coins; $('hearticon').src = ICONS.heart; $('booticon').src = ICONS.boot;
   document.querySelectorAll('[data-icon]').forEach((im) => { im.src = ICONS[im.dataset.icon]; });
   const had = loadSave(); rebuildBinds(); applyTowns();
-  applyPreset(S.preset || 'day');
+  dayTick(0, true);
   $('loading').style.opacity = '0';
   setTimeout(() => $('loading').remove(), 700);
   if (had && S.started) { startHero(); if (!S.name) openCreator('new'); } else showPick();
@@ -1392,6 +1393,7 @@ function spawnEnemy(k, x, z) {
   e.mass = T.mass || (T.dragon ? 16 : T.boss ? 7 : k === 'skel_minion' ? 0.8 : k === 'skel_warrior' ? 1.3 : 1);
   e.kb = new THREE.Vector2(); e.vy = 0; e.lift = 0; e.staggerUntil = 0; e.flashT = 0;
   enemies.push(e);
+  return e;
 }
 
 // Skeletons get cool bone-white skulls and glowing eyes, so they never read as bald villagers.
@@ -1743,9 +1745,13 @@ function openChest(c) {
   if (c.open || roulette) return;
   c.open = true; c.at = now + 180; c.m.visible = false; c.glow.visible = false;
   burst(new THREE.Vector3(c.x, 1.2, c.z), '#ffe07a', 40, 6, 1.4);
+  spinWheel('Treasure Roulette!');
+}
+function spinWheel(title) {
+  if (roulette) return;
   sfx('win');
   const el = $('roulette');
-  el.innerHTML = `<div class="rl-wrap"><div class="rl-title">Treasure Roulette!</div><div class="rl-ring">${WHEEL.map((k, i) => {
+  el.innerHTML = `<div class="rl-wrap"><div class="rl-title">${title}</div><div class="rl-ring">${WHEEL.map((k, i) => {
     const a = (i / WHEEL.length) * Math.PI * 2 - Math.PI / 2, [nm, ic, col] = WHEEL_LOOK[k];
     return `<div class="rl-p" style="--x:${Math.cos(a) * 40}%;--y:${Math.sin(a) * 40}%;--c:${col}"><img src="${ICONS[ic]}" alt=""><b>${nm}</b></div>`;
   }).join('')}<button class="rl-stop" id="rl-stop">STOP!</button></div><div class="rl-hint">Press ${keyOf('interact')}, Space or tap STOP</div></div>`;
@@ -1976,7 +1982,8 @@ function renderSheet() {
   } else if (sheetMode === 'opts') {
     el.innerHTML = `<h3>Options</h3><div class="opts">
       <button id="o-style" aria-pressed="${styled.on}">Storybook look: ${styled.on ? 'On' : 'Off'}</button>
-      <button id="o-tod" aria-pressed="${env.preset === 'golden'}">${env.preset === 'golden' ? 'Switch to daytime' : 'Switch to golden hour'}</button>
+      <h4>Time of day</h4>
+      <div class="seg" id="o-tod">${[['cycle', 'Day and night'], ['day', 'Day'], ['golden', 'Golden hour'], ['night', 'Night']].map(([k, nm]) => `<button data-tod="${k}" aria-pressed="${(S.tod || 'cycle') === k}">${nm}</button>`).join('')}</div>
       <h4>Sound</h4>
       <label class="volrow">Music <input type="range" id="o-music" min="0" max="1" step="0.05" value="${(S.vol || {}).music ?? 0.55}"></label>
       <label class="volrow">Effects <input type="range" id="o-sfx" min="0" max="1" step="0.05" value="${(S.vol || {}).sfx ?? 0.8}"></label>
@@ -1991,7 +1998,7 @@ function renderSheet() {
     const vols = () => { S.vol = { music: +$('o-music').value, sfx: +$('o-sfx').value }; setVolumes(S.vol.music, S.vol.sfx); save(); };
     $('o-music').oninput = vols; $('o-sfx').oninput = () => { vols(); sfx('coin'); };
     $('o-binds').onclick = () => { delete S.binds; rebuildBinds(); save(); renderSheet(); };
-    $('o-tod').onclick = () => { applyPreset(env.preset === 'golden' ? 'day' : 'golden'); S.preset = env.preset; save(); renderSheet(); };
+    $('o-tod').querySelectorAll('button').forEach((b) => { b.onclick = () => { S.tod = b.dataset.tod; dayTick(0, true); save(); renderSheet(); }; });
     $('o-reset').onclick = () => {
       const b = $('o-reset');
       if (b.dataset.armed) { resetting = true; try { localStorage.removeItem(SAVE_KEY); } catch (e) { /* ignore */ } location.reload(); }
@@ -2846,7 +2853,8 @@ function knockTick(e, dt) {
   if (e.lift > 0) { e.vy -= 32 * dt; e.lift = Math.max(0, e.lift + e.vy * dt); if (!e.lift) e.vy = 0; ep.y = e.lift; }
   // white flash that fades over a few frames
   const f = Math.max(0, (e.flashT - now) / 0.13);
-  if (f !== e.flashLast) { e.flashLast = f; for (const m of e.flashMats) if (m.emissive) { m.emissive.setRGB(f, f * 0.95, f * 0.85); } }
+  const gk = f + (e.golden ? 10 : 0), g = e.golden ? 0.55 + Math.sin(now * 6) * 0.15 : 0;
+  if (gk !== e.flashLast || e.golden) { e.flashLast = gk; for (const m of e.flashMats) if (m.emissive) { m.emissive.setRGB(f + g * 0.75, f * 0.95 + g * 0.5, f * 0.85); } }
 }
 function hurtEnemy(e, dmg, src = null, power = 1) {
   const head = e.pos.clone().setY(3.4);
@@ -2875,9 +2883,11 @@ function hurtEnemy(e, dmg, src = null, power = 1) {
       if (e.T.town) { const T = TOWNS.find((t) => t.id === e.T.town); later(1.5, () => liberateTown(T)); }
     }
     floatText(e.pos.clone().setY(2.4), `+${coins} coins`, 'gain');
+    if (e.golden) goldenCaught(e);
     for (const k of Object.keys(QUESTS)) if (S.quests[k].state === 'active' && QUESTS[k].need.kills !== undefined && (!QUESTS[k].land || QUESTS[k].land === e.inside)) S.quests[k].kills++;
     refreshUI();
-    later(e.T.boss ? 90 : 16, () => {
+    later(e.temp ? 5 : e.T.boss ? 90 : 16, () => {
+      if (e.temp) { removeEnemy(e); return; } // ambush skeletons don't come back
       if (e.T.town && townFree(e.T.town)) return; // freed towns stay free
       e.hp = e.T.hp; e.state = 'rising';
       reassemble(e);
@@ -3026,6 +3036,7 @@ function enemyTick(e, dt) {
   knockTick(e, dt);
   if (e.state === 'dead' || e.state === 'rising' || e.state === 'gone') return;
   if (now < e.staggerUntil && e.state !== 'slam') return;
+  if (goldenRun(e, dt)) return;
   // a crew member who hit it gets its attention instead of you
   let foe = e.foe;
   if (foe && (e.T.boss || !crewUp(foe) || foe.inside !== e.inside || Math.hypot(foe.pos.x - ep.x, foe.pos.z - ep.z) > 12)) foe = e.foe = null;
@@ -3102,7 +3113,7 @@ function enemyTick(e, dt) {
 // ---------- minimap ----------
 const MAP_R = 165, MAP_PX = 1024;
 const mapBg = document.createElement('canvas'); mapBg.width = mapBg.height = MAP_PX;
-const PLACES = [['Village', 0, -4], ['Skeleton camp', CAMP.x, CAMP.z + 9], ['Mine', MINE.x, MINE.z - 9], ['Castle', 4, -54], ['Ship', VALLEY_DOCK.x - 2, VALLEY_DOCK.z + 7], ...Object.values(ZONES).map((Z) => [Z.name, Z.x, Z.z - Z.r * 0.55]), ...TOWNS.map((T) => [T.name, T.x, T.z - 9])];
+const PLACES = [['Village', 0, -4], ['Skeleton camp', CAMP.x, CAMP.z + 9], ['Mine', MINE.x, MINE.z - 9], ['Castle', 4, -54], ['Ship', VALLEY_DOCK.x + 8, VALLEY_DOCK.z - 9], ...Object.values(ZONES).map((Z) => [Z.name, Z.x, Z.z - Z.r * 0.55]), ...TOWNS.map((T) => [T.name, T.x, T.z - 9])];
 // Photograph the world from straight above once, and use it as the map picture.
 function bakeMap() {
   const cam = new THREE.OrthographicCamera(-MAP_R, MAP_R, MAP_R, -MAP_R, 1, 500);
@@ -3141,6 +3152,7 @@ function bakeMap() {
   // trees as chunky round clumps
   for (const c of colliders) {
     if (c.r < 0.95 || c.r > 1.4 || Math.hypot(c.x, c.z) > WORLD_R) continue;
+    if (Math.abs(Math.sin(c.x * 12.99 + c.z * 78.23) * 43758.5) % 1 < 0.5) continue; // half the trees keep the board readable
     const x = M2(c.x), y = M2(c.z), r = R2(c.r * 1.9);
     g.beginPath(); g.arc(x, y, r, 0, 7); g.fillStyle = '#2f8a3c'; g.fill(); g.lineWidth = 1.5; g.strokeStyle = 'rgba(30,50,20,.8)'; g.stroke();
     g.beginPath(); g.arc(x - r * 0.3, y - r * 0.3, r * 0.4, 0, 7); g.fillStyle = 'rgba(160,230,120,.45)'; g.fill();
@@ -3227,10 +3239,11 @@ function drawMap(cv, full) {
     dot(n.x, n.z, full ? 4 : 4.5, col);
   }
   if (full) {
-    g.font = `700 ${13 * dpr}px Fredoka, Trebuchet MS, sans-serif`; g.textAlign = 'center'; g.lineJoin = 'round';
+    const fs = Math.max(9, Math.min(13, W / dpr / 38)); // smaller ribbons on a phone so names don't pile up
+    g.font = `700 ${fs * dpr}px Fredoka, Trebuchet MS, sans-serif`; g.textAlign = 'center'; g.lineJoin = 'round';
     // place names on little ribbons
     for (const [name, x, z] of (Lm ? Lm.places : PLACES)) {
-      const [u, v] = toPx(x, z), w = g.measureText(name).width + 14 * dpr, h = 19 * dpr;
+      const [u, v] = toPx(x, z), w = g.measureText(name).width + fs * 1.05 * dpr, h = fs * 1.45 * dpr;
       g.fillStyle = '#7a4ac8'; g.strokeStyle = '#3a2010'; g.lineWidth = 2 * dpr;
       g.beginPath(); g.roundRect(u - w / 2, v - h * 0.72, w, h, 6 * dpr); g.fill(); g.stroke();
       g.fillStyle = '#fff3c4'; g.fillText(name, u, v + 1 * dpr);
@@ -3283,6 +3296,37 @@ function collide(p, r = 0.7) {
 }
 let stamina = 100, staminaAt = 0, sprintToggle = false;
 let lastUi = 0, lastSave = 0, regenAt = 0, lastAct = '', stuck = 0;
+// Day slides into golden hour, then a cosy blue night with fireflies, then dawn. A full
+// day takes 24 minutes. Rooms indoors always use the daytime light.
+const DAY_LEN = 24 * 60;
+const DAY_KEYS = [[0, 'day'], [0.46, 'day'], [0.54, 'golden'], [0.6, 'golden'], [0.67, 'night'], [0.86, 'night'], [0.92, 'golden'], [0.96, 'golden'], [1, 'day']];
+let dayLast = '', dayPhase = '';
+function dayTick(dt, force) {
+  const mode = S.tod || 'cycle';
+  if (mode === 'cycle') S.dayT = ((S.dayT || 0) + dt / DAY_LEN) % 1;
+  const indoors = where !== 'out' && !LANDS[where];
+  let a = 'day', b = 'day', k = 0;
+  if (indoors) { a = b = 'day'; }
+  else if (mode !== 'cycle') { a = b = mode; }
+  else {
+    const t = S.dayT || 0;
+    for (let i = 0; i < DAY_KEYS.length - 1; i++) {
+      const [t0, p0] = DAY_KEYS[i], [t1, p1] = DAY_KEYS[i + 1];
+      if (t >= t0 && t <= t1) { a = p0; b = p1; k = t1 > t0 ? (t - t0) / (t1 - t0) : 0; k = k * k * (3 - 2 * k); break; }
+    }
+  }
+  const key = a + b + k.toFixed(3);
+  if (!force && key === dayLast) return;
+  dayLast = key; env.preset = k < 0.5 ? a : b;
+  blendPresets(a, b, k);
+  const phase = a + '>' + b;
+  if (!force && phase !== dayPhase && !indoors) {
+    if (phase === 'night>golden') toast('The sun is coming up. Good morning!');
+    if (phase === 'golden>night') toast('Night falls. The fireflies come out.');
+  }
+  dayPhase = phase;
+}
+
 // Every lamp, chest glow and lava pool used to be its own light, and each one made every
 // material do more work. Now the lamps are just spots, and four real lights hop to the
 // spots nearest the hero each frame. The count never changes, so shaders never rebuild.
@@ -3427,6 +3471,7 @@ function tick() {
   const dt = Math.min(clock.getDelta(), 0.05) * (now < hitStopUntil ? 0.08 : 1);
   for (let i = timers.length - 1; i >= 0; i--) { timers[i].t -= dt; if (timers[i].t <= 0) { const f = timers[i].f; timers.splice(i, 1); f(); } }
   regionTick(); lightTick();
+  if (player) { spotTick(); goldenTick(); tinyTick(dt); pompTick(dt); }
 
   if (player && !player.dead && !uiLock()) {
     const busy = now < player.busyUntil;
@@ -3607,7 +3652,8 @@ function tick() {
   if (player && now - lastMap > 0.1) { lastMap = now; mini.hidden = !$('sheet').hidden; drawMap(mini, false); if (!bigMap.hidden) drawMap(bigMap.querySelector('canvas'), true); }
   if (player && now - lastSave > 6) { lastSave = now; save(); }
 
-  const P = PRESETS[env.preset];
+  dayTick(dt);
+  const P = env.cur;
   if (dynamic.waterMat) dynamic.waterMat.uniforms.time.value = now;
   const fl = 0.85 + 0.15 * Math.sin(now * 17) + 0.1 * Math.sin(now * 7.3);
   if (dynamic.fireLight) dynamic.fireLight.intensity = 30 * fl * P.fire;
@@ -3694,6 +3740,7 @@ function bossIntroTick(dt = 0) {
 }
 // What each boss says: before the fight, when it gets low on health, and when it is beaten.
 // ['h', text] lines are your hero talking back.
+const POMP_BOSSES = ['boss_gagron', 'boss_crusher', 'boss_gloom', 'boss_rattle', 'boss_frost'];
 const BOSS_LINES = {
   boss_gagron: { intro: ['WHO dares walk into my beautiful cave?', ['h', 'Um, hello? Are you Gagron the Hideous?'], 'HIDEOUS?! Who keeps calling me that?! I will roast you for that, tiny hero!'],
     low: 'Not the face! Anything but the face!', defeat: ['Fine! Take your silly shard...', ['h', 'Thanks!'], '...but admit it. I am a little bit handsome.'] },
@@ -3742,9 +3789,9 @@ function bossShoutTick() {
   const v = tmpV.copy(e.pos).setY((e.T.scale || 2) * 2.4 + 1.5).project(camera);
   shoutEl.style.left = `${(v.x * 0.5 + 0.5) * innerWidth}px`; shoutEl.style.top = `${(-v.y * 0.5 + 0.5) * innerHeight}px`;
 }
-function startBossScene(e, kind) {
+function startBossScene(e, kind, custom) {
   closeDialog(); closeSheet(); cancelTask(); keys.clear(); moveTarget = null;
-  const lines = (BOSS_LINES[e.type] || {})[kind] || [];
+  const lines = custom || (BOSS_LINES[e.type] || {})[kind] || [];
   bossIntro = { e, t: 0, kind, lines, li: -1, lineAt: 0 };
   const el = $('bossintro');
   el.innerHTML = '<div class="bi-bar top"></div><div class="bi-bar bot"></div>';
@@ -3763,7 +3810,13 @@ function startBossIntro(e) {
   later(0.9, () => { if (bossIntro) burst(e.pos.clone().setY(2), '#ff6b5a', 60, 8, 1.6); });
 }
 function endBossIntro() {
-  const e = bossIntro.e; bossIntro = null;
+  const e = bossIntro.e, kind = bossIntro.kind; bossIntro = null;
+  if (e.type === 'pomp') { later(0.1, pompLeave); }
+  // a big boss just lost: here comes Pompington to steal the glory
+  else if (kind === 'defeat' && POMP_BOSSES.includes(e.type) && !(S.pompSeen || {})[e.type]) {
+    S.pompSeen = { ...(S.pompSeen || {}), [e.type]: 1 }; const be = e;
+    later(1.2, () => { if (!bossIntro && !player.dead && !roulette) pompArrive(be); });
+  }
   $('bossintro').hidden = true; $('bosstalk').hidden = true;
   if (e.hp > 0) { e.state = 'chase'; e.play('Idle_Combat'); }
 }
@@ -3771,6 +3824,14 @@ function introCam(dt) {
   const e = bossIntro.e, k = Math.min(1, bossIntro.t / 0.8);
   const p = player.pos, dx = e.pos.x - p.x, dz = e.pos.z - p.z, d = Math.hypot(dx, dz) || 1;
   const big = e.T.scale || 2;
+  if (e.type === 'pomp') {
+    // a side-on two-shot for a person-sized chat, so both faces show
+    const mx = (p.x + e.pos.x) / 2, mz = (p.z + e.pos.z) / 2, nx = -dz / d, nz = dx / d;
+    const sx = nz < 0 ? -1 : 1; // always film from the camera's usual (south) side
+    const want = tmpV.set(mx + nx * sx * 19, 6.5, mz + nz * sx * 19);
+    camPos.lerp(want, 1 - Math.pow(0.02, dt)); camera.position.copy(camPos); camera.lookAt(mx, 1.9, mz);
+    return;
+  }
   // stand in front of the boss, looking up at it
   const back = 9 + big * 3.4 - k * 1.5; // starts wide and creeps in
   // swing round to the side a little, so your hero never blocks the view of the boss
@@ -4567,7 +4628,201 @@ function renderCrew(el) {
   el.querySelectorAll('[data-tactic]').forEach((b) => { b.onclick = () => { const c = crew.find((x) => x.id === b.dataset.crew); crewCfg(c).tactic = b.dataset.tactic; c.foe = null; save(); renderSheet(); }; });
 }
 
-window.__jq = { renderer, scene, get bossIntro() { return bossIntro; }, bossSkip, startBossScene, sailTo, regions, closeSheet, renderHotbar, crew, setCrewMode, TOWNS, liberateTown, chests, openChest, stopRoulette, enemies, startBossIntro, closeDialog, advanceDialog, dash, attackPress, craft, CRAFTS, openCreator, closeCreator, creator, rebuildHero, setZoom: (z) => { zoom = z; }, hurtEnemy, goThrough, get where() { return where; }, INTERIORS, equipGear, spendPoint, giveHeroXp, heroLvl, stat, maxHp, defDiv, openWeaponShop, openKing, jump, eat, eatBest, openShop, swing, swingTarget, hitNode, projectiles, timers, get S() { return S; }, get player() { return player; }, enemies, nodes, npcs, startTask, doAction, giveXp, save, openSheet, openDialog };
+// ===================== v28: luck and mischief =====================
+// ---------- Surprise Spots: bright board-game tiles along the roads ----------
+// Step on one and something happens. Each spot rests for a while afterwards, then rolls a new colour.
+const SPOT_KINDS = {
+  gold: { col: '#ffd23f', glyph: '$', w: 30 },
+  blue: { col: '#4aa8ff', glyph: '+', w: 22 },
+  red: { col: '#ff5a5a', glyph: '!', w: 16 },
+  purple: { col: '#b47cff', glyph: '?', w: 18 },
+  rainbow: { col: '#ffffff', glyph: '★', w: 10 },
+};
+const spotTex = {};
+function spotTexture(k) {
+  if (spotTex[k]) return spotTex[k];
+  const c = document.createElement('canvas'); c.width = c.height = 128; const g = c.getContext('2d');
+  g.beginPath(); g.arc(64, 64, 60, 0, 7); g.fillStyle = '#4a2a17'; g.fill();
+  g.beginPath(); g.arc(64, 64, 54, 0, 7); g.fillStyle = '#fff3c4'; g.fill();
+  g.beginPath(); g.arc(64, 64, 45, 0, 7);
+  if (k === 'rainbow') { const gr = g.createConicGradient(0, 64, 64); ['#ff6b6b', '#ffd23f', '#5ad06a', '#4aa8ff', '#b47cff', '#ff6b6b'].forEach((s, i) => gr.addColorStop(i / 5, s)); g.fillStyle = gr; }
+  else g.fillStyle = k === 'used' ? '#c9bfa8' : SPOT_KINDS[k].col;
+  g.fill();
+  if (k !== 'used') {
+    g.font = '900 54px system-ui, sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle';
+    g.lineWidth = 7; g.strokeStyle = '#4a2a17'; g.strokeText(SPOT_KINDS[k].glyph, 64, 68); g.fillStyle = '#fff'; g.fillText(SPOT_KINDS[k].glyph, 64, 68);
+  }
+  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 4;
+  return (spotTex[k] = t);
+}
+const spots = [];
+const spotGeo = new THREE.CircleGeometry(1.15, 32);
+function rollSpot() { let r = rng() * 96, k = 'gold'; for (const [n, s] of Object.entries(SPOT_KINDS)) { if ((r -= s.w) < 0) { k = n; break; } } return k; }
+function buildSpots() {
+  for (const [x1, z1, x2, z2] of ROADS) {
+    const L = Math.hypot(x2 - x1, z2 - z1);
+    for (let t = 9; t < L - 5; t += 17) {
+      const x = x1 + ((x2 - x1) * t) / L, z = z1 + ((z2 - z1) * t) / L;
+      if (Math.hypot(x, z) < 16 || TOWNS.some((T) => Math.hypot(x - T.x, z - T.z) < T.r + 3) || spots.some((s) => Math.hypot(s.x - x, s.z - z) < 12)) continue;
+      const kind = rollSpot();
+      const m = new THREE.Mesh(spotGeo, new THREE.MeshBasicMaterial({ map: spotTexture(kind), transparent: true, depthWrite: false }));
+      m.rotation.x = -Math.PI / 2; m.position.set(x, 0.07, z); m.renderOrder = 2; m.layers.set(1); scene.add(m);
+      spots.push({ x, z, m, kind, until: 0 });
+    }
+  }
+}
+function setSpot(s, kind) { s.kind = kind; s.m.material.map = spotTexture(kind); s.m.material.needsUpdate = true; }
+function spotTick() {
+  if (!player || player.dead || where !== 'out' || uiLock()) return;
+  for (const s of spots) {
+    if (s.kind === 'used') { if (now > s.until) { setSpot(s, rollSpot()); burst(new THREE.Vector3(s.x, 0.4, s.z), '#fff3a0', 14, 3); } continue; }
+    const k = 1 + Math.sin(now * 3 + s.x) * 0.04; s.m.scale.set(k, k, 1);
+    if (player.air || Math.hypot(player.pos.x - s.x, player.pos.z - s.z) > 1.2) continue;
+    const kind = s.kind; setSpot(s, 'used'); s.until = now + 150;
+    spotEffect(kind, s);
+  }
+}
+function spotEffect(kind, s) {
+  const at = new THREE.Vector3(s.x, 0.6, s.z);
+  if (kind === 'gold') {
+    const c = 10 + Math.floor(rng() * 20) + heroLvl() * 2; S.coins += c;
+    for (let i = 0; i < 4; i++) later(i * 0.12, () => { burst(at.clone().setY(0.3), '#ffe07a', 22, 6, 2.4); sfx('coin'); });
+    floatText(at.clone().setY(2.6), `+${c} coins`, 'gain'); toast(`Gold Spot! A little coin fountain: ${c} coins.`, ICONS.coins);
+  } else if (kind === 'blue') {
+    const f = rng() < 0.6 ? 'bread' : rng() < 0.7 ? 'pie' : 'stew'; addItem(f);
+    S.hp = Math.min(maxHp(), S.hp + Math.ceil(maxHp() * 0.15));
+    burst(at, '#8fd0ff', 30, 4); sfx('win'); toast(`Snack Spot! A free ${ITEMS[f].toLowerCase()} and a little heal.`, ICONS[f]);
+  } else if (kind === 'red') {
+    toast('Ambush! Skeletons burst out of the road!', null, true); sfx('slam');
+    const n = heroLvl() >= 8 ? 3 : 2;
+    for (let i = 0; i < n; i++) {
+      const a = (i / n) * Math.PI * 2 + rng(), x = s.x + Math.cos(a) * 3.2, z = s.z + Math.sin(a) * 3.2;
+      const e = spawnEnemy(heroLvl() >= 12 && i === 0 ? 'skel_warrior' : 'skel_minion', x, z);
+      e.temp = true; e.state = 'rising'; e.face(player.pos.x, player.pos.z);
+      burst(new THREE.Vector3(x, 0.4, z), '#b9ff8a', 24, 4);
+      const ok = e.play('Spawn_Ground_Skeletons', { once: true, clamp: true, onFinish: () => { e.state = 'chase'; e.play('Idle_Combat'); } });
+      if (!ok) e.state = 'chase';
+    }
+  } else if (kind === 'purple') {
+    const p = Math.floor(rng() * 3);
+    if (p === 0) { setTiny(20); toast('Prank Spot! Poof, you are tiny for 20 seconds!', null, true); }
+    else if (p === 1) { player.air = true; player.vy = 17; toast('Prank Spot! A hidden spring sends you flying!', null, true); }
+    else { setTiny(0); player.vy = 0; player.spinUntil = now + 1.2; toast('Prank Spot! A banana peel! Wheee!', null, true); }
+    sfx('boing'); burst(at, '#ff9af0', 40, 5);
+  } else if (kind === 'rainbow') {
+    burst(at, '#fff3a0', 50, 6, 1.6); spinWheel('Lucky Spot!');
+  }
+  refreshUI(); save();
+}
+let tinyUntil = 0;
+function setTiny(sec) {
+  if (!sec) return;
+  if (!player.baseScale) player.baseScale = player.root.scale.x;
+  tinyUntil = now + sec; player.root.scale.setScalar(player.baseScale * 0.55);
+  burst(player.pos.clone().setY(1), '#ff9af0', 40, 5);
+}
+function tinyTick(dt) {
+  if (player && player.spinUntil && now < player.spinUntil) player.root.rotation.y += dt * 16;
+  if (tinyUntil && now > tinyUntil) { tinyUntil = 0; player.root.scale.setScalar(player.baseScale); burst(player.pos.clone().setY(1), '#ffffff', 30, 4); toast('Pop! Back to full size.'); }
+}
+function removeEnemy(e) {
+  scene.remove(e.root);
+  if (e.pile) { scene.remove(e.pile.g); piles.splice(piles.indexOf(e.pile), 1); e.pile = null; }
+  if (e.bar && e.bar.remove) e.bar.remove();
+  const i = enemies.indexOf(e); if (i >= 0) enemies.splice(i, 1);
+}
+
+// ---------- Golden monsters ----------
+// Every so often a skeleton nearby turns gold. It runs from you, sparkling. Catch it before it
+// vanishes for a big coin bag and a spin on the golden wheel.
+let goldenAt = 60, goldenE = null;
+function setGolden(e, on) {
+  if (on) { e.golden = true; e.goldUntil = now + 45; e.goldCols = e.flashMats.map((m) => m.color.clone()); e.flashMats.forEach((m) => m.color.set('#ffe066')); }
+  else { e.golden = false; if (e.goldCols) e.flashMats.forEach((m, i) => m.color.copy(e.goldCols[i])); if (goldenE === e) goldenE = null; }
+}
+function goldenTick() {
+  if (!player || player.dead || where !== 'out') return;
+  if (goldenE) {
+    const e = goldenE;
+    if (e.hp > 0 && rng() < 0.25) burst(e.pos.clone().setY(1 + rng() * 2), '#ffe07a', 2, 1.5);
+    if (now > e.goldUntil && e.hp > 0) { burst(e.pos.clone().setY(1.2), '#ffe07a', 40, 5); setGolden(e, false); toast('The golden monster got away!'); }
+    return;
+  }
+  if (now < goldenAt) return;
+  goldenAt = now + 100 + rng() * 80;
+  const pick = enemies.filter((e) => {
+    if (e.T.boss || e.temp || e.inside !== 'out' || e.hp <= 0 || e.state !== 'idle') return false;
+    const d = Math.hypot(e.pos.x - player.pos.x, e.pos.z - player.pos.z); return d > 14 && d < 45;
+  });
+  if (!pick.length || rng() < 0.35) return;
+  const e = pick[Math.floor(rng() * pick.length)];
+  setGolden(e, true); goldenE = e; burst(e.pos.clone().setY(1.5), '#ffe07a', 50, 6);
+  toast(`A golden ${e.T.name} appeared nearby! Catch it before it runs off!`, ICONS.coins, true); sfx('win');
+}
+// Golden monsters run instead of fighting. Returns true when it handled the monster this frame.
+function goldenRun(e, dt) {
+  if (!e.golden || e.state === 'dead' || e.state === 'rising' || e.state === 'gone') return false;
+  const ep = e.pos, dx = ep.x - player.pos.x, dz = ep.z - player.pos.z, d = Math.hypot(dx, dz) || 1;
+  if (d < 11) {
+    let vx = dx / d, vz = dz / d;
+    const hx = e.home.x - ep.x, hz = e.home.y - ep.z, hd = Math.hypot(hx, hz);
+    if (hd > 18) { vx += (hx / hd) * 0.8; vz += (hz / hd) * 0.8; const n = Math.hypot(vx, vz) || 1; vx /= n; vz /= n; }
+    ep.x += vx * 5.4 * dt; ep.z += vz * 5.4 * dt; collide(ep, 0.5);
+    e.face(ep.x + vx, ep.z + vz); e.play('Running_A', { fade: 0.15 });
+  } else e.play('Idle', { fade: 0.25 });
+  return true;
+}
+function goldenCaught(e) {
+  setGolden(e, false);
+  const c = 120 + heroLvl() * 10; S.coins += c; giveHeroXp(e.T.xp * 4, e.pos.clone().setY(4));
+  burst(e.pos.clone().setY(2), '#ffe07a', 90, 8, 1.6); sfx('jackpot');
+  floatText(e.pos.clone().setY(3), `+${c} coins`, 'gain');
+  toast(`You caught the golden ${e.T.name}! ${c} coins!`, ICONS.coins, true);
+  later(1.2, () => { if (!roulette && !player.dead) spinWheel('Golden Roulette!'); });
+}
+
+// ---------- Sir Percival Pompington, the glory thief ----------
+// After you beat a big boss, a smug shiny knight strolls up and claims he did it.
+const POMP_LOOK = { ...NPC_BASE, skin: 'porcelain', eyes: 'blue', eyeStyle: 'sleepy', mouth: 'grin', hair: 'swept', hairCol: 'blonde', head: 'big', beard: 'none' };
+const POMP_LINES = [
+  (b) => [`Stand aside, peasant! I, Sir Percival Pompington, have vanquished ${b}!`, ['h', 'You literally just got here.'], 'Details! Everyone saw my magnificent chin do all the work.', 'Off I go to tell the King of MY victory! Toodle-oo!'],
+  (b) => [`Ahem! Another triumph for Sir Percival Pompington! ${b} trembled at my name!`, ['h', 'You were hiding behind that tree.'], 'Strategic observation, my dear simpleton. Look it up.', 'Do try to keep up. Pompington, AWAY!'],
+  (b) => [`Oh, splendid, you softened up ${b} for me. Jolly good, little helper!`, ['h', "I'm not your helper!"], 'Of course you are. Now hold my cape while I pose for the statue.', 'Hmph! Nobody appreciates true heroism! Farewell!'],
+];
+let pomp = null;
+function pompArrive(boss) {
+  if (pomp || player.dead) return;
+  if (roulette || bossIntro || talking) { later(1, () => pompArrive(boss)); return; }
+  const a = new Actor(G.knight, { hide: ['Knight_Helmet'], scale: 1.3 });
+  dressNpc(a, POMP_LOOK);
+  a.root.traverse((o) => {
+    if (!o.isMesh || !/_(Body|Cape)$/.test(o.name) || !o.userData.mats || Array.isArray(o.userData.mats.toon)) return;
+    const m = { std: o.userData.mats.std.clone(), toon: o.userData.mats.toon.clone() };
+    m.toon.onBeforeCompile = o.userData.mats.toon.onBeforeCompile; m.std.color.set('#ffe28a'); m.toon.color.set('#ffe28a'); registerMesh(o, m);
+  });
+  const side = player.root.rotation.y + Math.PI / 2;
+  a.root.position.set(player.pos.x + Math.sin(side) * 3.2, 0, player.pos.z + Math.cos(side) * 3.2);
+  collide(a.root.position, 0.6);
+  a.face(player.pos.x, player.pos.z); a.play('Cheer', { once: true, onFinish: () => a.play('Idle') });
+  burst(a.pos.clone().setY(1.2), '#fff3a0', 50, 6); sfx('door');
+  a.T = { name: 'Sir Percival Pompington', look: POMP_LOOK, scale: 1.3 }; a.type = 'pomp'; a.hp = 0; a.inside = where;
+  pomp = a;
+  S.pompN = (S.pompN || 0) + 1;
+  startBossScene(a, 'credit', POMP_LINES[(S.pompN - 1) % POMP_LINES.length](boss.T.name));
+}
+function pompLeave() {
+  const a = pomp; if (!a) return;
+  a.play('Cheer', { once: true });
+  later(1.4, () => { burst(a.pos.clone().setY(1.2), '#fff3a0', 50, 6); scene.remove(a.root); if (pomp === a) pomp = null; toast('Sir Percival Pompington marched off to take the credit. Nobody believed him.'); });
+}
+function pompTick(dt) {
+  if (!pomp) return;
+  pomp.mixer.update(dt);
+  if (pomp.headInfo && pomp.headScale) pomp.headInfo.bone.scale.setScalar(pomp.headScale);
+  faceTick(pomp);
+}
+
+window.__jq = { renderer, scene, spots, spotEffect, setGolden, goldenCaught, pompArrive, get goldenE() { return goldenE; }, spinWheel, dayTick, get bossIntro() { return bossIntro; }, bossSkip, startBossScene, sailTo, regions, closeSheet, renderHotbar, crew, setCrewMode, TOWNS, liberateTown, chests, openChest, stopRoulette, enemies, startBossIntro, closeDialog, advanceDialog, dash, attackPress, craft, CRAFTS, openCreator, closeCreator, creator, rebuildHero, setZoom: (z) => { zoom = z; }, hurtEnemy, goThrough, get where() { return where; }, INTERIORS, equipGear, spendPoint, giveHeroXp, heroLvl, stat, maxHp, defDiv, openWeaponShop, openKing, jump, eat, eatBest, openShop, swing, swingTarget, hitNode, projectiles, timers, get S() { return S; }, get player() { return player; }, enemies, nodes, npcs, startTask, doAction, giveXp, save, openSheet, openDialog };
 window.addEventListener('error', (e) => { const m = $('loadmsg'); if (m) m.textContent = `Something went wrong: ${e.message}`; });
 main().catch((err) => {
   console.error(err);
