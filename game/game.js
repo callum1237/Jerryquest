@@ -460,6 +460,22 @@ const fresh = () => ({
   owned: ['k_sword', 'sh_badge', 'ar_cloth'], equip: { weapon: 'k_sword', shield: 'sh_badge', armour: 'ar_cloth' },
 });
 let S = fresh();
+// ---------- character slots ----------
+// An account keeps up to three heroes. The cloud save holds { v: 2, cur, slots: [...] };
+// an older single save simply becomes slot 1, so nobody loses progress.
+const SLOTS = 3;
+let slotBox = { v: 2, cur: 0, slots: Array(SLOTS).fill(null) };
+function setSlotBox(d) {
+  if (d && d.v === 2 && Array.isArray(d.slots)) slotBox = { v: 2, cur: Math.min(SLOTS - 1, d.cur || 0), slots: [...d.slots, ...Array(SLOTS).fill(null)].slice(0, SLOTS) };
+  else slotBox = { v: 2, cur: 0, slots: [d && d.started ? d : null, null, null] };
+}
+// a quick look at a slot without switching to it
+function slotInfo(d) {
+  if (!d || !d.started) return null;
+  const keep = S; parseSave(JSON.parse(JSON.stringify(d)));
+  const info = { lvl: heroLvl(), ch: chapterNow(), coins: (S.coins || 0) + (S.bank || 0), look: S.look };
+  S = keep; return info;
+}
 function loadSave() {
   try {
     const raw = localStorage.getItem(SAVE_KEY);
@@ -494,7 +510,7 @@ function save() {
   S.pos = where === 'out' || LANDS[where] ? [player.root.position.x, player.root.position.z] : [INTERIORS[where].exitTo.x, INTERIORS[where].exitTo.z];
   S.land = LANDS[where] ? where : 'out';
   try { localStorage.setItem(SAVE_KEY, JSON.stringify(S)); } catch (e) { /* storage unavailable */ }
-  if (net.on) cloudSave(S, { name: heroName(), level: heroLvl(), worth: netWorth().total });
+  if (net.on) { slotBox.slots[slotBox.cur] = S; cloudSave(slotBox, { name: heroName(), level: heroLvl(), worth: netWorth().total }); }
 }
 const lvl = (k) => levelOf(S.xp[k]);
 const heroLvl = () => heroLevelOf(S.hero.xp);
@@ -625,7 +641,7 @@ async function main() {
     if (net.on) goOnline();
   };
   if (net.enabled && await resume()) {
-    try { const d = await loadCloud(); if (d) parseSave(d); else S = fresh(); net.on = true; } catch (e) { console.warn(e); }
+    try { const d = await loadCloud(); setSlotBox(d); S = fresh(); net.on = true; } catch (e) { console.warn(e); }
   }
   $('loading').style.opacity = '0';
   setTimeout(() => $('loading').remove(), 700);
@@ -662,6 +678,7 @@ const DEV = /[?&]dev\b/.test(location.search);
 function showTitle(had, begin) {
   if (net.configured && !net.enabled && !DEV) return showNoServer();
   if (net.enabled && !net.on) return showAccount(had, begin);
+  if (net.on) return showSlots(begin);
   if (!S.started) return showPick(begin);
   const l = heroLvl();
   titleShell(`<h2>Welcome back, ${heroName()}!</h2>
@@ -702,11 +719,38 @@ function showAccount(had, begin) {
     if (r.error) { msg.textContent = r.error; msg.classList.add('bad'); busy(false); return; }
     let d = null;
     try { d = await loadCloud(); } catch (e) { msg.textContent = `Logged in, but your save could not load. (${(e && (e.message || e.code)) || 'unknown error'})`; msg.classList.add('bad'); busy(false); return; }
-    if (d) parseSave(d);
-    else if (!(create && had)) S = fresh(); // a hero already saved in this browser moves into a brand new account
+    if (d) setSlotBox(d);
+    else setSlotBox(create && had ? S : null); // a hero already saved in this browser moves into a brand new account
+    S = fresh();
     net.on = true;
-    begin();
+    showSlots(begin);
   });
+}
+// pick which of your heroes to play, or start a fresh one in an empty slot
+function showSlots(begin) {
+  const card = (d, i) => {
+    const inf = slotInfo(d);
+    if (!inf) return `<div class="slotcard empty"><b>Slot ${i + 1}</b><span>Empty</span><button class="primary" data-slot="${i}" type="button">New hero</button></div>`;
+    return `<div class="slotcard"><img src="${portrait(inf.look)}" alt=""><b>Slot ${i + 1} · Level ${inf.lvl}</b><span>${inf.ch.tag}: ${inf.ch.name}</span><small>${fmt(inf.coins)} coins</small>
+      <button class="primary" data-slot="${i}" type="button">Play</button><button class="linky" data-erase="${i}" type="button">Erase</button></div>`;
+  };
+  titleShell(`<h2>Choose your hero</h2><p class="tsub">Logged in as ${esc(net.user ? net.user.name : '')}. Each slot is its own adventure.</p>
+    <div class="slots">${slotBox.slots.map(card).join('')}</div>
+    <button id="t-switch" class="linky" type="button">Not you? Log out</button>`);
+  $('pick').querySelectorAll('[data-slot]').forEach((b) => { b.onclick = () => {
+    unlockAudio(); const i = +b.dataset.slot; slotBox.cur = i;
+    if (slotBox.slots[i] && slotBox.slots[i].started) parseSave(JSON.parse(JSON.stringify(slotBox.slots[i]))); else { S = fresh(); S.started = false; }
+    try { localStorage.setItem(SAVE_KEY, JSON.stringify(S)); } catch (e) { /* ignore */ }
+    begin();
+  }; });
+  $('pick').querySelectorAll('[data-erase]').forEach((b) => { b.onclick = () => {
+    if (!b.dataset.sure) { b.dataset.sure = '1'; b.textContent = 'Tap again to erase this hero for good'; return; }
+    const i = +b.dataset.erase; slotBox.slots[i] = null;
+    const other = slotBox.slots.find((x) => x && x.started);
+    cloudSave(slotBox, { name: net.user.name, level: other ? heroLevelOf(other.hero.xp) : 1, worth: 0 }, true);
+    showSlots(begin);
+  }; });
+  $('t-switch').onclick = async () => { resetting = true; await signOut(); try { localStorage.removeItem(SAVE_KEY); } catch (e) { /* ignore */ } location.reload(); };
 }
 function showNoServer() {
   titleShell(`<h2>Can't reach the game server</h2>
@@ -3256,19 +3300,20 @@ function renderSheet() {
       <div class="binds">${BIND_ACTIONS.map(([a, label]) => `<div class="bind"><span>${label}</span>${[0, 1].map((i) => `<button data-bind="${a}" data-slot="${i}" class="${bindCapture && bindCapture.act === a && bindCapture.slot === i ? 'waiting' : ''}">${bindCapture && bindCapture.act === a && bindCapture.slot === i ? 'Press a key…' : keyLabel(binds()[a][i])}</button>`).join('')}</div>`).join('')}</div>
       <button id="o-binds">Reset controls to default</button>
       <button id="o-reset" class="danger">Start over</button>
-      ${net.on ? `<button id="o-out" class="primary">Log out (${net.user.name})</button>` : ''}
+      ${net.on ? `<button id="o-slot">Switch hero</button><button id="o-out" class="primary">Log out (${net.user.name})</button>` : ''}
       <p class="hint">${net.on ? 'Your progress saves online, so it follows you to any computer.' : 'Progress saves in this browser.'}</p></div>`;
     $('o-style').onclick = () => { setStyled(!styled.on); renderSheet(); };
     $('o-guide').onclick = () => { S.guideOn = S.guideOn === false; save(); renderSheet(); };
     el.querySelectorAll('[data-bind]').forEach((b) => { b.onclick = () => { bindCapture = { act: b.dataset.bind, slot: +b.dataset.slot }; renderSheet(); }; });
     const vols = () => { S.vol = { music: +$('o-music').value, sfx: +$('o-sfx').value }; setVolumes(S.vol.music, S.vol.sfx); save(); };
     $('o-music').oninput = vols; $('o-sfx').oninput = () => { vols(); sfx('coin'); };
+    if ($('o-slot')) $('o-slot').onclick = async () => { save(); resetting = true; await flushSave(); location.reload(); };
     if ($('o-out')) $('o-out').onclick = async () => { save(); resetting = true; await flushSave(); await signOut(); try { localStorage.removeItem(SAVE_KEY); } catch (e) { /* ignore */ } location.reload(); };
     $('o-binds').onclick = () => { delete S.binds; rebuildBinds(); save(); renderSheet(); };
     $('o-tod').querySelectorAll('button').forEach((b) => { b.onclick = () => { S.tod = b.dataset.tod; dayTick(0, true); save(); renderSheet(); }; });
     $('o-reset').onclick = () => {
       const b = $('o-reset');
-      if (b.dataset.armed) { resetting = true; try { localStorage.removeItem(SAVE_KEY); } catch (e) { /* ignore */ } if (net.on) { S = fresh(); cloudSave(S, { name: net.user.name, level: 1, worth: 0 }, true); setTimeout(() => location.reload(), 1500); } else location.reload(); }
+      if (b.dataset.armed) { resetting = true; try { localStorage.removeItem(SAVE_KEY); } catch (e) { /* ignore */ } if (net.on) { slotBox.slots[slotBox.cur] = null; cloudSave(slotBox, { name: net.user.name, level: 1, worth: 0 }, true); setTimeout(() => location.reload(), 1500); } else location.reload(); }
       else { b.dataset.armed = '1'; b.textContent = 'Tap again to erase your progress'; }
     };
   }
@@ -8275,7 +8320,7 @@ function makeGagronFriend() {
   npcs.push(gagronFriend);
 }
 
-window.__jq = { toast, get guide() { return guide; }, bossNet, safeSpot, get PVP_LVL() { return PVP_LVL; }, goldNode, wbInfo, wbTick, get wb() { return wb; }, WB_SPOTS, tradeOpen, tradeNet, offerKey, get trade() { return trade; }, adv(s) { for (let t = 0; t < s; t += 0.05) { for (let i = timers.length - 1; i >= 0; i--) { timers[i].t -= 0.05; if (timers[i].t <= 0) { const f = timers[i].f; timers.splice(i, 1); f(); } } bossFxTick(0.05); } }, get party() { return party; }, BOSS_AI, PHASE_SETUP, get gulped() { return gulped; }, wriggle, toggleBigMap, spawnEnemy, openPathChoice, choosePath, startLanternNight, get lanterns() { return lanterns; }, duelOffer, duelPrize, onNet, chatCommand, canFight, openUpgrade, openBoard, boardToday, queueLetter, makeGagronFriend, net, peerActors, runeTick, bossFx, renderer, scene, openMayor, darkOmen, netWorth, liberateTown, spots, spotEffect, setGolden, goldenCaught, pompArrive, get goldenE() { return goldenE; }, spinWheel, dayTick, get bossIntro() { return bossIntro; }, bossSkip, startBossScene, sailTo, regions, closeSheet, renderHotbar, crew, setCrewMode, TOWNS, liberateTown, chests, openChest, stopRoulette, enemies, startBossIntro, closeDialog, advanceDialog, dash, attackPress, craft, CRAFTS, openCreator, closeCreator, creator, rebuildHero, setZoom: (z) => { zoom = zoomGoal = z; }, hurtEnemy, goThrough, get where() { return where; }, INTERIORS, equipGear, spendPoint, giveHeroXp, heroLvl, stat, maxHp, defDiv, openWeaponShop, openKing, jump, eat, eatBest, openShop, swing, swingTarget, hitNode, projectiles, timers, get S() { return S; }, get player() { return player; }, enemies, nodes, npcs, startTask, doAction, giveXp, save, openSheet, openDialog };
+window.__jq = { toast, setSlotBox, showSlots, get slotBox() { return slotBox; }, get guide() { return guide; }, bossNet, safeSpot, get PVP_LVL() { return PVP_LVL; }, goldNode, wbInfo, wbTick, get wb() { return wb; }, WB_SPOTS, tradeOpen, tradeNet, offerKey, get trade() { return trade; }, adv(s) { for (let t = 0; t < s; t += 0.05) { for (let i = timers.length - 1; i >= 0; i--) { timers[i].t -= 0.05; if (timers[i].t <= 0) { const f = timers[i].f; timers.splice(i, 1); f(); } } bossFxTick(0.05); } }, get party() { return party; }, BOSS_AI, PHASE_SETUP, get gulped() { return gulped; }, wriggle, toggleBigMap, spawnEnemy, openPathChoice, choosePath, startLanternNight, get lanterns() { return lanterns; }, duelOffer, duelPrize, onNet, chatCommand, canFight, openUpgrade, openBoard, boardToday, queueLetter, makeGagronFriend, net, peerActors, runeTick, bossFx, renderer, scene, openMayor, darkOmen, netWorth, liberateTown, spots, spotEffect, setGolden, goldenCaught, pompArrive, get goldenE() { return goldenE; }, spinWheel, dayTick, get bossIntro() { return bossIntro; }, bossSkip, startBossScene, sailTo, regions, closeSheet, renderHotbar, crew, setCrewMode, TOWNS, liberateTown, chests, openChest, stopRoulette, enemies, startBossIntro, closeDialog, advanceDialog, dash, attackPress, craft, CRAFTS, openCreator, closeCreator, creator, rebuildHero, setZoom: (z) => { zoom = zoomGoal = z; }, hurtEnemy, goThrough, get where() { return where; }, INTERIORS, equipGear, spendPoint, giveHeroXp, heroLvl, stat, maxHp, defDiv, openWeaponShop, openKing, jump, eat, eatBest, openShop, swing, swingTarget, hitNode, projectiles, timers, get S() { return S; }, get player() { return player; }, enemies, nodes, npcs, startTask, doAction, giveXp, save, openSheet, openDialog };
 window.addEventListener('error', (e) => { const m = $('loadmsg'); if (m) m.textContent = `Something went wrong: ${e.message}`; });
 main().catch((err) => {
   console.error(err);
