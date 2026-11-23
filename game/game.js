@@ -2715,7 +2715,9 @@ function giveHeroXp(amount, at) {
   if (at) floatText(at, `+${Math.round(amount)} XP`, 'gain');
   if (after > before) {
     const n = after - before;
-    S.hp = maxHp();
+    // levelling up heals you fully, but not in the middle of a fight (that made fights too easy)
+    const fighting = player && (inCombat() || !$('bossbar').hidden);
+    if (!fighting) S.hp = maxHp();
     toast(`Hero level ${after}! +${n} Attack, Defense and Health, and ${n * FREE_PER_LEVEL} points to spend.`, ICONS.star, true);
     levelFanfare('#ffd84a');
     const el = $('banner'); el.textContent = `Level up! Hero ${after}`; el.classList.add('lvl'); el.classList.remove('show'); void el.offsetWidth; el.classList.add('show'); zoneNow = null; setTimeout(() => el.classList.remove('lvl'), 3300);
