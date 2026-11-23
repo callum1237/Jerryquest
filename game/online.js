@@ -5,6 +5,7 @@ import { ONLINE } from './config.js';
 
 export const net = {
   enabled: !!(ONLINE.url && ONLINE.key),
+  configured: !!(ONLINE.url && ONLINE.key),
   on: false, // signed in and connected
   user: null, // { id, name }
   peers: new Map(), // id -> { name, lvl, look, where, x, z, ry, a, t, gx, gz }

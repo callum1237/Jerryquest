@@ -450,12 +450,15 @@ function titleShell(inner) {
   pick.innerHTML = `<div class="title">
     <div class="logo">${LOGO}<h1 aria-label="JerryQuest"><span>Jerry</span><span>Quest</span></h1><p class="ribbon"><span>A storybook adventure with friends</span></p></div>
     <div class="tcard panel">${inner}</div>
-    <p class="tfoot"><span class="srv ${net.enabled ? 'on' : ''}">${net.enabled ? 'Server online' : 'Offline mode'}</span><span>Free art by KayKit and Quaternius</span><button id="t-music" class="linky" type="button">Music: tap anywhere</button></p>
+    <p class="tfoot"><span class="srv ${net.enabled ? 'on' : ''}">${net.enabled ? 'Server online' : 'Server offline'}</span><span>Free art by KayKit and Quaternius</span><button id="t-music" class="linky" type="button">Music: tap anywhere</button></p>
   </div>`;
   pick.hidden = false; document.body.classList.add('titling');
   $('t-music').onclick = () => { unlockAudio(); $('t-music').textContent = 'Music on'; };
 }
+// Everyone plays on the one shared server. (Add ?dev to the address to test without it.)
+const DEV = /[?&]dev\b/.test(location.search);
 function showTitle(had, begin) {
+  if (net.configured && !net.enabled && !DEV) return showNoServer();
   if (net.enabled && !net.on) return showAccount(had, begin);
   if (!S.started) return showPick(begin);
   const l = heroLvl();
@@ -479,7 +482,7 @@ function showAccount(had, begin) {
       <p class="acct-msg" id="a-msg" role="status"></p>
       <button class="primary big" id="a-go" type="submit">Log in</button>
     </form>
-    <button id="a-off" class="linky" type="button">Play offline instead</button>`);
+`);
   let create = false;
   const setTab = (c) => {
     create = c; $('tab-in').setAttribute('aria-selected', String(!c)); $('tab-new').setAttribute('aria-selected', String(c));
@@ -502,7 +505,12 @@ function showAccount(had, begin) {
     net.on = true;
     begin();
   });
-  $('a-off').onclick = () => { net.enabled = false; showTitle(had, begin); };
+}
+function showNoServer() {
+  titleShell(`<h2>Can't reach the game server</h2>
+    <p class="tsub">JerryQuest is played online with everyone together. Check your internet connection, then try again.</p>
+    <button id="t-retry" class="primary big" type="button">Try again</button>`);
+  $('t-retry').onclick = () => location.reload();
 }
 // a brand new hero goes straight to the character creator
 function newHero() {
