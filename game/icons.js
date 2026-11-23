@@ -39,6 +39,8 @@ export const ICONS = {
   copper_ore: make((g) => ore(g, '#ff9b3d')),
   iron_ore: make((g) => ore(g, '#a8c8f0')),
   frostsilver_ore: make((g) => ore(g, '#7fe8ff')),
+  mireiron_ore: make((g) => ore(g, '#8adf6a')),
+  bogwood_logs: make((g) => log(g, '#4a5a32', '#b8c87a')),
   shrimp: make((g) => {
     shape(g, '#ff8f7a', () => { g.arc(0, 4, 22, Math.PI * 1.05, Math.PI * 2.1); g.arc(2, 6, 10, Math.PI * 2.1, Math.PI * 1.05, true); g.closePath(); });
     g.save(); g.lineWidth = 3; for (const a of [3.6, 4.2, 4.8, 5.4]) { g.beginPath(); g.moveTo(Math.cos(a) * 11, 4 + Math.sin(a) * 11); g.lineTo(Math.cos(a) * 21, 4 + Math.sin(a) * 21); g.stroke(); } g.restore();
@@ -205,3 +207,32 @@ export const ICONS = {
   fishing: make((g) => fish(g, '#5fb3e6', '#e6f6ff')),
 };
 ICONS.crafting = ICONS.hammer;
+// Chapter 3 trophies
+ICONS.mire_charm = make((g) => {
+  g.save(); g.lineWidth = 3; g.beginPath(); g.moveTo(0, -34); g.lineTo(0, -16); g.stroke(); g.restore();
+  shape(g, '#7a4ab0', () => g.arc(0, 4, 22, 0, 7));
+  shape(g, '#8aff6a', () => { g.moveTo(0, -10); g.quadraticCurveTo(14, 4, 0, 20); g.quadraticCurveTo(-14, 4, 0, -10); });
+  shine(g, -10, -4, 4);
+});
+ICONS.rusty_helm = make((g) => {
+  shape(g, '#a88a5a', () => { g.moveTo(-26, 24); g.lineTo(-26, -4); g.quadraticCurveTo(-24, -30, 0, -32); g.quadraticCurveTo(24, -30, 26, -4); g.lineTo(26, 24); g.closePath(); });
+  shape(g, '#3a2a1a', () => { g.rect(-18, -2, 36, 6); });
+  shape(g, '#6a9a4a', () => { g.moveTo(-26, 16); g.quadraticCurveTo(-10, 8, 4, 18); g.quadraticCurveTo(-8, 26, -26, 24); g.closePath(); });
+  shine(g, -12, -18, 4);
+});
+ICONS.gobbler_tooth = make((g) => {
+  shape(g, '#fff6e0', () => { g.moveTo(-20, -26); g.quadraticCurveTo(0, -34, 20, -26); g.quadraticCurveTo(14, 6, 0, 32); g.quadraticCurveTo(-14, 6, -20, -26); });
+  shape(g, '#8adf6a', () => { g.moveTo(-14, -20); g.quadraticCurveTo(0, -26, 14, -20); g.quadraticCurveTo(0, -14, -14, -20); });
+  shine(g, -8, -10, 4);
+});
+ICONS.wardstone = make((g) => {
+  shape(g, '#2a2240', () => { g.moveTo(0, -32); g.lineTo(-22, -4); g.lineTo(0, 32); g.closePath(); });
+  shape(g, '#fff6d0', () => { g.moveTo(0, -32); g.lineTo(22, -4); g.lineTo(0, 32); g.closePath(); });
+  shine(g, 8, -8, 4);
+});
+ICONS.halo = make((g) => { g.save(); g.lineWidth = 10; g.strokeStyle = '#4a2a17'; g.beginPath(); g.ellipse(0, 0, 28, 12, 0, 0, 7); g.stroke(); g.lineWidth = 6; g.strokeStyle = '#ffe27a'; g.stroke(); g.restore(); });
+ICONS.fang = make((g) => {
+  shape(g, '#a8243a', () => { g.moveTo(-30, -20); g.quadraticCurveTo(0, -30, 30, -20); g.quadraticCurveTo(0, -6, -30, -20); });
+  for (const sx of [-1, 1]) shape(g, '#ffffff', () => { g.moveTo(sx * 16, -16); g.lineTo(sx * 6, -14); g.lineTo(sx * 11, 20); g.closePath(); });
+});
+ICONS.human = make((g) => { shape(g, '#ffd8b0', () => g.arc(0, -10, 16, 0, 7)); shape(g, '#5fb3e6', () => { g.moveTo(-24, 32); g.quadraticCurveTo(-24, 8, 0, 8); g.quadraticCurveTo(24, 8, 24, 32); g.closePath(); }); shine(g, -6, -16, 4); });

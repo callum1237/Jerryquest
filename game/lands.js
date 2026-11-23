@@ -3,7 +3,7 @@
 import { THREE, scene, registerMesh, toon, rng } from './engine.js';
 import { M, instanced, place, colliders, tinted, lib, S_BUILD, S_PROP, LAKE, TOWNS } from './world.js';
 
-const FX = 1000, FZ = 0;
+const FX = 1000, FZ = 0, MX = 2000, MZ = 0;
 export const LANDS = {
   frost: {
     id: 'frost', name: 'Frostwhisker Peaks', x: FX, z: FZ, r: 70,
@@ -16,7 +16,31 @@ export const LANDS = {
       palace: { name: 'Ice Palace', x: FX, z: FZ - 44, r: 13 },
     },
   },
+  marsh: {
+    id: 'marsh', name: 'Gobbler Marsh', x: MX, z: MZ, r: 70, villageName: 'Lilypad Landing',
+    arrive: { x: MX, z: MZ + 49 }, captain: { x: MX + 4, z: MZ + 51 },
+    village: { x: MX, z: MZ + 30 }, elder: { x: MX - 4, z: MZ + 27 },
+    pond: { x: MX + 26, z: MZ + 8, r: 8, name: 'Deep Pool' },
+    zones: {
+      mire: { name: 'Mire Hollow', x: MX - 36, z: MZ - 16, r: 16 },
+      ruins: { name: 'Sunken Ruins', x: MX + 38, z: MZ - 14, r: 15 },
+      gobbler: { name: "Gobbler's Pool", x: MX, z: MZ - 44, r: 14 },
+    },
+    map: { bg: '#5e8a5a', sea: '#3f8a80', ground: '#8fb86a', zone: '#7aa65a', boss: '#4f8a78', pond: '#3f7a6a', tree: '#3f6a3a', treeHi: '#9fd07a', town: '#a8c880' },
+  },
 };
+LANDS.frost.map = { bg: '#c8d8ea', sea: '#4fb0e8', ground: '#f2f7ff', zone: '#e2ecf8', boss: '#bfe6fb', pond: '#a8dcf6', tree: '#2f7a6a', treeHi: '#ffffff', town: '#dce8f2' };
+LANDS.frost.villageName = 'Snowdrop';
+LANDS.frost.pond.name = 'Frozen Pond';
+LANDS.frost.boss = 'palace';
+LANDS.marsh.boss = 'gobbler';
+// roads from each village out to its zones, shared by the land builder and the map
+export function landRoads(L) {
+  const V = L.village, out = [[L.arrive.x, L.arrive.z + 5, V.x, V.z]];
+  for (const [k, Z] of Object.entries(L.zones)) out.push(k === L.boss ? [V.x, V.z, Z.x, Z.z + Z.r] : [V.x, V.z, Z.x + Math.sign(V.x - Z.x) * 8, Z.z + Math.sign(V.z - Z.z) * 8]);
+  for (const T of TOWNS) if (T.land === L.id) out.push([V.x, V.z, T.x, T.z]);
+  return out;
+}
 // where you board the ship in Jerry Valley: the little pier on the lake's west shore
 export const VALLEY_DOCK = { x: LAKE.x - 10.5, z: LAKE.z - 10.5, ship: { x: LAKE.x - 2, z: LAKE.z - 1 }, arrive: { x: LAKE.x - 12, z: LAKE.z - 8 } };
 
@@ -122,12 +146,9 @@ export function buildLands() {
   const path = (x1, z1, x2, z2, w = 3) => { const dx = x2 - x1, dz = z2 - z1, len = Math.hypot(dx, dz); const m = new THREE.Mesh(new THREE.PlaneGeometry(w, len)); m.rotation.set(-Math.PI / 2, 0, Math.atan2(dx, dz)); m.position.set((x1 + x2) / 2, 0.03, (z1 + z2) / 2); registerMesh(m, pathM); m.receiveShadow = true; scene.add(m); };
   const disc = (x, z, r, col = '#c9d8ea') => { const m = new THREE.Mesh(new THREE.CircleGeometry(r, 32)); m.rotation.x = -Math.PI / 2; m.position.set(x, 0.035, z); registerMesh(m, toon(col, { polygonOffset: true, polygonOffsetFactor: -3, polygonOffsetUnits: -3 })); m.receiveShadow = true; scene.add(m); };
   const V = L.village, Z = L.zones;
-  path(L.arrive.x, L.arrive.z + 5, V.x, V.z);
-  path(V.x, V.z, Z.palace.x, Z.palace.z + Z.palace.r);
-  path(V.x, V.z, Z.woods.x + 8, Z.woods.z + 10);
-  path(V.x, V.z, Z.hills.x - 8, Z.hills.z + 4);
+  const roads = landRoads(L);
+  for (const r of roads) path(...r);
   const landTowns = TOWNS.filter((T) => T.land === L.id);
-  for (const T of landTowns) path(V.x, V.z, T.x, T.z);
   disc(V.x, V.z, 7);
 
   // Snowdrop village
@@ -148,8 +169,7 @@ export function buildLands() {
   // trees: a belt of snowy pines, thicker in Icicle Woods
   const nearPath = (x, z) => {
     if (landTowns.some((T) => Math.hypot(x - T.x, z - T.z) < T.r + 2)) return true;
-    const segs = [[L.arrive.x, L.arrive.z + 5, V.x, V.z], [V.x, V.z, Z.palace.x, Z.palace.z + Z.palace.r], [V.x, V.z, Z.woods.x + 8, Z.woods.z + 10], [V.x, V.z, Z.hills.x - 8, Z.hills.z + 4], ...landTowns.map((T) => [V.x, V.z, T.x, T.z])];
-    for (const [x1, z1, x2, z2] of segs) { const dx = x2 - x1, dz = z2 - z1, l2 = dx * dx + dz * dz, k = Math.max(0, Math.min(1, ((x - x1) * dx + (z - z1) * dz) / l2)); if (Math.hypot(x - x1 - k * dx, z - z1 - k * dz) < 4) return true; }
+    for (const [x1, z1, x2, z2] of roads) { const dx = x2 - x1, dz = z2 - z1, l2 = dx * dx + dz * dz, k = Math.max(0, Math.min(1, ((x - x1) * dx + (z - z1) * dz) / l2)); if (Math.hypot(x - x1 - k * dx, z - z1 - k * dz) < 4) return true; }
     return false;
   };
   const free = (x, z, pad) => colliders.every((c) => Math.hypot(c.x - x, c.z - z) > c.r + pad);
@@ -206,6 +226,167 @@ export function buildLands() {
   const D = VALLEY_DOCK;
   pier(D.x + 1.2, D.z + 1.2, 8, Math.PI / 4);
   makeShip(D.ship.x, D.ship.z, Math.PI / 4);
+  buildMarsh();
+}
+
+// ---------- Gobbler Marsh props ----------
+// A droopy willow: a fat trunk, a round mossy crown and hanging green strands.
+function willow() {
+  const g = new THREE.Group(), bark = new THREE.MeshStandardMaterial({ color: '#5a4a32' }), leaf = new THREE.MeshStandardMaterial({ color: '#5f8f3a' }), hang = new THREE.MeshStandardMaterial({ color: '#79a84a' });
+  const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.16, 0.7, 7), bark); trunk.position.y = 0.35; trunk.rotation.z = 0.08; g.add(trunk);
+  const crown = new THREE.Mesh(new THREE.SphereGeometry(0.5, 12, 9), leaf); crown.scale.set(1, 0.62, 1); crown.position.y = 0.85; g.add(crown);
+  for (let i = 0; i < 9; i++) { const a = (i / 9) * Math.PI * 2, st = new THREE.Mesh(new THREE.CapsuleGeometry(0.07, 0.42, 3, 6), hang); st.position.set(Math.cos(a) * 0.42, 0.6, Math.sin(a) * 0.42); g.add(st); }
+  return g;
+}
+function reeds() {
+  const g = new THREE.Group(), stem = new THREE.MeshStandardMaterial({ color: '#7aa84a' }), tip = new THREE.MeshStandardMaterial({ color: '#7a4a2a' });
+  for (const [x, z, h] of [[0, 0, 0.9], [0.12, 0.08, 0.7], [-0.1, 0.1, 0.8], [0.05, -0.12, 0.6], [-0.12, -0.06, 0.75]]) {
+    const s = new THREE.Mesh(new THREE.CylinderGeometry(0.015, 0.02, h, 4), stem); s.position.set(x, h / 2, z); g.add(s);
+    if (h > 0.7) { const c = new THREE.Mesh(new THREE.CapsuleGeometry(0.035, 0.12, 2, 6), tip); c.position.set(x, h + 0.02, z); g.add(c); }
+  }
+  return g;
+}
+function lilyPad() {
+  const g = new THREE.Group();
+  const pad = new THREE.Mesh(new THREE.CircleGeometry(0.5, 18, 0.35, Math.PI * 2 - 0.7), new THREE.MeshStandardMaterial({ color: '#5fae4a' })); pad.rotation.x = -Math.PI / 2; g.add(pad);
+  return g;
+}
+function lilyFlower() {
+  const g = new THREE.Group(), pet = new THREE.MeshStandardMaterial({ color: '#ffb8d8' });
+  for (let i = 0; i < 6; i++) { const p = new THREE.Mesh(new THREE.ConeGeometry(0.06, 0.18, 5), pet); const a = (i / 6) * Math.PI * 2; p.position.set(Math.cos(a) * 0.06, 0.08, Math.sin(a) * 0.06); p.rotation.set(Math.sin(a) * 0.6, 0, -Math.cos(a) * 0.6); g.add(p); }
+  const c = new THREE.Mesh(new THREE.SphereGeometry(0.04, 8, 6), new THREE.MeshStandardMaterial({ color: '#ffe066' })); c.position.y = 0.1; g.add(c);
+  return g;
+}
+function toadstool(cap = '#e0444f') {
+  const g = new THREE.Group();
+  const st = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.09, 0.3, 8), new THREE.MeshStandardMaterial({ color: '#f4ead0' })); st.position.y = 0.15; g.add(st);
+  const c = new THREE.Mesh(new THREE.SphereGeometry(0.2, 12, 8, 0, Math.PI * 2, 0, Math.PI / 2), new THREE.MeshStandardMaterial({ color: cap })); c.position.y = 0.28; c.scale.y = 0.75; g.add(c);
+  for (const [x, z] of [[0.08, 0.05], [-0.07, 0.08], [0, -0.1]]) { const d = new THREE.Mesh(new THREE.SphereGeometry(0.03, 6, 4), new THREE.MeshStandardMaterial({ color: '#fff8e8' })); d.position.set(x, 0.4, z); g.add(d); }
+  return g;
+}
+// A little hut on stilts, the way everyone in Lilypad Landing lives.
+function stiltHut(x, z, ry, wall = '#c89a5a', roof = '#6a8a3a') {
+  const g = new THREE.Group();
+  const deck = new THREE.Mesh(new THREE.BoxGeometry(4.6, 0.25, 4.6)); deck.position.y = 1.3; g.add(add(deck, '#9a6a3a'));
+  for (const [px, pz] of [[-2, -2], [2, -2], [-2, 2], [2, 2]]) { const p = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.2, 1.5, 6)); p.position.set(px, 0.6, pz); g.add(add(p, '#6a4a2a')); }
+  const hut = new THREE.Mesh(new THREE.BoxGeometry(3.2, 2.2, 3.2)); hut.position.y = 2.5; g.add(add(hut, wall));
+  const rf = new THREE.Mesh(new THREE.ConeGeometry(3.1, 2.1, 4)); rf.position.y = 4.6; rf.rotation.y = Math.PI / 4; g.add(add(rf, roof));
+  const door = new THREE.Mesh(new THREE.BoxGeometry(0.9, 1.4, 0.1)); door.position.set(0, 2.1, 1.62); g.add(add(door, '#5a3a22'));
+  const win = new THREE.Mesh(new THREE.BoxGeometry(0.7, 0.6, 0.1)); win.position.set(1, 2.8, 1.62); g.add(add(win, '#ffe6a0'));
+  const step = new THREE.Mesh(new THREE.BoxGeometry(1.1, 0.15, 2)); step.position.set(0, 0.65, 3.1); step.rotation.x = 0.55; g.add(add(step, '#9a6a3a'));
+  g.position.set(x, 0, z); g.rotation.y = ry; scene.add(g);
+  colliders.push({ x, z, r: 2.6 });
+  return g;
+}
+export function buildMarsh() {
+  const L = LANDS.marsh, R = L.r;
+  // mossy, lumpy ground with dark puddles; muddy at the edge, rising into reedy banks
+  const gGeo = new THREE.PlaneGeometry(250, 250, 110, 110); gGeo.rotateX(-Math.PI / 2);
+  const pos = gGeo.attributes.position, cols = [], cA = new THREE.Color('#8fb86a'), cB = new THREE.Color('#7aa35a'), cC = new THREE.Color('#a3c476'), mud = new THREE.Color('#8a7a52'), t = new THREE.Color();
+  for (let i = 0; i < pos.count; i++) {
+    const x = pos.getX(i), z = pos.getZ(i), d = Math.hypot(x, z);
+    const n = Math.sin(x * 0.09) * Math.cos(z * 0.08) + 0.5 * Math.sin(x * 0.23 + z * 0.17);
+    t.copy(cA).lerp(n > 0 ? cC : cB, Math.min(1, Math.abs(n) * 0.6));
+    if (Math.sin(x * 0.31 + 1) * Math.cos(z * 0.27) > 0.75) t.lerp(mud, 0.55);
+    const bay = z > 44 && Math.abs(x) < 34;
+    let y = d > R + 4 ? (d - R - 4) * 0.22 * (1 + 0.5 * Math.sin(x * 0.13 + z * 0.09)) : 0;
+    if (bay) y = z > 56 ? -0.7 : 0;
+    if (bay && z > 54) t.set('#a89a6a');
+    pos.setY(i, y); cols.push(t.r, t.g, t.b);
+  }
+  gGeo.setAttribute('color', new THREE.Float32BufferAttribute(cols, 3)); gGeo.computeVertexNormals();
+  const ground = new THREE.Mesh(gGeo); ground.position.set(MX, 0, MZ); ground.receiveShadow = true;
+  registerMesh(ground, toon('#ffffff', { vertexColors: true })); scene.add(ground);
+  const sea = new THREE.Mesh(new THREE.PlaneGeometry(68, 70)); sea.rotation.x = -Math.PI / 2; sea.position.set(MX, -0.05, MZ + 92);
+  registerMesh(sea, toon('#3f8a80')); scene.add(sea);
+
+  const pathM = toon('#b8a070', { polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
+  const path = (x1, z1, x2, z2, w = 3) => { const dx = x2 - x1, dz = z2 - z1, len = Math.hypot(dx, dz); const m = new THREE.Mesh(new THREE.PlaneGeometry(w, len)); m.rotation.set(-Math.PI / 2, 0, Math.atan2(dx, dz)); m.position.set((x1 + x2) / 2, 0.03, (z1 + z2) / 2); registerMesh(m, pathM); m.receiveShadow = true; scene.add(m); };
+  const disc = (x, z, r, col = '#b8a070', y = 0.035) => { const m = new THREE.Mesh(new THREE.CircleGeometry(r, 32)); m.rotation.x = -Math.PI / 2; m.position.set(x, y, z); registerMesh(m, toon(col, { polygonOffset: true, polygonOffsetFactor: -3, polygonOffsetUnits: -3 })); m.receiveShadow = true; scene.add(m); return m; };
+  const V = L.village, Z = L.zones, roads = landRoads(L);
+  // boardwalk planks instead of plain paths
+  for (const [x1, z1, x2, z2] of roads) path(x1, z1, x2, z2);
+  disc(V.x, V.z, 7);
+  const landTowns = TOWNS.filter((T) => T.land === L.id);
+  const nearPath = (x, z) => {
+    if (landTowns.some((T) => Math.hypot(x - T.x, z - T.z) < T.r + 2)) return true;
+    for (const [x1, z1, x2, z2] of roads) { const dx = x2 - x1, dz = z2 - z1, l2 = dx * dx + dz * dz, k = Math.max(0, Math.min(1, ((x - x1) * dx + (z - z1) * dz) / l2)); if (Math.hypot(x - x1 - k * dx, z - z1 - k * dz) < 4) return true; }
+    return false;
+  };
+  const free = (x, z, pad) => colliders.every((c) => Math.hypot(c.x - x, c.z - z) > c.r + pad);
+  const away = (x, z, pad) => !nearPath(x, z) && Math.hypot(x - V.x, z - V.z) > 15 && Object.values(Z).every((q) => Math.hypot(x - q.x, z - q.z) > q.r * 0.55) && Math.hypot(x - L.pond.x, z - L.pond.z) > L.pond.r + 2 && free(x, z, pad);
+
+  // Lilypad Landing: huts on stilts round the square
+  for (const [dx, dz, w, r] of [[-11, -3, '#c89a5a', '#6a8a3a'], [11, -4, '#b8c88a', '#8a5a3a'], [-11, 9, '#d8b070', '#5a7a4a'], [12, 8, '#a8c0a0', '#7a5a8a']]) stiltHut(V.x + dx, V.z + dz, Math.atan2(-dx, -dz), w, r);
+  place('building_well_blue', V.x, V.z - 1, S_BUILD);
+  for (const [n, dx, dz] of [['barrel', 6, 3], ['crate_A_big', -6, 4], ['sack', 7, 4]]) place(n, V.x + dx, V.z + dz, S_PROP, rng() * 6, { shrink: 0.6 });
+  pier(MX, MZ + 52, 10, 0);
+  makeShip(MX, MZ + 66, 0, '#f0f8e0', '#4a8a4a');
+  colliders.push({ x: MX, z: MZ + 66, r: 3 });
+
+  // murky pools: the Deep Pool (where Mireiron is fished up), plus little puddles everywhere
+  const P = L.pond;
+  disc(P.x, P.z, P.r + 0.6, '#5a6a3a', 0.04); disc(P.x, P.z, P.r, '#3f7a6a', 0.05);
+  const pads = [], flowers = [];
+  for (let i = 0; i < 10; i++) { const a = rng() * 6.28, rr = rng() * (P.r - 1), x = P.x + Math.cos(a) * rr, z = P.z + Math.sin(a) * rr; pads.push(M(x, 0.07, z, 1 + rng() * 0.6, rng() * 6)); if (i % 3 === 0) flowers.push(M(x, 0.07, z, 1.6, 0)); }
+  const puddles = [];
+  for (let i = 0; i < 26; i++) {
+    const a = rng() * 6.28, rr = 12 + rng() * 52, x = MX + Math.cos(a) * rr, z = MZ + Math.sin(a) * rr;
+    if (!away(x, z, 1) || z - MZ > 40) continue;
+    const r = 1.5 + rng() * 2.5; disc(x, z, r, '#4f7f6a', 0.045); puddles.push([x, z, r]);
+    for (let j = 0; j < 2; j++) pads.push(M(x + (rng() - 0.5) * r, 0.06, z + (rng() - 0.5) * r, 0.9 + rng() * 0.5, rng() * 6));
+  }
+  // Gobbler's Pool: a big round pond covered in lily pads, with a rim of mud to fight on
+  const GP = Z.gobbler;
+  disc(GP.x, GP.z, GP.r + 1.5, '#6a5a3a', 0.035); disc(GP.x, GP.z, GP.r * 0.62, '#3a6a5a', 0.05);
+  for (let i = 0; i < 9; i++) { const a = (i / 9) * Math.PI * 2, x = GP.x + Math.cos(a) * GP.r * 0.75, z = GP.z + Math.sin(a) * GP.r * 0.75; pads.push(M(x, 0.06, z, 3.2, rng() * 6)); }
+  instanced(lilyPad(), pads, { cast: false }); instanced(lilyFlower(), flowers);
+
+  // willows: a ring round the edge and a thick clump in Mire Hollow
+  const wil = [], willowAt = (x, z, sc) => { wil.push(M(x, 0, z, sc, rng() * 6)); colliders.push({ x, z, r: 0.35 * sc }); };
+  for (let i = 0; i < 320; i++) {
+    const a = rng() * Math.PI * 2, rr = 50 + rng() * 26, x = MX + Math.cos(a) * rr, z = MZ + Math.sin(a) * rr;
+    if (z - MZ > 40 && Math.abs(x - MX) < 38) continue;
+    if (rng() > 0.5 || nearPath(x, z) || !free(x, z, 1.4)) continue;
+    willowAt(x, z, 3.6 + rng() * 1.4);
+  }
+  for (let i = 0; i < 50; i++) {
+    const a = rng() * Math.PI * 2, rr = 6 + rng() * (Z.mire.r + 4), x = Z.mire.x + Math.cos(a) * rr, z = Z.mire.z + Math.sin(a) * rr;
+    if (nearPath(x, z) || Math.hypot(x - Z.mire.x, z - Z.mire.z) < 8 || !free(x, z, 1.6)) continue;
+    willowAt(x, z, 3.2 + rng() * 1.4);
+  }
+  for (let i = 0; i < 14; i++) { const a = rng() * 6.28, rr = 16 + rng() * 32, x = MX + Math.cos(a) * rr, z = MZ + Math.sin(a) * rr; if (!away(x, z, 2.2)) continue; willowAt(x, z, 3.4 + rng()); }
+  instanced(willow(), wil);
+  // reeds, toadstools and a few mossy rocks
+  const rd = [], ts = [], tsB = [], rocks = [];
+  for (let i = 0; i < 150; i++) { const a = rng() * 6.28, rr = 8 + rng() * 60, x = MX + Math.cos(a) * rr, z = MZ + Math.sin(a) * rr; if (nearPath(x, z) || Math.hypot(x - V.x, z - V.z) < 9) continue; rd.push(M(x, 0, z, 1.4 + rng() * 0.8, rng() * 6)); }
+  for (const [x, z, r] of puddles) for (let j = 0; j < 3; j++) { const a = rng() * 6.28; rd.push(M(x + Math.cos(a) * r, 0, z + Math.sin(a) * r, 1.6, rng() * 6)); }
+  for (let i = 0; i < 40; i++) { const a = rng() * 6.28, rr = 6 + rng() * (Z.mire.r + 6), x = Z.mire.x + Math.cos(a) * rr, z = Z.mire.z + Math.sin(a) * rr; if (nearPath(x, z) || !free(x, z, 0.4)) continue; (i % 3 ? ts : tsB).push(M(x, 0, z, 1.6 + rng() * 1.6, rng() * 6)); }
+  for (let i = 0; i < 24; i++) { const a = rng() * 6.28, rr = 10 + rng() * 55, x = MX + Math.cos(a) * rr, z = MZ + Math.sin(a) * rr; if (!away(x, z, 0.5)) continue; ts.push(M(x, 0, z, 1.4 + rng(), rng() * 6)); }
+  for (let i = 0; i < 14; i++) { const a = rng() * 6.28, rr = 14 + rng() * 40, x = MX + Math.cos(a) * rr, z = MZ + Math.sin(a) * rr; if (!away(x, z, 1.5)) continue; rocks.push(M(x, 0, z, 3 + rng() * 2, rng() * 6)); colliders.push({ x, z, r: 0.7 }); }
+  instanced(reeds(), rd, { cast: false }); instanced(toadstool('#e0444f'), ts); instanced(toadstool('#a86ad8'), tsB);
+  if (lib.rock_single_B) instanced(tinted(lib.rock_single_B, '#8a9a6a'), rocks);
+
+  // Mother Mire's crooked hut in the hollow, with a bubbling cauldron
+  const MH = Z.mire;
+  disc(MH.x, MH.z, 8, '#6a5a3a');
+  const hut = stiltHut(MH.x, MH.z - 6, 0.3, '#6a5a7a', '#3a4a2a'); hut.rotation.z = 0.06;
+  const caul = new THREE.Mesh(new THREE.SphereGeometry(1, 14, 10, 0, Math.PI * 2, Math.PI * 0.35, Math.PI * 0.65)); caul.position.set(MH.x + 3, 0.9, MH.z); scene.add(add(caul, '#2a2a32'));
+  const brew = new THREE.Mesh(new THREE.CircleGeometry(0.85, 20)); brew.rotation.x = -Math.PI / 2; brew.position.set(MH.x + 3, 1.42, MH.z); registerMesh(brew, toon('#8aff6a', { emissive: '#2a6a1a' })); scene.add(brew);
+  colliders.push({ x: MH.x + 3, z: MH.z, r: 1.1 });
+  // the Sunken Ruins: tilted broken pillars standing in shallow water
+  const SR = Z.ruins;
+  disc(SR.x, SR.z, SR.r - 2, '#4f7f6a', 0.045);
+  for (let i = 0; i < 8; i++) {
+    const a = (i / 8) * Math.PI * 2, x = SR.x + Math.cos(a) * (SR.r - 3), z = SR.z + Math.sin(a) * (SR.r - 3), h = 2 + (i * 1.7) % 3;
+    const col = new THREE.Mesh(new THREE.CylinderGeometry(0.6, 0.7, h, 10)); col.position.set(x, h / 2 - 0.2, z); col.rotation.set(rng() * 0.2 - 0.1, 0, rng() * 0.2 - 0.1); scene.add(add(col, '#a8b0a0'));
+    const moss = new THREE.Mesh(new THREE.CylinderGeometry(0.66, 0.66, 0.4, 10)); moss.position.set(x, h - 0.3, z); scene.add(add(moss, '#6a9a4a'));
+    colliders.push({ x, z, r: 0.8 });
+  }
+  // far hills
+  const far = [];
+  for (let i = 0; i < 26; i++) { const a = (i / 26) * Math.PI * 2 + rng() * 0.1; if (Math.abs(a - Math.PI / 2) < 0.55) continue; const rr = R + 30 + rng() * 8; far.push(M(MX + Math.cos(a) * rr, -1, MZ + Math.sin(a) * rr, 10 + rng() * 4, rng() * 6)); }
+  if (lib.mountain_C_grass) instanced(tinted(lib.mountain_C_grass, '#6a8a5a'), far, { cast: false });
 }
 
 // Gentle snowfall that follows the camera while you're in a snowy land.

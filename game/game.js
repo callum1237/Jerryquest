@@ -4,7 +4,7 @@ import { THREE, scene, camera, renderer, sun, sky, PRESETS, env, applyPreset, bl
 import * as SkeletonUtils from 'three/addons/utils/SkeletonUtils.js';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { buildWorld, buildFlowers, place, tentAt, S_PROP, S_BUILD, colliders, clouds, dynamic, LAKE, CAMP, MINE, S_NATURE, blocked, isFree, ZONES, WORLD_R, VS, TOWNS, ROADS, townFacing } from './world.js';
-import { LANDS, VALLEY_DOCK, buildLands, makeSnow } from './lands.js';
+import { LANDS, VALLEY_DOCK, buildLands, makeSnow, landRoads } from './lands.js';
 import { ICONS } from './icons.js';
 import { buildInteriors, INTERIORS, lavaPools } from './interiors.js';
 import { unlockAudio, playMusic, sfx, setVolumes } from './audio.js';
@@ -61,6 +61,7 @@ const ITEMS = {
   dragon_scale: "Gagron's fire scale", silver_ring: 'Silver ring', ruby: 'Ruby', golden_crown: 'Tiny golden crown', frost_gem: 'Frost gem',
   lucky_sock: "Bonecrusher's lucky sock", frost_crown: "Queen Frostwhisker's ice crown", gloom_hat: "Gloomcaster's droopy hat", rattle_tooth: "Rattlebones' gold tooth",
   dark_omen: 'Dark Omen',
+  bogwood_logs: 'Bogwood logs', mireiron_ore: 'Mireiron ore', mire_charm: "Mother Mire's charm", rusty_helm: "Sir Soggington's rusty helm", gobbler_tooth: "The Gobbler's tooth",
 };
 // Food heals; bought from Marta's stall in the market.
 const FOOD = { bread: { heal: 8, price: 8 }, pie: { heal: 20, price: 20 }, stew: { heal: 40, price: 40 }, grilled_shrimp: { heal: 6 }, grilled_trout: { heal: 14 }, fish_pie: { heal: 32 } };
@@ -92,6 +93,16 @@ const WEAPONS = {
   f_rime: { type: 'magic', tier: 2, name: 'Rime staff', dmg: 17, reach: 14, cd: 1.1, price: 1500, model: 'staff', tint: '#9fe6ff' },
   f_bow: { type: 'ranged', tier: 2, name: 'Icicle crossbow', dmg: 16, reach: 15, cd: 0.75, price: 1500, model: 'crossbow_1handed', tint: '#9fe6ff' },
   a_twin: { type: 'ranged', name: 'Avalanche Twinbow', dmg: 20, reach: 15, cd: 0.6, price: 0, unique: true, model: 'crossbow_2handed', tint: '#e0f4ff' },
+  // Chapter 3: Bogwood and Mireiron, sold by Bramblewick in Lilypad Landing. Their poison hurts over time.
+  b_sword: { type: 'melee', tier: 3, name: 'Mireiron sword', dmg: 27, reach: 3.0, cd: 0.85, price: 3600, model: 'sword_1handed', tint: '#8adf6a', poison: true },
+  b_axe: { type: 'melee', tier: 3, name: 'Mire axe', dmg: 38, reach: 3.4, cd: 1.3, price: 4200, model: 'axe_2handed', tint: '#6aaf4a', heavy: true, poison: true },
+  b_staff: { type: 'magic', tier: 3, name: 'Bog staff', dmg: 27, reach: 15, cd: 1.1, price: 3800, model: 'staff', tint: '#8adf6a', poison: true },
+  b_bow: { type: 'ranged', tier: 3, name: 'Reed crossbow', dmg: 26, reach: 16, cd: 0.75, price: 3800, model: 'crossbow_1handed', tint: '#b8d87a', poison: true },
+  // path weapons: anyone can use them, but only your own path's smith will sell you one
+  p_fang: { type: 'melee', tier: 3, path: 'vampire', name: 'Fangblade', dmg: 31, reach: 2.9, cd: 0.7, price: 6000, model: 'dagger', tint: '#e0243a', drain: 0.06 },
+  p_radiant: { type: 'magic', tier: 3, path: 'angel', name: 'Radiant staff', dmg: 32, reach: 16, cd: 1.0, price: 6000, model: 'staff', tint: '#fff2a0' },
+  p_great: { type: 'melee', tier: 3, path: 'human', name: 'Steel greatsword', dmg: 44, reach: 3.6, cd: 1.25, price: 6000, model: 'sword_2handed_color', tint: '#e8eef6', heavy: true },
+  k_tongue: { type: 'melee', name: "Gobbler's Tongue", dmg: 36, reach: 4.4, cd: 0.95, price: 0, unique: true, model: 'sword_1handed', tint: '#ff7aa8', poison: true },
   a_rattle: { type: 'ranged', name: "Rattlebones' Repeater", dmg: 12, reach: 14, cd: 0.55, price: 0, unique: true, model: 'crossbow_2handed', tint: '#9effa8' },
 };
 // Shields and armour add Defense on top of your Defense points.
@@ -105,6 +116,8 @@ const ARMOUR = {
   ar_gold: { slot: 'armour', name: 'Golden plate', def: 7, price: 450, tint: '#ffe070' },
   sh_frost: { slot: 'shield', tier: 2, name: 'Frostsilver shield', def: 10, price: 1200, model: 'shield_square_color' },
   ar_frost: { slot: 'armour', tier: 2, name: 'Frostsilver plate', def: 11, price: 1600, tint: '#bfefff' },
+  sh_mire: { slot: 'shield', tier: 3, name: 'Mireiron shield', def: 16, price: 3400, model: 'shield_spikes_color' },
+  ar_mire: { slot: 'armour', tier: 3, name: 'Mireiron plate', def: 18, price: 4600, tint: '#9adf7a' },
 };
 for (const w of Object.values(WEAPONS)) w.slot = 'weapon';
 const GEAR = { ...WEAPONS, ...ARMOUR };
@@ -116,21 +129,23 @@ const gearStats = (g) => (g.slot === 'weapon'
   : `+${g.def} defense`);
 
 // Who drops what. Regular monsters roll this table; bosses always drop their trophy and may drop their weapon.
-const BOSS_WEAPON = { boss_gagron: 'k_flame', boss_crusher: 'k_cleaver', boss_gloom: 'm_gloom', boss_rattle: 'a_rattle', boss_twin_a: 'a_twin' };
+const BOSS_WEAPON = { boss_gagron: 'k_flame', boss_crusher: 'k_cleaver', boss_gloom: 'm_gloom', boss_rattle: 'a_rattle', boss_twin_a: 'a_twin', boss_gobbler: 'k_tongue' };
 const DARK_KING = 'Morgoth the Menacing'; // working name, change it here
 // Everything can be sold. Treasures (rings, rubies, crowns) are rare drops worth a lot.
-const SELL = { grilled_shrimp: 5, grilled_trout: 12, fish_pie: 26, dragon_scale: 90, bread: 4, pie: 10, stew: 20, silver_ring: 40, ruby: 120, golden_crown: 400, frost_gem: 260, bone_dust: 3, dark_essence: 15, lucky_sock: 60, frost_crown: 300, gloom_hat: 60, rattle_tooth: 60, dark_omen: 500, logs: 3, oak_logs: 6, copper_ore: 4, iron_ore: 8, frostsilver_ore: 22, shrimp: 3, trout: 8, bones: 2 };
+const SELL = { bogwood_logs: 14, mireiron_ore: 40, mire_charm: 500, rusty_helm: 500, gobbler_tooth: 800, grilled_shrimp: 5, grilled_trout: 12, fish_pie: 26, dragon_scale: 90, bread: 4, pie: 10, stew: 20, silver_ring: 40, ruby: 120, golden_crown: 400, frost_gem: 260, bone_dust: 3, dark_essence: 15, lucky_sock: 60, frost_crown: 300, gloom_hat: 60, rattle_tooth: 60, dark_omen: 500, logs: 3, oak_logs: 6, copper_ore: 4, iron_ore: 8, frostsilver_ore: 22, shrimp: 3, trout: 8, bones: 2 };
 const NODES = {
   tree: { skill: 'woodcutting', req: 1, xp: 25, item: 'logs', name: 'Tree', verb: 'Chop', doing: 'Chopping', deplete: 0.3, respawn: 14 },
   oak: { skill: 'woodcutting', req: 5, xp: 40, item: 'oak_logs', name: 'Oak tree', verb: 'Chop', doing: 'Chopping', deplete: 0.22, respawn: 20 },
   copper: { skill: 'mining', req: 1, xp: 18, item: 'copper_ore', name: 'Copper rock', verb: 'Mine', doing: 'Mining', deplete: 0.6, respawn: 10 },
+  bogwood: { skill: 'woodcutting', req: 30, xp: 110, item: 'bogwood_logs', name: 'Bogwood tree', verb: 'Chop', doing: 'Chopping', deplete: 0.3, respawn: 26 },
+  mireiron: { skill: 'fishing', req: 30, xp: 120, item: 'mireiron_ore', name: 'Mireiron in the deep pool', verb: 'Fish', doing: 'Fishing up', deplete: 0, respawn: 0 },
   frostsilver: { skill: 'mining', req: 15, xp: 70, item: 'frostsilver_ore', name: 'Frostsilver rock', verb: 'Mine', doing: 'Mining', deplete: 0.75, respawn: 24 },
   iron: { skill: 'mining', req: 6, xp: 35, item: 'iron_ore', name: 'Iron rock', verb: 'Mine', doing: 'Mining', deplete: 0.7, respawn: 18 },
   shrimp: { skill: 'fishing', req: 1, xp: 12, item: 'shrimp', name: 'Shrimp spot', verb: 'Fish', doing: 'Fishing', deplete: 0, respawn: 0 },
   trout: { skill: 'fishing', req: 5, xp: 45, item: 'trout', name: 'Trout spot', verb: 'Fish', doing: 'Fishing', deplete: 0, respawn: 0 },
 };
 // How many hits of health each tree/rock has, and the size of its hitbox.
-const NODE_HP = { tree: 5, oak: 9, copper: 5, iron: 8, frostsilver: 11 };
+const NODE_HP = { tree: 5, oak: 9, copper: 5, iron: 8, frostsilver: 11, bogwood: 14 };
 const ENEMY_TYPES = {
   skel_minion: { name: 'Skeleton', hp: 16, maxHit: 3, weapon: 'Skeleton_Blade', xp: 15 },
   skel_warrior: { name: 'Skeleton Warrior', hp: 28, maxHit: 5, weapon: 'Skeleton_Blade', xp: 30 },
@@ -153,6 +168,19 @@ const ENEMY_TYPES = {
   boss_twin_b: { name: 'Avalanche Twin: Sleet', title: 'The Avalanche Twins', model: 'mage', hp: 1200, maxHit: 12, weapon: 'Skeleton_Staff', xp: 3000, boss: true, scale: 2.2, coins: [200, 300], drop: 'frost_gem', ranged: true, spread: true, slam: 5, inside: 'frost', tint: '#e0d8ff', twin: 'boss_twin_a',
     look: { sex: 'f', skin: 'peach', eyes: 'blue', eyeStyle: 'sharp', mouth: 'cat', hair: 'pony', hairLen: 'long', hairCol: 'snow' } },
   thaw_shadow: { name: 'Shadow Wolf', model: 'skel_minion', hp: 70, maxHit: 9, weapon: 'Skeleton_Blade', xp: 90, tint: '#5a3a8a', inside: 'frost', coins: [8, 16] },
+  // Chapter 3: Gobbler Marsh. Slimes and bats are Quaternius' low-poly monsters (CC0).
+  bog_slime: { name: 'Bog Slime', model: 'slime', hp: 150, maxHit: 15, xp: 260, inside: 'marsh', coins: [22, 40], scale: 0.9, noBones: true, poof: true, mass: 1.4,
+    alias: { Idle: 'Slime_Idle', Idle_Combat: 'Slime_Idle', Running_A: 'Slime_Walk', Walking_A: 'Slime_Walk', Hit_A: 'Slime_Idle', Death_A: 'Slime_Death', '1H_Melee_Attack_Chop': 'Slime_Attack', '2H_Melee_Attack_Chop': 'Slime_Attack', Spellcast_Shoot: 'Slime_Attack', Spellcasting: 'Slime_Attack' } },
+  mud_gloop: { name: 'Mud Gloop', model: 'slime', hp: 130, maxHit: 14, xp: 200, inside: 'marsh', coins: [14, 26], scale: 0.8, noBones: true, poof: true, tintAll: '#9a7a52', mass: 1.2 },
+  mire_bat: { name: 'Mire Bat', model: 'bat', hp: 110, maxHit: 14, xp: 240, inside: 'marsh', coins: [18, 34], scale: 0.8, noBones: true, poof: true, fly: 1.6, mass: 0.7,
+    alias: { Idle: 'Bat_Flying', Idle_Combat: 'Bat_Flying', Running_A: 'Bat_Flying', Walking_A: 'Bat_Flying', Hit_A: 'Bat_Hit', Death_A: 'Bat_Death', '1H_Melee_Attack_Chop': 'Bat_Attack', '2H_Melee_Attack_Chop': 'Bat_Attack2', Spellcast_Shoot: 'Bat_Attack', Spellcasting: 'Bat_Attack2' } },
+  bog_knight: { name: 'Bog Knight', model: 'skel_warrior', hp: 190, maxHit: 17, weapon: 'Skeleton_Blade', xp: 320, tint: '#9ac08a', inside: 'marsh', coins: [26, 46] },
+  bog_witchling: { name: 'Marsh Witchling', model: 'skel_mage', hp: 150, maxHit: 16, weapon: 'Skeleton_Staff', xp: 300, ranged: true, tint: '#b8e09a', inside: 'marsh', coins: [24, 42] },
+  boss_mire: { name: 'Mother Mire', title: 'Bog Witch of Mire Hollow', model: 'mage', hp: 1700, maxHit: 18, weapon: 'Skeleton_Staff', xp: 9000, boss: true, scale: 2.3, coins: [400, 600], drop: 'mire_charm', ranged: true, spread: true, slam: 5, inside: 'marsh', tint: '#a8d890',
+    look: { sex: 'f', skin: 'green', eyes: 'gold', eyeStyle: 'sharp', mouth: 'fang', hair: 'long', hairLen: 'long', hairCol: 'snow', mark: 'paint', ears: 'elf' } },
+  boss_sogg: { name: 'Sir Soggington', title: 'The Sunken Knight', model: 'knight', hp: 1900, maxHit: 19, weapon: 'sword_2handed_color', xp: 10000, boss: true, scale: 2.4, coins: [450, 650], drop: 'rusty_helm', slam: 5.5, stuck: 2.4, stuckLine: 'Glub! Water in me boots!', inside: 'marsh', tint: '#9ab0a0',
+    look: { skin: 'blue', eyes: 'grey', eyeStyle: 'sleepy', mouth: 'calm', hair: 'none', beard: 'full', hairCol: 'green', hat: true } },
+  boss_gobbler: { name: 'The Gobbler', title: 'Terror of Gobbler Marsh', model: 'slime', hp: 2600, maxHit: 21, xp: 15000, boss: true, scale: 3.4, coins: [600, 900], drop: 'gobbler_tooth', slam: 7, inside: 'marsh', noBones: true, tintAll: '#7ab05a', mass: 20 },
   boss_frost: { name: 'Queen Frostwhisker', model: 'mage', hp: 1400, maxHit: 13, weapon: 'Skeleton_Staff', xp: 3000, boss: true, scale: 2.4, coins: [300, 450], drop: 'frost_crown', ranged: true, spread: true, slam: 5.5, inside: 'frost', tint: '#cfeaff',
     look: { sex: 'f', skin: 'porcelain', eyes: 'sky', eyeStyle: 'sharp', mouth: 'cat', hair: 'hime', hairLen: 'long', hairCol: 'snow', mark: 'star', ears: 'elf' } },
 };
@@ -253,8 +281,45 @@ Object.assign(QUESTS, {
     story: true, chapter: 'Chapter 2', name: 'Thaw', giver: 'elder', after: ['st_frost_boss'], land: 'frost', onStart: () => startThaw(),
     intro: 'Oh dear, oh dear. The Queen was right: her cold was holding the darkness back. The Wardstone of the North is cracking, and shadow wolves are coming for it. She will re-freeze it, but she needs time. Go to the palace and hold them off!',
     ready: 'The Wardstone is frozen solid again! The Queen sends her thanks... and a warning. A man in VERY shiny armour came to her palace last month, asking all about Wardstones.',
-    done: 'The north is safe. But who was the shiny man? Chapter 3 is coming soon.',
+    done: 'The north is safe. But who was the shiny man? Captain Barnaby can sail you south to Gobbler Marsh for Chapter 3.',
     need: { kills: 12 }, reward: { coins: 1200, xp: { hero: 12000 } }, desc: 'Defend the Wardstone at the Ice Palace: defeat 12 shadow wolves or frost monsters.',
+  },
+  // Chapter 3: Gobbler Marsh. Captain Barnaby sails there once the north is safe.
+  st_marsh1: {
+    story: true, chapter: 'Chapter 3', name: 'Welcome to the Murk', giver: 'croakley', after: ['st_thaw'], land: 'marsh',
+    intro: 'Ribbit! Oh! Sorry, a visitor. I am Mayor Croakley of Lilypad Landing. Things keep VANISHING here: boots, boats, a whole bridge last Tuesday. Something is eating the marsh. And now slimes and bats are everywhere. Thin them out for us, would you?',
+    ready: 'The bog is a bit less bitey already! Now, about those vanishing bridges...', done: 'Lilypad Landing breathes easier, thanks to you.',
+    need: { kills: 8 }, reward: { coins: 1500, xp: { hero: 20000 } }, desc: 'Defeat 8 monsters in Gobbler Marsh.',
+  },
+  st_mire: {
+    story: true, chapter: 'Chapter 3', name: 'Mother Mire', giver: 'croakley', after: ['st_marsh1'], bossType: 'boss_mire', land: 'marsh',
+    intro: 'Mother Mire, the bog witch of Mire Hollow, says she is guarding the Marsh Wardstone from "the Gobbler". But her cauldron bubbles all night, and things vanish whenever it does. Go and ask her some questions. Politely! With your sword out.',
+    ready: 'So she was FEEDING the Gobbler? For a promise of being young again? Oh, that is dreadful. And very on-brand for a witch.', done: 'Mire Hollow is quiet. The cauldron has gone cold.',
+    need: { boss: 1 }, reward: { coins: 2500, xp: { hero: 30000 } }, desc: 'Defeat Mother Mire in Mire Hollow (west).',
+  },
+  st_sogg: {
+    story: true, chapter: 'Chapter 3', name: 'The Sunken Knight', giver: 'croakley', after: ['st_mire'], bossType: 'boss_sogg', land: 'marsh',
+    intro: 'A knight has risen out of the Sunken Ruins! Rusty, soggy and VERY cross. Mother Mire must have woken him. He has been underwater for a hundred years, so he might know where the Wardstone went. Beat some sense into him!',
+    ready: 'Sir Soggington says the Wardstone is in the Gobbler\'s BELLY? Well, that explains the burping.', done: 'Sir Soggington dries out by the well now, teaching sword drills to the tadpoles.',
+    need: { boss: 1 }, reward: { coins: 2800, xp: { hero: 34000 } }, desc: 'Defeat Sir Soggington in the Sunken Ruins (east).',
+  },
+  st_lantern: {
+    story: true, chapter: 'Chapter 3', name: 'Lantern Night', giver: 'croakley', after: ['st_sogg'], land: 'marsh', onStart: () => startLanternNight(),
+    intro: 'The Gobbler only comes up for light. Tonight the whole village floats lanterns! Light the five lantern posts around the marsh. Mud gloops will try to snuff you out, so be quick, and bring friends!',
+    ready: 'All five lanterns are glowing! Look... out in Gobbler\'s Pool. Two big yellow eyes. It is coming up.', done: 'The lanterns still float on the pool. They look lovely, actually.',
+    need: { lanterns: 5 }, reward: { coins: 2000, xp: { hero: 26000 } }, desc: 'Light the 5 lantern posts around Gobbler Marsh.',
+  },
+  st_gobbler: {
+    story: true, chapter: 'Chapter 3', name: 'The Gobbler', giver: 'croakley', after: ['st_lantern'], bossType: 'boss_gobbler', land: 'marsh',
+    intro: 'The Gobbler is awake in its pool, north of the village. It lashes with its tongue, hides under the lily pads, and if it catches you... it SWALLOWS you. If that happens, wriggle! Mash attack and it will spit you out.',
+    ready: 'You beat the Gobbler! And it coughed up the Wardstone... but look. It has split in two.', done: 'The Gobbler sulks at the bottom of its pool. It has gone vegetarian.',
+    need: { boss: 1 }, reward: { coins: 4000, xp: { hero: 50000 } }, desc: "Defeat the Gobbler in Gobbler's Pool (north).",
+  },
+  st_choice: {
+    story: true, chapter: 'Chapter 3', name: 'Light or Dark', giver: 'croakley', after: ['st_gobbler'], land: 'marsh', onStart: () => openPathChoice(),
+    intro: 'The Marsh Wardstone has split into a black half and a white half. They hum when you come near. Mother Mire says whoever touches them first takes in their power. Dark, light... or neither. Choose carefully, hero. (The King\'s wizard can undo it later, for a price.)',
+    ready: 'It is done. The halves have gone quiet. You feel... different.', done: 'You made your choice at the Marsh Wardstone.',
+    need: { choice: 1 }, reward: { coins: 3000, xp: { hero: 30000 } }, desc: 'Touch the Wardstone halves and choose: Vampire, Angel or Human. (Talk to Mayor Croakley.)',
   },
 });
 // The story is split into chapters, and each new chapter takes you to a new land.
@@ -263,7 +328,7 @@ const CHAPTERS = [
   { id: 'pro', tag: 'Prologue', name: 'The Crack', land: 'Jerry Valley', quests: ['st_1'] },
   { id: 'c1', tag: 'Chapter 1', name: 'The Shards', land: 'Jerry Valley', quests: ['st_dragon', 'st_crags', 'st_glimmer', 'st_hollow', 'st_socket'] },
   { id: 'c2', tag: 'Chapter 2', name: 'The Frozen North', land: 'Frostwhisker Peaks', quests: ['st_frost1', 'st_grumble', 'st_twins', 'st_frost_boss', 'st_thaw'] },
-  { id: 'c3', tag: 'Chapter 3', name: 'The Hungry Swamp', land: 'Gobbler Marsh', quests: [], soon: true },
+  { id: 'c3', tag: 'Chapter 3', name: 'The Hungry Swamp', land: 'Gobbler Marsh', quests: ['st_marsh1', 'st_mire', 'st_sogg', 'st_lantern', 'st_gobbler', 'st_choice'] },
   { id: 'c4', tag: 'Chapter 4', name: 'The Clockwork Ruins', land: 'Brassbolt Sands', quests: [], soon: true },
   { id: 'c5', tag: 'Chapter 5', name: 'The Dark King', land: 'The Floating Castle', quests: [], soon: true },
 ];
@@ -345,8 +410,8 @@ const W = () => {
 const gearDef = () => ['shield', 'armour'].reduce((a, sl) => a + (ARMOUR[S.equip[sl]] ? Math.round(ARMOUR[S.equip[sl]].def * plusMult(S.equip[sl]) * 10) / 10 : 0), 0);
 const totalDef = () => stat('def') + gearDef();
 const dmgMult = () => 1 + ATK_MULT * stat('atk');
-const defDiv = () => 1 + DEF_DIV * totalDef();
-const maxHp = () => HP_BASE + HP_PER * stat('hp');
+const defDiv = () => (1 + DEF_DIV * totalDef()) * pathDef();
+const maxHp = () => Math.round((HP_BASE + HP_PER * stat('hp')) * pathHp());
 
 // ---------- see-through silhouettes ----------
 // When a tree or house hides the hero (or a boss), a soft glowing shape shows through it.
@@ -420,7 +485,7 @@ const nodes = [];
 let tool = null, rod = null, pick = null;
 
 // ---------- boot ----------
-const FILES = ['world', 'gear', 'interior', 'dragon', 'knight', 'heroine', 'mage', 'archer', 'barbarian', 'skel_warrior', 'skel_minion', 'skel_mage'];
+const FILES = ['world', 'gear', 'interior', 'dragon', 'slime', 'bat', 'knight', 'heroine', 'mage', 'archer', 'barbarian', 'skel_warrior', 'skel_minion', 'skel_mage'];
 async function main() {
   let n = 0;
   const loaded = await Promise.all(FILES.map((f) => loadModel(f).then((g) => { $('loadmsg').textContent = `${++n} of ${FILES.length} models`; return g; })));
@@ -453,7 +518,7 @@ async function main() {
   // entering the world, once the title screen is done
   const begin = () => {
     $('pick').hidden = true; document.body.classList.remove('titling');
-    rebuildBinds(); applyTowns(); dayTick(0, true); makeGagronFriend();
+    rebuildBinds(); applyTowns(); dayTick(0, true); makeGagronFriend(); makeSoggFriend();
     if (S.started) { startHero(); if (!S.name && !net.on) openCreator('new'); } else newHero();
     if (net.on) goOnline();
   };
@@ -568,7 +633,7 @@ function titleCam() {
   camera.lookAt(0, 3, -4);
 }
 let profileKey = '';
-function profile() { return { name: heroName(), lvl: heroLvl(), look: S.look, w: where, x: player ? player.pos.x : 0, z: player ? player.pos.z : 0 }; }
+function profile() { return { name: heroName(), lvl: heroLvl(), look: { ...S.look, path: S.path || '' }, w: where, x: player ? player.pos.x : 0, z: player ? player.pos.z : 0 }; }
 function goOnline() {
   net.onTowns = syncTowns;
   net.onPeerGone = (id) => { dropPeer(id); partyPeerGone(id); };
@@ -583,7 +648,8 @@ const PEER_HATS = ['Barbarian_Hat', 'Mage_Hat', 'Knight_Helmet'];
 function makePeer(id, p) {
   const look = { ...fresh().look, ...(p.look || {}) };
   const a = new Actor(look.sex === 'f' ? G.heroine : G.knight, { hide: look.hat ? [] : PEER_HATS });
-  dressNpc(a, look);
+  dressNpc(a, pathLook(look, look.path));
+  pathDecor(a, look.path);
   a.root.position.set(p.x || 0, 0, p.z || 0);
   a.play('Idle');
   const tag = document.createElement('div'); tag.className = 'herotag peer'; tag.innerHTML = '<b></b>'; document.body.appendChild(tag);
@@ -600,7 +666,7 @@ const ONE_SHOT = /Attack|Hit_|Death|Jump|Dodge|Use_Item|Interact|Cheer|Spellcast
 function peersTick(dt) {
   if (!net.on || !player) return;
   sendPos(player.pos.x, player.pos.z, player.root.rotation.y, player.name || 'Idle', where, `${Math.max(0, Math.round(S.hp))}/${maxHp()}`);
-  const key = `${heroName()}|${heroLvl()}|${JSON.stringify(S.look)}`;
+  const key = `${heroName()}|${heroLvl()}|${JSON.stringify(S.look)}|${S.path || ''}`;
   if (key !== profileKey) { profileKey = key; updateProfile(profile()); }
   for (const [id, p] of net.peers) {
     let pa = peerActors.get(id);
@@ -1424,9 +1490,18 @@ function buildFace(a = player, L = S.look) {
     const e = new THREE.Mesh(L.ears === 'elf' ? earGeo : humanEarGeo); registerMesh(e, skinMat); e.castShadow = true;
     if (L.ears === 'elf') { e.position.set(sx * (rx + 0.1), c.y - ry * 0.02, c.z - rz * 0.08); e.rotation.set(-0.3, 0, -sx * 1.12); e.scale.set(1, 1, 0.6); }
     else { e.position.set(sx * rx * 0.97, c.y - ry * 0.08, c.z - rz * 0.06); e.scale.set(rx * 0.13, ry * 0.2, rz * 0.15); }
+    e.visible = !L.hat; // a helmet covers the ears; otherwise they poke through its sides
     fg.add(e);
   }
-  const neck = new THREE.Mesh(neckGeo); registerMesh(neck, skinMat); neck.position.set(c.x, c.y - ry * 0.95, c.z - rz * 0.05); neck.scale.set(rx * 0.42, ry * 0.7, rz * 0.42); fg.add(neck);
+  // the face group grows with the head bone, so shrink the neck by the head size or it pokes out of the collar
+  const hsz = HEAD_SIZES[L.head] ? HEAD_SIZES[L.head][1] : 1.4, nk = 1.4 / hsz;
+  const neck = new THREE.Mesh(neckGeo); registerMesh(neck, skinMat); neck.position.set(c.x, c.y - ry * (0.78 + 0.12 * nk), c.z - rz * 0.05); neck.scale.set(rx * 0.42 * Math.min(1, nk * 1.1), ry * 0.45 * nk, rz * 0.42 * Math.min(1, nk * 1.1)); fg.add(neck);
+  // lift the knight helmet so its visor clears the big eyes and the chin guard stops hanging over the chest
+  a.root.traverse((o) => {
+    if (o.name !== 'Knight_Helmet') return;
+    if (!o.userData.base) o.userData.base = { y: o.position.y, s: o.scale.x };
+    o.position.y = o.userData.base.y + 0.17; o.scale.setScalar(o.userData.base.s * 1.13);
+  });
   const hc = new THREE.Color(hairOf(L)).multiplyScalar(0.78);
   addBeard(fg, L.beard, c, rx, ry, rz, toon(`#${hc.getHexString()}`));
   a.headScale = HEAD_SIZES[L.head] ? HEAD_SIZES[L.head][1] : 1.4;
@@ -1484,7 +1559,8 @@ function applyLook() {
   const showHair = L.hair !== 'none' && !L.hat;
   const arm = ARMOUR[S.equip.armour] || ARMOUR.ar_cloth;
   if (showHair) { let head; player.root.traverse((o) => { if (o.isBone && o.name === 'head') head = o; }); if (head) head.add(hairGroup(L.hair, L.hairLen)); }
-  buildFace(player, L);
+  buildFace(player, pathLook(L, S.path));
+  pathDecor(player, S.path);
   player.root.traverse((o) => {
     if (!o.isMesh || !o.userData.mats) return;
     const n = o.name;
@@ -1716,6 +1792,24 @@ function buildNodes() {
   for (const [dx, dz, k] of rockSpots) addRock(MINE.x + dx, MINE.z + dz, k);
   // Frostsilver only grows in the north, around Snowman Hills
   for (const [dx, dz] of [[-20, -14], [-24, -8], [-18, -4], [-12, 18], [-20, 14]]) addRock(LANDS.frost.zones.hills.x + dx, LANDS.frost.zones.hills.z + dz, 'frostsilver');
+  // Bogwood: dark, mossy trees around Lilypad Landing (Woodcutting 30)
+  const ML = LANDS.marsh;
+  for (const [dx, dz] of [[-16, 14], [-20, 2], [16, 16], [22, 0], [-8, -14], [10, -16], [-28, 24], [30, 20]]) {
+    const x = ML.village.x + dx, z = ML.village.z + dz;
+    if (!isFree(x, z, 2)) continue;
+    const full = place('tree_single_A', x, z, S_NATURE * 1.35, rng() * 6, { shrink: 0.35 });
+    const cut = place('tree_single_A_cut', x, z, S_NATURE * 1.35, full.rotation.y, { collide: false });
+    for (const o of [full, cut]) o.traverse((m) => { if (m.isMesh && m.userData.mats) { for (const k of ['std', 'toon']) { m.userData.mats[k] = m.userData.mats[k].clone(); m.userData.mats[k].color.multiply(new THREE.Color('#6a8a4a')); } m.material = styled.on ? m.userData.mats.toon : m.userData.mats.std; } });
+    cut.visible = false;
+    nodes.push(hpNode({ kind: 'bogwood', def: NODES.bogwood, x, z, full, cut, alive: true, respawnAt: 0, reach: 2.6, r: 1.1 }));
+  }
+  // Mireiron glints at the bottom of the Deep Pool (Fishing 30)
+  for (const a of [0.4, 2.4, 4.4]) {
+    const P = ML.pond, x = P.x + Math.cos(a) * (P.r - 1.2), z = P.z + Math.sin(a) * (P.r - 1.2);
+    const ring = new THREE.Mesh(new THREE.RingGeometry(0.6, 0.9, 24), new THREE.MeshBasicMaterial({ color: '#c8ff9a', transparent: true, opacity: 0.8, depthWrite: false, fog: false }));
+    ring.rotation.x = -Math.PI / 2; ring.position.set(x, 0.09, z); ring.layers.set(1); scene.add(ring);
+    nodes.push({ kind: 'mireiron', def: NODES.mireiron, x, z, full: ring, alive: true, reach: 3.6, ring });
+  }
 
   const ringGeo = new THREE.RingGeometry(0.6, 0.9, 24);
   const spots = [[Math.PI * 0.82, 'shrimp'], [Math.PI * 1.02, 'shrimp'], [Math.PI * 0.6, 'trout']];
@@ -1817,6 +1911,16 @@ function buildNpcs() {
     { id: 'snowkid', name: 'Pip Snowdrift', model: 'heroine', x: LANDS.frost.village.x + 6, z: LANDS.frost.village.z + 5, hide: [], tint: '#ff9ab8', inside: 'frost',
       look: { sex: 'f', skin: 'peach', eyes: 'green', eyeStyle: 'round', mouth: 'grin', hair: 'twin', hairLen: 'shoulder', hairCol: 'ginger', mark: 'freckles' },
       lines: ['I built every snowman on Snowman Hills! Well, most of them. Some of them built themselves...', 'Queen Frostwhisker used to be nice, Granny says. Then she got bored of everyone being warm.', 'Watch out on the frozen pond. It is very slippy. I know from experience!'] },
+    // Chapter 3: Lilypad Landing in Gobbler Marsh
+    { id: 'captain3', name: 'Captain Barnaby Gale', model: 'barbarian', x: LANDS.marsh.captain.x, z: LANDS.marsh.captain.z, hide: [], tint: '#5a8ad8', sail: 'out', inside: 'marsh',
+      look: { skin: 'tan', eyes: 'blue', eyeStyle: 'happy', mouth: 'grin', hair: 'short', beard: 'full', hairCol: 'ginger' } },
+    { id: 'croakley', name: 'Mayor Croakley', model: 'barbarian', x: LANDS.marsh.elder.x, z: LANDS.marsh.elder.z, hide: [], tint: '#7ac05a', inside: 'marsh',
+      look: { skin: 'green', eyes: 'gold', eyeStyle: 'round', mouth: 'cat', hair: 'none', hairCol: 'green', mark: 'freckles', head: 'chibi' } },
+    { id: 'bramble', name: 'Bramblewick the Bogsmith', model: 'mage', x: LANDS.marsh.village.x - 7, z: LANDS.marsh.village.z + 6, hide: [], shop: 'marsh', tint: '#8ac06a', inside: 'marsh',
+      look: { sex: 'f', skin: 'tan', eyes: 'green', eyeStyle: 'sharp', mouth: 'grin', hair: 'curls', hairLen: 'shoulder', hairCol: 'green', mark: 'freckles' } },
+    { id: 'tadpole', name: 'Tadpole Tim', model: 'knight', x: LANDS.marsh.village.x + 6, z: LANDS.marsh.village.z + 5, hide: [], tint: '#9ad87a', inside: 'marsh',
+      look: { skin: 'green', eyes: 'brown', eyeStyle: 'happy', mouth: 'grin', hair: 'mohawk', hairCol: 'green', head: 'chibi' },
+      lines: ['The Gobbler ate my wellies! Both of them! I only had them for a week!', 'If you stand really still by the Deep Pool you can hear Mireiron clinking at the bottom. Fishing it up takes ages though.', 'Bogwood trees only let strong woodcutters chop them. My grandpa says level 30. I am level 2.'] },
   ];
   for (const d of defs) makeNpc(d);
 }
@@ -1880,7 +1984,7 @@ function npcLife(n, dt) {
   faceTick(a);
   // a gentle squash-and-stretch breath, bouncier while chatting
   const chat = talking === n, hop = Math.max(0, (a.hopUntil || 0) - now);
-  const k = Math.sin(now * (chat ? 7 : 2.4) + (a.phase || 0)) * (chat ? 0.045 : 0.022);
+  const k = Math.sin(now * (chat ? 7 : 2.4) + (a.breathPh || 0)) * (chat ? 0.045 : 0.022);
   a.root.scale.set(1.3 * (1 - k * 0.5), 1.3 * (1 + k), 1.3 * (1 - k * 0.5));
   a.root.position.y = hop > 0 ? Math.sin((1 - hop / 0.35) * Math.PI) * 0.45 : 0;
   // turn to look at the hero when they come close
@@ -1902,15 +2006,18 @@ function dressNpc(a, L) {
     a.headInfo.bone.add(g); addInk(g);
   }
   addInk(a.root);
-  a.blinkAt = Math.random() * 4; a.phase = Math.random() * 6;
+  a.blinkAt = Math.random() * 4; a.breathPh = Math.random() * 6;
 }
 const npcIdle = (n) => n.actor.play(n.id === 'fenwick' ? 'Spellcasting' : 'Idle');
 
 // ---------- enemies ----------
+for (const k of ['mud_gloop', 'boss_gobbler']) ENEMY_TYPES[k].alias = ENEMY_TYPES.bog_slime.alias;
 function spawnEnemy(k, x, z) {
   const T = ENEMY_TYPES[k];
   const e = new Actor(G[T.model || k], { scale: T.scale || 1.3 });
   if (T.weapon) { const w = lib[T.weapon].clone(true); stylize(w); e.attach(w); }
+  if (T.alias) e.alias = T.alias;
+  if (T.tintAll) e.root.traverse((o) => { if (o.isMesh) tinted(o, T.tintAll); });
   if (T.dragon) e.alias = { Idle: 'Flying_Idle', Idle_Combat: 'Flying_Idle', Running_A: 'Fast_Flying', Walking_A: 'Flying_Idle', Hit_A: 'HitReact', Death_A: 'Death', '1H_Melee_Attack_Chop': 'Headbutt', Spellcast_Shoot: 'Punch', Spellcasting: 'Yes', '2H_Melee_Attack_Chop': 'Punch' };
   e.inside = T.inside || 'out';
   e.type = k; e.T = T; e.home = new THREE.Vector2(x, z);
@@ -1975,6 +2082,15 @@ function buildEnemies() {
   spawnEnemy('boss_grumble', FZs.palace.x + 2, FZs.palace.z + 30);
   spawnEnemy('boss_twin_a', FZs.hills.x - 3, FZs.hills.z + 2);
   spawnEnemy('boss_twin_b', FZs.hills.x + 3, FZs.hills.z - 2);
+  // Gobbler Marsh
+  const MZs = LANDS.marsh.zones, MV = LANDS.marsh.village;
+  fring(MZs.mire, ['bog_slime', 'bog_witchling', 'mire_bat', 'bog_slime', 'bog_witchling'], 11);
+  fring(MZs.ruins, ['bog_knight', 'mire_bat', 'bog_knight', 'bog_slime'], 10);
+  fring({ x: MZs.gobbler.x, z: MZs.gobbler.z + 20 }, ['bog_knight', 'mire_bat', 'bog_slime'], 6);
+  fring({ x: MV.x, z: MV.z - 18 }, ['bog_slime', 'mire_bat', 'bog_slime'], 7);
+  spawnEnemy('boss_mire', MZs.mire.x + 1, MZs.mire.z + 1);
+  spawnEnemy('boss_sogg', MZs.ruins.x, MZs.ruins.z);
+  spawnEnemy('boss_gobbler', MZs.gobbler.x, MZs.gobbler.z);
 }
 
 // ---------- inventory, xp, quests ----------
@@ -2035,10 +2151,12 @@ function levelFanfare(col) {
   if (!player.air) { player.air = true; player.vy = 9; }
   player.play('Cheer', { once: true, fade: 0.1, speed: 1.2 });
 }
+const QUEST_COUNTERS = ['kills', 'boss', 'lanterns', 'choice'];
+const needHave = (k, st) => (QUEST_COUNTERS.includes(k) ? st[k] || 0 : S.inv[k] || 0);
 function questReady(id) {
   const q = QUESTS[id], st = S.quests[id];
   if (st.state !== 'active') return false;
-  return Object.entries(q.need).every(([k, n]) => (k === 'kills' ? st.kills : k === 'boss' ? (st.boss || 0) : (S.inv[k] || 0)) >= n);
+  return Object.entries(q.need).every(([k, n]) => needHave(k, st) >= n);
 }
 // ---------- quest guide arrow ----------
 // The followed quest: the one you picked, or else the first one you're on.
@@ -2060,8 +2178,13 @@ function questTarget(id) {
   }
   if (q.need.kills) {
     let best = null, bd = 1e9;
-    for (const e of enemies) if (!e.T.boss && e.hp > 0 && e.inside === 'out') { const d = Math.hypot(e.pos.x - P.x, e.pos.z - P.z); if (d < bd) { bd = d; best = e; } }
-    return best ? { x: best.pos.x, z: best.pos.z, inside: 'out' } : { x: CAMP.x, z: CAMP.z, inside: 'out' };
+    const zone = q.land || 'out';
+    for (const e of enemies) if (!e.T.boss && e.hp > 0 && e.inside === zone && !e.T.town) { const d = Math.hypot(e.pos.x - P.x, e.pos.z - P.z); if (d < bd) { bd = d; best = e; } }
+    return best ? { x: best.pos.x, z: best.pos.z, inside: zone } : zone === 'out' ? { x: CAMP.x, z: CAMP.z, inside: 'out' } : { x: LANDS[zone].x, z: LANDS[zone].z, inside: zone };
+  }
+  if (q.need.lanterns) {
+    const l = lanterns.filter((x) => !x.lit).sort((a, b) => Math.hypot(a.x - P.x, a.z - P.z) - Math.hypot(b.x - P.x, b.z - P.z))[0];
+    if (l) return { x: l.x, z: l.z, inside: 'marsh' };
   }
   const missing = Object.keys(q.need).find((k) => (S.inv[k] || 0) < q.need[k]);
   let best = null, bd = 1e9;
@@ -2113,8 +2236,8 @@ function guideTick() {
 function questProgress(id) {
   const q = QUESTS[id], st = S.quests[id];
   return Object.entries(q.need).map(([k, n]) => {
-    const have = Math.min(n, k === 'kills' ? st.kills : k === 'boss' ? (st.boss || 0) : (S.inv[k] || 0));
-    return `${k === 'kills' ? 'Skeletons' : k === 'boss' ? ENEMY_TYPES[q.bossType].name : ITEMS[k]} ${have}/${n}`;
+    const have = Math.min(n, needHave(k, st));
+    return `${k === 'kills' ? (q.land ? 'Monsters' : 'Skeletons') : k === 'boss' ? ENEMY_TYPES[q.bossType].name : k === 'lanterns' ? 'Lanterns lit' : k === 'choice' ? 'Choice made' : ITEMS[k]} ${have}/${n}`;
   }).join(', ');
 }
 
@@ -2381,15 +2504,18 @@ function goThrough(to) {
 const chapter1Done = () => ['st_dragon', 'st_crags', 'st_glimmer', 'st_hollow'].every((k) => S.quests[k] && S.quests[k].state === 'done') && (S.quests.st_socket.state === 'done' || S.quests.st_frost1.state !== 'todo');
 function openSail(npc) {
   talking = npc;
-  const to = npc.sail, L = LANDS[to];
-  const text = to === 'out' ? 'Ready to head home to Jerry Valley? The sea is calm and the biscuits are fresh.'
-    : chapter1Done() ? `Ahoy! The King says you are bound for ${L.name}. Wrap up warm, it is snowing up there!`
-      : `Ahoy! I sail to ${L.name}, far to the north. The monsters there are much tougher than the valley's. The King will send you there in Chapter 2, but I can take you for a look now if you are brave.`;
+  const dests = ['out', ...Object.keys(LANDS)].filter((k) => k !== where);
+  const marshOpen = S.quests.st_thaw && S.quests.st_thaw.state === 'done';
+  const text = where === 'out'
+    ? (marshOpen ? 'Ahoy! Where to, hero? North to the snow, or south to the soggy, froggy marsh? Both are far tougher than the valley.'
+      : chapter1Done() ? 'Ahoy! The King says you are bound for Frostwhisker Peaks. Wrap up warm, it is snowing up there! I sail to Gobbler Marsh too, though it is VERY dangerous for now.'
+        : "Ahoy! I sail to Frostwhisker Peaks in the north and Gobbler Marsh in the south. The monsters there are much tougher than the valley's. The King will send you in later chapters, but I can take you for a look now if you are brave.")
+    : `Where to next? The sea is calm and the biscuits are fresh.`;
   const d = $('dialog');
   d.innerHTML = '<h3></h3><p></p><div class="row"></div>';
   d.querySelector('h3').textContent = npc.name; d.querySelector('p').textContent = text;
   const row = d.querySelector('.row');
-  const go = document.createElement('button'); go.className = 'primary'; go.textContent = to === 'out' ? 'Sail home' : `Sail to ${L.name}`; go.onclick = () => { closeDialog(); sailTo(to); }; row.appendChild(go);
+  for (const to of dests) { const go = document.createElement('button'); go.className = 'primary'; go.textContent = to === 'out' ? 'Sail home' : `Sail to ${LANDS[to].name}`; go.onclick = () => { closeDialog(); sailTo(to); }; row.appendChild(go); }
   const no = document.createElement('button'); no.textContent = 'Not yet'; no.onclick = closeDialog; row.appendChild(no);
   showDialog(d, { talky: true });
   npc.actor.face(player.pos.x, player.pos.z);
@@ -2675,8 +2801,8 @@ function openKing(npc) {
 function openWeaponShop(npc) {
   talking = npc;
   const type = npc.shop, d = $('dialog');
-  const lines = { melee: 'Finest steel this side of the mountains! Swords, axes, shields and armour. A longer blade swings wider, a lighter one swings faster.', magic: 'Wands and staves, darling, humming with power. Hold one and your blows become bolts of magic you can throw from afar.', ranged: 'Crossbows I made myself. Hold one and you shoot from a safe distance. Lighter ones shoot faster.' };
-  const sells = (g) => (type === 'frost' ? g.tier === 2 : !g.tier && (g.slot === 'weapon' ? g.type === type : type === 'melee'));
+  const lines = { melee: 'Finest steel this side of the mountains! Swords, axes, shields and armour. A longer blade swings wider, a lighter one swings faster.', magic: 'Wands and staves, darling, humming with power. Hold one and your blows become bolts of magic you can throw from afar.', ranged: 'Crossbows I made myself. Hold one and you shoot from a safe distance. Lighter ones shoot faster.', frost: 'Frostsilver, forged cold and sharp! It shrugs off the north\'s worst. Bring me frostsilver ore and I\'ll make it even better.', marsh: 'Bogwood and Mireiron! Everything I make drips with marsh poison, so your foes keep hurting after you hit them. Chosen your path yet? I forge path weapons too.' };
+  const sells = (g) => (type === 'frost' ? g.tier === 2 : type === 'marsh' ? g.tier === 3 && (!g.path || g.path === S.path) : !g.tier && (g.slot === 'weapon' ? g.type === type : type === 'melee'));
   const list = Object.entries(GEAR).filter(([, g]) => !g.unique && g.price > 0 && sells(g));
   const spare = S.owned.map((k) => [k, GEAR[k]]).filter(([k, g]) => g && sells(g) && gearValue(g) > 0 && S.equip[g.slot] !== k);
   d.innerHTML = `<h3>${npc.name}</h3><p>${lines[type]}</p>
@@ -2686,7 +2812,7 @@ function openWeaponShop(npc) {
       return `<button class="buy" data-w="${k}" ${eq || (!own && S.coins < g.price) ? 'disabled' : ''}><img src="${gearIcon(g)}" alt=""><b>${g.name}</b><span>${gearStats(g)}</span><em>${label}</em></button>`;
     }).join('')}</div>
     ${spare.length ? `<h4 class="sub">Sell spare gear</h4><div class="shop sell">${spare.map(([k, g]) => `<button class="buy" data-sellg="${k}"><img src="${gearIcon(g)}" alt=""><b>${g.name}</b><span>${gearStats(g)}</span><em>Sell +${gearValue(g)}</em></button>`).join('')}</div>` : ''}
-    <p class="hint">You have ${S.coins} coins. Damage is the weapon's base: your Attack multiplies it.</p><div class="row">${type === 'melee' ? `<button id="wforge" class="primary"><img src="${ICONS.hammer}" alt="">Use the forge</button><button id="wup" class="primary"><img src="${ICONS.hammer}" alt="">Upgrade gear</button>` : ''}<button id="wbye">Goodbye</button></div>`;
+    <p class="hint">You have ${S.coins} coins. Damage is the weapon's base: your Attack multiplies it.</p><div class="row">${type === 'frost' || type === 'marsh' ? `<button id="wup" class="primary"><img src="${ICONS.hammer}" alt="">Upgrade gear</button>` : ''}${type === 'melee' ? `<button id="wforge" class="primary"><img src="${ICONS.hammer}" alt="">Use the forge</button><button id="wup" class="primary"><img src="${ICONS.hammer}" alt="">Upgrade gear</button>` : ''}<button id="wbye">Goodbye</button></div>`;
   d.querySelectorAll('[data-w]').forEach((b) => { b.onclick = () => {
     const k = b.dataset.w, g = GEAR[k];
     if (!S.owned.includes(k)) { if (S.coins < g.price) return; S.coins -= g.price; S.owned.push(k); toast(`You buy the ${g.name}!`, gearIcon(g), true); }
@@ -2753,7 +2879,7 @@ function openTalk(npc) {
 }
 function finishQuest(id, npc) {
   const q = QUESTS[id], st = S.quests[id];
-  for (const [k, n] of Object.entries(q.need)) if (k !== 'kills' && k !== 'boss') takeItem(k, n);
+  for (const [k, n] of Object.entries(q.need)) if (!QUEST_COUNTERS.includes(k)) takeItem(k, n);
   st.state = 'done'; S.coins += q.reward.coins;
   for (const [k, v] of Object.entries(q.reward.xp)) { if (k === 'hero') giveHeroXp(v); else giveXp(k, v); }
   toast(`Quest complete: ${q.name}`, ICONS.coins, true);
@@ -2762,8 +2888,27 @@ function finishQuest(id, npc) {
   npc.actor.play('Cheer', { once: true, onFinish: () => npcIdle(npc) });
   refreshUI(); save();
 }
-function openDialog(npc) {
+function openPathUndo(npc) {
+  talking = npc;
+  const P = PATHS[S.path], d = $('dialog');
+  d.innerHTML = `<h3>${npc.name}</h3><p>Hmm. I can feel the ${P.name.toLowerCase()} in you from here. I can draw it out, if you like, and you can choose again at the Marsh Wardstone. It is fiddly magic, mind: ${fmt(PATH_UNDO)} coins.</p>
+    <div class="row"><button id="pundo" class="primary" ${S.coins < PATH_UNDO ? 'disabled' : ''}>Undo my path (${fmt(PATH_UNDO)} coins)</button><button id="pother">Something else</button></div>`;
+  $('pundo').onclick = () => {
+    if (S.coins < PATH_UNDO) return;
+    S.coins -= PATH_UNDO; S.path = null; closeDialog(); sfx('special');
+    burst(player.pos.clone().setY(2), '#c8a8ff', 60, 7, 1.4);
+    toast('Your path is undone. Talk to Mayor Croakley in Gobbler Marsh to choose again.', ICONS.star, true);
+    if (S.quests.st_choice && S.quests.st_choice.state === 'done') { /* choose again by talking to the Mayor */ S.repick = true; }
+    rebuildHero(); refreshUI(); save();
+  };
+  $('pother').onclick = () => openDialog(npc, true);
+  showDialog(d, { talky: true });
+}
+
+function openDialog(npc, plain = false) {
   if (npc.crew) { openCrewTalk(npc); return; }
+  if (npc.id === 'croakley' && !S.path && S.quests.st_choice && (S.quests.st_choice.state === 'active' || S.repick)) { openPathChoice(npc); return; }
+  if (npc.id === 'fenwick' && S.path && !plain) { openPathUndo(npc); return; }
   if (npc.sail) { openSail(npc); return; }
   if (npc.clerk) { openMayor(npc); return; }
   if (npc.board) { openBoard(npc); return; }
@@ -2781,7 +2926,7 @@ function openDialog(npc) {
     if (!qid) {
       const d = $('dialog'); d.innerHTML = '<h3></h3><p></p><div class="row"><button>Goodbye</button></div>';
       d.querySelector('h3').textContent = npc.name;
-      d.querySelector('p').textContent = 'Welcome to Snowdrop, traveller! Our troubles are big ones. Help your own kingdom first (finish Chapter 1 for King Jerrold), then come back and see me.';
+      d.querySelector('p').textContent = npc.id === 'croakley' ? 'Ribbit! Welcome to Lilypad Landing, traveller. Our troubles are BIG ones. Sort out the frozen north first (finish Chapter 2 for Elder Mittens), then hop back and see me.' : 'Welcome to Snowdrop, traveller! Our troubles are big ones. Help your own kingdom first (finish Chapter 1 for King Jerrold), then come back and see me.';
       d.querySelector('button').onclick = closeDialog; showDialog(d, { talky: true }); return;
     }
   }
@@ -3122,6 +3267,7 @@ function showGear(which) {
 let attackQueued = -9, forceAttack = false, mouseAimed = false;
 function attackPress(viaKey) {
   if (!player || player.dead || uiLock() || talking) return;
+  if (gulped) { wriggle(); return; }
   if (now < player.nextHit) { attackQueued = now; return; }
   forceAttack = !!viaKey; swing(); forceAttack = false;
 }
@@ -3372,7 +3518,7 @@ function shoot(from, dir, kind, range, owner, onHit) {
 // Your damage: the weapon's base damage, multiplied by your Attack, with a little luck either way.
 function heroDamage() {
   if (rng() < 0.1) return 0;
-  return Math.max(1, Math.round(W().dmg * dmgMult() * (0.8 + rng() * 0.4)));
+  return Math.max(1, Math.round(W().dmg * dmgMult() * pathDmg() * (0.8 + rng() * 0.4)));
 }
 let hitStopUntil = 0;
 // Every hit shoves the enemy away from where the blow came from. Heavy weapons and specials shove harder,
@@ -3404,15 +3550,24 @@ function knockTick(e, dt) {
     if (e.inside === 'out' || LANDS[e.inside]) pushOut(ep, e.T.boss ? 1.2 : 0.6);
   }
   if (e.lift > 0) { e.vy -= 32 * dt; e.lift = Math.max(0, e.lift + e.vy * dt); if (!e.lift) e.vy = 0; ep.y = e.lift; }
+  else if (e.T.fly) ep.y = e.state === 'dead' ? Math.max(0, ep.y - dt * 4) : e.T.fly + Math.sin(now * 3 + e.home.x) * 0.3;
   // white flash that fades over a few frames
   const f = Math.max(0, (e.flashT - now) / 0.13);
   const gk = f + (e.golden ? 10 : 0), g = e.golden ? 0.55 + Math.sin(now * 6) * 0.15 : 0;
   if (gk !== e.flashLast || e.golden) { e.flashLast = gk; for (const m of e.flashMats) if (m.emissive) { m.emissive.setRGB(f + g * 0.75, f * 0.95 + g * 0.5, f * 0.85); } }
 }
+let poisonHit = false;
 function hurtEnemy(e, dmg, src = null, power = 1) {
   const head = e.pos.clone().setY(3.4);
   if (e.state === 'idle' || e.state === 'walk') e.state = 'chase';
+  if (e.under) { if (rng() < 0.5) floatText(head, 'It\'s underwater! Watch the bubbles', 'miss'); return; }
   if (dmg === 0) { floatText(head, 'Miss', 'miss'); return; }
+  if (!crewHitting && !poisonHit) {
+    const w = W();
+    // marsh poison keeps hurting for a few seconds; the Fangblade drinks a little health back
+    if (w.poison) e.poison = { left: 3, at: now + 1, dmg: Math.max(1, Math.round(dmg * 0.15)) };
+    if (w.drain && S.hp < maxHp()) { S.hp = Math.min(maxHp(), S.hp + Math.max(1, Math.round(dmg * w.drain))); refreshUI(); }
+  }
   if (e.shield) { dmg = Math.max(1, Math.round(dmg * 0.25)); if (rng() < 0.4) floatText(head.clone().setY(4.6), 'Shielded! Break the glowing crystal', 'miss'); }
   else if (now < (e.dizzyUntil || 0)) dmg = Math.round(dmg * 1.5);
   e.hp = Math.max(0, e.hp - dmg);
@@ -3433,6 +3588,7 @@ function hurtEnemy(e, dmg, src = null, power = 1) {
     e.state = 'dead'; e.bar.hidden = true;
     e.play('Death_A', { once: true, clamp: true, fade: 0.1 });
     if (!e.T.noBones) later(0.75, () => { if (e.state === 'dead') collapse(e); });
+    if (e.T.poof) later(0.8, () => { if (e.state === 'dead') { burst(e.pos.clone().setY(0.8), e.T.tintAll || '#9fe07a', 24, 4); e.root.visible = false; } });
     giveHeroXp(e.T.xp, e.pos.clone().setY(4)); partyShareXp(e.T.xp, e.pos);
     const coins = e.T.coins ? e.T.coins[0] + Math.floor(rng() * (e.T.coins[1] - e.T.coins[0])) : 3 + Math.floor(rng() * 9);
     S.coins += coins; addItem('bones'); later(0.25, () => sfx('coin'));
@@ -3440,6 +3596,7 @@ function hurtEnemy(e, dmg, src = null, power = 1) {
     if (e.T.boss) {
       bossCleanup(e); queueLetter(e.type);
       if (e.type === 'boss_gagron' && !S.gagronFree) { S.gagronFree = true; later(4, makeGagronFriend); }
+      if (e.type === 'boss_sogg' && !S.soggFree) { S.soggFree = true; later(4, makeSoggFriend); }
       addItem(e.T.drop);
       toast(`You defeated ${e.T.name}! It dropped ${ITEMS[e.T.drop].toLowerCase()}!`, ICONS[e.T.drop], true);
       burst(e.pos.clone().setY(2), '#ffe07a', 80, 8, 1.6);
@@ -3886,6 +4043,242 @@ function startThaw() {
   });
 }
 
+// ---------- Chapter 3 bosses ----------
+// Mother Mire: poison puddles and slimes in phase 2, a rain of bubbling hexes in phase 3.
+function mireHex(e) {
+  e.play('Spellcasting', { once: true, fade: 0.1, onFinish: () => e.play('Idle_Combat') });
+  for (let i = 0; i < 4; i++) later(i * 0.35, () => {
+    if (e.hp <= 0 || player.dead) return;
+    const a = rng() * 6.28, r = i === 0 ? 0 : 1.5 + rng() * 3;
+    hazard({ x: player.pos.x + Math.cos(a) * r, z: player.pos.z + Math.sin(a) * r, R: 2.4, dur: 1.0, dmg: Math.round(e.T.maxHit * 1.1), col: '#8aff6a' });
+  });
+}
+// Sir Soggington charges in a straight line you can see coming, then sloshes about with water rings.
+function soggCharge(e) {
+  e.face(player.pos.x, player.pos.z); e.state = 'slam';
+  const dir = Math.atan2(player.pos.x - e.pos.x, player.pos.z - e.pos.z), len = 14, sx = e.pos.x, sz = e.pos.z;
+  hazard({ x: sx, z: sz, R: len, dir: dir + Math.PI, half: 0.14, dur: 1.0, dmg: Math.round(e.T.maxHit * 1.5), col: '#7fd0ff' });
+  e.play('Running_A', { fade: 0.1 });
+  later(0.9, () => tween(0.45, (k) => { if (e.hp <= 0) return; const [x, z] = nearHome(e, sx + Math.sin(dir) * len * k, sz + Math.cos(dir) * len * k); e.pos.x = x; e.pos.z = z; if (rng() < 0.6) burst(e.pos.clone().setY(0.4), '#bfe9ff', 3, 3, 0.5); },
+    () => { if (e.hp > 0) { bossSay(e, 'Huff... puff... these boots are FULL.'); dizzy(e, 2); } }));
+}
+function soggRings(e) {
+  e.state = 'slam'; e.play('2H_Melee_Attack_Chop', { once: true, fade: 0.1 });
+  const x = e.pos.x, z = e.pos.z;
+  for (let i = 0; i < 3; i++) later(0.3 + i * 0.75, () => { if (e.hp > 0) hazard({ x, z, R: 5 + i * 4, inner: 3.2 + i * 4, dur: 0.9, dmg: Math.round(e.T.maxHit * 1.3), col: '#7fd0ff' }); });
+  later(2.8, () => { if (e.hp > 0 && e.state === 'slam') { e.state = 'chase'; e.play('Idle_Combat'); } });
+}
+// The Gobbler: tongue lashes along a line; in phase 2 it dives and pops up under a lily pad;
+// in phase 3 it tries to swallow you whole. Mash attack to wriggle out.
+function tongueLash(e) {
+  e.face(player.pos.x, player.pos.z); e.state = 'slam';
+  e.play('1H_Melee_Attack_Chop', { once: true, fade: 0.1 });
+  const dir = Math.atan2(player.pos.x - e.pos.x, player.pos.z - e.pos.z), len = 15;
+  hazard({ x: e.pos.x, z: e.pos.z, R: len, dir: dir + Math.PI, half: 0.1, dur: 0.9, dmg: Math.round(e.T.maxHit * 1.5), col: '#ff7aa8' });
+  const tongue = new THREE.Mesh(new THREE.CylinderGeometry(0.35, 0.5, 1, 10), new THREE.MeshLambertMaterial({ color: '#ff7aa8' }));
+  tongue.rotation.set(Math.PI / 2, 0, 0); const holder = new THREE.Group(); holder.add(tongue); holder.position.set(e.pos.x, 1.6, e.pos.z); holder.rotation.y = dir; scene.add(holder);
+  tongue.scale.set(1, 0.01, 1);
+  later(0.85, () => tween(0.35, (k) => { const L = len * Math.sin(k * Math.PI); tongue.scale.y = Math.max(0.01, L); tongue.position.z = L / 2; }, () => scene.remove(holder)));
+  later(1.4, () => { if (e.hp > 0 && e.state === 'slam') { e.state = 'chase'; e.play('Idle_Combat'); } });
+}
+function mudSpit(e) {
+  e.play('Spellcast_Shoot', { once: true, fade: 0.1, onFinish: () => e.play('Idle_Combat') });
+  for (let i = 0; i < 3; i++) { const a = rng() * 6.28, r = i ? 2 + rng() * 2.5 : 0; hazard({ x: player.pos.x + Math.cos(a) * r, z: player.pos.z + Math.sin(a) * r, R: 2, dur: 1.1, dmg: Math.round(e.T.maxHit * 0.9), col: '#a8845a' }); }
+}
+function gobblerDive(e) {
+  e.state = 'slam'; e.under = true; sfx('whoosh');
+  bossSay(e, 'Bloop!');
+  const base = e.T.scale;
+  tween(0.6, (k) => { e.root.scale.setScalar(base * (1 - k * 0.95)); e.root.position.y = -k * 1.5; });
+  const [x, z] = nearHome(e, player.pos.x + (rng() - 0.5) * 4, player.pos.z + (rng() - 0.5) * 4, 12);
+  for (let i = 0; i < 8; i++) later(0.5 + i * 0.2, () => burst(new THREE.Vector3(x + (rng() - 0.5) * 2, 0.3, z + (rng() - 0.5) * 2), '#bfffd8', 6, 3, 0.7));
+  later(0.7, () => hazard({ x, z, R: 3.8, dur: 1.3, dmg: Math.round(e.T.maxHit * 1.6), col: '#8adfc0' }));
+  later(2.0, () => {
+    if (e.hp <= 0) return;
+    e.pos.x = x; e.pos.z = z; e.under = false;
+    tween(0.3, (k) => { e.root.scale.setScalar(base * (0.05 + k * 0.95)); e.root.position.y = -1.5 * (1 - k); }, () => { burst(e.pos.clone().setY(0.6), '#8adfc0', 50, 8, 1.3); if (e.hp > 0) dizzy(e, 2.6); });
+  });
+}
+let gulped = null;
+function gobblerGulp(e) {
+  e.face(player.pos.x, player.pos.z); e.state = 'slam';
+  const dir = Math.atan2(player.pos.x - e.pos.x, player.pos.z - e.pos.z), x = e.pos.x + Math.sin(dir) * 3.5, z = e.pos.z + Math.cos(dir) * 3.5;
+  bossSay(e, 'Open wiiide!');
+  hazard({ x, z, R: 3.4, dur: 1.2, dmg: 0, col: '#ff7aa8' });
+  e.play('Spellcasting', { once: true, fade: 0.1 });
+  later(1.2, () => {
+    if (e.hp <= 0 || player.dead || gulped) return;
+    if (Math.hypot(player.pos.x - x, player.pos.z - z) > 3.4 || dodging()) { later(0.3, () => { if (e.hp > 0 && e.state === 'slam') { e.state = 'chase'; e.play('Idle_Combat'); } }); return; }
+    // gulp!
+    gulped = { e, taps: 0, until: now + 6, hurtAt: now + 0.8 };
+    player.root.visible = false; moveTarget = null; cancelTask();
+    sfx('slam'); toast('You got swallowed! Mash attack to wriggle out!', ICONS.star, true);
+  });
+}
+function gulpTick() {
+  if (!gulped) return;
+  const g = gulped, e = g.e;
+  player.pos.set(e.pos.x, 0, e.pos.z);
+  if (rng() < 0.3) burst(e.pos.clone().setY(e.T.scale * 1.2), '#ff9ac0', 3, 3, 0.6);
+  if (now > g.hurtAt) { g.hurtAt = now + 0.8; hurtPlayer(Math.max(2, Math.round(e.T.maxHit * 0.35))); }
+  if (player.dead || e.hp <= 0 || g.taps >= 8 || now > g.until) spitOut();
+}
+function wriggle() {
+  if (!gulped) return false;
+  gulped.taps++; floatText(gulped.e.pos.clone().setY(gulped.e.T.scale * 2), gulped.taps >= 8 ? 'Free!' : `Wriggle! ${gulped.taps}/8`, 'gain');
+  if (gulped.e.hp > 0) hurtEnemy(gulped.e, Math.max(1, Math.round(heroDamage() * 0.6)));
+  return true;
+}
+function spitOut() {
+  const e = gulped.e; gulped = null;
+  player.root.visible = true;
+  const a = e.root.rotation.y; player.pos.set(e.pos.x + Math.sin(a) * 6, 0, e.pos.z + Math.cos(a) * 6); collide(player.pos);
+  burst(player.pos.clone().setY(1), '#ff9ac0', 40, 7, 1.2);
+  if (e.hp > 0) { bossSay(e, 'BLEUGH! You taste like armour!'); dizzy(e, 3.2); }
+}
+Object.assign(PHASE_LINES, {
+  boss_mire: ['My pretties! Up from the mud!', 'Bubble, bubble, YOU\'RE in trouble!'],
+  boss_sogg: ['A hundred years I waited! CHARGE!', 'The tide is coming IN!'],
+  boss_gobbler: ['*gurgle* Hide-and-seek!', '*SLURP* Still hungry!'],
+});
+Object.assign(PHASE_SETUP, {
+  boss_mire: (e, ph) => { if (ph === 2) for (let i = 0; i < 2; i++) { const a = i * 3.14 + rng(); bossAdd(e, 'bog_slime', e.pos.x + Math.cos(a) * 5, e.pos.z + Math.sin(a) * 5); } },
+  boss_gobbler: (e, ph) => { if (ph === 3) for (let i = 0; i < 2; i++) { const a = i * 3.14 + rng(); bossAdd(e, 'mud_gloop', e.pos.x + Math.cos(a) * 7, e.pos.z + Math.sin(a) * 7); } },
+});
+Object.assign(BOSS_AI, {
+  boss_mire(e) { e.flyN = (e.flyN || 0) + 1; if ((e.phase || 1) >= 3 && e.flyN % 2 === 0) { mireHex(e); return true; } return false; },
+  boss_sogg(e, toP) {
+    e.flyN = (e.flyN || 0) + 1; const ph = e.phase || 1;
+    if (ph >= 2 && (e.flyN % 3 === 1 || toP > 6)) { soggCharge(e); return true; }
+    if (ph >= 3 && e.flyN % 3 === 2) { soggRings(e); return true; }
+    return false;
+  },
+  boss_gobbler(e, toP) {
+    e.flyN = (e.flyN || 0) + 1; const ph = e.phase || 1;
+    if (ph >= 3 && e.flyN % 3 === 0) { gobblerGulp(e); return true; }
+    if (ph >= 2 && e.flyN % 3 === 1) { gobblerDive(e); return true; }
+    if (e.flyN % 2 === 0 || toP > 5) { tongueLash(e); return true; }
+    if (rng() < 0.4) { mudSpit(e); return true; }
+    return false;
+  },
+});
+
+// ---------- Lantern Night ----------
+// Five lantern posts stand dark around the marsh. Walk up to each to light it; every flame wakes mud gloops.
+const lanterns = [];
+function makeLanterns() {
+  if (lanterns.length) return;
+  const L = LANDS.marsh, Z = L.zones, V = L.village;
+  const spots = [[V.x - 14, V.z - 14], [Z.mire.x + 12, Z.mire.z + 10], [Z.ruins.x - 12, Z.ruins.z + 8], [Z.gobbler.x - 10, Z.gobbler.z + 16], [L.pond.x - 4, L.pond.z + 12]];
+  for (const [x0, z0] of spots) {
+    let x = x0, z = z0;
+    for (let t = 0; t < 20 && !isFree(x, z, 1.2); t++) { x = x0 + (rng() - 0.5) * 6; z = z0 + (rng() - 0.5) * 6; }
+    const g = new THREE.Group(); g.position.set(x, 0, z);
+    const post = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.16, 3, 8)); post.position.y = 1.5; registerMesh(post, toon('#5a3a22')); g.add(post);
+    const arm = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.12, 0.12)); arm.position.set(0.4, 2.9, 0); registerMesh(arm, toon('#5a3a22')); g.add(arm);
+    const lamp = new THREE.Mesh(new THREE.SphereGeometry(0.38, 14, 10)); lamp.position.set(0.8, 2.45, 0); registerMesh(lamp, toon('#6a6a5a')); g.add(lamp);
+    const glow = new THREE.Mesh(new THREE.CircleGeometry(3, 28), new THREE.MeshBasicMaterial({ color: '#ffcf6a', transparent: true, opacity: 0, depthWrite: false, fog: false }));
+    glow.rotation.x = -Math.PI / 2; glow.position.y = 0.12; glow.layers.set(1); g.add(glow);
+    addInk(g); scene.add(g); colliders.push({ x, z, r: 0.4 });
+    lanterns.push({ g, lamp, glow, x, z, lit: false });
+  }
+}
+function startLanternNight() {
+  makeLanterns();
+  for (const l of lanterns) setLantern(l, false);
+  toast('Lantern Night! Light the five lantern posts around the marsh. Watch out for mud gloops!', ICONS.star, true);
+}
+function setLantern(l, on) {
+  l.lit = on;
+  l.lamp.userData.mats.toon.color.set(on ? '#ffd23f' : '#6a6a5a'); l.lamp.userData.mats.std.color.set(on ? '#ffd23f' : '#6a6a5a');
+  for (const m of [l.lamp.userData.mats.toon, l.lamp.userData.mats.std]) if (m.emissive) m.emissive.set(on ? '#a86a00' : '#000000');
+  l.glow.material.opacity = on ? 0.3 : 0;
+}
+function lanternTick(dt) {
+  const st = S.quests.st_lantern;
+  if (!st || where !== 'marsh' || !player || player.dead) { document.body.classList.remove('lanternnight'); return; }
+  const active = st.state === 'active';
+  document.body.classList.toggle('lanternnight', active && (st.lanterns || 0) < 5);
+  if (!lanterns.length) { if (st.state === 'todo') return; makeLanterns(); for (const l of lanterns) setLantern(l, st.state === 'done' || (st.lanterns || 0) >= 5); }
+  for (const l of lanterns) {
+    if (l.lit) { if (rng() < dt * 3) burst(new THREE.Vector3(l.x + 0.8, 2.6, l.z), '#ffcf6a', 2, 1.5, 0.6); continue; }
+    if (!active) continue;
+    if (Math.hypot(player.pos.x - l.x, player.pos.z - l.z) < 2.4) {
+      setLantern(l, true); st.lanterns = (st.lanterns || 0) + 1; sfx('win');
+      burst(new THREE.Vector3(l.x + 0.8, 2.5, l.z), '#ffd23f', 40, 6, 1.2);
+      toast(`Lantern lit! ${st.lanterns} of 5.`, ICONS.star);
+      for (let i = 0; i < 2; i++) { const a = rng() * 6.28, m = spawnEnemy('mud_gloop', l.x + Math.cos(a) * 6, l.z + Math.sin(a) * 6); m.temp = true; m.state = 'chase'; burst(m.pos.clone().setY(0.5), '#9a7a52', 20, 4); }
+      if (st.lanterns >= 5) toast('All five lanterns are lit! Go back to Mayor Croakley.', ICONS.star, true);
+      refreshUI(); save();
+    }
+  }
+}
+
+// ---------- Light or Dark: the path choice ----------
+const PATHS = {
+  vampire: { name: 'Vampire', icon: 'fang', blurb: 'Take in the dark half. +12% damage, +6% speed, and you heal twice as fast. Small fangs and red eyes.' },
+  angel: { name: 'Angel', icon: 'halo', blurb: 'Take in the light half. +15% defense. A soft glowing halo and little feathered wings.' },
+  human: { name: 'Human', icon: 'human', blurb: 'Touch neither. +15% max health. The villagers will call you "the stubborn one".' },
+};
+const PATH_UNDO = 5000;
+const pathDmg = () => (S.path === 'vampire' ? 1.12 : 1);
+const pathSpeed = () => (S.path === 'vampire' ? 1.06 : 1);
+const pathDef = () => (S.path === 'angel' ? 1.15 : 1);
+const pathHp = () => (S.path === 'human' ? 1.15 : 1);
+function openPathChoice(npc) {
+  const d = $('dialog'); talking = npc || null;
+  d.innerHTML = `<h3>The Marsh Wardstone</h3><p>The two halves hum in your hands. One is black as a moonless bog, one is white as a lily. A whisper rises from the dark half: <i>"He chose dark too, once. Long ago, when he was only a man..."</i></p>
+    <div class="paths">${Object.entries(PATHS).map(([k, P]) => `<button class="pathpick" data-path="${k}"><img src="${ICONS[P.icon]}" alt=""><b>${P.name}</b><span>${P.blurb}</span></button>`).join('')}</div>
+    <p class="hint">Old Fenwick in Jerry Valley can undo your choice later for ${fmt(PATH_UNDO)} coins.</p><div class="row"><button id="pthink">Let me think</button></div>`;
+  d.querySelectorAll('[data-path]').forEach((b) => { b.onclick = () => choosePath(b.dataset.path); });
+  $('pthink').onclick = closeDialog;
+  showDialog(d);
+}
+function choosePath(k) {
+  S.path = k; S.repick = false; closeDialog();
+  const st = S.quests.st_choice; if (st && st.state === 'active') st.choice = 1;
+  const P = PATHS[k];
+  burst(player.pos.clone().setY(2), k === 'vampire' ? '#c8243a' : k === 'angel' ? '#fff2a0' : '#9fd8ff', 90, 8, 1.6); sfx('win');
+  const el = $('banner'); el.textContent = `You are now: ${P.name}!`; el.classList.remove('show'); void el.offsetWidth; el.classList.add('show');
+  if (k === 'vampire') queueLetter('path_vampire');
+  rebuildHero(); refreshUI(); save();
+}
+// fangs, red eyes, a halo and wings: built on the hero (and on other players) from their path
+function pathDecor(a, path) {
+  if (a.pathDecor) { for (const o of a.pathDecor) o.removeFromParent(); }
+  a.pathDecor = [];
+  if (path !== 'angel') return;
+  let head = null, chest = null;
+  a.root.traverse((o) => { if (o.isBone && o.name === 'head') head = o; if (o.isBone && o.name === 'chest') chest = o; });
+  const H = a.headInfo, hy = H ? H.box.max.y + 0.32 : 1.4;
+  const gold = toon('#ffe27a', { emissive: '#8a6a10' });
+  if (head) { const halo = new THREE.Mesh(new THREE.TorusGeometry(0.42, 0.07, 10, 32)); registerMesh(halo, gold); halo.rotation.x = Math.PI / 2; halo.position.y = hy; head.add(halo); a.pathDecor.push(halo); }
+  if (chest) {
+    const wingMat = toon('#ffffff');
+    for (const sx of [-1, 1]) {
+      const w = new THREE.Group();
+      for (const [i, len] of [[0, 0.7], [1, 0.55], [2, 0.42]].entries()) { const f = new THREE.Mesh(new THREE.CapsuleGeometry(0.09, len[1], 4, 8)); registerMesh(f, wingMat); f.position.set(sx * (0.18 + i * 0.07), 0.1 - i * 0.12, 0); f.rotation.z = sx * (1.0 + i * 0.25); w.add(f); }
+      w.position.set(sx * 0.2, 0.25, -0.32); w.rotation.y = -sx * 0.5; chest.add(w); a.pathDecor.push(w);
+    }
+  }
+  for (const o of a.pathDecor) addInk(o);
+}
+const pathLook = (L, path) => (path === 'vampire' ? { ...L, eyes: 'red', mouth: 'fang' } : L);
+function wingTick() {
+  if (!player || !player.pathDecor) return;
+  for (const w of player.pathDecor) if (w.isGroup) w.rotation.z = Math.sin(now * 3) * 0.12 * Math.sign(w.position.x);
+}
+// Sir Soggington dries out in Lilypad Landing once he's beaten, and drills the tadpoles.
+let soggFriend = null;
+function makeSoggFriend() {
+  if (soggFriend || !S.soggFree) return;
+  const V = LANDS.marsh.village;
+  soggFriend = { id: 'sogg_pal', name: 'Sir Soggington (drying off)', model: 'knight', x: V.x + 3, z: V.z - 6, hide: [], tint: '#9ab0a0', inside: 'marsh',
+    look: { skin: 'blue', eyes: 'grey', eyeStyle: 'sleepy', mouth: 'smile', hair: 'none', beard: 'full', hairCol: 'green', hat: true },
+    lines: ['A hundred years under the bog! My socks will never be the same.', 'That witch woke me up and pointed me at you. I am terribly sorry. I was very damp and confused.', 'The Wardstone went down the Gobbler\'s gullet the night it cracked. I saw it with my own soggy eyes.', 'Keep your shield up and your boots dry, young hero. Mostly the boots.'] };
+  soggFriend = makeNpc(soggFriend);
+}
+
 // The miniboss's big move: a red circle grows on the ground, then BOOM. Jump or get out!
 const slamGeo = new THREE.CircleGeometry(1, 40);
 function bossSlam(e) {
@@ -3923,6 +4316,10 @@ function enemyTick(e, dt) {
   const ep = e.pos;
   knockTick(e, dt);
   if (e.state === 'dead' || e.state === 'rising' || e.state === 'gone') return;
+  if (e.poison && now > e.poison.at && e.hp > 0) {
+    const P = e.poison; P.at = now + 1; poisonHit = true; hurtEnemy(e, P.dmg, e.pos, 0); poisonHit = false;
+    burst(e.pos.clone().setY(1.6), '#8aff6a', 8, 2, 0.7); if (--P.left <= 0) e.poison = null;
+  }
   if (now < e.staggerUntil && e.state !== 'slam') return;
   if (now < (e.dizzyUntil || 0)) { dizzyTick(e, dt); return; }
   if (goldenRun(e, dt)) return;
@@ -4053,27 +4450,28 @@ function bakeMap() {
 const LAND_MAP_R = 88, landMaps = {};
 function landMap(L) {
   if (landMaps[L.id]) return landMaps[L.id];
-  const cv = document.createElement('canvas'); cv.width = cv.height = MAP_PX; const g = cv.getContext('2d');
+  const cv = document.createElement('canvas'); cv.width = cv.height = MAP_PX; const g = cv.getContext('2d'), C = L.map;
   const M2x = (v) => ((v - L.x + LAND_MAP_R) / (LAND_MAP_R * 2)) * MAP_PX, M2z = (v) => ((v - L.z + LAND_MAP_R) / (LAND_MAP_R * 2)) * MAP_PX, R2 = (r) => (r / (LAND_MAP_R * 2)) * MAP_PX, ink = '#3a2010';
-  g.fillStyle = '#c8d8ea'; g.fillRect(0, 0, MAP_PX, MAP_PX);
-  g.fillStyle = '#4fb0e8'; g.fillRect(M2x(L.x - 34), M2z(L.z + 56), R2(68), MAP_PX);
-  g.beginPath(); g.arc(M2x(L.x), M2z(L.z), R2(L.r), 0, 7); g.fillStyle = '#f2f7ff'; g.fill();
-  for (const Z of Object.values(L.zones)) { g.beginPath(); g.arc(M2x(Z.x), M2z(Z.z), R2(Z.r + 3), 0, 7); g.fillStyle = Z.name === 'Ice Palace' ? '#bfe6fb' : '#e2ecf8'; g.fill(); g.lineWidth = 4; g.strokeStyle = 'rgba(58,32,16,.4)'; g.setLineDash([10, 8]); g.stroke(); g.setLineDash([]); }
-  g.beginPath(); g.arc(M2x(L.pond.x), M2z(L.pond.z), R2(L.pond.r), 0, 7); g.fillStyle = '#a8dcf6'; g.fill(); g.lineWidth = 4; g.strokeStyle = '#fff'; g.stroke();
+  g.fillStyle = C.bg; g.fillRect(0, 0, MAP_PX, MAP_PX);
+  g.fillStyle = C.sea; g.fillRect(M2x(L.x - 34), M2z(L.z + 56), R2(68), MAP_PX);
+  g.beginPath(); g.arc(M2x(L.x), M2z(L.z), R2(L.r), 0, 7); g.fillStyle = C.ground; g.fill();
+  for (const [k, Z] of Object.entries(L.zones)) { g.beginPath(); g.arc(M2x(Z.x), M2z(Z.z), R2(Z.r + 3), 0, 7); g.fillStyle = k === L.boss ? C.boss : C.zone; g.fill(); g.lineWidth = 4; g.strokeStyle = 'rgba(58,32,16,.4)'; g.setLineDash([10, 8]); g.stroke(); g.setLineDash([]); }
+  g.beginPath(); g.arc(M2x(L.pond.x), M2z(L.pond.z), R2(L.pond.r), 0, 7); g.fillStyle = C.pond; g.fill(); g.lineWidth = 4; g.strokeStyle = '#fff'; g.stroke();
   const road = (x1, z1, x2, z2) => { g.lineCap = 'round'; g.beginPath(); g.moveTo(M2x(x1), M2z(z1)); g.lineTo(M2x(x2), M2z(z2)); g.lineWidth = 13; g.strokeStyle = ink; g.stroke(); g.lineWidth = 8; g.strokeStyle = '#f5dfa6'; g.stroke(); };
   const V = L.village, Z = L.zones;
-  road(L.arrive.x, L.arrive.z + 5, V.x, V.z); road(V.x, V.z, Z.palace.x, Z.palace.z + Z.palace.r); road(V.x, V.z, Z.woods.x + 8, Z.woods.z + 10); road(V.x, V.z, Z.hills.x - 8, Z.hills.z + 4);
+  for (const T of TOWNS) if (T.land === L.id) { g.beginPath(); g.arc(M2x(T.x), M2z(T.z), R2(T.r), 0, 7); g.fillStyle = C.town; g.fill(); }
+  for (const r of landRoads(L)) road(...r);
   g.beginPath(); g.arc(M2x(V.x), M2z(V.z), R2(7), 0, 7); g.fillStyle = '#f5dfa6'; g.fill(); g.lineWidth = 3; g.strokeStyle = ink; g.stroke();
+  for (const T of TOWNS) if (T.land === L.id) { g.beginPath(); g.arc(M2x(T.x), M2z(T.z), R2(7.5), 0, 7); g.fillStyle = '#f5dfa6'; g.fill(); g.lineWidth = 3; g.strokeStyle = ink; g.stroke(); }
   for (const c of colliders) {
-    if (c.r < 0.9 || c.r > 1.7 || Math.hypot(c.x - L.x, c.z - L.z) > L.r + 6) continue;
-    g.beginPath(); g.arc(M2x(c.x), M2z(c.z), R2(c.r * 1.7), 0, 7); g.fillStyle = '#2f7a6a'; g.fill(); g.lineWidth = 1.5; g.strokeStyle = 'rgba(20,40,40,.8)'; g.stroke();
-    g.beginPath(); g.arc(M2x(c.x) - 2, M2z(c.z) - 3, R2(c.r * 0.7), 0, 7); g.fillStyle = '#ffffff'; g.fill();
+    if (c.r < 0.9 || c.r > 1.9 || Math.hypot(c.x - L.x, c.z - L.z) > L.r + 6) continue;
+    g.beginPath(); g.arc(M2x(c.x), M2z(c.z), R2(c.r * 1.7), 0, 7); g.fillStyle = C.tree; g.fill(); g.lineWidth = 1.5; g.strokeStyle = 'rgba(20,40,40,.8)'; g.stroke();
+    g.beginPath(); g.arc(M2x(c.x) - 2, M2z(c.z) - 3, R2(c.r * 0.7), 0, 7); g.fillStyle = C.treeHi; g.fill();
   }
   g.beginPath(); g.arc(M2x(L.x), M2z(L.z), R2(L.r), 0, 7); g.lineWidth = 8; g.strokeStyle = ink; g.stroke();
   // the ship in the harbour
   g.fillStyle = '#8a5230'; g.beginPath(); g.ellipse(M2x(L.x), M2z(L.z + 66), R2(2), R2(4), 0, 0, 7); g.fill(); g.strokeStyle = ink; g.lineWidth = 2; g.stroke();
-  for (const T of TOWNS) if (T.land === L.id) { g.beginPath(); g.arc(M2x(T.x), M2z(T.z), R2(T.r), 0, 7); g.fillStyle = '#dce8f2'; g.fill(); g.beginPath(); g.arc(M2x(T.x), M2z(T.z), R2(7.5), 0, 7); g.fillStyle = '#f5dfa6'; g.fill(); road(V.x, V.z, T.x, T.z); }
-  L.places = [...TOWNS.filter((T) => T.land === L.id).map((T) => [T.name, T.x, T.z - 9]), ['Snowdrop', V.x, V.z - 9], ['Harbour', L.x, L.z + 58], ...Object.values(Z).map((z2) => [z2.name, z2.x, z2.z - z2.r * 0.6]), ['Frozen Pond', L.pond.x, L.pond.z - L.pond.r - 2]];
+  L.places = [...TOWNS.filter((T) => T.land === L.id).map((T) => [T.name, T.x, T.z - 9]), [L.villageName, V.x, V.z - 9], ['Harbour', L.x, L.z + 58], ...Object.values(Z).map((z2) => [z2.name, z2.x, z2.z - z2.r * 0.6]), [L.pond.name, L.pond.x, L.pond.z - L.pond.r - 2]];
   return (landMaps[L.id] = cv);
 }
 const mini = $('minimap'), bigMap = $('bigmap');
@@ -4236,10 +4634,10 @@ function dayTick(dt, force) {
 // The valley, the frost land and the rooms are far apart, so only the one the hero is in
 // gets drawn or updated at all. The others are skipped wholesale each frame.
 const regions = {};
-const regionOfX = (x) => (x > 700 ? 'frost' : x > 230 ? 'rooms' : 'valley');
+const regionOfX = (x) => (x > 1600 ? 'marsh' : x > 700 ? 'frost' : x > 230 ? 'rooms' : 'valley');
 function groupRegions(objs) {
   const box = new THREE.Box3(), c = new THREE.Vector3();
-  for (const k of ['valley', 'rooms', 'frost']) { regions[k] = new THREE.Group(); regions[k].name = 'region_' + k; scene.add(regions[k]); }
+  for (const k of ['valley', 'rooms', 'frost', 'marsh']) { regions[k] = new THREE.Group(); regions[k].name = 'region_' + k; scene.add(regions[k]); }
   for (const o of objs) {
     box.setFromObject(o); if (box.isEmpty()) c.copy(o.position); else box.getCenter(c);
     regions[regionOfX(c.x)].attach(o);
@@ -4376,7 +4774,8 @@ function tick() {
   regionTick(); lightTick();
   if (player) { spotTick(); goldenTick(); tinyTick(dt); pompTick(dt); }
 
-  if (player && !player.dead && !uiLock()) {
+  if (player) { gulpTick(); lanternTick(dt); wingTick(); }
+  if (player && !player.dead && !uiLock() && !gulped) {
     const busy = now < player.busyUntil;
     let mx = 0, mz = 0;
     if (keys.has('u')) mz -= 1; if (keys.has('d')) mz += 1; if (keys.has('l')) mx -= 1; if (keys.has('r')) mx += 1;
@@ -4396,7 +4795,7 @@ function tick() {
       const len = Math.hypot(mx, mz); mx /= len; mz /= len;
       const sprinting = (keys.has('sprint') || sprintToggle) && stamina > 1 && !busy;
       if (sprinting) { stamina = Math.max(0, stamina - dt * 22); staminaAt = now + 1; if (stamina <= 1) sprintToggle = false; }
-      const speed = 7.8 * (1 + (lvl('speed') - 1) * 0.006) * (sprinting ? 1.55 : 1);
+      const speed = 7.8 * (1 + (lvl('speed') - 1) * 0.006) * (sprinting ? 1.55 : 1) * pathSpeed();
       const ox = pp.x, oz = pp.z;
       pp.x += mx * speed * dt; pp.z += mz * speed * dt;
       collide(pp); collide(pp);
@@ -4446,7 +4845,7 @@ function tick() {
       if (pp.y <= 0) { pp.y = 0; player.air = false; player.vy = 0; sfx('land'); burst(pp.clone().setY(0.15), '#f3e2bd', 10, 2.5); if (now > player.busyUntil) player.play(mx || mz ? 'Running_A' : 'Idle', { fade: 0.1 }); }
     }
     if (now >= player.nextHit && !talking) { if (now - attackQueued < 0.4) { attackQueued = -9; forceAttack = true; swing(); forceAttack = false; } else if (held && swingTarget().type !== 'attack') swing(); }
-    if (now - lastHurt > 6 && now > regenAt && S.hp < maxHp()) { S.hp = Math.min(maxHp(), S.hp + 1); regenAt = now + 2.5; refreshUI(); }
+    if (now - lastHurt > 6 && now > regenAt && S.hp < maxHp()) { S.hp = Math.min(maxHp(), S.hp + 1); regenAt = now + (S.path === 'vampire' ? 1.25 : 2.5); refreshUI(); }
   }
   if (marker.visible) { marker.scale.setScalar(Math.max(1, marker.scale.x - dt * 2)); marker.material.opacity = 0.6 + 0.3 * Math.sin(now * 8); }
 
@@ -4620,7 +5019,7 @@ let musicAt = 0;
 // ---------- boss intros ----------
 // The first time a boss notices you (and again after a while), the action pauses: black bars slide in,
 // the camera swoops to the boss, it roars, and its name slams onto the screen.
-const BOSS_TITLES = { boss_frost: 'Ice Queen of Frostwhisker Peaks', boss_crusher: 'Brute of the Grumble Crags', boss_gloom: 'Sorcerer of Glimmerwood', boss_rattle: 'Terror of Haunted Hollow', boss_gagron: 'Fire Dragon of the Ember Cave' };
+const BOSS_TITLES = { boss_mire: 'Bog Witch of Mire Hollow', boss_sogg: 'The Sunken Knight', boss_gobbler: 'Terror of Gobbler Marsh', boss_frost: 'Ice Queen of Frostwhisker Peaks', boss_crusher: 'Brute of the Grumble Crags', boss_gloom: 'Sorcerer of Glimmerwood', boss_rattle: 'Terror of Haunted Hollow', boss_gagron: 'Fire Dragon of the Ember Cave' };
 let bossIntro = null;
 function bossIntroTick(dt = 0) {
   if (bossIntro) {
@@ -4646,8 +5045,14 @@ function bossIntroTick(dt = 0) {
 }
 // What each boss says: before the fight, when it gets low on health, and when it is beaten.
 // ['h', text] lines are your hero talking back.
-const POMP_BOSSES = ['boss_gagron', 'boss_crusher', 'boss_gloom', 'boss_rattle', 'boss_frost'];
+const POMP_BOSSES = ['boss_gagron', 'boss_crusher', 'boss_gloom', 'boss_rattle', 'boss_frost', 'boss_gobbler'];
 const BOSS_LINES = {
+  boss_mire: { intro: ['Visitors! How lovely. Come closer, dearie, the cauldron is nice and warm.', ['h', 'What are you cooking?'], 'Oh, just a little something for a friend of mine. A BIG friend. A HUNGRY friend.'],
+    low: 'My beautiful wrinkles! You scuffed them!', defeat: ['Fine! FINE! Yes, I fed the Gobbler. Boots, boats, bridges, all of it.', ['h', 'Why?!'], 'The Dark King promised to make me young again. Young! Do you know how creaky my knees are?', 'He never kept his word, of course. They never do...'] },
+  boss_sogg: { intro: ['*glub* WHO DISTURBS SIR PERCIVAL SOGGINGTON?', ['h', 'Wait, another Sir Percival?'], 'There is only ONE Sir Percival! The other one is a fraud with shiny armour! CHARGE!'],
+    low: 'My armour is filling with tadpoles!', defeat: ['Oh... oh dear. A hundred years asleep and I attack the first nice person I see.', 'That witch woke me with a spell. Listen, young hero: the Marsh Wardstone is not lost.', 'The Gobbler SWALLOWED it. The very night the Heartstone cracked.'] },
+  boss_gobbler: { intro: ['*BURRRRP*', ['h', 'Excuse YOU.'], '*gurgle gurgle* ...HUNGRY.'],
+    low: '*sad gurgle*', defeat: ['*HURK*', ['h', 'It coughed something up!'], ['h', 'The Wardstone! But it\'s... split in two?'], '*tiny burp* ...sorry.'] },
   boss_gagron: { intro: ['WHO dares walk into my beautiful cave?', ['h', 'Um, hello? Are you Gagron the Hideous?'], 'HIDEOUS?! Who keeps calling me that?! I will roast you for that, tiny hero!'],
     low: 'Not the face! Anything but the face!', defeat: ['Ugh... my chest... something is coming loose...', ['h', 'The shard! It was stuck inside you!'], 'Oh. OH. That feels SO much better. That nasty thing was whispering to me for weeks.', 'I think... I am shrinking? I am going to the village. I need a nap and a biscuit.', ['h', 'Wait, you were being controlled?'], 'Somebody threw that shard into my cave on purpose. Find them, little hero.'] },
   boss_crusher: { intro: ['BONECRUSHER SMASH!', 'Mum said I can keep the shiny rock if I smash everyone who comes!', ['h', 'Your mum said that?']],
@@ -4757,7 +5162,7 @@ function musicTick() {
   const boss = player && enemies.some((e) => e.T.boss && e.inside === where && e.hp > 0 && (e.state === 'chase' || e.state === 'slam') && Math.hypot(e.pos.x - player.pos.x, e.pos.z - player.pos.z) < 32);
   if (boss) playMusic('boss');
   else if (where === 'cave') playMusic('cave');
-  else if (LANDS[where]) playMusic('frost');
+  else if (LANDS[where]) playMusic(where === 'marsh' ? 'marsh' : 'frost');
   else if (where !== 'out' || (player && Math.hypot(player.pos.x, player.pos.z) < 50) || (player && Math.hypot(player.pos.x - 4, player.pos.z + 64) < 28)) playMusic('village');
   else playMusic('field');
 }
@@ -4828,7 +5233,7 @@ function renderCreator() {
       + field('Facial hair', chipRow('beard', BEARDS), 'matches your hair colour');
   } else if (creator.tab === 'hair') {
     body = field('Hair style', chipRow('hair', HAIR_STYLES))
-      + field('Length', chipRow('hairLen', HAIR_LENGTHS), 'how far it falls down your back')
+      + (L.hair === 'none' ? '' : field('Length', chipRow('hairLen', HAIR_LENGTHS), 'how far it falls down your back'))
       + field('Hair colour', swatchRow('hairCol', HAIR_COLOURS) + shadeSlider('hairShade'), 'eyebrows match');
   } else {
     body = field('Outfit colour', swatchRow('outfit', LOOK_COLOURS) + shadeSlider('outfitShade'))
@@ -4953,7 +5358,7 @@ function creatorCam(dt) {
   player.root.rotation.y = creator.yaw;
   const headY = 2.5 * (player.headScale || 1) ** 0.3;
   const hs = player.headScale || 1;
-  const ty = creator.close ? headY + (hs - 1) * 0.9 : 1.45 + (hs - 1) * 0.6, dist = (creator.close ? 4.2 * hs : 8.2 + (hs - 1) * 3) * (phone ? (creator.close ? 1.9 : 1.5) : 1);
+  const ty = creator.close ? headY + (hs - 1) * 0.4 - NECK_DROP * hs - 0.1 : 1.3 + (hs - 1) * 0.4, dist = (creator.close ? 4.9 * hs : 8.2 + (hs - 1) * 3) * (phone ? (creator.close ? 1.9 : 2.4) : 1);
   const want = tmpV.set(p.x, ty + (creator.close ? 0.5 : 1.6), p.z + dist);
   // clip away anything standing between the camera and the hero (bushes, fences)
   const near = Math.max(0.1, dist - 2.2);
@@ -4963,7 +5368,7 @@ function creatorCam(dt) {
   camera.lookAt(p.x, ty, p.z);
   const w = innerWidth, h = innerHeight;
   // shift the picture so the hero sits in the open space: above the panel on phones, left of it on wider screens
-  if (phone) camera.setViewOffset(w, h, 0, h * (creator.close ? 0.34 : 0.24), w, h);
+  if (phone) camera.setViewOffset(w, h, 0, h * 0.33, w, h);
   else camera.setViewOffset(w, h, (Math.min(460, w * 0.42) + 24) / 2, 0, w, h);
   creator.light.position.set(p.x + 1.5, ty + 1.2, p.z + 3.5);
 }
@@ -5095,6 +5500,8 @@ const TOWN_BOSS = {
   iciclehollow: { name: 'Sir Shiverbones', model: 'skel_minion', weapon: 'Skeleton_Blade', drop: 'frost_gem' },
   pinecrest: { name: 'Granny Frostbite', model: 'skel_mage', weapon: 'Skeleton_Staff', ranged: true, spread: true, drop: 'frost_gem' },
   glaciergate: { name: 'The Glacier Baron', model: 'skel_warrior', weapon: 'axe_2handed', drop: 'golden_crown' },
+  bogbottom: { name: 'Lord Mudsworth', model: 'skel_warrior', weapon: 'axe_2handed', drop: 'ruby' },
+  reedwhistle: { name: 'The Reed Hag', model: 'skel_mage', weapon: 'Skeleton_Staff', ranged: true, spread: true, drop: 'golden_crown' },
 };
 // which monsters guard each town: tougher towns have more of the nasty ones
 const TOWN_MIX = {
@@ -5115,9 +5522,14 @@ const TOWN_FOLK = {
     { name: 'Juniper', model: 'heroine', look: { sex: 'f', skin: 'bronze', eyes: 'gold', eyeStyle: 'sharp', mouth: 'grin', hair: 'pony', hairLen: 'long', hairCol: 'black' }, tint: '#c8f0d8' }],
   glaciergate: [{ name: 'Captain Floe', model: 'knight', look: { skin: 'ebony', eyes: 'sky', eyeStyle: 'round', mouth: 'smile', hair: 'short', hairCol: 'snow' }, tint: '#bfe6ff' },
     { name: 'Lady Hailstone', model: 'mage', look: { sex: 'f', skin: 'porcelain', eyes: 'violet', eyeStyle: 'sharp', mouth: 'cat', hair: 'hime', hairLen: 'long', hairCol: 'lilac', mark: 'star' }, tint: '#d8c8ff' }],
+  bogbottom: [{ name: 'Granny Reedle', model: 'mage', look: { sex: 'f', skin: 'green', eyes: 'gold', eyeStyle: 'sleepy', mouth: 'smile', hair: 'bun', hairCol: 'snow', mark: 'rosy' }, tint: '#a8d890' },
+    { name: 'Puddles', model: 'barbarian', look: { skin: 'tan', eyes: 'brown', eyeStyle: 'happy', mouth: 'grin', hair: 'shag', hairCol: 'chestnut', beard: 'stache', head: 'chibi' }, tint: '#c8b080' }],
+  reedwhistle: [{ name: 'Piper Wren', model: 'heroine', look: { sex: 'f', skin: 'bronze', eyes: 'green', eyeStyle: 'round', mouth: 'smile', hair: 'twin', hairLen: 'shoulder', hairCol: 'ginger', mark: 'freckles' }, tint: '#b8e09a' },
+    { name: 'Old Croaker', model: 'knight', look: { skin: 'green', eyes: 'gold', eyeStyle: 'sleepy', mouth: 'calm', hair: 'none', beard: 'full', hairCol: 'snow' }, tint: '#9ac08a' }],
 };
 // frost towns are a chapter harder: they use the frost monsters, and pay (and cost) more
-const LAND_TOWN = { frost: { mobs: { skel_minion: 'frost_minion', skel_warrior: 'frost_warrior', skel_mage: 'frost_mage' }, mult: 2.5 } };
+const LAND_TOWN = { frost: { mobs: { skel_minion: 'frost_minion', skel_warrior: 'frost_warrior', skel_mage: 'frost_mage' }, mult: 2.5, hp: 1.8, hit: 1.7, xp: 3 },
+  marsh: { mobs: { skel_minion: 'bog_knight', skel_warrior: 'bog_knight', skel_mage: 'bog_witchling' }, mult: 5, hp: 3.2, hit: 2.8, xp: 8 } };
 const townMult = (T) => (T.land ? LAND_TOWN[T.land].mult : 1);
 for (const T of TOWNS) {
   const tier = TOWN_TIERS[T.stars];
@@ -5126,7 +5538,7 @@ for (const T of TOWNS) {
     const b = ENEMY_TYPES[T.land ? LAND_TOWN[T.land].mobs[k] : k];
     ENEMY_TYPES[`${T.id}_${k}`] = { ...b, model: k, name: `${tier.tag} ${b.name}`, hp: Math.round(b.hp * tier.hp), maxHit: b.maxHit + tier.hit, xp: Math.round(b.xp * tier.xp), tint: tier.tint, town: T.id, inside, coins: [Math.round(5 * T.stars * m), Math.round(12 * T.stars * m)] };
   }
-  ENEMY_TYPES[`${T.id}_boss`] = { ...TOWN_BOSS[T.id], title: `Tyrant of ${T.name}`, hp: Math.round((110 + 90 * T.stars) * (T.land ? 1.8 : 1)), maxHit: Math.round((5 + 2 * T.stars) * (T.land ? 1.7 : 1)), xp: Math.round((500 + 400 * T.stars) * (T.land ? 3 : 1)), boss: true,
+  ENEMY_TYPES[`${T.id}_boss`] = { ...TOWN_BOSS[T.id], title: `Tyrant of ${T.name}`, hp: Math.round((110 + 90 * T.stars) * (T.land ? LAND_TOWN[T.land].hp : 1)), maxHit: Math.round((5 + 2 * T.stars) * (T.land ? LAND_TOWN[T.land].hit : 1)), xp: Math.round((500 + 400 * T.stars) * (T.land ? LAND_TOWN[T.land].xp : 1)), boss: true,
     scale: 2 + 0.15 * T.stars, coins: [Math.round(80 * T.stars * m), Math.round(140 * T.stars * m)], slam: 4.5 + T.stars * 0.5, town: T.id, tint: tier.tint, inside };
 }
 const stars = (n) => '★'.repeat(n) + '☆'.repeat(3 - n);
@@ -6011,7 +6423,7 @@ const plusMult = (k) => 1 + PLUS_STEP * plusOf(k);
 const plusName = (k) => `${GEAR[k].name}${plusOf(k) ? ` +${plusOf(k)}` : ''}`;
 function gearUpCost(k) {
   const n = plusOf(k) + 1, g = GEAR[k], base = g.price || (g.unique ? 600 : 120);
-  return { coins: Math.round(base * 0.2 * n + 30 * n * n), ore: g.tier === 2 ? 'frostsilver_ore' : n <= 2 ? 'copper_ore' : 'iron_ore', count: 2 * n };
+  return { coins: Math.round(base * 0.2 * n + 30 * n * n), ore: g.tier === 3 ? 'mireiron_ore' : g.tier === 2 ? 'frostsilver_ore' : n <= 2 ? 'copper_ore' : 'iron_ore', count: 2 * n };
 }
 function openUpgrade(npc) {
   talking = npc;
@@ -6100,6 +6512,9 @@ const LETTERS = {
   boss_gloom: 'Dear Hero,\n\nThe Gloomcaster was my finest sorcerer. Well, my only sorcerer. He is now crying in a cupboard.\n\nThis is all your fault.',
   boss_rattle: 'Dear Hero,\n\nSo you have all four shards. How lovely for you.\n\nAsk your King what is missing from the middle of his precious Heartstone. Ask him who was in the throne room that night.',
   st_socket: 'Dear Hero,\n\nLooking for something? It is quite safe with me. Someone very close to your King was kind enough to hand it over.\n\nGo north if you like. It is cold there. I hope you did not pack a scarf.',
+  boss_mire: 'Dear Hero,\n\nMother Mire tells me you were very rude to her. She also tells me I owe her one youth potion. I do not.\n\nPlease stop beating my helpers. Good help is so hard to find.',
+  boss_gobbler: 'Dear Hero,\n\nYou made my Gobbler cough up its supper. Disgusting. Also, well done.\n\nThe stone has split, has it not? Touch the dark half. I did, long ago. It is ever so nice.',
+  path_vampire: 'Dear Hero,\n\nI felt you take the dark half. Welcome, welcome! We are going to get along SPLENDIDLY.\n\nWhen you reach the desert, think about whose side you would rather be on. I have biscuits.',
   boss_frost: 'Dear Hero,\n\nYou beat the Queen. Splendid! Without her silly snow in the way, my magic flows north like warm soup.\n\nThank you so much for your help.',
 };
 function queueLetter(id) {
@@ -6141,7 +6556,7 @@ function makeGagronFriend() {
   npcs.push(gagronFriend);
 }
 
-window.__jq = { get party() { return party; }, duelOffer, duelPrize, onNet, chatCommand, canFight, openUpgrade, openBoard, boardToday, queueLetter, makeGagronFriend, net, peerActors, runeTick, bossFx, renderer, scene, openMayor, darkOmen, netWorth, liberateTown, spots, spotEffect, setGolden, goldenCaught, pompArrive, get goldenE() { return goldenE; }, spinWheel, dayTick, get bossIntro() { return bossIntro; }, bossSkip, startBossScene, sailTo, regions, closeSheet, renderHotbar, crew, setCrewMode, TOWNS, liberateTown, chests, openChest, stopRoulette, enemies, startBossIntro, closeDialog, advanceDialog, dash, attackPress, craft, CRAFTS, openCreator, closeCreator, creator, rebuildHero, setZoom: (z) => { zoom = z; }, hurtEnemy, goThrough, get where() { return where; }, INTERIORS, equipGear, spendPoint, giveHeroXp, heroLvl, stat, maxHp, defDiv, openWeaponShop, openKing, jump, eat, eatBest, openShop, swing, swingTarget, hitNode, projectiles, timers, get S() { return S; }, get player() { return player; }, enemies, nodes, npcs, startTask, doAction, giveXp, save, openSheet, openDialog };
+window.__jq = { adv(s) { for (let t = 0; t < s; t += 0.05) { for (let i = timers.length - 1; i >= 0; i--) { timers[i].t -= 0.05; if (timers[i].t <= 0) { const f = timers[i].f; timers.splice(i, 1); f(); } } bossFxTick(0.05); } }, get party() { return party; }, BOSS_AI, PHASE_SETUP, get gulped() { return gulped; }, wriggle, toggleBigMap, spawnEnemy, openPathChoice, choosePath, startLanternNight, get lanterns() { return lanterns; }, duelOffer, duelPrize, onNet, chatCommand, canFight, openUpgrade, openBoard, boardToday, queueLetter, makeGagronFriend, net, peerActors, runeTick, bossFx, renderer, scene, openMayor, darkOmen, netWorth, liberateTown, spots, spotEffect, setGolden, goldenCaught, pompArrive, get goldenE() { return goldenE; }, spinWheel, dayTick, get bossIntro() { return bossIntro; }, bossSkip, startBossScene, sailTo, regions, closeSheet, renderHotbar, crew, setCrewMode, TOWNS, liberateTown, chests, openChest, stopRoulette, enemies, startBossIntro, closeDialog, advanceDialog, dash, attackPress, craft, CRAFTS, openCreator, closeCreator, creator, rebuildHero, setZoom: (z) => { zoom = z; }, hurtEnemy, goThrough, get where() { return where; }, INTERIORS, equipGear, spendPoint, giveHeroXp, heroLvl, stat, maxHp, defDiv, openWeaponShop, openKing, jump, eat, eatBest, openShop, swing, swingTarget, hitNode, projectiles, timers, get S() { return S; }, get player() { return player; }, enemies, nodes, npcs, startTask, doAction, giveXp, save, openSheet, openDialog };
 window.addEventListener('error', (e) => { const m = $('loadmsg'); if (m) m.textContent = `Something went wrong: ${e.message}`; });
 main().catch((err) => {
   console.error(err);
