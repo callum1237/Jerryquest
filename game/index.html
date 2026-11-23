@@ -282,6 +282,9 @@
   #bossbar b { font-family: Fredoka, Trebuchet MS, sans-serif; font-size: 18px; color: #8a1f3a; }
   #bossbar .bar { height: 16px; margin-top: 4px; }
   #bossbar .bar i { background-color: #d8324a; }
+  #bossbar .bar { position: relative; }
+  #bossbar.phased .bar::before, #bossbar.phased .bar::after { content: ''; position: absolute; top: 0; bottom: 0; width: 2px; background: rgba(43,22,12,.55); z-index: 1; }
+  #bossbar.phased .bar::before { left: 60%; } #bossbar.phased .bar::after { left: 30%; }
   #banner { position: fixed; top: 28%; left: 50%; transform: translate(-50%, -50%); font-family: Fredoka, Trebuchet MS, sans-serif; font-weight: 700; font-size: clamp(30px, 6vw, 56px); color: #fff6dc; -webkit-text-stroke: 2px #3a2010; text-shadow: 0 4px 0 #3a2010, 0 8px 24px rgba(0,0,0,.35); opacity: 0; pointer-events: none; white-space: nowrap; z-index: 3; }
   #banner.show { animation: banner 3.2s ease forwards; }
   #banner.lvl { color: #ffe066; font-size: clamp(34px, 7vw, 64px); top: 36%; }

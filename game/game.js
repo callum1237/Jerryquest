@@ -127,11 +127,12 @@ const ENEMY_TYPES = {
   skel_warrior: { name: 'Skeleton Warrior', hp: 28, maxHit: 5, weapon: 'Skeleton_Blade', xp: 30 },
   skel_mage: { name: 'Skeleton Mage', hp: 22, maxHit: 4, weapon: 'Skeleton_Staff', xp: 25, ranged: true },
   // minibosses: big, tough, and every third attack is a giant slam you can see coming (jump or run!)
-  boss_crusher: { name: 'Bonecrusher', model: 'skel_warrior', hp: 170, maxHit: 8, weapon: 'axe_2handed', xp: 800, boss: true, scale: 2.5, coins: [90, 150], drop: 'lucky_sock', slam: 5.5 },
-  boss_gloom: { name: 'Gloomcaster', model: 'skel_mage', hp: 140, maxHit: 7, weapon: 'Skeleton_Staff', xp: 800, boss: true, scale: 2.3, coins: [90, 150], drop: 'gloom_hat', ranged: true, spread: true, slam: 4.5 },
+  boss_crusher: { name: 'Bonecrusher', model: 'skel_warrior', stuck: 2.2, stuckLine: 'Axe stuck! Mum!', hp: 280, maxHit: 8, weapon: 'axe_2handed', xp: 800, boss: true, scale: 2.5, coins: [90, 150], drop: 'lucky_sock', slam: 5.5 },
+  boss_gloom: { name: 'Gloomcaster', model: 'skel_mage', hp: 230, maxHit: 7, weapon: 'Skeleton_Staff', xp: 800, boss: true, scale: 2.3, coins: [90, 150], drop: 'gloom_hat', ranged: true, spread: true, slam: 4.5 },
   // the first story boss: a fire dragon in a cave north-east of the castle. Breathes fire and rains fireballs.
-  boss_gagron: { name: 'Gagron the Hideous', model: 'dragon', hp: 260, maxHit: 7, xp: 900, boss: true, dragon: true, scale: 2.1, coins: [120, 200], drop: 'dragon_scale', inside: 'cave', noBones: true },
-  boss_rattle: { name: 'Captain Rattlebones', model: 'skel_minion', hp: 150, maxHit: 7, weapon: 'Skeleton_Blade', xp: 800, boss: true, scale: 2.3, coins: [90, 150], drop: 'rattle_tooth', slam: 6 },
+  boss_gagron: { name: 'Gagron the Hideous', model: 'dragon', hp: 400, maxHit: 7, xp: 900, boss: true, dragon: true, scale: 2.1, coins: [120, 200], drop: 'dragon_scale', inside: 'cave', noBones: true },
+  boss_rattle: { name: 'Captain Rattlebones', model: 'skel_minion', hp: 250, maxHit: 7, weapon: 'Skeleton_Blade', xp: 800, boss: true, scale: 2.3, coins: [90, 150], drop: 'rattle_tooth', slam: 6 },
+  gloom_shadow: { name: 'Shadow copy', model: 'skel_mage', hp: 14, maxHit: 5, weapon: 'Skeleton_Staff', xp: 20, ranged: true, scale: 2.1, tint: '#4a2a6a', coins: [0, 2] },
   // Chapter 2, Frostwhisker Peaks: icy skeletons that hit harder and give much more XP
   frost_minion: { name: 'Frost Skeleton', model: 'skel_minion', hp: 48, maxHit: 7, weapon: 'Skeleton_Blade', xp: 70, tint: '#bfe6ff', inside: 'frost', coins: [10, 22] },
   frost_warrior: { name: 'Icebone Warrior', model: 'skel_warrior', hp: 80, maxHit: 9, weapon: 'Skeleton_Blade', xp: 120, tint: '#9fd0ff', inside: 'frost', coins: [16, 30] },
@@ -1711,7 +1712,7 @@ function bossUi() {
   const b = $('sheet').hidden ? enemies.find((e) => e.T.boss && e.inside === where && e.hp > 0 && (e.state === 'chase' || e.state === 'slam') && Math.hypot(e.pos.x - player.pos.x, e.pos.z - player.pos.z) < 32) : null;
   const bar = $('bossbar');
   bar.hidden = !b;
-  if (b) { $('bossname').textContent = b.T.name; $('bossfill').style.width = `${(b.hp / b.T.hp) * 100}%`; }
+  if (b) { $('bossname').textContent = PHASE_LINES[b.type] ? `${b.T.name} · phase ${b.phase || 1} of 3` : b.T.name; bar.classList.toggle('phased', !!PHASE_LINES[b.type]); $('bossfill').style.width = `${(b.hp / b.T.hp) * 100}%`; }
 }
 let zoneNow = null;
 function zoneBanner() {
@@ -2974,8 +2975,11 @@ function hurtEnemy(e, dmg, src = null, power = 1) {
   const head = e.pos.clone().setY(3.4);
   if (e.state === 'idle' || e.state === 'walk') e.state = 'chase';
   if (dmg === 0) { floatText(head, 'Miss', 'miss'); return; }
+  if (e.shield) { dmg = Math.max(1, Math.round(dmg * 0.25)); if (rng() < 0.4) floatText(head.clone().setY(4.6), 'Shielded! Break the glowing crystal', 'miss'); }
+  else if (now < (e.dizzyUntil || 0)) dmg = Math.round(dmg * 1.5);
   e.hp = Math.max(0, e.hp - dmg);
-  if (e.T.boss && !e.lowSaid && e.hp > 0 && e.hp <= e.T.hp * 0.4) { e.lowSaid = true; bossShout(e); }
+  phaseCheck(e);
+  if (e.T.boss && !PHASE_LINES[e.type] && !e.lowSaid && e.hp > 0 && e.hp <= e.T.hp * 0.4) { e.lowSaid = true; bossShout(e); }
   floatText(head, String(dmg), e.hp <= 0 ? 'kill' : dmg >= Math.max(8, W().dmg * 1.6) ? 'big' : '');
   impact(e, dmg, src, power, e.hp <= 0);
   if (!crewHitting) giveHeroXp(dmg * HIT_HERO_XP);
@@ -2988,6 +2992,7 @@ function hurtEnemy(e, dmg, src = null, power = 1) {
     S.coins += coins; addItem('bones'); later(0.25, () => sfx('coin'));
     rollLoot(e);
     if (e.T.boss) {
+      bossCleanup(e);
       addItem(e.T.drop);
       toast(`You defeated ${e.T.name}! It dropped ${ITEMS[e.T.drop].toLowerCase()}!`, ICONS[e.T.drop], true);
       burst(e.pos.clone().setY(2), '#ffe07a', 80, 8, 1.6);
@@ -3002,6 +3007,7 @@ function hurtEnemy(e, dmg, src = null, power = 1) {
     refreshUI();
     later(e.temp ? 5 : e.T.boss ? 90 : 16, () => {
       if (e.temp) { removeEnemy(e); return; } // ambush skeletons don't come back
+      if (!enemies.includes(e)) return;
       if (e.T.town && townFree(e.T.town)) return; // freed towns stay free
       e.hp = e.T.hp; e.state = 'rising';
       reassemble(e);
@@ -3049,16 +3055,17 @@ const later = (t, f) => timers.push({ t, f });
 // Every fire attack paints a glowing warning on the floor first. Jump, dash or step out before it fills.
 const hazards = [];
 const hazardMat = () => new THREE.MeshBasicMaterial({ color: '#ff6a1f', transparent: true, opacity: 0.25, depthWrite: false, fog: false, side: THREE.DoubleSide });
-function hazard({ x, z, R, dir = 0, half = Math.PI, dur = 1.1, dmg, fire = true }) {
-  const geo = half >= Math.PI ? new THREE.CircleGeometry(1, 40) : new THREE.CircleGeometry(1, 30, Math.PI / 2 - half, half * 2);
-  const m = new THREE.Mesh(geo, hazardMat()); m.rotation.x = -Math.PI / 2; m.rotation.z = dir; m.position.set(x, 0.14, z); m.layers.set(1); m.scale.setScalar(R * 0.1); scene.add(m);
-  const edge = new THREE.Mesh(half >= Math.PI ? new THREE.RingGeometry(0.95, 1, 48) : new THREE.RingGeometry(0.96, 1, 30, 1, Math.PI / 2 - half, half * 2), new THREE.MeshBasicMaterial({ color: '#ffd23f', transparent: true, opacity: 0.9, depthWrite: false, fog: false, side: THREE.DoubleSide }));
+function hazard({ x, z, R, dir = 0, half = Math.PI, dur = 1.1, dmg, fire = true, col = null, inner = 0 }) {
+  const geo = inner > 0 ? new THREE.RingGeometry(inner / R, 1, 48) : half >= Math.PI ? new THREE.CircleGeometry(1, 40) : new THREE.CircleGeometry(1, 30, Math.PI / 2 - half, half * 2);
+  const m = new THREE.Mesh(geo, hazardMat()); if (col) m.material.color.set(col); m.rotation.x = -Math.PI / 2; m.rotation.z = dir; m.position.set(x, 0.14, z); m.layers.set(1); m.scale.setScalar(R * 0.1); scene.add(m);
+  const edge = new THREE.Mesh(inner > 0 ? new THREE.RingGeometry(0.95, 1, 48) : half >= Math.PI ? new THREE.RingGeometry(0.95, 1, 48) : new THREE.RingGeometry(0.96, 1, 30, 1, Math.PI / 2 - half, half * 2), new THREE.MeshBasicMaterial({ color: '#ffd23f', transparent: true, opacity: 0.9, depthWrite: false, fog: false, side: THREE.DoubleSide }));
   edge.rotation.x = -Math.PI / 2; edge.rotation.z = dir; edge.position.set(x, 0.15, z); edge.layers.set(1); edge.scale.setScalar(R); scene.add(edge);
-  hazards.push({ x, z, R, dir, half, dur, dmg, fire, m, edge, t: 0 });
+  if (inner > 0) { const e2 = new THREE.Mesh(new THREE.RingGeometry(0.94, 1, 48), edge.material); e2.rotation.x = -Math.PI / 2; e2.position.set(x, 0.15, z); e2.layers.set(1); e2.scale.setScalar(inner); scene.add(e2); m.userData.inEdge = e2; }
+  hazards.push({ x, z, R, dir, half, dur, dmg, fire, col, inner, m, edge, t: 0 });
 }
 function inHazard(h) {
   const dx = player.pos.x - h.x, dz = player.pos.z - h.z, d = Math.hypot(dx, dz);
-  if (d > h.R) return false;
+  if (d > h.R || d < (h.inner || 0)) return false;
   if (h.half >= Math.PI) return true;
   // angle on the floor, measured the same way as the sector was drawn
   let a = Math.atan2(-dz, dx) - (Math.PI / 2 + h.dir); a = Math.atan2(Math.sin(a), Math.cos(a));
@@ -3072,15 +3079,15 @@ function hazardTick(dt) {
     if (k >= 1) {
       // whoosh: flames along the area
       for (let j = 0; j < 7; j++) {
-        const rr = h.R * Math.sqrt(rng()), aa = h.half >= Math.PI ? rng() * 6.28 : Math.PI / 2 + h.dir + (rng() * 2 - 1) * h.half;
-        burst(new THREE.Vector3(h.x + Math.cos(aa) * rr, 0.6, h.z - Math.sin(aa) * rr), j % 2 ? '#ffb347' : '#ff5a1f', 14, 5, 1.2);
+        const rr = h.inner ? h.inner + (h.R - h.inner) * rng() : h.R * Math.sqrt(rng()), aa = h.half >= Math.PI ? rng() * 6.28 : Math.PI / 2 + h.dir + (rng() * 2 - 1) * h.half;
+        burst(new THREE.Vector3(h.x + Math.cos(aa) * rr, 0.6, h.z - Math.sin(aa) * rr), h.col ? (j % 2 ? '#ffffff' : h.col) : j % 2 ? '#ffb347' : '#ff5a1f', 14, 5, 1.2);
       }
       shake = Math.max(shake, 0.3);
       if (!player.dead && inHazard(h)) {
         if (dodging()) floatText(player.pos.clone().setY(3.6), 'Dodged!', 'miss');
         else hurtPlayer(h.dmg);
       }
-      scene.remove(h.m, h.edge); h.m.material.dispose(); hazards.splice(i, 1);
+      scene.remove(h.m, h.edge); if (h.m.userData.inEdge) scene.remove(h.m.userData.inEdge); h.m.material.dispose(); hazards.splice(i, 1);
     }
   }
 }
@@ -3112,6 +3119,226 @@ function dragonAttack(e, toP) {
   }
 }
 
+
+// ---------- boss phases ----------
+// Every big boss changes how it fights at 60% and 30% health. Each new move is telegraphed on the
+// ground first, and after its biggest moves the boss is left dizzy for a moment: hit it then for extra damage.
+const PHASE_LINES = {
+  boss_gagron: ['Enough! To the skies!', 'Not the face! Now I am REALLY cross!'],
+  boss_crusher: ['Bonecrusher throw rocks now!', 'SPIN TIME! Mum hates spin time!'],
+  boss_gloom: ['My crystals shield me, fool!', 'Which of us is real? Guess!'],
+  boss_rattle: ['All hands on deck, ye scallywags!', 'Taste me anchor!'],
+};
+const bossPhaseOf = (e) => { const k = e.hp / e.T.hp; return k <= 0.3 ? 3 : k <= 0.6 ? 2 : 1; };
+function bossSay(e, text) {
+  if (!shoutEl) { shoutEl = document.createElement('div'); shoutEl.className = 'bossshout'; document.body.appendChild(shoutEl); }
+  shoutEl.textContent = text; shoutEl.dataset.until = String(now + 2.6); shoutEl.e = e;
+  shoutEl.classList.remove('pop'); void shoutEl.offsetWidth; shoutEl.classList.add('pop');
+}
+function phaseCheck(e) {
+  if (!e.T.boss || e.hp <= 0 || !PHASE_LINES[e.type]) return;
+  const ph = bossPhaseOf(e);
+  if (ph <= (e.phase || 1)) return;
+  e.phase = ph;
+  bossSay(e, PHASE_LINES[e.type][ph - 2]);
+  e.staggerUntil = now + 1.0; e.nextHit = now + 1.8; e.dizzyUntil = 0;
+  burst(e.pos.clone().setY(2.5), '#ff6b5a', 50, 8, 1.3); sfx('slam');
+  { const m = new THREE.Mesh(new THREE.RingGeometry(0.7, 1, 48), new THREE.MeshBasicMaterial({ color: '#ffb070', transparent: true, opacity: 0.85, depthWrite: false, fog: false, side: THREE.DoubleSide })); m.rotation.x = -Math.PI / 2; m.position.set(e.pos.x, 0.2, e.pos.z); m.layers.set(1); scene.add(m); fx.push({ m, t: 0, dur: 0.6, R: 7 }); }
+  const el = $('banner'); el.textContent = `${e.T.name}: phase ${ph}!`; el.classList.remove('show'); void el.offsetWidth; el.classList.add('show');
+  const setup = PHASE_SETUP[e.type]; if (setup) setup(e, ph);
+}
+// the fair opening: a dizzy boss can't attack and takes 50% more damage
+function dizzy(e, t) {
+  if (e.hp <= 0) return;
+  e.dizzyUntil = now + t; e.state = 'chase';
+  e.play(e.T.dragon ? 'Hit_A' : 'Hit_A', { once: true, fade: 0.1, speed: 0.6, clamp: true });
+  floatText(e.pos.clone().setY((e.T.scale || 2) * 2), 'Dizzy! Hit it now!', 'gain');
+  later(t, () => { if (e.hp > 0 && now >= e.dizzyUntil - 0.05) e.play('Idle_Combat'); });
+}
+function dizzyTick(e, dt) {
+  if (rng() < dt * 8) {
+    const a = now * 5 + rng(), h = (e.T.scale || 2) * 2.1 + (e.root.position.y || 0);
+    burst(new THREE.Vector3(e.pos.x + Math.cos(a) * 1.2, h, e.pos.z + Math.sin(a) * 1.2), '#ffe45a', 3, 1.5, 0.6);
+  }
+}
+// adds that a boss calls in: they vanish when the fight ends and never respawn
+function bossAdd(boss, k, x, z) {
+  const a = spawnEnemy(k, x, z);
+  a.temp = true; a.inside = boss.inside; a.state = 'rising'; a.boss = boss;
+  boss.adds = boss.adds || []; boss.adds.push(a);
+  a.play('Spawn_Ground_Skeletons', { once: true, clamp: true, onFinish: () => { a.state = 'chase'; a.play('Idle_Combat'); } }) || (a.state = 'chase');
+  burst(new THREE.Vector3(x, 0.5, z), '#b9ff8a', 24, 4);
+  return a;
+}
+function bossCleanup(e) {
+  e.phase = 1; e.shield = false; e.dizzyUntil = 0; e.flyN = 0; e.root.position.y = 0;
+  for (const r of e.runes || []) { scene.remove(r.g); }
+  e.runes = null;
+  for (const a of e.adds || []) if (enemies.includes(a)) { if (a.hp > 0) { a.hp = 0; a.state = 'dead'; a.bar.hidden = true; a.play('Death_A', { once: true, clamp: true }); later(0.75, () => collapse(a)); } later(4, () => removeEnemy(a)); }
+  e.adds = [];
+}
+
+// little per-frame helpers for boss moves
+const bossFx = [];
+const tween = (dur, f, done) => bossFx.push({ t: 0, dur, f, done });
+function bossFxTick(dt) {
+  for (let i = bossFx.length - 1; i >= 0; i--) {
+    const fx = bossFx[i]; fx.t += dt;
+    const k = Math.min(1, fx.t / fx.dur);
+    fx.f(k, dt);
+    if (k >= 1) { bossFx.splice(i, 1); if (fx.done) fx.done(); }
+  }
+  for (const e of enemies) if (e.runes && e.hp > 0) runeTick(e, dt);
+}
+const nearHome = (e, x, z, r = 24) => { const dx = x - e.home.x, dz = z - e.home.y, d = Math.hypot(dx, dz); return d <= r ? [x, z] : [e.home.x + (dx / d) * r, e.home.y + (dz / d) * r]; };
+
+// Gagron: phase 2 takes to the sky and rains fire, then crashes down where you stood. Phase 3 adds lava rings.
+function gagronFly(e) {
+  e.state = 'slam'; e.play('Running_A', { fade: 0.2 });
+  sfx('slam');
+  tween(0.8, (k) => { e.root.position.y = 7 * Math.sin(k * Math.PI / 2); });
+  for (let i = 0; i < 6; i++) later(0.6 + i * 0.4, () => {
+    if (e.hp <= 0 || player.dead) return;
+    const a = rng() * 6.28, r = i % 2 ? 0 : 1 + rng() * 2;
+    hazard({ x: player.pos.x + Math.cos(a) * r, z: player.pos.z + Math.sin(a) * r, R: 2.5, dur: 1.0, dmg: Math.round(e.T.maxHit * 1.2) });
+  });
+  later(3.0, () => {
+    if (e.hp <= 0) return;
+    const [x, z] = nearHome(e, player.pos.x, player.pos.z);
+    hazard({ x, z, R: 4.8, dur: 1.1, dmg: Math.round(e.T.maxHit * 1.7) });
+    later(0.75, () => {
+      if (e.hp <= 0) return;
+      e.pos.x = x; e.pos.z = z;
+      tween(0.35, (k) => { e.root.position.y = 7 * (1 - k); }, () => { burst(e.pos.clone().setY(0.5), '#ffb347', 60, 9, 1.4); dizzy(e, 3); });
+    });
+  });
+}
+function lavaRings(e) {
+  e.state = 'slam'; e.play('Spellcasting', { once: true, fade: 0.1 });
+  const x = e.pos.x, z = e.pos.z;
+  for (let i = 0; i < 3; i++) later(i * 0.8, () => { if (e.hp > 0) hazard({ x, z, R: 5 + i * 4.5, inner: 3.4 + i * 4.5, dur: 1.0, dmg: Math.round(e.T.maxHit * 1.4) }); });
+  later(2.8, () => { if (e.hp > 0 && e.state === 'slam') { e.state = 'chase'; e.play('Idle_Combat'); } });
+}
+// Bonecrusher: boulders from afar in phase 2, a whirling axe spin in phase 3
+function boulder(e) {
+  e.face(player.pos.x, player.pos.z);
+  e.play('1H_Melee_Attack_Chop', { once: true, fade: 0.08, onFinish: () => e.play('Idle_Combat') });
+  const x = player.pos.x, z = player.pos.z;
+  const rock = new THREE.Mesh(new THREE.IcosahedronGeometry(0.9, 0), new THREE.MeshLambertMaterial({ color: '#a08a70', flatShading: true }));
+  rock.position.copy(e.pos).setY(4); scene.add(rock);
+  const from = rock.position.clone();
+  hazard({ x, z, R: 2.8, dur: 1.2, dmg: Math.round(e.T.maxHit * 1.4), col: '#c89a6a' });
+  tween(1.2, (k) => { rock.position.set(from.x + (x - from.x) * k, 4 + 8 * Math.sin(k * Math.PI) - 3.5 * k, from.z + (z - from.z) * k); rock.rotation.x += 0.2; }, () => { scene.remove(rock); burst(new THREE.Vector3(x, 0.6, z), '#b89a78', 30, 6); });
+}
+function axeSpin(e) {
+  e.state = 'slam'; e.play('2H_Melee_Attack_Spin', { fade: 0.1 }) || e.play('Running_A');
+  let hitAt = 0;
+  bossSay(e, 'WHEEEE!');
+  tween(3.2, (k, dt) => {
+    if (e.hp <= 0) return;
+    e.root.rotation.y += dt * 14;
+    const dx = player.pos.x - e.pos.x, dz = player.pos.z - e.pos.z, d = Math.hypot(dx, dz);
+    if (d > 0.5) { e.pos.x += (dx / d) * 2.6 * dt; e.pos.z += (dz / d) * 2.6 * dt; }
+    if (rng() < dt * 10) burst(e.pos.clone().setY(1.2), '#ffd08a', 4, 5, 0.5);
+    if (d < 3.6 && now > hitAt && !player.dead) { hitAt = now + 0.5; if (dodging()) floatText(player.pos.clone().setY(3.6), 'Dodged!', 'miss'); else hurtPlayer(Math.round(e.T.maxHit * 0.8)); }
+  }, () => { if (e.hp > 0) { bossSay(e, 'So... dizzy...'); dizzy(e, 2.6); } });
+}
+// The Gloomcaster: crystal runes shield him in phase 2. Stand on the glowing rune to shatter it.
+function makeRunes(e) {
+  e.runes = [];
+  for (let i = 0; i < 3; i++) {
+    // find open ground (not inside a tree) so every rune can be reached
+    let x = e.home.x, z = e.home.y;
+    for (let t = 0; t < 40; t++) { const a = i * 2.094 + 0.5 + (t % 8) * 0.25, r = 6 + Math.floor(t / 8) * 1.5; x = e.home.x + Math.cos(a) * r; z = e.home.y + Math.sin(a) * r; if (isFree(x, z, 1.6)) break; }
+    const g = new THREE.Group(); g.position.set(x, 0, z);
+    const disc = new THREE.Mesh(new THREE.CircleGeometry(1.8, 32), new THREE.MeshBasicMaterial({ color: '#b07aff', transparent: true, opacity: 0.25, depthWrite: false, fog: false }));
+    disc.rotation.x = -Math.PI / 2; disc.position.y = 0.13; disc.layers.set(1);
+    const crystal = new THREE.Mesh(new THREE.OctahedronGeometry(0.8, 0), new THREE.MeshLambertMaterial({ color: '#c8a8ff', emissive: '#5a2a9a', flatShading: true }));
+    crystal.scale.set(0.8, 1.8, 0.8); crystal.position.y = 2.4;
+    g.add(disc, crystal); scene.add(g);
+    e.runes.push({ g, disc, crystal, x, z, broken: false, stand: 0 });
+  }
+  e.runeOn = 0; e.shield = true;
+}
+function runeTick(e, dt) {
+  for (const [i, r] of e.runes.entries()) {
+    if (r.broken) continue;
+    const on = i === e.runeOn && e.shield;
+    r.crystal.rotation.y += dt * (on ? 3 : 0.8); r.crystal.position.y = 2.4 + Math.sin(now * 2 + i) * 0.25;
+    r.disc.material.opacity = on ? 0.35 + 0.25 * Math.sin(now * 6) : 0.12;
+    r.crystal.material.emissive.set(on ? '#b06aff' : '#3a1a6a');
+    if (!on || where !== e.inside || player.dead) { r.stand = 0; continue; }
+    if (Math.hypot(player.pos.x - r.x, player.pos.z - r.z) < 1.9) {
+      r.stand += dt;
+      if (rng() < dt * 12) burst(new THREE.Vector3(r.x, 1, r.z), '#d8b8ff', 3, 2, 0.6);
+      if (r.stand > 1.2) {
+        r.broken = true; scene.remove(r.g); burst(new THREE.Vector3(r.x, 2.4, r.z), '#c8a8ff', 60, 8, 1.4); sfx('slam');
+        e.shield = false; bossSay(e, 'My crystal! NO!'); dizzy(e, 4);
+        const next = e.runes.findIndex((q) => !q.broken);
+        if (next >= 0) later(9, () => { if (e.hp > 0 && e.runes) { e.runeOn = next; e.shield = true; bossSay(e, 'Shield, rise!'); } });
+      }
+    } else r.stand = Math.max(0, r.stand - dt);
+  }
+}
+function gloomBlink(e) {
+  const spots = (e.runes || []).filter((r) => !r.broken);
+  const r = spots.length ? spots[Math.floor(rng() * spots.length)] : null;
+  const a = rng() * 6.28, [x, z] = r ? [r.x + Math.cos(a) * 3, r.z + Math.sin(a) * 3] : nearHome(e, e.pos.x + Math.cos(a) * 6, e.pos.z + Math.sin(a) * 6, 14);
+  burst(e.pos.clone().setY(2), '#8a3ad8', 40, 6, 1.2);
+  e.pos.x = x; e.pos.z = z;
+  burst(e.pos.clone().setY(2), '#c8a8ff', 40, 6, 1.2); sfx('whoosh');
+}
+// Captain Rattlebones: calls his crew in phase 2, swings his anchor in phase 3
+function anchorSweep(e) {
+  e.state = 'slam'; e.play('2H_Melee_Attack_Spin', { once: true, fade: 0.1 }) || e.play('1H_Melee_Attack_Chop', { once: true });
+  hazard({ x: e.pos.x, z: e.pos.z, R: 7.5, inner: 2.4, dur: 1.2, dmg: Math.round(e.T.maxHit * 1.6), col: '#8fb8d8' });
+  later(1.3, () => { if (e.hp > 0) dizzy(e, 2.4); });
+}
+function cannons(e) {
+  for (let i = 0; i < 2; i++) later(i * 0.35, () => {
+    if (e.hp <= 0 || player.dead) return;
+    const a = rng() * 6.28, r = 1.5 + rng() * 3;
+    hazard({ x: player.pos.x + Math.cos(a) * r, z: player.pos.z + Math.sin(a) * r, R: 2.2, dur: 1.2, dmg: Math.round(e.T.maxHit * 1.1), col: '#9aa8b8' });
+  });
+}
+const PHASE_SETUP = {
+  boss_gloom: (e, ph) => {
+    if (ph === 2) makeRunes(e);
+    if (ph === 3) for (let i = 0; i < 2; i++) { const a = i * 3.14 + rng(); bossAdd(e, 'gloom_shadow', e.pos.x + Math.cos(a) * 5, e.pos.z + Math.sin(a) * 5); }
+  },
+  boss_rattle: (e, ph) => {
+    if (ph !== 2) return;
+    const wave = () => { for (let i = 0; i < 3; i++) { const a = i * 2.1 + rng(); bossAdd(e, 'skel_minion', e.pos.x + Math.cos(a) * 5, e.pos.z + Math.sin(a) * 5); } };
+    wave(); later(14, () => { if (e.hp > 0 && e.phase >= 2 && e.state !== 'idle') { bossSay(e, 'More crew! Faster, ye lubbers!'); wave(); } });
+  },
+};
+// Returns true when the boss used one of its phase moves instead of a normal attack.
+const BOSS_AI = {
+  boss_gagron(e) {
+    const ph = e.phase || 1; e.flyN = (e.flyN || 0) + 1;
+    if (ph >= 2 && e.flyN % 4 === 0) { gagronFly(e); return true; }
+    if (ph === 3 && e.flyN % 4 === 2) { lavaRings(e); return true; }
+    return false;
+  },
+  boss_crusher(e, toP) {
+    const ph = e.phase || 1; e.flyN = (e.flyN || 0) + 1;
+    if (ph === 3 && e.flyN % 4 === 0) { axeSpin(e); return true; }
+    if (ph >= 2 && (toP > 4.5 || e.flyN % 3 === 1)) { boulder(e); return true; }
+    return false;
+  },
+  boss_gloom(e) {
+    const ph = e.phase || 1; e.flyN = (e.flyN || 0) + 1;
+    if (ph >= 2 && e.flyN % 3 === 0) { gloomBlink(e); return true; }
+    return false;
+  },
+  boss_rattle(e) {
+    const ph = e.phase || 1; e.flyN = (e.flyN || 0) + 1;
+    if (ph === 3 && e.flyN % 3 === 0) { anchorSweep(e); return true; }
+    if (ph === 3) cannons(e);
+    return false;
+  },
+};
+
 // The miniboss's big move: a red circle grows on the ground, then BOOM. Jump or get out!
 const slamGeo = new THREE.CircleGeometry(1, 40);
 function bossSlam(e) {
@@ -3139,7 +3366,7 @@ function slamTick(dt) {
         if (dodging()) floatText(player.pos.clone().setY(3.6), 'Dodged!', 'miss');
         else hurtPlayer(Math.round(e.T.maxHit * 1.6));
       }
-      if (e.hp > 0) { e.state = 'chase'; e.play('Idle_Combat'); }
+      if (e.hp > 0) { e.state = 'chase'; e.play('Idle_Combat'); if (e.T.stuck) { bossSay(e, e.T.stuckLine || 'Stuck!'); dizzy(e, e.T.stuck); } }
       scene.remove(s2.m, s2.edge); slams.splice(i, 1);
     }
   }
@@ -3150,6 +3377,7 @@ function enemyTick(e, dt) {
   knockTick(e, dt);
   if (e.state === 'dead' || e.state === 'rising' || e.state === 'gone') return;
   if (now < e.staggerUntil && e.state !== 'slam') return;
+  if (now < (e.dizzyUntil || 0)) { dizzyTick(e, dt); return; }
   if (goldenRun(e, dt)) return;
   // a crew member who hit it gets its attention instead of you
   let foe = e.foe;
@@ -3174,6 +3402,7 @@ function enemyTick(e, dt) {
     } else if (now > e.nextHit) {
       e.nextHit = now + (big ? 2.2 : 1.9) + rng() * 0.6;
       const dmg = rng() < 0.3 ? 0 : 1 + Math.floor(rng() * e.T.maxHit);
+      if (BOSS_AI[e.type] && BOSS_AI[e.type](e, toP)) return;
       if (e.T.dragon) { dragonAttack(e, toP); return; }
       if (big && ++e.swings % 3 === 0) { bossSlam(e); return; }
       if (e.T.ranged) {
@@ -3205,7 +3434,7 @@ function enemyTick(e, dt) {
     pushOut(ep, big ? 1.3 : 0.6);
   } else if (e.state === 'return') {
     const dx = e.home.x - ep.x, dz = e.home.y - ep.z, d = Math.hypot(dx, dz);
-    if (d < 0.5) { e.state = 'idle'; e.hp = e.T.hp; e.swings = 0; e.play('Idle'); }
+    if (d < 0.5) { e.state = 'idle'; e.hp = e.T.hp; e.swings = 0; e.play('Idle'); if (e.T.boss) bossCleanup(e); }
     else { ep.x += (dx / d) * 4 * dt; ep.z += (dz / d) * 4 * dt; pushOut(ep, big ? 1.3 : 0.6); e.face(e.home.x, e.home.y); e.play('Walking_A'); }
     if (d >= 0.5 && now - (e.stuckAt || 0) > 6) { e.stuckAt = now; if (Math.hypot(ep.x - (e.lastX || 0), ep.z - (e.lastZ || 0)) < 1) { ep.x = e.home.x; ep.z = e.home.y; } e.lastX = ep.x; e.lastZ = ep.z; }
   } else {
@@ -3678,6 +3907,7 @@ function tick() {
   }
   slamTick(dt);
   hazardTick(dt);
+  bossFxTick(dt);
   fxTick(dt);
   pileTick(dt);
   pouchTick();
@@ -5201,7 +5431,7 @@ function worthHtml() {
     <p class="hint">${net.on ? 'Every player in JerryQuest, richest first.' : 'Play online to race your friends on this list.'}</p>`;
 }
 
-window.__jq = { net, peerActors, renderer, scene, openMayor, darkOmen, netWorth, liberateTown, spots, spotEffect, setGolden, goldenCaught, pompArrive, get goldenE() { return goldenE; }, spinWheel, dayTick, get bossIntro() { return bossIntro; }, bossSkip, startBossScene, sailTo, regions, closeSheet, renderHotbar, crew, setCrewMode, TOWNS, liberateTown, chests, openChest, stopRoulette, enemies, startBossIntro, closeDialog, advanceDialog, dash, attackPress, craft, CRAFTS, openCreator, closeCreator, creator, rebuildHero, setZoom: (z) => { zoom = z; }, hurtEnemy, goThrough, get where() { return where; }, INTERIORS, equipGear, spendPoint, giveHeroXp, heroLvl, stat, maxHp, defDiv, openWeaponShop, openKing, jump, eat, eatBest, openShop, swing, swingTarget, hitNode, projectiles, timers, get S() { return S; }, get player() { return player; }, enemies, nodes, npcs, startTask, doAction, giveXp, save, openSheet, openDialog };
+window.__jq = { net, peerActors, runeTick, bossFx, renderer, scene, openMayor, darkOmen, netWorth, liberateTown, spots, spotEffect, setGolden, goldenCaught, pompArrive, get goldenE() { return goldenE; }, spinWheel, dayTick, get bossIntro() { return bossIntro; }, bossSkip, startBossScene, sailTo, regions, closeSheet, renderHotbar, crew, setCrewMode, TOWNS, liberateTown, chests, openChest, stopRoulette, enemies, startBossIntro, closeDialog, advanceDialog, dash, attackPress, craft, CRAFTS, openCreator, closeCreator, creator, rebuildHero, setZoom: (z) => { zoom = z; }, hurtEnemy, goThrough, get where() { return where; }, INTERIORS, equipGear, spendPoint, giveHeroXp, heroLvl, stat, maxHp, defDiv, openWeaponShop, openKing, jump, eat, eatBest, openShop, swing, swingTarget, hitNode, projectiles, timers, get S() { return S; }, get player() { return player; }, enemies, nodes, npcs, startTask, doAction, giveXp, save, openSheet, openDialog };
 window.addEventListener('error', (e) => { const m = $('loadmsg'); if (m) m.textContent = `Something went wrong: ${e.message}`; });
 main().catch((err) => {
   console.error(err);

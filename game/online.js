@@ -17,7 +17,7 @@ let sb = null, channel = null;
 
 async function client() {
   if (sb) return sb;
-  const { createClient } = await import('https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/+esm');
+  const { createClient } = await import('https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.118.0/+esm');
   sb = createClient(ONLINE.url, ONLINE.key, { auth: { persistSession: true, autoRefreshToken: true } });
   return sb;
 }
@@ -29,6 +29,12 @@ const userOf = (u) => ({ id: u.id, name: (u.user_metadata && u.user_metadata.nam
 // Already signed in on this computer? Then skip the sign-in card.
 export async function resume() {
   if (!net.enabled) return null;
+  // can this page reach the server at all? (the Claude preview can't, so it just plays offline)
+  try {
+    const ctl = new AbortController(); const t = setTimeout(() => ctl.abort(), 5000);
+    await fetch(`${ONLINE.url}/auth/v1/health`, { mode: 'no-cors', signal: ctl.signal });
+    clearTimeout(t);
+  } catch (e) { console.warn('online: server unreachable, playing offline', e.message); net.enabled = false; return null; }
   try {
     const c = await client();
     const { data } = await c.auth.getSession();
