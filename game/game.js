@@ -2551,8 +2551,10 @@ function questTarget(id) {
   }
   const missing = Object.keys(q.need).find((k) => (S.inv[k] || 0) < q.need[k]);
   let best = null, bd = 1e9;
-  for (const n of nodes) if (n.alive !== false && n.def.item === missing) { const d = Math.hypot(n.x - P.x, n.z - P.z); if (d < bd) { bd = d; best = n; } }
-  return best ? { x: best.x, z: best.z, inside: 'out' } : npcAt(q.giver);
+  // nodes in the land you're standing in come first; ones in other lands mean a trip on the ship
+  const landOf = (x) => (x > 2500 ? 'sands' : x > 1500 ? 'marsh' : x > 500 ? 'frost' : 'out');
+  for (const n of nodes) if (n.def.item === missing) { const d = Math.hypot(n.x - P.x, n.z - P.z) + (landOf(n.x) === where ? 0 : 5000) + (n.alive === false ? 60 : 0); if (d < bd) { bd = d; best = n; } }
+  return best ? { x: best.x, z: best.z, inside: landOf(best.x) } : npcAt(q.giver);
 }
 let guide = null;
 function buildGuide() {
@@ -2561,9 +2563,15 @@ function buildGuide() {
   const shape = new THREE.Shape();
   shape.moveTo(0, 0.75); shape.lineTo(0.55, 0.05); shape.lineTo(0.22, 0.05); shape.lineTo(0.22, -0.55); shape.lineTo(-0.22, -0.55); shape.lineTo(-0.22, 0.05); shape.lineTo(-0.55, 0.05); shape.closePath();
   const geo = new THREE.ExtrudeGeometry(shape, { depth: 0.16, bevelEnabled: true, bevelSize: 0.05, bevelThickness: 0.05, bevelSegments: 2 }).rotateX(-Math.PI / 2);
-  const arrow = new THREE.Mesh(geo); registerMesh(arrow, gold); arrow.castShadow = false;
-  const pivot = new THREE.Group(); arrow.position.z = -2.5; arrow.rotation.y = Math.PI; pivot.add(arrow); g.add(pivot);
-  addInk(arrow);
+  const arrow = new THREE.Mesh(geo); registerMesh(arrow, toon('#ffc93a', { emissive: '#7a4a00' })); arrow.castShadow = false;
+  // drawn on top of everything so trees, houses or the hero never hide it
+  for (const m of Object.values(arrow.userData.mats || {})) if (m && m.isMaterial) { m.depthTest = false; m.transparent = true; }
+  if (arrow.material) { arrow.material.depthTest = false; arrow.material.transparent = true; }
+  arrow.renderOrder = 999; arrow.scale.setScalar(1.9);
+  // a dark border drawn just underneath, so the arrow reads clearly on grass, snow and sand
+  const rim = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ color: '#4a2a17', depthTest: false, transparent: true, fog: false }));
+  rim.scale.set(1.22, 0.6, 1.22); rim.position.set(0, -0.05, 0.02); rim.renderOrder = 998; arrow.add(rim);
+  const pivot = new THREE.Group(); arrow.position.z = -4.6; pivot.add(arrow); // tip faces outward, away from the hero g.add(pivot);
   const starShape = new THREE.Shape();
   for (let i = 0; i < 10; i++) { const r = i % 2 ? 0.28 : 0.62, a = Math.PI / 2 + i * Math.PI / 5; i ? starShape.lineTo(Math.cos(a) * r, Math.sin(a) * r) : starShape.moveTo(Math.cos(a) * r, Math.sin(a) * r); }
   const star = new THREE.Mesh(new THREE.ExtrudeGeometry(starShape, { depth: 0.2, bevelEnabled: true, bevelSize: 0.05, bevelThickness: 0.05 })); registerMesh(star, gold);
@@ -2576,6 +2584,10 @@ function buildGuide() {
 function guideTick() {
   if (!player) return;
   if (!guide) buildGuide();
+  // the load-time scene tidy-up can re-home loose objects into map regions; keep the arrow on the hero
+  if (guide.pivot.parent !== guide.g) guide.g.add(guide.pivot);
+  if (guide.g.parent !== scene) scene.add(guide.g);
+  if (guide.star.parent !== scene) scene.add(guide.star);
   const id = trackedQuest(), show = S.guideOn !== false && id && !uiLock() && !talking;
   let t = show && questTarget(id), via = '';
   if (t && t.inside !== where) {
@@ -2597,7 +2609,7 @@ function guideTick() {
   const want = Math.atan2(t.x - P.x, t.z - P.z) + Math.PI;
   let diff = want - guide.pivot.rotation.y; diff = Math.atan2(Math.sin(diff), Math.cos(diff));
   guide.pivot.rotation.y += diff * 0.2;
-  guide.arrow.position.z = -2.5 - Math.sin(now * 5) * 0.25;
+  guide.arrow.position.z = -4.6 - Math.sin(now * 5) * 0.35;
   guide.star.position.set(t.x, 5.2 + Math.sin(now * 3) * 0.3, t.z);
   guide.star.rotation.y = now * 2;
   if (d > 4.5 && !creator.open) {
@@ -7726,7 +7738,7 @@ function makeGagronFriend() {
   npcs.push(gagronFriend);
 }
 
-window.__jq = { bossNet, safeSpot, get PVP_LVL() { return PVP_LVL; }, goldNode, wbInfo, wbTick, get wb() { return wb; }, WB_SPOTS, tradeOpen, tradeNet, offerKey, get trade() { return trade; }, adv(s) { for (let t = 0; t < s; t += 0.05) { for (let i = timers.length - 1; i >= 0; i--) { timers[i].t -= 0.05; if (timers[i].t <= 0) { const f = timers[i].f; timers.splice(i, 1); f(); } } bossFxTick(0.05); } }, get party() { return party; }, BOSS_AI, PHASE_SETUP, get gulped() { return gulped; }, wriggle, toggleBigMap, spawnEnemy, openPathChoice, choosePath, startLanternNight, get lanterns() { return lanterns; }, duelOffer, duelPrize, onNet, chatCommand, canFight, openUpgrade, openBoard, boardToday, queueLetter, makeGagronFriend, net, peerActors, runeTick, bossFx, renderer, scene, openMayor, darkOmen, netWorth, liberateTown, spots, spotEffect, setGolden, goldenCaught, pompArrive, get goldenE() { return goldenE; }, spinWheel, dayTick, get bossIntro() { return bossIntro; }, bossSkip, startBossScene, sailTo, regions, closeSheet, renderHotbar, crew, setCrewMode, TOWNS, liberateTown, chests, openChest, stopRoulette, enemies, startBossIntro, closeDialog, advanceDialog, dash, attackPress, craft, CRAFTS, openCreator, closeCreator, creator, rebuildHero, setZoom: (z) => { zoom = z; }, hurtEnemy, goThrough, get where() { return where; }, INTERIORS, equipGear, spendPoint, giveHeroXp, heroLvl, stat, maxHp, defDiv, openWeaponShop, openKing, jump, eat, eatBest, openShop, swing, swingTarget, hitNode, projectiles, timers, get S() { return S; }, get player() { return player; }, enemies, nodes, npcs, startTask, doAction, giveXp, save, openSheet, openDialog };
+window.__jq = { get guide() { return guide; }, bossNet, safeSpot, get PVP_LVL() { return PVP_LVL; }, goldNode, wbInfo, wbTick, get wb() { return wb; }, WB_SPOTS, tradeOpen, tradeNet, offerKey, get trade() { return trade; }, adv(s) { for (let t = 0; t < s; t += 0.05) { for (let i = timers.length - 1; i >= 0; i--) { timers[i].t -= 0.05; if (timers[i].t <= 0) { const f = timers[i].f; timers.splice(i, 1); f(); } } bossFxTick(0.05); } }, get party() { return party; }, BOSS_AI, PHASE_SETUP, get gulped() { return gulped; }, wriggle, toggleBigMap, spawnEnemy, openPathChoice, choosePath, startLanternNight, get lanterns() { return lanterns; }, duelOffer, duelPrize, onNet, chatCommand, canFight, openUpgrade, openBoard, boardToday, queueLetter, makeGagronFriend, net, peerActors, runeTick, bossFx, renderer, scene, openMayor, darkOmen, netWorth, liberateTown, spots, spotEffect, setGolden, goldenCaught, pompArrive, get goldenE() { return goldenE; }, spinWheel, dayTick, get bossIntro() { return bossIntro; }, bossSkip, startBossScene, sailTo, regions, closeSheet, renderHotbar, crew, setCrewMode, TOWNS, liberateTown, chests, openChest, stopRoulette, enemies, startBossIntro, closeDialog, advanceDialog, dash, attackPress, craft, CRAFTS, openCreator, closeCreator, creator, rebuildHero, setZoom: (z) => { zoom = z; }, hurtEnemy, goThrough, get where() { return where; }, INTERIORS, equipGear, spendPoint, giveHeroXp, heroLvl, stat, maxHp, defDiv, openWeaponShop, openKing, jump, eat, eatBest, openShop, swing, swingTarget, hitNode, projectiles, timers, get S() { return S; }, get player() { return player; }, enemies, nodes, npcs, startTask, doAction, giveXp, save, openSheet, openDialog };
 window.addEventListener('error', (e) => { const m = $('loadmsg'); if (m) m.textContent = `Something went wrong: ${e.message}`; });
 main().catch((err) => {
   console.error(err);
