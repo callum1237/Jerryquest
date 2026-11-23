@@ -401,53 +401,114 @@ async function main() {
   $('coinicon').src = ICONS.coins; $('hearticon').src = ICONS.heart; $('booticon').src = ICONS.boot;
   document.querySelectorAll('[data-icon]').forEach((im) => { im.src = ICONS[im.dataset.icon]; });
   const had = loadSave(); rebuildBinds();
+  // entering the world, once the title screen is done
   const begin = () => {
+    $('pick').hidden = true; document.body.classList.remove('titling');
     rebuildBinds(); applyTowns(); dayTick(0, true);
-    if (S.started) { startHero(); if (!S.name) openCreator('new'); } else showPick();
+    if (S.started) { startHero(); if (!S.name && !net.on) openCreator('new'); } else newHero();
     if (net.on) goOnline();
   };
   if (net.enabled && await resume()) {
-    try { const d = await loadCloud(); if (d) parseSave(d); net.on = true; } catch (e) { console.warn(e); }
+    try { const d = await loadCloud(); if (d) parseSave(d); else S = fresh(); net.on = true; } catch (e) { console.warn(e); }
   }
   $('loading').style.opacity = '0';
   setTimeout(() => $('loading').remove(), 700);
-  if (net.enabled && !net.on) showAccount(had, begin); else begin();
+  showTitle(had, begin);
   renderer.setAnimationLoop(tick);
 }
 
-// ---------- accounts ----------
-// With online switched on, you sign in (or make an account) before playing. Your save then lives
-// in the cloud, so it follows you to any computer. "Play offline" keeps the old browser save.
-function showAccount(had, begin) {
-  const cards = $('cards');
-  $('pick').querySelector('.sub').textContent = 'Make an account to save online and play with your friends.';
-  cards.innerHTML = `<form class="card panel begin acct" id="acct" autocomplete="on">
-    <h3><img src="${ICONS.star}" alt="">Play online</h3>
-    <label>Username<input id="a-name" name="username" autocomplete="username" maxlength="16" required></label>
-    <label>Password<input id="a-pass" name="password" type="password" autocomplete="current-password" minlength="6" required></label>
-    <p class="acct-msg" id="a-msg" role="status"></p>
-    <div class="row wrap"><button class="primary" id="a-in" type="submit">Sign in</button><button id="a-new" type="button">Make an account</button></div>
-    <button id="a-off" class="linky" type="button">Play offline instead</button>
-  </form>`;
-  $('pick').hidden = false;
-  const go = async (create) => {
-    const msg = $('a-msg'); msg.textContent = create ? 'Making your account...' : 'Signing in...'; msg.classList.remove('bad');
-    for (const b of cards.querySelectorAll('button')) b.disabled = true;
-    const r = await signIn($('a-name').value, $('a-pass').value, create);
-    if (r.error) { msg.textContent = r.error; msg.classList.add('bad'); for (const b of cards.querySelectorAll('button')) b.disabled = false; return; }
-    let d = null;
-    try { d = await loadCloud(); } catch (e) { msg.textContent = 'Signed in, but your save could not load. Try again in a moment.'; msg.classList.add('bad'); for (const b of cards.querySelectorAll('button')) b.disabled = false; return; }
-    if (d) parseSave(d);
-    else if (!had) S = fresh(); // a brand new hero. (A hero already saved in this browser moves into the new account.)
-    if (!S.name) S.name = net.user.name;
-    net.on = true;
-    $('pick').hidden = true;
-    $('pick').querySelector('.sub').textContent = 'One hero, built your way. Every hero can fight, chop, mine and fish.';
-    begin();
+// ---------- the title screen ----------
+// The first thing anyone sees: the logo over the living village, with the camera drifting slowly
+// around it. Sign in or make an account when online play is on, or just press Play.
+const LOGO = `<svg class="crest" viewBox="0 0 120 132" aria-hidden="true">
+  <defs><linearGradient id="lgG" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#fff1a8"/><stop offset="1" stop-color="#e8a93a"/></linearGradient>
+  <linearGradient id="lgP" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#8f62d8"/><stop offset="1" stop-color="#55308f"/></linearGradient></defs>
+  <path d="M60 6 L108 22 L104 70 C100 98 82 116 60 126 C38 116 20 98 16 70 L12 22 Z" fill="url(#lgG)" stroke="#4a2a17" stroke-width="5" stroke-linejoin="round"/>
+  <path d="M60 17 L97 29 L94 69 C91 91 77 106 60 114 C43 106 29 91 26 69 L23 29 Z" fill="url(#lgP)" stroke="#4a2a17" stroke-width="2.5" stroke-linejoin="round"/>
+  <g stroke="#4a2a17" stroke-width="3" stroke-linejoin="round" stroke-linecap="round">
+    <path d="M40 92 L76 40 L82 36 L80 43 L44 95 Z" fill="#e9eef7"/><path d="M38 86 L48 96" fill="none"/><path d="M36 99 L41 94" fill="none"/>
+    <path d="M80 92 L44 40 L38 36 L40 43 L76 95 Z" fill="#e9eef7"/><path d="M82 86 L72 96" fill="none"/><path d="M84 99 L79 94" fill="none"/>
+    <path d="M60 46 L64.5 56 L75 56.5 L67 63 L70 73.5 L60 67.5 L50 73.5 L53 63 L45 56.5 L55.5 56 Z" fill="#ffd84a"/>
+  </g>
+</svg>`;
+function titleShell(inner) {
+  const pick = $('pick');
+  pick.innerHTML = `<div class="title">
+    <div class="logo">${LOGO}<h1 aria-label="JerryQuest"><span>Jerry</span><span>Quest</span></h1><p class="ribbon"><span>A storybook adventure with friends</span></p></div>
+    <div class="tcard panel">${inner}</div>
+    <p class="tfoot"><span class="srv ${net.enabled ? 'on' : ''}">${net.enabled ? 'Server online' : 'Offline mode'}</span><span>Free art by KayKit and Quaternius</span><button id="t-music" class="linky" type="button">Music: tap anywhere</button></p>
+  </div>`;
+  pick.hidden = false; document.body.classList.add('titling');
+  $('t-music').onclick = () => { unlockAudio(); $('t-music').textContent = 'Music on'; };
+}
+function showTitle(had, begin) {
+  if (net.enabled && !net.on) return showAccount(had, begin);
+  if (!S.started) return showPick(begin);
+  const l = heroLvl();
+  titleShell(`<h2>Welcome back, ${heroName()}!</h2>
+    <p class="tsub">Level ${l} · ${chapterNow().tag}: ${chapterNow().name}</p>
+    <button id="t-play" class="primary big" type="button">Play</button>
+    ${net.on ? '<button id="t-switch" class="linky" type="button">Not you? Log out</button>' : '<button id="t-new" class="linky" type="button">Start a new hero</button>'}`);
+  $('t-play').onclick = () => { unlockAudio(); begin(); };
+  if ($('t-switch')) $('t-switch').onclick = async () => { resetting = true; await signOut(); location.reload(); };
+  if ($('t-new')) $('t-new').onclick = () => {
+    const b = $('t-new');
+    if (!b.dataset.sure) { b.dataset.sure = '1'; b.textContent = 'Tap again to erase this hero and start fresh'; return; }
+    S = fresh(); showPick(begin);
   };
-  $('acct').addEventListener('submit', (e) => { e.preventDefault(); go(false); });
-  $('a-new').onclick = () => { if ($('acct').reportValidity()) go(true); };
-  $('a-off').onclick = () => { net.enabled = false; $('pick').hidden = true; begin(); };
+}
+function showAccount(had, begin) {
+  titleShell(`<div class="ttabs" role="tablist"><button id="tab-in" role="tab" aria-selected="true" type="button">Log in</button><button id="tab-new" role="tab" aria-selected="false" type="button">New account</button></div>
+    <form id="acct" class="acct" autocomplete="on">
+      <label>Username<input id="a-name" name="username" autocomplete="username" maxlength="16" required spellcheck="false" placeholder="3 to 16 letters or numbers"></label>
+      <label>Password<input id="a-pass" name="password" type="password" autocomplete="current-password" minlength="6" required placeholder="At least 6 characters"></label>
+      <p class="acct-msg" id="a-msg" role="status"></p>
+      <button class="primary big" id="a-go" type="submit">Log in</button>
+    </form>
+    <button id="a-off" class="linky" type="button">Play offline instead</button>`);
+  let create = false;
+  const setTab = (c) => {
+    create = c; $('tab-in').setAttribute('aria-selected', String(!c)); $('tab-new').setAttribute('aria-selected', String(c));
+    $('a-go').textContent = c ? 'Make my account' : 'Log in';
+    $('a-pass').autocomplete = c ? 'new-password' : 'current-password';
+    $('a-msg').textContent = c ? 'Your username is your hero name. Pick a good one!' : ''; $('a-msg').classList.remove('bad');
+  };
+  $('tab-in').onclick = () => setTab(false); $('tab-new').onclick = () => setTab(true);
+  const busy = (on) => { for (const b of $('pick').querySelectorAll('button, input')) b.disabled = on; };
+  $('acct').addEventListener('submit', async (ev) => {
+    ev.preventDefault(); unlockAudio();
+    const msg = $('a-msg'); msg.textContent = create ? 'Making your account...' : 'Logging in...'; msg.classList.remove('bad');
+    busy(true);
+    const r = await signIn($('a-name').value, $('a-pass').value, create);
+    if (r.error) { msg.textContent = r.error; msg.classList.add('bad'); busy(false); return; }
+    let d = null;
+    try { d = await loadCloud(); } catch (e) { msg.textContent = 'Logged in, but your save could not load. Try again in a moment.'; msg.classList.add('bad'); busy(false); return; }
+    if (d) parseSave(d);
+    else if (!(create && had)) S = fresh(); // a hero already saved in this browser moves into a brand new account
+    net.on = true;
+    begin();
+  });
+  $('a-off').onclick = () => { net.enabled = false; showTitle(had, begin); };
+}
+// a brand new hero goes straight to the character creator
+function newHero() {
+  S.started = true; S.hp = maxHp();
+  startHero(); save();
+  openCreator('new');
+}
+function showPick(begin) {
+  titleShell(`<h2>Begin your adventure</h2>
+    <p class="tsub">Make your hero, then fight, chop, mine, fish and free the kingdom's towns. Level up to earn stat points and build your hero your way.</p>
+    <p class="perk">${Object.values(STATS).map(([nm, ic]) => `<span class="statpill"><img src="${ICONS[ic]}" alt="">${nm}</span>`).join('')}</p>
+    <button id="pick-begin" class="primary big" type="button">Play</button>`);
+  $('pick-begin').onclick = () => { unlockAudio(); S.started = false; begin(); };
+}
+// the camera drifts slowly around the village behind the title
+function titleCam() {
+  const t = now * 0.045, r = camera.aspect < 1 ? 62 : 48;
+  camPos.set(Math.sin(t) * r, 26, Math.cos(t) * r + 2);
+  camera.position.copy(camPos);
+  camera.lookAt(0, 3, -4);
 }
 let profileKey = '';
 function profile() { return { name: heroName(), lvl: heroLvl(), look: S.look, w: where, x: player ? player.pos.x : 0, z: player ? player.pos.z : 0 }; }
@@ -506,23 +567,6 @@ function peersTick(dt) {
     const txt = `${p.name || 'Friend'} · Lv ${p.lvl || 1}`, col = tagColour(p.lvl || 1);
     if (pa.tag.dataset.t !== txt + col) { pa.tag.dataset.t = txt + col; pa.tag.firstChild.textContent = txt; pa.tag.style.setProperty('--tc', col); }
   }
-}
-
-function showPick() {
-  const cards = $('cards');
-  cards.innerHTML = '';
-  const b = document.createElement('button');
-  b.className = 'card panel begin'; b.id = 'pick-begin';
-  b.innerHTML = `<h3><img src="${ICONS.star}" alt="">Begin your adventure</h3><p>You start with a sword and a shield. Level up to earn stat points, and shape your hero with the weapons, shields and armour you find.</p>
-    <p class="perk">${Object.values(STATS).map(([nm, ic]) => `<span class="statpill"><img src="${ICONS[ic]}" alt="">${nm}</span>`).join('')}</p>`;
-  b.addEventListener('click', () => {
-    $('pick').hidden = true;
-    if (!S.started) { S.started = true; S.hp = maxHp(); }
-    startHero(); save();
-    openCreator('new');
-  });
-  cards.appendChild(b);
-  $('pick').hidden = false;
 }
 
 function startHero() {
@@ -2104,7 +2148,7 @@ function renderSheet() {
       <div class="binds">${BIND_ACTIONS.map(([a, label]) => `<div class="bind"><span>${label}</span>${[0, 1].map((i) => `<button data-bind="${a}" data-slot="${i}" class="${bindCapture && bindCapture.act === a && bindCapture.slot === i ? 'waiting' : ''}">${bindCapture && bindCapture.act === a && bindCapture.slot === i ? 'Press a key…' : keyLabel(binds()[a][i])}</button>`).join('')}</div>`).join('')}</div>
       <button id="o-binds">Reset controls to default</button>
       <button id="o-reset" class="danger">Start over</button>
-      ${net.on ? `<button id="o-out">Sign out (${net.user.name})</button>` : ''}
+      ${net.on ? `<button id="o-out" class="primary">Log out (${net.user.name})</button>` : ''}
       <p class="hint">${net.on ? 'Your progress saves online, so it follows you to any computer.' : 'Progress saves in this browser.'}</p></div>`;
     $('o-style').onclick = () => { setStyled(!styled.on); renderSheet(); };
     el.querySelectorAll('[data-bind]').forEach((b) => { b.onclick = () => { bindCapture = { act: b.dataset.bind, slot: +b.dataset.slot }; renderSheet(); }; });
@@ -4026,6 +4070,7 @@ function tick() {
   if (creator.open && player) creatorCam(dt);
   else if (bossIntro) introCam(dt);
   else if (player && dlg && dlg.talky && talking && talking.actor && !$('dialog').hidden) talkCam(dt);
+  else if (!player && !$('pick').hidden) titleCam();
   else {
     if (camera.view && camera.view.enabled) { camera.clearViewOffset(); camera.updateProjectionMatrix(); }
     if (talkCam.near0 && camera.near !== talkCam.near0) { camera.near = talkCam.near0; camera.updateProjectionMatrix(); }
@@ -4211,7 +4256,8 @@ function musicTick() {
 const NAME_IDEAS = ['Pip', 'Rowan', 'Elara', 'Bram', 'Juniper', 'Tamsin', 'Fen', 'Wren', 'Corin', 'Maeve', 'Odo', 'Lyra', 'Hollis', 'Briar', 'Cass', 'Nell', 'Alden', 'Isolde', 'Thorne', 'Mira', 'Toby', 'Saffron', 'Gideon', 'Posy'];
 const creator = { open: false, mode: 'new', tab: 'body', yaw: 0, drag: null, close: false, before: null, light: null };
 const uiLock = () => !$('pick').hidden || creator.open || !!roulette || !!bossIntro;
-const heroName = () => (S.name || '').trim() || 'Hero';
+// Online, your name is your account's username: it is unique, so nobody can pretend to be someone else.
+const heroName = () => (net.on && net.user ? net.user.name : (S.name || '').trim() || 'Hero');
 function cleanName(v) { return v.replace(/[^\p{L}\p{N} '\-]/gu, '').replace(/\s+/g, ' ').slice(0, 16); }
 function randomLook() {
   const pickKey = (o, skip = []) => { const k = Object.keys(o).filter((x) => !skip.includes(x)); return k[Math.floor(Math.random() * k.length)]; };
@@ -4283,8 +4329,8 @@ function renderCreator() {
   el.innerHTML = `<div class="cc-stage" id="cc-stage" aria-hidden="true"><div class="cc-zoom"><button id="cc-zface" aria-pressed="${creator.close}">Face</button><button id="cc-zbody" aria-pressed="${!creator.close}">Full body</button></div><p class="cc-spin">Drag to turn your hero</p></div>
     <div class="cc-panel panel">
       <h2 class="cc-title">${isNew ? 'Create your hero' : 'Change your look'}</h2>
-      <label class="cc-name"><span>Name</span><input id="cc-name" maxlength="16" autocomplete="off" spellcheck="false" value="${(S.name || '').replace(/"/g, '&quot;')}" placeholder="Name your hero"><button id="cc-rname" title="Pick a name for me" aria-label="Pick a name for me">&#127922;</button></label>
-      <p class="cc-namehint" id="cc-namehint">Up to 16 letters, numbers, spaces, ' or -</p>
+      ${net.on ? `<label class="cc-name"><span>Name</span><input id="cc-name" value="${heroName().replace(/"/g, '&quot;')}" disabled></label><p class="cc-namehint" id="cc-namehint">Online, your hero uses your username.</p>` : `<label class="cc-name"><span>Name</span><input id="cc-name" maxlength="16" autocomplete="off" spellcheck="false" value="${(S.name || '').replace(/"/g, '&quot;')}" placeholder="Name your hero"><button id="cc-rname" title="Pick a name for me" aria-label="Pick a name for me">&#127922;</button></label>
+      <p class="cc-namehint" id="cc-namehint">Up to 16 letters, numbers, spaces, ' or -</p>`}
       <div class="cc-tabs" role="tablist">${Object.entries(tabs).map(([k, nm]) => `<button role="tab" data-tab="${k}" aria-selected="${creator.tab === k}">${nm}</button>`).join('')}</div>
       <div class="cc-body">${body}</div>
       <div class="cc-foot"><button id="cc-random">&#127922; Surprise me</button>${isNew ? '' : '<button id="cc-cancel">Cancel</button>'}<button id="cc-done" class="primary">${isNew ? 'Begin adventure' : 'Done'}</button></div>
@@ -4323,7 +4369,7 @@ function renderCreator() {
     S.name = v; updateTitle();
   };
   nm.onkeydown = (e) => { if (e.key === 'Enter') { nm.blur(); } e.stopPropagation(); };
-  $('cc-rname').onclick = () => { S.name = NAME_IDEAS[Math.floor(Math.random() * NAME_IDEAS.length)]; nm.value = S.name; updateTitle(); };
+  if ($('cc-rname')) $('cc-rname').onclick = () => { S.name = NAME_IDEAS[Math.floor(Math.random() * NAME_IDEAS.length)]; nm.value = S.name; updateTitle(); };
   $('cc-random').onclick = () => { const sex = S.look.sex; randomLook(); S.look.sex = sex; applyLook(); renderCreator(); };
   $('cc-done').onclick = () => closeCreator(true);
   if ($('cc-cancel')) $('cc-cancel').onclick = () => closeCreator(false);

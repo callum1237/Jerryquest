@@ -329,11 +329,43 @@
   @keyframes glowpulse { 50% { box-shadow: 0 0 0 3px rgb(255 216 74 / .55), 0 3px 0 var(--ink); } }
   @media (prefers-reduced-motion: reduce) { #classes .spend { animation: none; } }
   .card.begin { width: min(360px, 100%); }
+
+  /* the title screen: logo, a parchment card, and the village drifting by behind */
+  #pick { background: radial-gradient(ellipse 80% 70% at 50% 42%, rgb(30 22 54 / .08), rgb(30 22 54 / .62) 100%), linear-gradient(180deg, rgb(30 22 54 / .35), transparent 30%, transparent 70%, rgb(30 22 54 / .45)); }
+  body.titling > :not(#stage):not(#pick):not(#loading):not(#toasts) { display: none !important; }
+  .title { display: grid; gap: 14px; justify-items: center; width: min(400px, 100%); padding-block: max(20px, env(safe-area-inset-top, 0px)) 18px; }
+  .logo { display: grid; justify-items: center; animation: logoIn .8s cubic-bezier(.2, 1.4, .4, 1) both; }
+  .crest { width: 78px; height: auto; filter: drop-shadow(0 4px 0 rgb(43 22 12 / .55)); animation: crestBob 4s ease-in-out infinite; margin-bottom: -10px; position: relative; z-index: 1; }
+  .logo h1 { margin: 0; font-family: var(--display); font-weight: 700; font-size: clamp(46px, 11vw, 74px); line-height: .95; letter-spacing: .5px; transform: rotate(-2.5deg);
+    -webkit-text-stroke: 8px #3a1f0d; paint-order: stroke fill; text-shadow: 0 7px 0 #3a1f0d, 0 12px 16px rgb(0 0 0 / .35); }
+  .logo h1 span:first-child { color: #ffd84a; }
+  .logo h1 span:last-child { color: #fff4d0; margin-left: .06em; }
+  .ribbon { margin: 10px 0 0; position: relative; }
+  .ribbon span { display: block; background: linear-gradient(180deg, #8f62d8, #6b3fa0); color: #fff4d0; font: 700 13.5px/1 var(--display); letter-spacing: .4px; padding: 8px 26px 9px;
+    clip-path: polygon(0 0, 100% 0, calc(100% - 12px) 50%, 100% 100%, 0 100%, 12px 50%); box-shadow: inset 0 -3px 0 rgb(0 0 0 / .15); }
+  .tcard { width: 100%; padding: 18px 20px 14px; display: grid; gap: 10px; text-align: center; animation: cardIn .55s .25s ease-out both; }
+  .tcard h2 { font-size: 26px; }
+  .tsub { margin: -4px 0 2px; color: var(--ink-soft); font-weight: 700; line-height: 1.4; font-size: 14.5px; text-wrap: balance; }
+  .tcard .perk { display: flex; gap: 6px; justify-content: center; flex-wrap: wrap; margin: 0; }
+  button.big { font-size: 20px; padding: 11px 18px; width: 100%; border-radius: 14px; }
+  .ttabs { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; padding: 4px; background: rgb(74 42 23 / .1); border-radius: 12px; }
+  .ttabs button { box-shadow: none; border-color: transparent; background: transparent; padding: 7px; font-size: 15px; }
+  .ttabs button[aria-selected="true"] { background: #fffaf0; border-color: var(--ink); box-shadow: 0 2px 0 var(--ink); }
+  .acct { display: grid; gap: 10px; text-align: left; }
+  .tfoot { margin: 0; display: flex; flex-wrap: wrap; justify-content: center; align-items: center; gap: 6px 14px; color: #f6e6c4; font-size: 12.5px; font-weight: 700; text-shadow: 0 1px 2px rgb(0 0 0 / .6); animation: cardIn .5s .45s ease-out both; }
+  .tfoot .linky { color: #f6e6c4; font-size: 12.5px; padding: 0; text-shadow: inherit; }
+  .srv::before { content: ''; display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: #b8a890; margin-right: 6px; vertical-align: 1px; box-shadow: 0 0 0 2px rgb(0 0 0 / .25); }
+  .srv.on::before { background: #6be07a; }
+  @keyframes logoIn { from { opacity: 0; transform: translateY(-30px) scale(.9); } }
+  @keyframes cardIn { from { opacity: 0; transform: translateY(14px); } }
+  @keyframes crestBob { 50% { transform: translateY(-5px) rotate(2deg); } }
+  @media (prefers-reduced-motion: reduce) { .logo, .crest, .tcard, .tfoot { animation: none; } }
   .acct label { display: grid; gap: 4px; font-weight: 800; color: var(--ink); font-size: 14px; }
   .acct input { font: 700 16px var(--body); padding: 9px 11px; border: 2px solid var(--ink); border-radius: 10px; background: #fffaf0; color: var(--ink); }
   .acct input:focus { outline: 3px solid #f6c453; outline-offset: 1px; }
   .acct .row { gap: 8px; }
   .acct-msg { min-height: 1.3em; font-size: 13px; color: var(--ink-soft) !important; }
+  .acct-msg:empty { display: none; }
   .acct-msg.bad { color: #b3263a !important; }
   .linky { background: none; border: 0; box-shadow: none; color: var(--ink-soft); text-decoration: underline; font-weight: 700; cursor: pointer; justify-self: center; padding: 4px; }
   .card.acct:hover { transform: none; }

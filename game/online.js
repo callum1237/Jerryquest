@@ -23,7 +23,7 @@ async function client() {
 }
 
 const cleanName = (s) => String(s || '').trim().toLowerCase().replace(/[^a-z0-9_]/g, '');
-const loginOf = (s) => (String(s).includes('@') ? String(s).trim().toLowerCase() : `${cleanName(s)}@${ONLINE.domain}`);
+const loginOf = (s) => `${cleanName(s)}@${ONLINE.domain}`;
 const userOf = (u) => ({ id: u.id, name: (u.user_metadata && u.user_metadata.name) || u.email.split('@')[0] });
 
 // Already signed in on this computer? Then skip the sign-in card.
@@ -47,15 +47,16 @@ export async function resume() {
 export async function signIn(name, pass, create) {
   try {
     const c = await client();
-    const email = loginOf(name), shown = String(name).includes('@') ? String(name).split('@')[0] : String(name).trim();
-    if (!String(name).includes('@') && cleanName(name).length < 3) return { error: 'Usernames need at least 3 letters or numbers.' };
+    // Usernames are unique: the login behind each one can only be made once, whatever the capitals.
+    const shown = String(name).trim().replace(/[^A-Za-z0-9_]/g, '').slice(0, 16), email = loginOf(shown);
+    if (shown.length < 3) return { error: 'Usernames need 3 to 16 letters, numbers or _.' };
     if (String(pass).length < 6) return { error: 'Passwords need at least 6 characters.' };
     const res = create
       ? await c.auth.signUp({ email, password: pass, options: { data: { name: shown.slice(0, 16) } } })
       : await c.auth.signInWithPassword({ email, password: pass });
     if (res.error) {
       const m = res.error.message || '';
-      if (/already registered|already exists/i.test(m)) return { error: 'That username is taken. Try another, or sign in.' };
+      if (/already registered|already exists|already been registered/i.test(m)) return { error: 'Sorry, that username is taken. Try another one.' };
       if (/invalid login/i.test(m)) return { error: 'Wrong username or password.' };
       if (/fetch|network|timed? ?out/i.test(m)) return { error: 'Could not reach the game server. Check your internet and try again.' };
       if (/confirm/i.test(m)) return { error: 'The game needs "Confirm email" switched off in Supabase first.' };
