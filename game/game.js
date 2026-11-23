@@ -769,8 +769,9 @@ function peersTick(dt) {
 // /p kick name, /p damage on|off and /p disband. A party of one disbands by itself.
 // Party members show on each other's map with their health, share some monster XP,
 // and can't hurt each other unless the leader turns party damage on.
-// Outside the villages and indoors, players level 5 and up can fight each other.
-const PARTY_MAX = 6, PVP_LVL = 5;
+// Outside the villages and indoors, players level 10 and up can fight each other.
+// The whole Chapter 1 starting area around Jerry Village is always safe.
+const PARTY_MAX = 6, PVP_LVL = 10;
 const esc = (t) => String(t).replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
 let party = null; // { leader, members: [{ id, name }], dmg }
 const invites = new Map(); // id we invited -> time
@@ -872,6 +873,7 @@ function onNet(ev, m) {
   const me = myId(), from = m.id, peer = net.peers.get(from);
   if (['ti', 'ta', 'to', 'tx'].includes(ev)) { tradeNet(ev, from, m); return; }
   if (ev === 'wb') { wbNet(m); return; }
+  if (ev === 'bh' || ev === 'bs') { bossNet(ev, m); return; }
   if (ev === 'qb') {
     // a party friend beat a story boss right next to you: you get the quest credit too
     if (!inParty(from) || m.w !== where || !player || Math.hypot(player.pos.x - m.x, player.pos.z - m.z) > 45 || !ENEMY_TYPES[m.t]) return;
@@ -922,10 +924,10 @@ function onNet(ev, m) {
 }
 // a monster your party helped with: nearby members get a share of its XP
 function partyShareXp(xp, pos) { if (party && party.members.length > 1) sendNet('px', { xp, x: pos.x, z: pos.z, w: where }); }
-// Villages, town squares and indoors are safe. Out in the wild, heroes level 5+ can duel.
+// Villages, town squares, indoors and the starting area are safe. Out in the wild, heroes level 10+ can duel.
 function safeSpot(x, z, w) {
   if (w !== 'out' && !LANDS[w]) return true;
-  if (Math.hypot(x, z) < 34) return true;
+  if (w === 'out' && Math.hypot(x, z) < 70) return true; // the Chapter 1 spawn area
   for (const L of Object.values(LANDS)) if (L.village && Math.hypot(x - L.village.x, z - L.village.z) < 24) return true;
   for (const T of TOWNS) if (Math.hypot(x - T.x, z - T.z) < 12) return true;
   return false;
@@ -1076,6 +1078,35 @@ function wbTick() {
     wb = spawnEnemy('wb_wobble', I.spot[1], I.spot[2]); wb.temp = true; wb.inside = where;
     burst(wb.pos.clone().setY(3), '#ffe07a', 80, 10, 1.8);
   }
+}
+// Story bosses are shared too: everyone fighting the same boss nearby hits one health bar.
+// Each hit goes out as a share of its health; every couple of seconds fighters also send where the bar is,
+// so a friend who joins late sees the same health.
+let bossRemote = false, bossSyncAt = 0;
+function bossShare(e, dmg) {
+  if (!e.T.boss || e.T.world || bossRemote || dmg <= 0 || !net.on) return;
+  sendNet('bh', { t: e.type, f: dmg / e.T.hp, w: where, x: e.pos.x, z: e.pos.z });
+}
+function sharedBoss(m) {
+  if (!player || m.w !== where || !ENEMY_TYPES[m.t]) return null;
+  return enemies.find((e) => e.type === m.t && e.hp > 0 && e.state !== 'dead' && e.inside === where && Math.hypot(e.pos.x - m.x, e.pos.z - m.z) < 50 && Math.hypot(e.pos.x - player.pos.x, e.pos.z - player.pos.z) < 60) || null;
+}
+function bossNet(ev, m) {
+  const e = sharedBoss(m); if (!e) return;
+  if (ev === 'bh') {
+    const d = Math.max(0, Math.min(0.25, +m.f || 0)) * e.T.hp; if (d <= 0) return;
+    if (e.hp - d > 0) { e.hp -= d; phaseCheck(e); if (e.state === 'idle' || e.state === 'walk' || e.state === 'return') e.state = 'chase'; return; }
+    bossRemote = true; hurtEnemy(e, Math.ceil(e.hp)); bossRemote = false;
+  } else if (ev === 'bs') {
+    // only ever bring the bar down, and only once this boss is in a fight here
+    const f = Math.max(0.01, Math.min(1, +m.f || 1));
+    if (e.state !== 'idle' && f * e.T.hp < e.hp - 1) { e.hp = f * e.T.hp; phaseCheck(e); }
+  }
+}
+function bossSyncTick() {
+  if (!net.on || !player || now < bossSyncAt) return;
+  bossSyncAt = now + 2;
+  for (const e of enemies) if (e.T.boss && !e.T.world && e.hp > 0 && e.state !== 'idle' && e.state !== 'dead' && e.inside === where && Math.hypot(e.pos.x - player.pos.x, e.pos.z - player.pos.z) < 40) sendNet('bs', { t: e.type, f: e.hp / e.T.hp, w: where, x: e.pos.x, z: e.pos.z });
 }
 // called from hurtEnemy for our own hits
 function wbShare(e, dmg) { if (e.T.world && !wbRemote && dmg > 0) { wbDmg += dmg; sendNet('wb', { slot: wbSlot, f: dmg / e.T.hp }); } }
@@ -3913,7 +3944,7 @@ function hurtEnemy(e, dmg, src = null, power = 1) {
   else if (now < (e.dizzyUntil || 0)) dmg = Math.round(dmg * 1.5);
   if (e.coreOpen) { dmg = Math.round(dmg * 1.3); if (rng() < 0.15) floatText(head.clone().setY(5), 'Core hit!', 'gain'); }
   e.hp = Math.max(0, e.hp - dmg);
-  wbShare(e, dmg);
+  wbShare(e, dmg); bossShare(e, dmg);
   // the Avalanche Twins share one strength: hurt one and the other feels it (and gets angry)
   if (e.T.twin) {
     const p = enemies.find((o) => o.type === e.T.twin);
@@ -3946,7 +3977,7 @@ function hurtEnemy(e, dmg, src = null, power = 1) {
       toast(`You defeated ${e.T.name}! It dropped ${ITEMS[e.T.drop].toLowerCase()}!`, ICONS[e.T.drop], true);
       burst(e.pos.clone().setY(2), '#ffe07a', 80, 8, 1.6);
       for (const k of Object.keys(QUESTS)) if (S.quests[k].state === 'active' && QUESTS[k].bossType === e.type) S.quests[k].boss = 1;
-      if (!wbRemote && party && party.members.length > 1) sendNet('qb', { t: e.type, x: e.pos.x, z: e.pos.z, w: where });
+      if (!wbRemote && !bossRemote && party && party.members.length > 1) sendNet('qb', { t: e.type, x: e.pos.x, z: e.pos.z, w: where });
       $('bossbar').hidden = true;
       if ((BOSS_LINES[e.type] || {}).defeat) { const be = e; later(0.5, () => { if (!bossIntro && !player.dead) startBossScene(be, 'defeat'); }); }
       if (e.T.town) { const T = TOWNS.find((t) => t.id === e.T.town); later(1.5, () => liberateTown(T)); }
@@ -5410,7 +5441,7 @@ function tick() {
   regionTick(); lightTick();
   if (player) { spotTick(); goldenTick(); tinyTick(dt); pompTick(dt); }
 
-  if (player) { gulpTick(); lanternTick(dt); wingTick(); stormTick(dt); castleTick(dt); colossusTick(dt); cosTick(); wbTick(); weaponSparkle(); flairTick(player, dt, player.name === 'Running_A' || player.name === 'Walking_A' || (player.name || '').startsWith('Running')); }
+  if (player) { gulpTick(); lanternTick(dt); wingTick(); stormTick(dt); castleTick(dt); colossusTick(dt); cosTick(); wbTick(); bossSyncTick(); weaponSparkle(); flairTick(player, dt, player.name === 'Running_A' || player.name === 'Walking_A' || (player.name || '').startsWith('Running')); }
   if (player && !player.dead && !uiLock() && !gulped) {
     const busy = now < player.busyUntil;
     let mx = 0, mz = 0;
@@ -7525,7 +7556,7 @@ function makeGagronFriend() {
   npcs.push(gagronFriend);
 }
 
-window.__jq = { goldNode, wbInfo, wbTick, get wb() { return wb; }, WB_SPOTS, tradeOpen, tradeNet, offerKey, get trade() { return trade; }, adv(s) { for (let t = 0; t < s; t += 0.05) { for (let i = timers.length - 1; i >= 0; i--) { timers[i].t -= 0.05; if (timers[i].t <= 0) { const f = timers[i].f; timers.splice(i, 1); f(); } } bossFxTick(0.05); } }, get party() { return party; }, BOSS_AI, PHASE_SETUP, get gulped() { return gulped; }, wriggle, toggleBigMap, spawnEnemy, openPathChoice, choosePath, startLanternNight, get lanterns() { return lanterns; }, duelOffer, duelPrize, onNet, chatCommand, canFight, openUpgrade, openBoard, boardToday, queueLetter, makeGagronFriend, net, peerActors, runeTick, bossFx, renderer, scene, openMayor, darkOmen, netWorth, liberateTown, spots, spotEffect, setGolden, goldenCaught, pompArrive, get goldenE() { return goldenE; }, spinWheel, dayTick, get bossIntro() { return bossIntro; }, bossSkip, startBossScene, sailTo, regions, closeSheet, renderHotbar, crew, setCrewMode, TOWNS, liberateTown, chests, openChest, stopRoulette, enemies, startBossIntro, closeDialog, advanceDialog, dash, attackPress, craft, CRAFTS, openCreator, closeCreator, creator, rebuildHero, setZoom: (z) => { zoom = z; }, hurtEnemy, goThrough, get where() { return where; }, INTERIORS, equipGear, spendPoint, giveHeroXp, heroLvl, stat, maxHp, defDiv, openWeaponShop, openKing, jump, eat, eatBest, openShop, swing, swingTarget, hitNode, projectiles, timers, get S() { return S; }, get player() { return player; }, enemies, nodes, npcs, startTask, doAction, giveXp, save, openSheet, openDialog };
+window.__jq = { bossNet, safeSpot, get PVP_LVL() { return PVP_LVL; }, goldNode, wbInfo, wbTick, get wb() { return wb; }, WB_SPOTS, tradeOpen, tradeNet, offerKey, get trade() { return trade; }, adv(s) { for (let t = 0; t < s; t += 0.05) { for (let i = timers.length - 1; i >= 0; i--) { timers[i].t -= 0.05; if (timers[i].t <= 0) { const f = timers[i].f; timers.splice(i, 1); f(); } } bossFxTick(0.05); } }, get party() { return party; }, BOSS_AI, PHASE_SETUP, get gulped() { return gulped; }, wriggle, toggleBigMap, spawnEnemy, openPathChoice, choosePath, startLanternNight, get lanterns() { return lanterns; }, duelOffer, duelPrize, onNet, chatCommand, canFight, openUpgrade, openBoard, boardToday, queueLetter, makeGagronFriend, net, peerActors, runeTick, bossFx, renderer, scene, openMayor, darkOmen, netWorth, liberateTown, spots, spotEffect, setGolden, goldenCaught, pompArrive, get goldenE() { return goldenE; }, spinWheel, dayTick, get bossIntro() { return bossIntro; }, bossSkip, startBossScene, sailTo, regions, closeSheet, renderHotbar, crew, setCrewMode, TOWNS, liberateTown, chests, openChest, stopRoulette, enemies, startBossIntro, closeDialog, advanceDialog, dash, attackPress, craft, CRAFTS, openCreator, closeCreator, creator, rebuildHero, setZoom: (z) => { zoom = z; }, hurtEnemy, goThrough, get where() { return where; }, INTERIORS, equipGear, spendPoint, giveHeroXp, heroLvl, stat, maxHp, defDiv, openWeaponShop, openKing, jump, eat, eatBest, openShop, swing, swingTarget, hitNode, projectiles, timers, get S() { return S; }, get player() { return player; }, enemies, nodes, npcs, startTask, doAction, giveXp, save, openSheet, openDialog };
 window.addEventListener('error', (e) => { const m = $('loadmsg'); if (m) m.textContent = `Something went wrong: ${e.message}`; });
 main().catch((err) => {
   console.error(err);
