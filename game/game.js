@@ -2326,6 +2326,9 @@ const npcIdle = (n) => n.actor.play(n.id === 'fenwick' ? 'Spellcasting' : 'Idle'
 // ---------- enemies ----------
 for (const k of ['mud_gloop', 'boss_gobbler', 'sand_gloop']) ENEMY_TYPES[k].alias = ENEMY_TYPES.bog_slime.alias;
 ENEMY_TYPES.dust_bat.alias = ENEMY_TYPES.mire_bat.alias;
+// Toughness pass (Callum, Nov 23): every monster hits harder and takes longer to beat; bosses much more so.
+const MOB_HP = 1.5, MOB_HIT = 1.4, BOSS_HP = 2.2, BOSS_HIT = 1.6;
+function toughen(T) { if (T.world || T.toughened) return; T.toughened = true; T.hp = Math.round(T.hp * (T.boss ? BOSS_HP : MOB_HP)); T.maxHit = Math.max(1, Math.round(T.maxHit * (T.boss ? BOSS_HIT : MOB_HIT))); }
 // Valley critters: round, goofy monsters alongside the skeletons (Quaternius CC0 slime and bat)
 Object.assign(ENEMY_TYPES, {
   jelly_slime: { name: 'Jelly Slime', model: 'slime', hp: 14, maxHit: 3, xp: 18, scale: 0.6, noBones: true, poof: true, tintAll: '#ff8ac8', mass: 0.9, coins: [3, 10], alias: ENEMY_TYPES.bog_slime.alias },
@@ -2333,6 +2336,7 @@ Object.assign(ENEMY_TYPES, {
   mint_slime: { name: 'Mint Slime', model: 'slime', hp: 22, maxHit: 4, xp: 26, scale: 0.7, noBones: true, poof: true, tintAll: '#7fe8c8', mass: 1, coins: [4, 12], alias: ENEMY_TYPES.bog_slime.alias },
   hollow_bat: { name: 'Hollow Bat', model: 'bat', hp: 16, maxHit: 4, xp: 24, scale: 0.6, noBones: true, poof: true, fly: 1.5, mass: 0.6, tintAll: '#8a6ac8', coins: [4, 12], alias: ENEMY_TYPES.mire_bat.alias },
 });
+for (const T of Object.values(ENEMY_TYPES)) toughen(T);
 function spawnEnemy(k, x, z) {
   const T = ENEMY_TYPES[k];
   const e = new Actor(G[T.model || k], { scale: T.scale || 1.3 });
@@ -6256,6 +6260,7 @@ for (const T of TOWNS) {
   }
   ENEMY_TYPES[`${T.id}_boss`] = { ...TOWN_BOSS[T.id], title: `Tyrant of ${T.name}`, hp: Math.round((110 + 90 * T.stars) * (T.land ? LAND_TOWN[T.land].hp : 1)), maxHit: Math.round((5 + 2 * T.stars) * (T.land ? LAND_TOWN[T.land].hit : 1)), xp: Math.round((500 + 400 * T.stars) * (T.land ? LAND_TOWN[T.land].xp : 1)), boss: true,
     scale: 2 + 0.15 * T.stars, coins: [Math.round(80 * T.stars * m), Math.round(140 * T.stars * m)], slam: 4.5 + T.stars * 0.5, town: T.id, tint: tier.tint, inside };
+  toughen(ENEMY_TYPES[`${T.id}_boss`]);
 }
 const stars = (n) => '★'.repeat(n) + '☆'.repeat(3 - n);
 const townFree = (id) => !!((S.towns && S.towns[id]) || remoteMayor(id));
