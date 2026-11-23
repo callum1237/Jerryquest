@@ -702,7 +702,7 @@ let profileKey = '';
 function profile() { const C = cosState(), t = heroTitle(); return { name: heroName(), lvl: heroLvl(), look: { ...S.look, path: S.path || '', cos: { ...C.eq }, ti: t ? t.name : '', tc: t ? t.col : '' }, w: where, x: player ? player.pos.x : 0, z: player ? player.pos.z : 0 }; }
 function goOnline() {
   net.onTowns = syncTowns;
-  net.onPeerGone = (id) => { dropPeer(id); partyPeerGone(id); };
+  net.onPeerGone = (id) => { dropPeer(id); partyPeerGone(id); if (trade && trade.with === id) tradeClose('Your trade partner left.'); };
   net.onNet = onNet;
   connect(profile()).then(() => { toast(`Online as ${net.user.name}. Friends who are playing show up in the world.`, ICONS.star); sys('Press Enter to chat with everyone. Type /p and a name to invite a friend to your party.'); });
   save();
@@ -1031,12 +1031,14 @@ ITEMS.golden_acorn = 'Golden acorn'; SELL.golden_acorn = 250;
 let wb = null, wbSlot = -1, wbWarned = -1, wbDmg = 0, wbAt = 0, wbRemote = false;
 const wbInfo = (t = Date.now()) => { const slot = Math.floor(t / WB_EVERY), into = t - slot * WB_EVERY; return { slot, spot: WB_SPOTS[slot % WB_SPOTS.length], live: into < WB_LIVE, left: WB_LIVE - into, next: (slot + 1) * WB_EVERY - t }; };
 const landName = (w) => (w === 'out' ? 'the Valley' : w === 'frost' ? 'Frostwhisker Peaks' : w === 'marsh' ? 'Gobbler Marsh' : 'Brassbolt Sands');
+const landOpen = (w) => w === 'out' || where === w || Object.keys(QUESTS).some((k) => QUESTS[k].land === w && S.quests[k] && S.quests[k].state !== 'todo');
 function wbTick() {
   if (!player || now < wbAt) return;
   wbAt = now + 1;
   const I = wbInfo();
-  if (I.next < 60000 && wbWarned !== I.slot + 1) {
+  if (I.next < 60000 && wbWarned !== I.slot + 1 && !creator.open) {
     wbWarned = I.slot + 1; const sp = WB_SPOTS[(I.slot + 1) % WB_SPOTS.length];
+    if (!landOpen(sp[0])) return;
     const t = `World boss! King Wobblegut lands on ${sp[3]} in ${landName(sp[0])} in one minute. Bring friends!`;
     sys(t); toast(t, ICONS.star, true);
   }
@@ -1104,6 +1106,7 @@ function tradePrompt(from, name) {
   setTimeout(() => el.remove(), 30000);
   document.body.appendChild(el); sfx('coin');
 }
+addEventListener('keydown', (e) => { if (e.key === 'Escape' && trade) { sendNet('tx', { to: trade.with }); tradeClose('Trade cancelled.'); } });
 function tradeOpen(id, name) {
   trade = { with: id, name, mine: emptyOffer(), theirs: emptyOffer(), ready: false, theirReady: false, el: document.createElement('div') };
   trade.el.className = 'tradewin panel'; document.body.appendChild(trade.el);
@@ -1153,6 +1156,7 @@ function tradeTry() {
   const T = trade;
   if (!T || !T.ready || !T.theirReady || T.theySee !== offerKey(T.mine)) return;
   const o = T.mine;
+  if ((T.theirs.gear || []).some((k) => S.owned.includes(k))) { sendNet('tx', { to: T.with }); tradeClose('Trade cancelled: you already own some of that gear.'); return; }
   // check we still have everything we offered
   if (S.coins < o.coins || Object.entries(o.items).some(([k, n]) => (S.inv[k] || 0) < n) || o.gear.some((k) => !spareGear().includes(k))) { sendNet('tx', { to: T.with }); tradeClose('Trade cancelled: something in your offer is gone.'); return; }
   S.coins -= o.coins;
@@ -1164,7 +1168,8 @@ function tradeTry() {
   for (const [k, n] of Object.entries(t.items || {})) if (ITEMS[k] && n > 0) addItem(k, Math.min(9999, n | 0));
   for (const k of t.gear || []) if (GEAR[k] && !S.owned.includes(k)) S.owned.push(k);
   sfx('win'); burst(player.pos.clone().setY(2), '#ffe07a', 40, 6, 1.2);
-  const name = T.name; tradeClose(`Trade with ${name} done!`);
+  const got = [t.coins > 0 ? `${fmt(t.coins)} coins` : '', ...Object.entries(t.items || {}).map(([k, n]) => `${n} ${ITEMS[k]}`), ...(t.gear || []).map((k) => GEAR[k].name)].filter(Boolean);
+  const name = T.name; tradeClose(`Trade with ${name} done! You got ${got.length ? got.join(', ') : 'nothing'}.`);
   S.trades = (S.trades || 0) + 1;
   refreshUI(); save();
 }
@@ -2856,6 +2861,8 @@ function refreshUI() {
   renderHotbar();
   const tracked = trackedQuest();
   $('tracker').innerHTML = active.map((k) => `<button class="trk${k === tracked ? ' on' : ''}" data-track="${k}" title="Follow this quest"><b>${k === tracked ? '&#10148; ' : ''}${QUESTS[k].name}</b><br>${questReady(k) ? `Return to ${npcName(QUESTS[k].giver)}` : questProgress(k)}</button>`).join('');
+  // nothing on yet: point at the next story quest to pick up
+  if (!active.length) { const nx = Object.keys(QUESTS).find((k) => QUESTS[k].story && storyOpen(k) && S.quests[k].state === 'todo'); if (nx) $('tracker').innerHTML = `<button class="trk on" data-track="${nx}" title="Follow this quest"><b>&#10148; Next: ${QUESTS[nx].name}</b><br>Talk to ${npcName(QUESTS[nx].giver)}</button>`; }
   $('tracker').querySelectorAll('[data-track]').forEach((b) => { b.onclick = (e) => { e.stopPropagation(); S.track = b.dataset.track; refreshUI(); save(); }; });
   for (const n of npcs) {
     if (n.shop || n.bank) { n.marker.userData.draw('$'); continue; }
@@ -3238,6 +3245,11 @@ function openDialog(npc, plain = false) {
     buttons = [['Hand it over', 'primary', () => { finishQuest(qid, npc); closeDialog(); }]];
   } else if (st.state === 'active') { text = `${q.desc} So far: ${questProgress(qid)}.`; buttons = [['On my way', '', closeDialog]]; }
   else { text = q.done; buttons = [['Goodbye', '', closeDialog]]; }
+  // a quick shout to everyone online for quests that are better with friends
+  if (net.on && st.state !== 'done' && !questReady(qid) && /friend/i.test(`${q.intro} ${q.desc}`)) buttons.push(['Call friends', '', () => {
+    const r = sendChat(`I'm doing "${q.name}" in ${landName(q.land ? q.land : 'out')}. Come help! Type /p ${heroName()} to team up.`);
+    if (r.error) toast(r.error, ICONS.star); else { chatLine(heroName(), r.text, 'me'); toast('Your friends have been called!', ICONS.star); }
+  }]);
   const d = $('dialog');
   d.innerHTML = `<h3></h3><p></p>${st.state === 'todo' ? `<div class="reward">Reward: ${parts.join(', ')}</div>` : ''}<div class="row"></div>`;
   d.querySelector('h3').textContent = npc.name;
@@ -3518,7 +3530,7 @@ function describe(t) {
 }
 function doAction() {
   if (!player || player.dead || uiLock()) return;
-  if (talking) { if (!advanceDialog()) closeDialog(); return; }
+  if (talking) { if (!advanceDialog() && !(dlg && dlg.d.querySelectorAll('.row button').length > 1)) closeDialog(); return; }
   if (now < player.nextHit) { attackQueued = now; return; }
   swing();
 }
@@ -4627,15 +4639,16 @@ function openRiddle(npc) {
     showDialog(d, { talky: true });
   };
   if (!st || st.state !== 'active') {
-    say(st && st.state === 'done' ? 'CLICK. WHIRR. RIDDLER RECOGNISED. YOU MAY PASS, CLEVER ONE.' : 'CLICK. WHIRR. THE SPHINX ENGINE IS NOT TAKING QUESTIONS TODAY. COME BACK WITH PROFESSOR TINKERWELL\'S PERMISSION.', [['Goodbye', '', closeDialog]]);
+    say(st && st.state === 'done' ? 'Click, whirr. Riddler recognised. You may pass, clever one.' : 'Click, whirr. The Sphinx Engine is not taking questions today. Come back with Professor Tinkerwell\'s permission.', [['Goodbye', '', closeDialog]]);
     return;
   }
-  if ((st.riddles || 0) >= 3) { say('THREE RIDDLES ANSWERED. THE DESERT WARDSTONE WAS CARRIED TO THE COLOSSUS. IT BEATS IN ITS CHEST. GO TELL THE PROFESSOR.', [['Goodbye', '', closeDialog]]); return; }
-  if (riddleGuards.some((m) => m.state !== 'dead' && enemies.includes(m))) { say('INTRUDER PROTOCOL STILL ACTIVE. DEFEAT MY GUARDS FIRST.', [['Goodbye', '', closeDialog]]); return; }
+  if ((st.riddles || 0) >= 3) { say('Three riddles answered! The desert Wardstone was carried to the Colossus. It beats in its chest. Go and tell the Professor.', [['Goodbye', '', closeDialog]]); return; }
+  if (riddleGuards.some((m) => m.state !== 'dead' && enemies.includes(m))) { say('Intruder alarm still on! Beat my guards first.', [['Goodbye', '', closeDialog]]); return; }
   const used = st.used || [], pool = RIDDLES.map((r, i) => i).filter((i) => !used.includes(i));
-  const i = pool[Math.floor(rng() * pool.length)], [q, opts, right] = RIDDLES[i];
-  say(`RIDDLE ${(st.riddles || 0) + 1} OF 3. ${q}`, opts.map((o, k) => [o, 'primary', () => {
-    st.used = [...used, i];
+  if (st.cur == null || !pool.includes(st.cur)) st.cur = pool[Math.floor(rng() * pool.length)];
+  const i = st.cur, [q, opts, right] = RIDDLES[i];
+  say(`Riddle ${(st.riddles || 0) + 1} of 3. ${q}`, opts.map((o, k) => [o, 'primary', () => {
+    st.used = [...used, i]; st.cur = null;
     if (k === right) {
       st.riddles = (st.riddles || 0) + 1; sfx('win'); burst(npc.actor.pos.clone().setY(3), '#7fe8ff', 40, 6, 1.2);
       toast(`Correct! ${st.riddles} of 3 riddles.`, ICONS.sphinx_coin);
@@ -4643,7 +4656,7 @@ function openRiddle(npc) {
       save(); refreshUI(); openRiddle(npc);
     } else {
       sfx('slam'); closeDialog();
-      toast('WRONG. INTRUDER PROTOCOL ENGAGED. (Beat the guards, then try another riddle.)', ICONS.dark_omen, true);
+      toast('Wrong! Intruder alarm! (Beat the guards, then try another riddle.)', ICONS.dark_omen, true);
       for (let j = 0; j < 2; j++) { const a = rng() * 6.28, m = spawnEnemy(j ? 'clock_conjurer' : 'clock_soldier', npc.actor.pos.x + Math.cos(a) * 6, npc.actor.pos.z + 4 + Math.sin(a) * 4); m.temp = true; m.state = 'chase'; riddleGuards.push(m); burst(m.pos.clone().setY(1), '#ffd27a', 30, 5, 1.2); }
       if (st.used.length >= RIDDLES.length) st.used = [];
       save();
@@ -5652,7 +5665,7 @@ function bossIntroTick(dt = 0) {
   if (!player || creator.open || player.dead) return;
   for (const e of enemies) {
     if (!e.T.boss || e.hp <= 0 || e.inside !== where || e.state === 'idle' || e.state === 'dead') continue;
-    if (e.introAt && now - e.introAt < 150) continue;
+    if (e.T.world || (e.introAt && (now - e.introAt < 150 || e.hp < e.T.hp))) continue;
     if (Math.hypot(e.pos.x - player.pos.x, e.pos.z - player.pos.z) > 26) continue;
     startBossIntro(e); return;
   }
@@ -5957,11 +5970,11 @@ let camMoment = null;
 function momentCam(dt) {
   const m = camMoment, p = player.pos, t = m.target; m.t += dt;
   let dx = p.x - t.x, dz = p.z - t.z; const d = Math.hypot(dx, dz) || 1; dx /= d; dz /= d;
-  camPos.lerp(tmpV.set(p.x + dx * 7 - dz * 6, p.y + 5, p.z + dz * 7 + dx * 6), 1 - Math.pow(0.02, dt));
+  camPos.lerp(tmpV.set(p.x + dx * 11 - dz * 7, p.y + 3, p.z + dz * 11 + dx * 7), 1 - Math.pow(0.02, dt));
   camera.position.copy(camPos);
   if (camera.view && camera.view.enabled) { camera.clearViewOffset(); camera.updateProjectionMatrix(); }
   if (talkCam.near0 && camera.near !== talkCam.near0) { camera.near = talkCam.near0; camera.updateProjectionMatrix(); }
-  camera.lookAt(t.x, t.y * 0.75, t.z);
+  camera.lookAt(t.x, t.y + 2, t.z);
 }
 function talkCam(dt) {
   const n = talking.actor.pos, pp = player.pos, phone = camera.aspect < 1;

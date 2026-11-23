@@ -173,6 +173,7 @@
 
   /* toasts */
   #toasts { position: fixed; top: calc(env(safe-area-inset-top, 0px) + 84px); left: 50%; transform: translateX(-50%); display: grid; gap: 6px; justify-items: center; pointer-events: none; width: min(420px, calc(100% - 32px)); z-index: 3; }
+  body:has(#bossintro:not([hidden])) #toasts { z-index: 7; top: calc(13vh + 10px); }
   .toast { font: 600 15px var(--display); background: linear-gradient(180deg, #fff4d8, var(--parch)); border: 2.5px solid var(--ink); border-radius: 14px; padding: 5px 14px; box-shadow: 0 3px 0 var(--ink); display: flex; align-items: center; gap: 8px; animation: tin .25s ease-out; }
   .toast img { width: 24px; height: 24px; }
   .toast.big { font-size: 20px; background: linear-gradient(180deg, #ffe58a, var(--gold)); padding: 8px 18px; }
@@ -181,7 +182,7 @@
   /* dialogue */
   #dialog {
     position: fixed; left: 50%; transform: translateX(-50%);
-    --dlgb: 92px; bottom: calc(env(safe-area-inset-bottom, 0px) + var(--dlgb));
+    box-sizing: border-box; --dlgb: 92px; bottom: calc(env(safe-area-inset-bottom, 0px) + var(--dlgb));
     width: min(520px, calc(100% - 32px)); padding: 14px 16px; z-index: 4;
     max-height: calc(100dvh - var(--dlgb) - env(safe-area-inset-bottom, 0px) - env(safe-area-inset-top, 0px) - 24px); overflow-y: auto; overscroll-behavior: contain;
   }
@@ -270,7 +271,7 @@
   @media (pointer: coarse) { #jumpbtn, #sprintbtn, .dash { display: block; } }
   #specialbtn { position: fixed; left: calc(50% + 214px); bottom: calc(env(safe-area-inset-bottom, 0px) + 18px); width: 78px; height: 78px; border-radius: 50%; padding: 0; display: grid; place-items: center; align-content: center; gap: 0; font-size: 11px; font-weight: 800; overflow: hidden; z-index: 2; --cd: 0; }
   #specialbtn img { width: 30px; height: 30px; }
-  #specialbtn span { line-height: 1.1; max-width: 60px; text-align: center; overflow-wrap: anywhere; }
+  #specialbtn span { line-height: 1.1; max-width: 58px; text-align: center; font-size: 10px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   #specialbtn::after { content: ""; position: absolute; inset: 0; background: rgb(40 22 10 / .45); transform-origin: bottom; transform: scaleY(var(--cd)); pointer-events: none; }
   #specialbtn.cooling { filter: saturate(.5); }
   .dash { position: fixed; bottom: calc(env(safe-area-inset-bottom, 0px) + 92px); width: 50px; height: 50px; border-radius: 50%; padding: 0; font: 700 24px/1 var(--display); display: none; }
