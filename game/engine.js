@@ -16,7 +16,7 @@ renderer.toneMapping = THREE.NoToneMapping;
 document.getElementById('stage').appendChild(renderer.domElement);
 
 export const scene = new THREE.Scene();
-export const camera = new THREE.PerspectiveCamera(32, innerWidth / innerHeight, 1, 600);
+export const camera = new THREE.PerspectiveCamera(40, innerWidth / innerHeight, 1, 600);
 camera.layers.enableAll();
 
 // ---------- lighting presets ----------

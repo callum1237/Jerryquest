@@ -213,8 +213,10 @@ const FX = {
   door: (t) => { tone(sfxBus, t, 220, 0.12, { type: 'triangle', gain: 0.2, slide: 0.7 }); noise(sfxBus, t, 0.2, { gain: 0.1, freq: 600 }); },
 };
 const lastFx = {};
+// while on, game sounds are silent: used when another player's fight finishes a boss you weren't in
+export const fxMute = { on: false };
 export function sfx(name) {
-  if (!ctx || ctx.state !== 'running' || !FX[name]) return;
+  if (fxMute.on || !ctx || ctx.state !== 'running' || !FX[name]) return;
   const t = ctx.currentTime;
   if (lastFx[name] && t - lastFx[name] < 0.03) return; // don't stack the same sound in one frame
   lastFx[name] = t;

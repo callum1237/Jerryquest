@@ -50,8 +50,8 @@ LANDS.frost.pond.name = 'Frozen Pond';
 LANDS.frost.boss = 'palace';
 // boss stages: open, cleared rings far apart, so fighting one boss never wakes another
 LANDS.frost.arenas = {
-  grumble: { x: FX - 6, z: FZ - 8, r: 15 },
-  twins: { x: FX + 45, z: FZ + 8, r: 15 },
+  grumble: { x: FX - 10, z: FZ - 6, r: 14 },
+  twins: { x: FX + 57, z: FZ + 1, r: 12 },
 };
 LANDS.marsh.boss = 'gobbler';
 // roads from each village out to its zones, shared by the land builder and the map

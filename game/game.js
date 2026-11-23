@@ -7,7 +7,7 @@ import { buildWorld, buildFlowers, place, tentAt, S_PROP, S_BUILD, colliders, cl
 import { LANDS, VALLEY_DOCK, buildLands, makeSnow, landRoads, SANDS_FX, palmNode, roundNode } from './lands.js';
 import { ICONS } from './icons.js';
 import { buildInteriors, INTERIORS, lavaPools } from './interiors.js';
-import { unlockAudio, playMusic, sfx, setVolumes } from './audio.js';
+import { unlockAudio, playMusic, sfx, setVolumes, fxMute } from './audio.js';
 import { net, resume, signIn, signOut, loadCloud, cloudSave, flushSave, refreshBoard, setTown, connect, updateProfile, sendPos, sendChat, cleanChat, sendNet } from './online.js';
 
 const $ = (id) => document.getElementById(id);
@@ -1087,8 +1087,10 @@ function bossNet(ev, m) {
   const e = sharedBoss(m); if (!e) return;
   if (ev === 'bh') {
     const d = Math.max(0, Math.min(0.25, +m.f || 0)) * e.T.hp; if (d <= 0) return;
-    if (e.hp - d > 0) { e.hp -= d; phaseCheck(e); if (e.state === 'idle' || e.state === 'walk' || e.state === 'return') e.state = 'chase'; return; }
-    bossRemote = true; hurtEnemy(e, Math.ceil(e.hp)); bossRemote = false;
+    // someone else's fight only moves the health bar: it never pulls the boss onto you
+    const mine = !!e.myDmg || !['idle', 'walk', 'return'].includes(e.state);
+    if (e.hp - d > 0) { e.hp -= d; if (mine) phaseCheck(e); return; }
+    bossRemote = true; fxMute.on = !mine; try { hurtEnemy(e, Math.ceil(e.hp)); } finally { bossRemote = false; fxMute.on = false; }
   } else if (ev === 'bs') {
     // only ever bring the bar down, and only once this boss is in a fight here
     const f = Math.max(0.01, Math.min(1, +m.f || 1));
@@ -1106,8 +1108,9 @@ function wbNet(m) {
   if (!wb || wb.state === 'dead' || m.slot !== wbSlot) return;
   const d = Math.max(0, Math.min(0.2, +m.f || 0)) * wb.T.hp;
   if (d <= 0) return;
-  if (wb.hp - d > 0) { wb.hp -= d; if (wb.state === 'idle') wb.state = 'chase'; return; }
-  wbRemote = true; hurtEnemy(wb, Math.ceil(wb.hp)); wbRemote = false;
+  if (wb.hp - d > 0) { wb.hp -= d; return; }
+  const mine = !!wb.myDmg || !['idle', 'walk', 'return'].includes(wb.state);
+  wbRemote = true; fxMute.on = !mine; try { hurtEnemy(wb, Math.ceil(wb.hp)); } finally { wbRemote = false; fxMute.on = false; }
 }
 
 // ---------- trading ----------
@@ -2011,6 +2014,7 @@ function useHotbar(i) {
   if (!k) { hotPick = i; openSheet('bag'); toast(`Pick something in your bag for slot ${i + 1} (press +).`); renderHotbar(); return; }
   if (FOOD[k]) { if (!S.inv[k]) { toast(`You're out of ${ITEMS[k]}.`, ICONS[k]); return; } eat(k); renderHotbar(); return; }
   const g = GEAR[k];
+  if (!g && ITEMS[k]) { toast(`${ITEMS[k]}: ${S.inv[k] || 0} in your bag.`, ICONS[k]); return; }
   if (g && S.owned.includes(k)) {
     if (S.equip[g.slot] === k) { toast(`${g.name} is already equipped.`, gearIcon(g)); return; }
     S.equip[g.slot] = k; cancelTask(); equipGear(); buildGearBar(); updateTitle(); save();
@@ -2021,12 +2025,24 @@ function useHotbar(i) {
 function renderHotbar() {
   const el = $('hotbar'); if (!el || !S.started) return;
   const hb = hotbar(), kb = binds();
+  // first time: fill it with your weapons, then your food, so switching weapons is one key away
+  if (!S.hotAuto) {
+    S.hotAuto = 1;
+    const mine = [S.equip.weapon, ...S.owned.filter((k) => GEAR[k] && GEAR[k].slot === 'weapon' && k !== S.equip.weapon)].filter(Boolean);
+    const foods = Object.keys(FOOD).filter((k) => S.inv[k]);
+    for (const k of [...mine.slice(0, 5), ...foods]) { const at = hb.indexOf(null); if (at < 0 || hb.includes(k)) continue; hb[at] = k; }
+  }
+  // a new weapon you get goes straight into a free slot
+  S.hotSeen = S.hotSeen || [...S.owned];
+  for (const k of S.owned) if (!S.hotSeen.includes(k)) { S.hotSeen.push(k); if (GEAR[k] && GEAR[k].slot === 'weapon' && !hb.includes(k)) { const at = hb.indexOf(null); if (at >= 0) hb[at] = k; } }
   el.innerHTML = hb.map((k, i) => {
     const key = keyLabel(kb[`hot${i + 1}`][0] || kb[`hot${i + 1}`][1]);
     if (!k) return `<button class="hot empty${hotPick === i ? ' picking' : ''}" data-hot="${i}" title="Empty: tap, then press + on something in your bag"><kbd>${key}</kbd></button>`;
-    const food = FOOD[k], g = GEAR[k], n = food ? (S.inv[k] || 0) : null;
+    const food = FOOD[k], g = GEAR[k], item = !g && ITEMS[k], n = !g ? (S.inv[k] || 0) : null;
+    if (!g && !item) return `<button class="hot empty" data-hot="${i}"><kbd>${key}</kbd></button>`;
     const on = g && S.equip[g.slot] === k;
-    return `<button class="hot${on ? ' on' : ''}${food && !n ? ' out' : ''}" data-hot="${i}" title="${food ? `Eat ${ITEMS[k]} (heals ${food.heal})` : `Equip ${g.name}`}. Right-click to clear."><img src="${food ? ICONS[k] : gearIcon(g)}" alt=""><kbd>${key}</kbd>${food ? `<span>${n}</span>` : ''}</button>`;
+    const tip = food ? `Eat ${ITEMS[k]} (heals ${food.heal})` : g ? `Equip ${g.name}` : `${ITEMS[k]} (${n} in your bag)`;
+    return `<button class="hot${on ? ' on' : ''}${!g && !n ? ' out' : ''}" data-hot="${i}" title="${tip}. Right-click to clear."><img src="${g ? gearIcon(g) : ICONS[k]}" alt=""><kbd>${key}</kbd>${!g ? `<span>${n}</span>` : ''}</button>`;
   }).join('');
   el.querySelectorAll('[data-hot]').forEach((b) => {
     const i = +b.dataset.hot;
@@ -3598,7 +3614,7 @@ renderer.domElement.addEventListener('pointerdown', (e) => {
   marker.position.set(p.x, 0.08, p.z); marker.visible = !t; marker.scale.setScalar(1.4);
 });
 let zoom = 1;
-renderer.domElement.addEventListener('wheel', (e) => { zoom = THREE.MathUtils.clamp(zoom + e.deltaY * 0.001, 0.55, 1.6); e.preventDefault(); }, { passive: false });
+renderer.domElement.addEventListener('wheel', (e) => { zoom = THREE.MathUtils.clamp(zoom + e.deltaY * 0.001, 0.55, 1.9); e.preventDefault(); }, { passive: false });
 let held = false;
 $('action').addEventListener('pointerdown', (e) => {
   e.preventDefault();
@@ -5875,7 +5891,8 @@ function bossIntroTick(dt = 0) {
   }
   if (!player || creator.open || player.dead) return;
   for (const e of enemies) {
-    if (!e.T.boss || e.hp <= 0 || e.inside !== where || e.state === 'idle' || e.state === 'dead') continue;
+    // only a boss that has actually come for you (not one just wandering about its stage) starts its intro
+    if (!e.T.boss || e.hp <= 0 || e.inside !== where || ['idle', 'walk', 'return', 'dead'].includes(e.state)) continue;
     if (e.T.world || (e.introAt && (now - e.introAt < 150 || e.hp < e.T.hp))) continue;
     if (beatenBoss(e)) { e.introAt = now; continue; } // seen it already: straight into the fight
     if (Math.hypot(e.pos.x - player.pos.x, e.pos.z - player.pos.z) > 26) continue;
@@ -7290,7 +7307,7 @@ function renderBag(el) {
     let info = '<p class="hint">Tap an item to see what it is worth. Marta at the market buys anything, and food heals you.</p>';
     if (bagPick && S.inv[bagPick]) {
       const k = bagPick, [rc, rn] = itemRarity(k), f = FOOD[k];
-      info = `<div class="iteminfo ${rc}"><img src="${ICONS[k]}" alt=""><div><b>${ITEMS[k]}</b><small><i class="rar">${rn}</i> · ${S.inv[k]} in your bag${SELL[k] ? ` · sells for ${fmt(SELL[k])} each` : ''}${f ? ` · heals ${f.heal}` : ''}</small></div><div class="row">${f ? `<button class="primary" data-eat="${k}">Eat</button><button data-pin="${k}" aria-pressed="${(S.hotbar || []).includes(k)}">Hotbar</button>` : ''}</div></div>`;
+      info = `<div class="iteminfo ${rc}"><img src="${ICONS[k]}" alt=""><div><b>${ITEMS[k]}</b><small><i class="rar">${rn}</i> · ${S.inv[k]} in your bag${SELL[k] ? ` · sells for ${fmt(SELL[k])} each` : ''}${f ? ` · heals ${f.heal}` : ''}</small></div><div class="row">${f ? `<button class="primary" data-eat="${k}">Eat</button>` : ''}<button data-pin="${k}" aria-pressed="${(S.hotbar || []).includes(k)}">Hotbar</button></div></div>`;
     }
     body = `<div class="bag five">${slots.join('')}</div>${info}`;
   } else {

@@ -613,9 +613,6 @@
   @media (min-width: 701px) { #menu { background: none; border: none; box-shadow: none; padding: 0; opacity: .82; transition: opacity .15s; } #menu:hover { opacity: 1; } }
   #sheet { top: calc(env(safe-area-inset-top, 0px) + 66px); }
   #menutoggle { display: none; }
-  #hotbar .hot.empty { display: none; }
-  body.sheet-bag #hotbar .hot.empty { display: grid; }
-  body:not(.sheet-bag) #hotbar:not(:has(.hot:not(.empty))) { display: none; }
   #hotbar { bottom: calc(env(safe-area-inset-bottom, 0px) + 78px); padding: 4px 5px; gap: 4px; }
   #hotbar .hot { width: 40px; height: 40px; }
   #hotbar .hot img { width: 26px; height: 26px; }
@@ -880,6 +877,17 @@
   }
   #travel { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; justify-content: center; margin-top: 8px; font-size: 13px; }
   #travel button { font-size: 13px; padding: 4px 12px; }
+  /* ---------- v53 HUD: hotbar sits right above your health, no Attack box on desktop, boss bar at the top ---------- */
+  @media (pointer: fine) {
+    #actionbar { display: none !important; }
+    #hotbar { bottom: calc(env(safe-area-inset-bottom, 0px) + 50px) !important; }
+    #specialbtn, body.nohint #specialbtn { left: calc(50% + 214px); bottom: calc(env(safe-area-inset-bottom, 0px) + 10px); }
+  }
+  #hotbar .hot.empty { opacity: .7; }
+  #hotbar .hot.empty img { display: none; }
+  #bossbar { top: calc(env(safe-area-inset-top, 0px) + 12px); bottom: auto !important; width: min(460px, calc(100% - 540px)); min-width: 260px; }
+  #toasts { top: calc(env(safe-area-inset-top, 0px) + 84px); }
+  @media (max-width: 1000px) { #bossbar { top: calc(env(safe-area-inset-top, 0px) + 112px); width: min(420px, calc(100% - 32px)); } }
 </style>
 
 <div id="stage"></div>
