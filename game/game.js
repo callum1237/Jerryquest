@@ -11,6 +11,20 @@ import { unlockAudio, playMusic, sfx, setVolumes, fxMute } from './audio.js';
 import { net, resume, signIn, signOut, loadCloud, cloudSave, flushSave, refreshBoard, setTown, connect, updateProfile, sendPos, sendChat, cleanChat, sendNet } from './online.js';
 
 const $ = (id) => document.getElementById(id);
+let resizeCount = 0; addEventListener('resize', () => { resizeCount++; });
+// Labels and bars that follow things on screen: only touch the page when something actually
+// changed, and slide them with `translate` (no page re-layout) where the browser supports it.
+const CAN_TRANSLATE = typeof CSS !== 'undefined' && !!CSS.supports && CSS.supports('translate', '1px 1px');
+function pin(el, v) { // v is a camera-projected point (-1..1)
+  const x = Math.round((v.x * 0.5 + 0.5) * innerWidth * 2) / 2, y = Math.round((-v.y * 0.5 + 0.5) * innerHeight * 2) / 2;
+  if (el._px === x && el._py === y) return;
+  el._px = x; el._py = y;
+  if (CAN_TRANSLATE) { if (!el._pinned) { el._pinned = 1; el.style.left = '0px'; el.style.top = '0px'; } el.style.translate = `${x}px ${y}px`; }
+  else { el.style.left = `${x}px`; el.style.top = `${y}px`; }
+}
+const setShown = (el, on) => { if (el.hidden === on) el.hidden = !on; };
+const setW = (el, pct) => { const w = `${Math.max(0, Math.min(100, pct)).toFixed(1)}%`; if (el._w !== w) { el._w = w; el.style.width = w; } };
+const setText = (el, t) => { if (el.textContent !== t) el.textContent = t; };
 const clock = new THREE.Clock();
 let now = 0;
 
@@ -743,7 +757,7 @@ function peersTick(dt) {
     if (!pa) pa = makePeer(id, p);
     const here = p.where === where && !creator.open;
     pa.a.root.visible = here;
-    if (!here) { pa.tag.hidden = true; continue; }
+    if (!here) { setShown(pa.tag, false); continue; }
     // glide towards the last position they sent
     const k = Math.min(1, dt * 10);
     p.x += (p.gx - p.x) * k; p.z += (p.gz - p.z) * k;
@@ -755,9 +769,9 @@ function peersTick(dt) {
     pa.a.mixer.update(dt); headPose(pa.a);
     flairTick(pa.a, dt, /Running|Walking/.test(pa.anim));
     const v = tmpV.set(p.x, 4.4, p.z).project(camera);
-    if (v.z > 1 || bossIntro) { pa.tag.hidden = true; continue; }
-    pa.tag.hidden = false;
-    pa.tag.style.left = `${(v.x * 0.5 + 0.5) * innerWidth}px`; pa.tag.style.top = `${(-v.y * 0.5 + 0.5) * innerHeight}px`;
+    if (v.z > 1 || bossIntro) { setShown(pa.tag, false); continue; }
+    setShown(pa.tag, true);
+    pin(pa.tag, v);
     const txt = `${p.name || 'Friend'} · Lv ${p.lvl || 1}`, col = tagColour(p.lvl || 1), tt = (p.look && p.look.ti) || '';
     if (pa.tag.dataset.t !== txt + col + tt) { pa.tag.dataset.t = txt + col + tt; pa.tag.querySelector('b').textContent = txt; pa.tag.style.setProperty('--tc', col); setTagTitle(pa.tag, tt, p.look && p.look.tc); }
   }
@@ -2618,7 +2632,7 @@ function guideTick() {
   guide.g.visible = !!t && d > 4.5;
   guide.star.visible = !!t && d < 45;
   const L = guide.label;
-  if (!t || d <= 4.5 || creator.open) L.hidden = true;
+  if (!t || d <= 4.5 || creator.open) setShown(L, false);
   if (!t) { guide.g.visible = false; guide.star.visible = false; }
   if (!t) return;
   guide.g.position.set(P.x, 0.25 + P.y, P.z);
@@ -2634,8 +2648,8 @@ function guideTick() {
     const txt = `➤ ${via ? `To ${via} · ` : ''}${goal} · ${Math.round(d)}m`;
     if (L.textContent !== txt) L.textContent = txt;
     const v = tmpV.copy(player.pos).setY(0).project(camera);
-    L.hidden = v.z > 1;
-    L.style.left = `${(v.x * 0.5 + 0.5) * innerWidth}px`; L.style.top = `${(-v.y * 0.5 + 0.5) * innerHeight}px`;
+    setShown(L, v.z <= 1);
+    pin(L, v);
   }
 }
 function questProgress(id) {
@@ -2648,32 +2662,55 @@ function questProgress(id) {
 
 // ---------- UI ----------
 let sheetMode = null;
+// Little messages at the top. The same message again just bumps a "×2" on the one already showing,
+// and no more than three stack up at once, so the screen never fills with notes.
 function toast(text, icon, big = false) {
+  const box = $('toasts'), life = Math.max(big ? 3000 : 1800, Math.min(4500, 1400 + text.length * 50));
+  for (const t of box.children) {
+    if (t.dataset.text !== text || t.classList.contains('big') !== big) continue;
+    const n = (+t.dataset.n || 1) + 1; t.dataset.n = n;
+    let c = t.querySelector('em'); if (!c) { c = document.createElement('em'); t.appendChild(c); }
+    c.textContent = `×${n}`;
+    clearTimeout(t._gone); t._gone = setTimeout(() => t.remove(), life);
+    return;
+  }
   const el = document.createElement('div');
-  el.className = `toast${big ? ' big' : ''}`;
+  el.className = `toast${big ? ' big' : ''}`; el.dataset.text = text;
   el.innerHTML = `${icon ? `<img src="${icon}" alt="">` : ''}<span></span>`;
   el.querySelector('span').textContent = text;
-  $('toasts').appendChild(el);
-  while ($('toasts').children.length > 4) $('toasts').firstChild.remove();
-  setTimeout(() => el.remove(), Math.max(big ? 3600 : 2200, 1800 + text.length * 55));
+  box.appendChild(el);
+  while (box.children.length > 3) box.firstChild.remove();
+  el._gone = setTimeout(() => el.remove(), life);
 }
+// Pop-up numbers and words. Ones that land on top of each other stack neatly instead of
+// overlapping, and only a handful are on screen at once, so a busy fight stays readable.
+const floats = [], _ftV = new THREE.Vector3();
 function floatText(p, text, cls = '') {
-  const v = p.clone().project(camera);
+  const v = _ftV.copy(p).project(camera);
   if (v.z > 1) return;
+  const x = (v.x * 0.5 + 0.5) * innerWidth, ms = performance.now();
+  let y = (-v.y * 0.5 + 0.5) * innerHeight;
+  for (const f of floats) if (ms - f.ms < 450 && Math.abs(f.x - x) < 70 && Math.abs(f.y - y) < 26) y = f.y - 28;
   const el = document.createElement('div');
   el.className = `float ${cls}`; el.textContent = text;
-  el.style.left = `${(v.x * 0.5 + 0.5) * innerWidth}px`;
-  el.style.top = `${(-v.y * 0.5 + 0.5) * innerHeight}px`;
+  el.style.left = `${x}px`; el.style.top = `${y}px`;
   document.body.appendChild(el);
-  setTimeout(() => el.remove(), 1000);
+  const f = { el, x, y, ms }; floats.push(f);
+  while (floats.length > 7) floats.shift().el.remove();
+  setTimeout(() => { el.remove(); const i = floats.indexOf(f); if (i >= 0) floats.splice(i, 1); }, 1000);
 }
 const npcName = (id) => npcs.find((n) => n.id === id).name;
 function bossUi() {
   if (!player) return;
   const b = $('sheet').hidden ? enemies.find((e) => e.T.boss && e.inside === where && e.hp > 0 && (e.state === 'chase' || e.state === 'slam') && Math.hypot(e.pos.x - player.pos.x, e.pos.z - player.pos.z) < 32) : null;
   const bar = $('bossbar');
-  bar.hidden = !b;
-  if (b) { $('bossname').textContent = PHASE_LINES[b.type] ? `${b.T.name} · phase ${b.phase || 1} of 3` : b.T.name; bar.classList.toggle('phased', !!PHASE_LINES[b.type]); $('bossfill').style.width = `${(b.hp / b.T.hp) * 100}%`; }
+  setShown(bar, !!b);
+  if (b) {
+    const phased = !!PHASE_LINES[b.type];
+    setText($('bossname'), phased ? `${b.T.name} · phase ${b.phase || 1} of 3` : b.T.name);
+    if (bar.classList.contains('phased') !== phased) bar.classList.toggle('phased', phased);
+    setW($('bossfill'), (b.hp / b.T.hp) * 100);
+  }
 }
 let zoneNow = null;
 function zoneBanner() {
@@ -3614,8 +3651,8 @@ renderer.domElement.addEventListener('pointerdown', (e) => {
   moveTarget = new THREE.Vector2(p.x, p.z);
   marker.position.set(p.x, 0.08, p.z); marker.visible = !t; marker.scale.setScalar(1.4);
 });
-let zoom = 1;
-renderer.domElement.addEventListener('wheel', (e) => { zoom = THREE.MathUtils.clamp(zoom + e.deltaY * 0.001, 0.55, 1.9); e.preventDefault(); }, { passive: false });
+let zoom = 1, zoomGoal = 1; // the wheel sets where to zoom to; the camera glides there
+renderer.domElement.addEventListener('wheel', (e) => { zoomGoal = THREE.MathUtils.clamp(zoomGoal + e.deltaY * 0.001, 0.55, 1.9); e.preventDefault(); }, { passive: false });
 let held = false;
 $('action').addEventListener('pointerdown', (e) => {
   e.preventDefault();
@@ -4089,6 +4126,7 @@ function knockTick(e, dt) {
 let poisonHit = false;
 function hurtEnemy(e, dmg, src = null, power = 1) {
   const head = e.pos.clone().setY(3.4);
+  e.barAt = now; // its health bar shows for a little while after each hit
   if (e.state === 'idle' || e.state === 'walk') e.state = 'chase';
   if (e.under) { if (rng() < 0.5) floatText(head, 'It\'s underwater! Watch the bubbles', 'miss'); return; }
   if (dmg === 0) { floatText(head, 'Miss', 'miss'); return; }
@@ -5399,7 +5437,9 @@ bigMap.addEventListener('click', () => toggleBigMap(false));
 $('bosstalk').addEventListener('pointerdown', (e) => { e.preventDefault(); e.stopPropagation(); bossSkip(); });
 function drawMap(cv, full) {
   if (!player) return;
-  const dpr = Math.min(devicePixelRatio || 1, 2), css = cv.clientWidth || 150;
+  // reading a size from the page forces a re-layout, so only measure the map again after a resize
+  if (!cv._css || cv._cssAt !== resizeCount) { cv._css = cv.clientWidth; cv._cssAt = cv._css ? resizeCount : -1; }
+  const dpr = Math.min(devicePixelRatio || 1, 2), css = cv._css || 150;
   if (cv.width !== Math.round(css * dpr)) { cv.width = cv.height = Math.round(css * dpr); }
   const W = cv.width, g = cv.getContext('2d');
   const Lm = LANDS[where], MR = Lm ? LAND_MAP_R : MAP_R, ox = Lm ? Lm.x : 0, oz = Lm ? Lm.z : 0, bg = Lm ? landMap(Lm) : mapBg;
@@ -5420,7 +5460,7 @@ function drawMap(cv, full) {
   if (!full) { g.beginPath(); g.arc(W / 2, W / 2, W / 2, 0, 7); g.clip(); }
   g.fillStyle = '#3f7a3a'; g.fillRect(0, 0, W, W);
   g.drawImage(bg, srcX(cx - half), srcZ(cz - half), srcX(cx + half) - srcX(cx - half), srcZ(cz + half) - srcZ(cz - half), 0, 0, W, W);
-  const dot = (x, z, r, fill) => { const [u, v] = toPx(x, z); g.beginPath(); g.arc(u, v, r * dpr, 0, 7); g.fillStyle = fill; g.fill(); g.lineWidth = 1.5 * dpr; g.strokeStyle = '#3a2010'; g.stroke(); };
+  const dot = (x, z, r, fill) => { const [u, v] = toPx(x, z); if (u < -12 || v < -12 || u > W + 12 || v > W + 12) return; g.beginPath(); g.arc(u, v, r * dpr, 0, 7); g.fillStyle = fill; g.fill(); g.lineWidth = 1.5 * dpr; g.strokeStyle = '#3a2010'; g.stroke(); };
   const S1 = (full ? 1 : 0.85) * dpr;
   const flag = (x, z, col) => { const [u, v] = toPx(x, z); g.lineWidth = 2.5 * S1; g.strokeStyle = '#3a2010'; g.beginPath(); g.moveTo(u, v + 8 * S1); g.lineTo(u, v - 12 * S1); g.stroke(); g.beginPath(); g.moveTo(u, v - 12 * S1); g.lineTo(u + 12 * S1, v - 8 * S1); g.lineTo(u, v - 3 * S1); g.closePath(); g.fillStyle = col; g.fill(); g.lineWidth = 1.5 * S1; g.stroke(); };
   const skull = (x, z, r) => { const [u, v] = toPx(x, z); g.beginPath(); g.arc(u, v, r * S1, 0, 7); g.fillStyle = '#ff3a5a'; g.fill(); g.lineWidth = 2 * S1; g.strokeStyle = '#3a2010'; g.stroke(); g.beginPath(); g.arc(u, v - r * 0.1 * S1, r * 0.55 * S1, 0, 7); g.fillStyle = '#fff'; g.fill(); g.fillStyle = '#3a2010'; for (const sx of [-1, 1]) { g.beginPath(); g.arc(u + sx * r * 0.22 * S1, v - r * 0.12 * S1, r * 0.14 * S1, 0, 7); g.fill(); } };
@@ -5479,7 +5519,8 @@ function drawMap(cv, full) {
 }
 
 // ---------- main loop ----------
-const camPos = new THREE.Vector3(0, 30, 40);
+const camPos = new THREE.Vector3(0, 30, 40), camLook = new THREE.Vector3(), camOff = new THREE.Vector3(), camAim = new THREE.Vector3();
+let camFollow = false;
 const tmpV = new THREE.Vector3(), tmpF = new THREE.Vector3();
 function pushOut(p, r) {
   for (const c of colliders) {
@@ -5507,7 +5548,7 @@ function collide(p, r = 0.7) {
   if (d > WORLD_R) { p.x *= WORLD_R / d; p.z *= WORLD_R / d; }
 }
 let stamina = 100, staminaAt = 0, sprintToggle = false;
-let lastUi = 0, lastSave = 0, regenAt = 0, lastAct = '', stuck = 0;
+let lastUi = 0, lastSave = 0, regenAt = 0, lastAct = '', stuck = 0, staminaTired = null;
 // Day slides into golden hour, then a cosy blue night with fireflies, then dawn. A full
 // day takes 24 minutes. Rooms indoors always use the daytime light.
 const DAY_LEN = 24 * 60;
@@ -5752,7 +5793,7 @@ function tick() {
     }
     checkDoors();
     if (now > staminaAt && stamina < 100) stamina = Math.min(100, stamina + dt * 24);
-    $('stamfill').style.width = `${stamina}%`; $('status').classList.toggle('tired', stamina < 99);
+    setW($('stamfill'), stamina); const tired = stamina < 99; if (tired !== staminaTired) { staminaTired = tired; $('status').classList.toggle('tired', tired); }
     if (player.air) {
       pp.y += player.vy * dt; player.vy -= GRAV * dt;
       if (pp.y <= 0) { pp.y = 0; player.air = false; player.vy = 0; sfx('land'); burst(pp.clone().setY(0.15), '#f3e2bd', 10, 2.5); if (now > player.busyUntil) player.play(mx || mz ? 'Running_A' : 'Idle', { fade: 0.1 }); }
@@ -5827,14 +5868,10 @@ function tick() {
   for (const n of nodes) {
     if (!n.bar) continue;
     if (n.alive && n.hp < n.maxHp && now - n.lastHit > 10) n.hp = n.maxHp;
-    const show = n.alive && n.hp < n.maxHp;
-    n.bar.hidden = !show;
-    if (show) {
-      const v = tmpV.set(n.x, n.cut ? 4.2 : 2.6, n.z).project(camera);
-      n.bar.style.left = `${(v.x * 0.5 + 0.5) * innerWidth}px`;
-      n.bar.style.top = `${(-v.y * 0.5 + 0.5) * innerHeight}px`;
-      n.bar.firstChild.style.width = `${(n.hp / n.maxHp) * 100}%`;
-    }
+    let show = n.alive && n.hp < n.maxHp, v = null;
+    if (show) { v = tmpV.set(n.x, n.cut ? 4.2 : 2.6, n.z).project(camera); show = v.z <= 1; }
+    setShown(n.bar, show);
+    if (show) { pin(n.bar, v); setW(n.bar.firstChild, (n.hp / n.maxHp) * 100); }
   }
   if (player) {
     arcHolder.position.set(player.pos.x, 0, player.pos.z); arcHolder.rotation.y = player.root.rotation.y;
@@ -5843,15 +5880,18 @@ function tick() {
     arcMat.opacity = 0.12 + arcFlash * 0.3;
   }
 
+  // a monster's health bar only shows once it is hurt and still in the thick of it
+  // (hit in the last few seconds, or right next to you), so a big fight doesn't fill the screen with bars
   for (const e of enemies) {
-    const show = e.hp > 0 && e.hp < e.T.hp && e.state !== 'rising';
-    e.bar.hidden = !show;
+    if (e.T.boss) continue; // bosses use the big bar at the top
+    let show = e.hp > 0 && e.hp < e.T.hp && e.state !== 'rising' && e.inside === where && !!player, v = null;
     if (show) {
-      const v = tmpV.copy(e.pos).setY(3.3).project(camera);
-      e.bar.style.left = `${(v.x * 0.5 + 0.5) * innerWidth}px`;
-      e.bar.style.top = `${(-v.y * 0.5 + 0.5) * innerHeight}px`;
-      e.bar.firstChild.style.width = `${(e.hp / e.T.hp) * 100}%`;
+      const d = Math.hypot(e.pos.x - player.pos.x, e.pos.z - player.pos.z);
+      show = d < 30 && (now - (e.barAt || 0) < 6 || d < 9);
     }
+    if (show) { v = tmpV.copy(e.pos).setY(3.3).project(camera); show = v.z <= 1; }
+    setShown(e.bar, show);
+    if (show) { pin(e.bar, v); setW(e.bar.firstChild, (e.hp / e.T.hp) * 100); }
   }
 
   if (player && now - lastUi > 0.15) {
@@ -5869,7 +5909,7 @@ function tick() {
   }
   // bake the map picture once textures have had time to arrive, then once more to be safe
   if ((mapBaked === 0 && now > 2) || (mapBaked === 1 && now > 8)) { mapBaked++; bakeMap(); }
-  if (player && now - lastMap > 0.1) { lastMap = now; mini.hidden = !$('sheet').hidden; drawMap(mini, false); if (!bigMap.hidden) drawMap(bigMap.querySelector('canvas'), true); }
+  if (player && now - lastMap > 0.1) { lastMap = now; setShown(mini, $('sheet').hidden); if (!mini.hidden) drawMap(mini, false); if (!bigMap.hidden) drawMap(bigMap.querySelector('canvas'), true); }
   if (player && now - lastSave > 6) { lastSave = now; save(); }
 
   dayTick(dt);
@@ -5887,7 +5927,10 @@ function tick() {
 
   const focus = player ? tmpF.copy(player.pos).setY(0) : tmpF.set(0, 0, 4);
   updateParticles(dt, now, focus);
-  const off = CAM_OFF.clone().multiplyScalar(zoom * (camera.aspect < 1 ? 1.3 : 1));
+  zoom += (zoomGoal - zoom) * (1 - Math.pow(0.0005, dt));
+  const off = camOff.copy(CAM_OFF).multiplyScalar(zoom * (camera.aspect < 1 ? 1.3 : 1));
+  const following = !(creator.open && player) && !bossIntro && !(camMoment && player && camMoment.t < camMoment.dur) && !(player && dlg && dlg.talky && talking && talking.actor && !$('dialog').hidden) && !(!player && !$('pick').hidden);
+  if (!following) camFollow = false;
   bossIntroTick(dt);
   if (creator.open && player) creatorCam(dt);
   else if (bossIntro) introCam(dt);
@@ -5897,9 +5940,15 @@ function tick() {
   else {
     if (camera.view && camera.view.enabled) { camera.clearViewOffset(); camera.updateProjectionMatrix(); }
     if (talkCam.near0 && camera.near !== talkCam.near0) { camera.near = talkCam.near0; camera.updateProjectionMatrix(); }
+    // the camera glides after the hero, and so does the point it looks at, so it never snaps or
+    // twitches; coming back from a cut-scene it eases round from wherever it was looking
+    camAim.set(focus.x, 1.7, focus.z - 1.5);
+    if (!camFollow) { camFollow = true; camera.getWorldDirection(camLook); camLook.multiplyScalar(off.length()).add(camera.position); }
     camPos.lerp(tmpV.copy(focus).add(off), 1 - Math.pow(0.002, dt));
+    camLook.lerp(camAim, 1 - Math.pow(0.0006, dt));
+    if (camLook.distanceToSquared(camAim) > 100) camLook.copy(camAim); // after a teleport, just be there
     camera.position.copy(camPos);
-    camera.lookAt(focus.x, 1.7, focus.z - 1.5);
+    camera.lookAt(camLook);
   }
   sky.position.copy(camera.position);
   const sd = P.sunDir;
@@ -6032,9 +6081,9 @@ function bossShout(e) {
 function bossShoutTick() {
   if (!shoutEl) return;
   const e = shoutEl.e, on = e && now < +shoutEl.dataset.until && e.hp > 0 && e.inside === where;
-  shoutEl.hidden = !on; if (!on) return;
+  setShown(shoutEl, on); if (!on) return;
   const v = tmpV.copy(e.pos).setY((e.T.scale || 2) * 2.4 + 1.5).project(camera);
-  shoutEl.style.left = `${(v.x * 0.5 + 0.5) * innerWidth}px`; shoutEl.style.top = `${(-v.y * 0.5 + 0.5) * innerHeight}px`;
+  pin(shoutEl, v);
 }
 function startBossScene(e, kind, custom) {
   requeueLetter(); closeDialog(); closeSheet(); cancelTask(); keys.clear(); moveTarget = null;
@@ -6857,11 +6906,11 @@ function setTagTitle(tag, text, col) {
 function heroTag() {
   if (!heroTagEl) { heroTagEl = document.createElement('div'); heroTagEl.className = 'herotag'; heroTagEl.innerHTML = '<b></b>'; document.body.appendChild(heroTagEl); }
   const show = player && S.started && !player.dead && !creator.open && !bossIntro && S.nameTag !== false;
-  if (!show) { heroTagEl.hidden = true; return; }
+  if (!show) { setShown(heroTagEl, false); return; }
   const v = tmpV.set(player.pos.x, player.pos.y + 4.4, player.pos.z).project(camera);
-  if (v.z > 1) { heroTagEl.hidden = true; return; }
-  heroTagEl.hidden = false;
-  heroTagEl.style.left = `${(v.x * 0.5 + 0.5) * innerWidth}px`; heroTagEl.style.top = `${(-v.y * 0.5 + 0.5) * innerHeight}px`;
+  if (v.z > 1) { setShown(heroTagEl, false); return; }
+  setShown(heroTagEl, true);
+  pin(heroTagEl, v);
   const l = heroLvl(), txt = `${heroName()} · Lv ${l}`, col = tagColour(l), t = heroTitle(), tt = t ? t.name : '';
   if (heroTagEl.dataset.t !== txt + col + tt) { heroTagEl.dataset.t = txt + col + tt; heroTagEl.querySelector('b').textContent = txt; heroTagEl.style.setProperty('--tc', col); setTagTitle(heroTagEl, tt, t ? t.col : ''); }
 }
@@ -6908,20 +6957,22 @@ function doEmote(i) {
 function emoteTick() {
   if (!emoteBubble || !player) return;
   const on = now < +emoteBubble.dataset.until && !creator.open;
-  emoteBubble.hidden = !on; if (!on) return;
+  setShown(emoteBubble, on); if (!on) return;
   const v = tmpV.set(player.pos.x, player.pos.y + 5.6, player.pos.z).project(camera);
-  emoteBubble.style.left = `${(v.x * 0.5 + 0.5) * innerWidth}px`; emoteBubble.style.top = `${(-v.y * 0.5 + 0.5) * innerHeight}px`;
+  pin(emoteBubble, v);
 }
 function crewTags() {
   for (const c of crew) {
-    const show = c.inside === where && player && dist2d(c.pos, player.pos) < 34 && !creator.open && !bossIntro;
-    if (!show) { c.tag.hidden = true; continue; }
+    // only adventurers close by (or on your side, or talking) wear a name tag, so the screen stays calm
+    const d = c.inside === where && player ? dist2d(c.pos, player.pos) : 1e9;
+    const show = d < (crewCfg(c).mode === 'ally' || now < c.sayUntil ? 34 : 20) && !creator.open && !bossIntro;
+    if (!show) { setShown(c.tag, false); continue; }
     const v = tmpV.set(c.pos.x, c.pos.y + 4.3, c.pos.z).project(camera);
-    if (v.z > 1) { c.tag.hidden = true; continue; }
-    c.tag.hidden = false;
-    c.tag.style.left = `${(v.x * 0.5 + 0.5) * innerWidth}px`; c.tag.style.top = `${(-v.y * 0.5 + 0.5) * innerHeight}px`;
+    if (v.z > 1) { setShown(c.tag, false); continue; }
+    setShown(c.tag, true);
+    pin(c.tag, v);
     const m = crewCfg(c).mode; if (c.tag.dataset.mode !== m) c.tag.dataset.mode = m;
-    c.tag.querySelector('u').style.width = `${(Math.max(0, c.hp || 0) / crewMax(c)) * 100}%`;
+    setW(c.tag.u || (c.tag.u = c.tag.querySelector('u')), (Math.max(0, c.hp || 0) / crewMax(c)) * 100);
     if (now > c.sayUntil) { const s = c.tag.querySelector('.cs'); if (!s.hidden) s.hidden = true; }
   }
 }
@@ -7818,7 +7869,7 @@ function makeGagronFriend() {
   npcs.push(gagronFriend);
 }
 
-window.__jq = { get guide() { return guide; }, bossNet, safeSpot, get PVP_LVL() { return PVP_LVL; }, goldNode, wbInfo, wbTick, get wb() { return wb; }, WB_SPOTS, tradeOpen, tradeNet, offerKey, get trade() { return trade; }, adv(s) { for (let t = 0; t < s; t += 0.05) { for (let i = timers.length - 1; i >= 0; i--) { timers[i].t -= 0.05; if (timers[i].t <= 0) { const f = timers[i].f; timers.splice(i, 1); f(); } } bossFxTick(0.05); } }, get party() { return party; }, BOSS_AI, PHASE_SETUP, get gulped() { return gulped; }, wriggle, toggleBigMap, spawnEnemy, openPathChoice, choosePath, startLanternNight, get lanterns() { return lanterns; }, duelOffer, duelPrize, onNet, chatCommand, canFight, openUpgrade, openBoard, boardToday, queueLetter, makeGagronFriend, net, peerActors, runeTick, bossFx, renderer, scene, openMayor, darkOmen, netWorth, liberateTown, spots, spotEffect, setGolden, goldenCaught, pompArrive, get goldenE() { return goldenE; }, spinWheel, dayTick, get bossIntro() { return bossIntro; }, bossSkip, startBossScene, sailTo, regions, closeSheet, renderHotbar, crew, setCrewMode, TOWNS, liberateTown, chests, openChest, stopRoulette, enemies, startBossIntro, closeDialog, advanceDialog, dash, attackPress, craft, CRAFTS, openCreator, closeCreator, creator, rebuildHero, setZoom: (z) => { zoom = z; }, hurtEnemy, goThrough, get where() { return where; }, INTERIORS, equipGear, spendPoint, giveHeroXp, heroLvl, stat, maxHp, defDiv, openWeaponShop, openKing, jump, eat, eatBest, openShop, swing, swingTarget, hitNode, projectiles, timers, get S() { return S; }, get player() { return player; }, enemies, nodes, npcs, startTask, doAction, giveXp, save, openSheet, openDialog };
+window.__jq = { toast, get guide() { return guide; }, bossNet, safeSpot, get PVP_LVL() { return PVP_LVL; }, goldNode, wbInfo, wbTick, get wb() { return wb; }, WB_SPOTS, tradeOpen, tradeNet, offerKey, get trade() { return trade; }, adv(s) { for (let t = 0; t < s; t += 0.05) { for (let i = timers.length - 1; i >= 0; i--) { timers[i].t -= 0.05; if (timers[i].t <= 0) { const f = timers[i].f; timers.splice(i, 1); f(); } } bossFxTick(0.05); } }, get party() { return party; }, BOSS_AI, PHASE_SETUP, get gulped() { return gulped; }, wriggle, toggleBigMap, spawnEnemy, openPathChoice, choosePath, startLanternNight, get lanterns() { return lanterns; }, duelOffer, duelPrize, onNet, chatCommand, canFight, openUpgrade, openBoard, boardToday, queueLetter, makeGagronFriend, net, peerActors, runeTick, bossFx, renderer, scene, openMayor, darkOmen, netWorth, liberateTown, spots, spotEffect, setGolden, goldenCaught, pompArrive, get goldenE() { return goldenE; }, spinWheel, dayTick, get bossIntro() { return bossIntro; }, bossSkip, startBossScene, sailTo, regions, closeSheet, renderHotbar, crew, setCrewMode, TOWNS, liberateTown, chests, openChest, stopRoulette, enemies, startBossIntro, closeDialog, advanceDialog, dash, attackPress, craft, CRAFTS, openCreator, closeCreator, creator, rebuildHero, setZoom: (z) => { zoom = zoomGoal = z; }, hurtEnemy, goThrough, get where() { return where; }, INTERIORS, equipGear, spendPoint, giveHeroXp, heroLvl, stat, maxHp, defDiv, openWeaponShop, openKing, jump, eat, eatBest, openShop, swing, swingTarget, hitNode, projectiles, timers, get S() { return S; }, get player() { return player; }, enemies, nodes, npcs, startTask, doAction, giveXp, save, openSheet, openDialog };
 window.addEventListener('error', (e) => { const m = $('loadmsg'); if (m) m.textContent = `Something went wrong: ${e.message}`; });
 main().catch((err) => {
   console.error(err);

@@ -216,14 +216,18 @@ bGeo.setAttribute('color', new THREE.BufferAttribute(bCol, 3));
 const bursts = new THREE.Points(bGeo, new THREE.PointsMaterial({ size: 0.7, map: DOT, vertexColors: true, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, fog: false }));
 bursts.layers.set(1); bursts.frustumCulled = false; scene.add(bursts);
 let bNext = 0;
+// Sparkle bursts. Counts are trimmed (and capped) so big hits read as a soft puff rather than
+// a blizzard of dots, and nothing is allocated per particle, so bursts never cause a hitch.
+const _bc = new THREE.Color(), _bv = new THREE.Vector3();
 export function burst(p, color, n = 24, spd = 6, up = 0.9) {
-  const c = new THREE.Color(color);
+  _bc.set(color);
+  n = n <= 2 ? n : Math.min(36, Math.round(n * 0.6));
   for (let i = 0; i < n; i++) {
-    const j = bNext = (bNext + 1) % BURST;
-    bPos.set([p.x, p.y, p.z], j * 3);
-    const v = new THREE.Vector3(rng() - 0.5, rng() * up, rng() - 0.5).normalize().multiplyScalar(spd * (0.4 + rng()));
-    bVel.set([v.x, v.y, v.z], j * 3);
-    bCol.set([c.r, c.g, c.b], j * 3);
+    const j = bNext = (bNext + 1) % BURST, k = j * 3;
+    bPos[k] = p.x; bPos[k + 1] = p.y; bPos[k + 2] = p.z;
+    _bv.set(rng() - 0.5, rng() * up, rng() - 0.5).normalize().multiplyScalar(spd * (0.4 + rng()));
+    bVel[k] = _bv.x; bVel[k + 1] = _bv.y; bVel[k + 2] = _bv.z;
+    bCol[k] = _bc.r; bCol[k + 1] = _bc.g; bCol[k + 2] = _bc.b;
     bLife[j] = 0.5 + rng() * 0.5;
   }
 }
@@ -241,15 +245,18 @@ export function updateParticles(dt, t, center) {
     motePos[i * 3 + 1] = 0.8 + ((s * 0.37) % 5) + Math.sin(t * 0.9 + s) * 0.6;
   }
   moteGeo.attributes.position.needsUpdate = true;
+  const fade = Math.pow(0.985, dt * 60); // same fade at any frame rate
+  let live = false;
   for (let j = 0; j < BURST; j++) {
-    if (bLife[j] <= 0) { bPos[j * 3 + 1] = -100; continue; }
+    if (bLife[j] <= 0) { if (bPos[j * 3 + 1] !== -100) { bPos[j * 3 + 1] = -100; live = true; } continue; }
+    live = true;
     bLife[j] -= dt;
     bVel[j * 3 + 1] -= 9 * dt;
     bPos[j * 3] += bVel[j * 3] * dt; bPos[j * 3 + 1] = Math.max(0.05, bPos[j * 3 + 1] + bVel[j * 3 + 1] * dt); bPos[j * 3 + 2] += bVel[j * 3 + 2] * dt;
-    bCol[j * 3] *= 0.985; bCol[j * 3 + 1] *= 0.985; bCol[j * 3 + 2] *= 0.985;
+    bCol[j * 3] *= fade; bCol[j * 3 + 1] *= fade; bCol[j * 3 + 2] *= fade;
     if (bLife[j] <= 0) bPos[j * 3 + 1] = -100;
   }
-  bGeo.attributes.position.needsUpdate = true; bGeo.attributes.color.needsUpdate = true;
+  if (live) { bGeo.attributes.position.needsUpdate = true; bGeo.attributes.color.needsUpdate = true; } // nothing to re-upload when no sparkles are flying
 }
 
 // ---------- post-processing: ink outlines + storybook grade ----------
