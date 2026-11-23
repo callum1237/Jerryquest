@@ -32,7 +32,7 @@
       radial-gradient(circle at calc(100% - 9px) 9px, #7fe3f0 0 3.5px, #4a2a17 3.6px 5px, transparent 5.2px),
       radial-gradient(circle at 9px calc(100% - 9px), #7fe3f0 0 3.5px, #4a2a17 3.6px 5px, transparent 5.2px),
       radial-gradient(circle at calc(100% - 9px) calc(100% - 9px), #ff7eb6 0 3.5px, #4a2a17 3.6px 5px, transparent 5.2px),
-      linear-gradient(180deg, #fff4d8, var(--parch) 40%, var(--parch-deep));
+      linear-gradient(180deg, #fffbea, #fff1cc 45%, #fbe0a6);
     border: 3px solid var(--ink);
     border-radius: 18px;
     box-shadow: inset 0 0 0 3px #f7d77a, inset 0 0 0 4.5px rgb(74 42 23 / .35), 0 4px 0 var(--ink), 0 12px 28px rgb(30 22 54 / .4);
@@ -204,6 +204,13 @@
   @keyframes nextbob { to { transform: translateY(5px); } }
   #dialog .skiphint { position: absolute; right: 50px; bottom: 14px; opacity: .8; font: 800 12px/1 var(--display); background: #fff3c4; border: 2px solid var(--ink); border-radius: 10px; padding: 4px 8px; }
   @media (pointer: coarse) { #dialog .skiphint { display: none; } }
+  .badge img.face { width: 100%; height: 100%; border-radius: 50%; filter: none; }
+  #status.compact .badge img.face { width: 100%; height: 100%; }
+  #dialog .portrait { position: absolute; left: -22px; top: -58px; width: 150px; height: 150px; border-radius: 50%; border: 5px solid var(--ink);
+    background: radial-gradient(circle at 40% 35%, color-mix(in srgb, var(--accent) 35%, #fff), var(--accent)); box-shadow: 0 6px 0 var(--ink); animation: porpop .4s cubic-bezier(.3, 1.7, .5, 1) both; }
+  @keyframes porpop { from { transform: scale(.3) rotate(-20deg); opacity: 0; } }
+  #dialog.talky.hasface { padding-left: 150px; overflow: visible; }
+  @media (max-width: 600px) { #dialog .portrait { width: 92px; height: 92px; left: -8px; top: -40px; border-width: 4px; } #dialog.talky.hasface { padding-left: 96px; } }
   #dialog .reward { font-size: 13px; color: var(--ink-soft); font-weight: 800; margin-top: -4px; }
   #dialog .row { display: flex; gap: 8px; flex-wrap: wrap; }
 
@@ -487,6 +494,14 @@
   body.rouletting #hotbar, body.rouletting #actionbar, body.rouletting #specialbtn { visibility: hidden; }
   /* boss intro */
 
+
+  /* toy-box menu: every button its own bright candy colour, like a board-game party menu */
+  #menu button { --c: #ffd84a; background: linear-gradient(180deg, color-mix(in srgb, var(--c) 55%, #fff), var(--c) 55%, color-mix(in srgb, var(--c) 80%, #000)); color: #fff; text-shadow: 0 2px 0 color-mix(in srgb, var(--c) 45%, #000), 0 0 3px rgb(0 0 0 / .35); border-width: 3px; border-radius: 14px; box-shadow: inset 0 3px 0 rgb(255 255 255 / .55), inset 0 -3px 0 rgb(0 0 0 / .15), 0 4px 0 var(--ink); }
+  #menu button img { filter: drop-shadow(0 2px 0 rgb(0 0 0 / .35)); }
+  #b-skills { --c: #f2b416 !important; } #b-bag { --c: #f07a2c !important; } #b-quests { --c: #3a8fe8 !important; } #b-craft { --c: #3fae4a !important; }
+  #b-crew { --c: #e0483e !important; } #b-look { --c: #e85fa8 !important; } #b-opts { --c: #7a6ad8 !important; }
+  #menu button[aria-pressed="true"] { transform: translateY(2px) scale(1.04); box-shadow: inset 0 3px 0 rgb(255 255 255 / .55), 0 2px 0 var(--ink), 0 0 0 3px #fff8c8; }
+  .panel { border-width: 3.5px; }
   /* crew: name tags, speech bubbles and the Crew menu */
   .crewtag { position: fixed; transform: translate(-50%, -100%); display: flex; flex-direction: column; align-items: center; gap: 2px; pointer-events: none; z-index: 2; --m: #8f62d8; }
   .crewtag[data-mode="ally"] { --m: #3aa860; } .crewtag[data-mode="rival"] { --m: #d8433a; }
@@ -501,7 +516,7 @@
   .crewlist { display: grid; gap: 10px; }
   .crewcard { border: 2.5px solid var(--ink); border-radius: 14px; padding: 9px; background: color-mix(in srgb, var(--c) 30%, #fffaf0); }
   .crewcard .ctop { display: flex; gap: 10px; align-items: center; }
-  .crewcard .cface { width: 64px; height: 64px; object-fit: cover; border-radius: 50%; border: 2.5px solid var(--ink); background: #f6e1cf; flex: none; }
+  .crewcard .cface { width: 64px; height: 64px; object-fit: cover; border-radius: 50%; border: 2.5px solid var(--ink); background: radial-gradient(circle at 40% 35%, #fff, var(--c)); flex: none; }
   .crewcard .cinfo { min-width: 0; flex: 1; display: grid; gap: 2px; }
   .crewcard .cinfo b { font: 800 16px/1.1 var(--display); }
   .crewcard .chp { height: 8px; border: 2px solid var(--ink); border-radius: 5px; background: #6b3a2a; overflow: hidden; }

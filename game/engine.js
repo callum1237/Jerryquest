@@ -247,7 +247,7 @@ const postMat = new THREE.ShaderMaterial({
   uniforms: {
     tColor: { value: null }, tNormal: { value: null }, tNDepth: { value: null },
     res: { value: new THREE.Vector2() }, near: { value: camera.near }, far: { value: camera.far },
-    thick: { value: 1.7 * PR }, ink: { value: new THREE.Color('#2a160c') },
+    thick: { value: 2.1 * PR }, ink: { value: new THREE.Color('#2a160c') },
   },
   vertexShader: `varying vec2 vUv; void main(){ vUv = uv; gl_Position = vec4(position.xy, 0., 1.); }`,
   fragmentShader: `
@@ -273,12 +273,12 @@ const postMat = new THREE.ShaderMaterial({
       float edge = max(smoothstep(0.035, 0.08, de), smoothstep(0.3, 0.6, ne));
       edge *= 1. - smoothstep(90., 200., d0);
       float l = dot(col, vec3(.299,.587,.114));
-      col = mix(vec3(l), col, 1.12);
+      col = mix(vec3(l), col, 1.3); // bright, toy-box colours
       col = col * vec3(1.03, 1.0, 0.95) + vec3(0.012, 0.006, 0.0);
       col = clamp(col, 0., 1.);
       col = mix(col, ink, edge * 0.88);
       vec2 q = vUv - .5;
-      col *= mix(1., 0.82, smoothstep(0.35, 0.85, length(q*vec2(1.1,1.))));
+      col *= mix(1., 0.9, smoothstep(0.35, 0.85, length(q*vec2(1.1,1.))));
       gl_FragColor = vec4(col, 1.);
       #include <colorspace_fragment>
     }`,

@@ -323,6 +323,7 @@ async function main() {
   // the tavern door sits in front of the tavern, which moved out with the rest of the village
   buildInteriors(lib, { tavern: { outside: { x: -4.0 * VS, z: -17 * VS + 4.7 }, exitTo: { x: -4.0 * VS + 0.6, z: -17 * VS + 7.6 } } });
   buildDoors();
+  buildOccluders();
   buildChests();
   buildNodes();
   buildNpcs();
@@ -395,7 +396,9 @@ const EYE_COLOURS = {
   emerald: ['Emerald', '#1fd18a'], violet: ['Violet', '#9a5ff0'], red: ['Red', '#e0393f'], gold: ['Gold', '#f2b51c'], grey: ['Grey', '#8a96a8'],
 };
 const EYE_STYLES = { round: 'Big and round', sharp: 'Determined', sleepy: 'Sleepy', happy: 'Happy', classic: 'Little dots' };
-const HEAD_SIZES = { normal: ['Normal', 1.12], big: ['Big', 1.28], chibi: ['Chibi', 1.42] };
+const HEAD_SIZES = { normal: ['Normal', 1.2], big: ['Big', 1.4], chibi: ['Chibi', 1.56] };
+// a lower, closer camera than a straight top-down view, so you can see everyone's faces
+const CAM_OFF = new THREE.Vector3(0, 17, 27);
 const BEARDS = { none: 'None', stache: 'Moustache', curly: 'Curly moustache', goatee: 'Goatee', full: 'Big beard', wizard: 'Wizard beard' };
 let hairMatId = 0;
 function hairMatsFor(col) {
@@ -682,6 +685,72 @@ function facePreview(L, part) {
   out.getContext('2d').drawImage(previewCv, crop[0], crop[1], crop[2], crop[3], 0, 0, out.width, out.height);
   return out.toDataURL();
 }
+
+// A storybook portrait of anyone's face (hero, villagers, crew), painted from the same face art as their 3D head,
+// with their hair drawn on top. Used in conversations and on your hero badge.
+const portraitCache = new Map();
+let portraitFaceCv = null;
+function portrait(L) {
+  const key = [L.sex, L.skin, L.eyes, L.eyeStyle, L.mouth, L.mark, L.hair, L.hairLen, L.hairCol, L.beard, L.ears, L.hat].join('|');
+  if (portraitCache.has(key)) return portraitCache.get(key);
+  if (!portraitFaceCv) { portraitFaceCv = document.createElement('canvas'); portraitFaceCv.width = FW; portraitFaceCv.height = FH; }
+  paintFace(portraitFaceCv.getContext('2d'), L, 'open');
+  const cv = document.createElement('canvas'); cv.width = cv.height = 256;
+  const g = cv.getContext('2d'), ink = '#2b160c';
+  const skin = (SKIN_TONES[L.skin] || SKIN_TONES.peach)[1], hair = (HAIR_COLOURS[L.hairCol] || HAIR_COLOURS.chestnut)[1], hairDk = shade(hair, 0.72);
+  const cx = 128, cy = 150, rx = 98, ry = 92, H = L.hair, long = ['long', 'twin', 'hime', 'bob', 'curls'].includes(H) || ['long', 'vlong'].includes(L.hairLen) && H !== 'none' && H !== 'mohawk';
+  g.lineJoin = 'round'; g.lineCap = 'round'; g.lineWidth = 7; g.strokeStyle = ink;
+  // hair that hangs behind the face
+  if (long) { g.fillStyle = hairDk; g.beginPath(); g.ellipse(cx, cy + 14, rx + 22, ry + 30, 0, 0, Math.PI * 2); g.fill(); g.stroke(); }
+  // ears
+  g.fillStyle = skin;
+  for (const sx of [-1, 1]) {
+    g.beginPath();
+    if (L.ears === 'elf') { g.moveTo(cx + sx * (rx - 8), cy - 4); g.lineTo(cx + sx * (rx + 40), cy - 40); g.lineTo(cx + sx * (rx - 4), cy + 26); }
+    else g.ellipse(cx + sx * (rx - 2), cy + 8, 16, 21, 0, 0, Math.PI * 2);
+    g.closePath(); g.fill(); g.stroke();
+  }
+  // the face itself, cut from the face texture
+  g.save(); g.beginPath(); g.ellipse(cx, cy, rx, ry, 0, 0, Math.PI * 2); g.clip();
+  g.fillStyle = skin; g.fillRect(0, 0, 256, 256);
+  g.drawImage(portraitFaceCv, FX - 175, EY - 128, 350, 330, cx - rx - 4, cy - ry + 4, (rx + 4) * 2, (rx + 4) * 2 * 330 / 350);
+  g.restore();
+  g.beginPath(); g.ellipse(cx, cy, rx, ry, 0, 0, Math.PI * 2); g.stroke();
+  // beard
+  if (L.beard === 'full' || L.beard === 'wizard') {
+    g.fillStyle = hairDk; g.beginPath(); g.moveTo(cx - rx + 4, cy + 4);
+    g.quadraticCurveTo(cx - rx + 10, cy + ry + (L.beard === 'wizard' ? 70 : 30), cx, cy + ry + (L.beard === 'wizard' ? 80 : 34));
+    g.quadraticCurveTo(cx + rx - 10, cy + ry + (L.beard === 'wizard' ? 70 : 30), cx + rx - 4, cy + 4);
+    g.quadraticCurveTo(cx + 30, cy + 70, cx, cy + 58); g.quadraticCurveTo(cx - 30, cy + 70, cx - rx + 4, cy + 4); g.fill(); g.stroke();
+  }
+  if (['stache', 'curly', 'full', 'wizard'].includes(L.beard)) {
+    g.fillStyle = hairDk;
+    for (const sx of [-1, 1]) { g.beginPath(); g.ellipse(cx + sx * 20, cy + 50, 24, 9, sx * -0.25, 0, Math.PI * 2); g.fill(); g.stroke(); }
+  }
+  if (L.beard === 'goatee') { g.fillStyle = hairDk; g.beginPath(); g.moveTo(cx - 16, cy + 76); g.lineTo(cx + 16, cy + 76); g.lineTo(cx, cy + 110); g.closePath(); g.fill(); g.stroke(); }
+  // hair on top, with a zig-zag fringe
+  if (H !== 'none') {
+    g.fillStyle = hair; g.beginPath();
+    const top = cy - ry - (H === 'curls' || H === 'bun' ? 18 : 10);
+    if (H === 'mohawk') { g.moveTo(cx - 22, cy - ry + 18); g.lineTo(cx - 16, top - 30); g.lineTo(cx, top - 44); g.lineTo(cx + 16, top - 30); g.lineTo(cx + 22, cy - ry + 18); g.closePath(); }
+    else {
+      g.moveTo(cx - rx - 8, cy + (long ? 30 : 0));
+      g.bezierCurveTo(cx - rx - 14, top - 10, cx + rx + 14, top - 10, cx + rx + 8, cy + (long ? 30 : 0));
+      const n = H === 'spiky' || H === 'hero' ? 6 : 5;
+      for (let i = 0; i <= n; i++) { const x = cx + rx + 4 - (i / n) * (rx * 2 + 8), dip = i % 2 ? 22 : 44; g.lineTo(x, cy - 46 + (i === 0 || i === n ? 40 : dip - 22)); }
+      g.closePath();
+    }
+    g.fill(); g.stroke();
+    if (H === 'spiky' || H === 'hero') { for (const [x, h] of [[-50, 40], [-10, 54], [34, 46], [70, 30]]) { g.beginPath(); g.moveTo(cx + x - 22, top + 18); g.lineTo(cx + x + 4, top - h + 10); g.lineTo(cx + x + 22, top + 20); g.fill(); g.stroke(); } }
+    if (H === 'bun') { g.beginPath(); g.arc(cx, top - 14, 30, 0, Math.PI * 2); g.fill(); g.stroke(); }
+    if (H === 'twin') for (const sx of [-1, 1]) { g.beginPath(); g.ellipse(cx + sx * (rx + 18), cy - 30, 22, 34, sx * 0.4, 0, Math.PI * 2); g.fill(); g.stroke(); }
+    // shine
+    g.strokeStyle = 'rgba(255,255,255,.45)'; g.lineWidth = 6; g.beginPath(); g.arc(cx - 20, cy - 20, ry - 14, -2.3, -1.7); g.stroke();
+  }
+  const url = cv.toDataURL();
+  portraitCache.set(key, url);
+  return url;
+}
 // Facial hair, built in head space from the same head measurements as the face.
 const neckGeo = new THREE.CylinderGeometry(1, 1.1, 1, 16), beardGeo = new THREE.SphereGeometry(1, 20, 14), stacheGeo = new THREE.CapsuleGeometry(0.5, 1.2, 4, 10), goateeGeo = new THREE.ConeGeometry(0.5, 1, 12).rotateX(Math.PI);
 function addBeard(fg, kind, c, rx, ry, rz, mats) {
@@ -731,7 +800,7 @@ function buildFace(a = player, L = S.look) {
   const neck = new THREE.Mesh(neckGeo); registerMesh(neck, skinMat); neck.position.set(c.x, c.y - ry * 0.95, c.z - rz * 0.05); neck.scale.set(rx * 0.42, ry * 0.7, rz * 0.42); fg.add(neck);
   const hc = new THREE.Color((HAIR_COLOURS[L.hairCol] || HAIR_COLOURS.chestnut)[1]).multiplyScalar(0.78);
   addBeard(fg, L.beard, c, rx, ry, rz, toon(`#${hc.getHexString()}`));
-  a.headScale = HEAD_SIZES[L.head] ? HEAD_SIZES[L.head][1] : 1.28;
+  a.headScale = HEAD_SIZES[L.head] ? HEAD_SIZES[L.head][1] : 1.4;
   markStencil(fg);
   addInk(fg);
 }
@@ -777,6 +846,7 @@ function addInk(root) {
 function applyLook() {
   if (!player) return;
   const L = S.look;
+  if ($('badgeicon')) $('badgeicon').src = portrait(L);
   for (const [k, g] of hairCache) if (k.endsWith(`|${HERO_HAIR.uid}`)) g.removeFromParent();
   const hc = HAIR_COLOURS[L.hairCol] || HAIR_COLOURS.chestnut;
   // a touch darker than the swatch so sunlight doesn't bleach the top of the hair
@@ -973,7 +1043,7 @@ function buildGearBar() {
 function updateTitle() {
   $('pname').textContent = heroName();
   $('pclass').textContent = `Level ${heroLvl()} · ${stat('atk')} atk · ${totalDef()} def`;
-  $('badgeicon').src = ICONS[W().type];
+  $('badgeicon').src = portrait(S.look); $('badgeicon').classList.add('face');
   $('badgelvl').textContent = heroLvl();
 }
 
@@ -1128,7 +1198,7 @@ function makeNpc(d) {
     });
     const m = markerSprite(); m.position.set(d.x, 4.6, d.z); scene.add(m);
     colliders.push({ x: d.x, z: d.z, r: 0.9 });
-    const n = { ...d, actor: a, marker: m, reach: 3.2, accent: d.king ? '#e0a21c' : d.shop ? '#e8743a' : d.bank ? '#d9a21c' : d.lines ? '#3a9ad9' : '#8f62d8' };
+    const n = { ...d, look, actor: a, marker: m, reach: 3.2, accent: d.king ? '#e0a21c' : d.shop ? '#e8743a' : d.bank ? '#d9a21c' : d.lines ? '#3a9ad9' : '#8f62d8' };
     npcs.push(n);
     return n;
   }
@@ -1620,7 +1690,7 @@ function goThrough(to) {
       toast(I.name, null);
     }
     where = to;
-    camPos.copy(pp).setY(0).add(new THREE.Vector3(0, 27, 32).multiplyScalar(zoom * (camera.aspect < 1 ? 1.3 : 1)));
+    camPos.copy(pp).setY(0).add(CAM_OFF.clone().multiplyScalar(zoom * (camera.aspect < 1 ? 1.3 : 1)));
     $('fade').classList.remove('on');
     setTimeout(() => { fading = false; }, 250);
   }, 320);
@@ -2016,6 +2086,11 @@ function showDialog(d, opts = {}) {
   if (opts.talky && !d.querySelector('.skiphint')) d.insertAdjacentHTML('beforeend', `<span class="skiphint">${keyOf('interact')} to skip</span>`);
   const p = d.querySelector('p');
   if (talking && talking.accent) d.style.setProperty('--accent', talking.accent);
+  // a big portrait of whoever is talking, like a storybook
+  const look = talking && talking.look;
+  let por = d.querySelector('.portrait');
+  if (look && opts.talky) { if (!por) { por = document.createElement('img'); por.className = 'portrait'; por.alt = ''; d.prepend(por); } por.src = portrait(look); d.classList.add('hasface'); }
+  else { if (por) por.remove(); d.classList.remove('hasface'); }
   if (!p) { dlg = { d, npc: talking, done: true, pages: [''], i: 0, talky: false }; return; }
   const full = p.textContent;
   const same = !fresh && dlg && dlg.full === full;
@@ -2995,7 +3070,11 @@ function tick() {
     } else if (!busy && player.task) {
       gatherTick(player.task);
     } else if (!busy && (player.name === 'Running_A' || player.name === 'Idle_Combat')) {
-      player.play('Idle', { fade: 0.15 });
+      player.play('Idle', { fade: 0.15 }); player.idleAt = now;
+    } else if (!busy && player.name === 'Idle' && now - (player.idleAt || 0) > 2.5 && now - aim.at > 2.5) {
+      // stand still for a moment and your hero turns to smile at the camera
+      let diff = 0 - player.root.rotation.y; diff = Math.atan2(Math.sin(diff), Math.cos(diff));
+      player.root.rotation.y += diff * Math.min(1, dt * 3);
     }
     checkDoors();
     if (now > staminaAt && stamina < 100) stamina = Math.min(100, stamina + dt * 16);
@@ -3024,7 +3103,7 @@ function tick() {
   for (const [i, c] of dynamic.crystals.entries()) { c.position.y = 2.4 + Math.sin(now * 1.6 + i) * 0.4; c.rotation.y = now * 0.8 + i; }
   if (player) { player.mixer.update(dt); if (player.headScale && player.headInfo) player.headInfo.bone.scale.setScalar(player.headScale); faceTick(player); }
   for (const n of npcs) npcLife(n, dt);
-  crewTick(dt); crewTags(); townTick();
+  crewTick(dt); crewTags(); townTick(); occluderTick(dt);
   guideTick(); musicTick();
 
   for (let i = lootPops.length - 1; i >= 0; i--) {
@@ -3123,7 +3202,7 @@ function tick() {
 
   const focus = player ? tmpF.copy(player.pos).setY(0) : tmpF.set(0, 0, 4);
   updateParticles(dt, now, focus);
-  const off = new THREE.Vector3(0, 27, 32).multiplyScalar(zoom * (camera.aspect < 1 ? 1.3 : 1));
+  const off = CAM_OFF.clone().multiplyScalar(zoom * (camera.aspect < 1 ? 1.3 : 1));
   bossIntroTick(dt);
   if (creator.open && player) creatorCam(dt);
   else if (bossIntro) introCam(dt);
@@ -3133,7 +3212,7 @@ function tick() {
     if (talkCam.near0 && camera.near !== talkCam.near0) { camera.near = talkCam.near0; camera.updateProjectionMatrix(); }
     camPos.lerp(tmpV.copy(focus).add(off), 1 - Math.pow(0.002, dt));
     camera.position.copy(camPos);
-    camera.lookAt(focus.x, 1.2, focus.z - 1);
+    camera.lookAt(focus.x, 1.7, focus.z - 1.5);
   }
   sky.position.copy(camera.position);
   const sd = P.sunDir;
@@ -3370,9 +3449,9 @@ function talkCam(dt) {
   // stand off to one side of the pair so the speaker's face is in view and the hero isn't in the way
   const side = (a) => [dx * Math.cos(a) - dz * Math.sin(a), dx * Math.sin(a) + dz * Math.cos(a)];
   const A = side(1.25), B = side(-1.25), [cx, cz] = A[1] > B[1] ? A : B;
-  const dist = phone ? 11 : 8.5;
+  const dist = phone ? 12 : 10;
   const mid = tmpT.set(n.x + (pp.x - n.x) * 0.25, 0, n.z + (pp.z - n.z) * 0.25);
-  camPos.lerp(tmpV.set(mid.x + cx * dist, phone ? 5.2 : 3.9, mid.z + cz * dist), 1 - Math.pow(0.004, dt));
+  camPos.lerp(tmpV.set(mid.x + cx * dist, phone ? 5.6 : 4.4, mid.z + cz * dist), 1 - Math.pow(0.004, dt));
   camera.position.copy(camPos);
   camera.lookAt(mid.x, 2.5, mid.z);
   // slice away walls, rocks and bushes between the camera and the speaker
@@ -3476,6 +3555,43 @@ function renderCraft(el) {
   el.querySelectorAll('[data-craftall]').forEach((b) => { b.onclick = () => craft(CRAFTS[+b.dataset.craftall], 99); });
 }
 
+
+
+// ---------- see-through buildings ----------
+// When a building stands between the camera and your hero, it fades so you can still see them.
+const occluders = [];
+const occRay = new THREE.Ray();
+let occAt = 0;
+function buildOccluders() {
+  for (const o of scene.children) if (/^building_|^tent$/.test(o.name)) { o.updateMatrixWorld(true); occluders.push({ o, box: new THREE.Box3().setFromObject(o), f: 1, want: 1 }); }
+}
+function setFade(O, f) {
+  O.f = f;
+  O.o.traverse((m) => {
+    if (!m.isMesh || !m.userData.mats || m.userData.isInk) return;
+    if (!m.userData.ownMats) {
+      const k = { std: m.userData.mats.std.clone(), toon: m.userData.mats.toon.clone() };
+      k.toon.onBeforeCompile = m.userData.mats.toon.onBeforeCompile; registerMesh(m, k); m.userData.ownMats = true;
+    }
+    for (const mat of [m.userData.mats.std, m.userData.mats.toon]) { mat.transparent = f < 0.99; mat.opacity = f; mat.depthWrite = f > 0.99; }
+    m.layers.set(f < 0.99 ? 1 : 0); m.castShadow = true;
+  });
+}
+function occluderTick(dt) {
+  if (!player) return;
+  if (now > occAt) {
+    occAt = now + 0.12;
+    const to = tmpV.copy(player.pos).setY(1.6);
+    occRay.origin.copy(camera.position); occRay.direction.copy(to).sub(camera.position);
+    const far = occRay.direction.length(); occRay.direction.normalize();
+    const hit = new THREE.Vector3();
+    for (const O of occluders) {
+      const p = where === 'out' && occRay.intersectBox(O.box, hit);
+      O.want = p && hit.distanceTo(camera.position) < far - 1 ? 0.3 : 1;
+    }
+  }
+  for (const O of occluders) if (Math.abs(O.f - O.want) > 0.01) setFade(O, O.f + Math.sign(O.want - O.f) * Math.min(Math.abs(O.want - O.f), dt * 4));
+}
 
 // ---------- monster towns ----------
 // Monsters have taken over little towns in the woods. Each town has a star rating: the monsters there are
@@ -3582,7 +3698,7 @@ const CREW_DEFS = [
   { id: 'saffy', name: 'Saffy Quickshot', title: 'Wandering Crossbow', model: 'heroine', weapon: 'crossbow_1handed', style: 'ranged', anim: '1H_Ranged_Shoot', hp: 45, hit: [2, 6], cd: 1.0, reach: 9, tint: '#c8f0a0', home: [11, 27],
     look: { sex: 'f', skin: 'tan', eyes: 'green', eyeStyle: 'sharp', mouth: 'fang', hair: 'long', hairLen: 'long', hairCol: 'ginger', mark: 'freckles' },
     say: { hi: 'Name is Saffy. Fastest crossbow in the valley. Need a sharp eye on your team?', ally: ['Got it in my sights!', 'Right behind you!', 'Let us go!'], hit: ['Bullseye!', 'Too easy!', 'Got one!'], hurt: ['Hey!', 'Ow, rude!'], ko: 'Ugh... somebody... bring snacks...', rival: ['Try and keep up!', 'Bet you cannot dodge this!'], lose: 'Fine, fine. You win this round!', win: 'Ha! Too slow!', idle: ['Just counting my bolts. Forty two. Again.', 'Saw a squirrel earlier. Very suspicious.'], talkAlly: 'I will cover you from back here. Lead the way!', talkRival: 'Back for another lesson?' } },
-  { id: 'gus', name: 'Big Gus', title: 'Gentle Giant', model: 'barbarian', hide: ['Mug'], weapon: 'axe_2handed', style: 'melee', heavy: true, anim: '2H_Melee_Attack_Chop', hp: 85, hit: [4, 9], cd: 1.6, reach: 2.8, tint: '#ffcf9a', home: [-6, 31],
+  { id: 'gus', name: 'Big Gus', title: 'Gentle Giant', model: 'barbarian', hide: ['Mug'], weapon: 'axe_2handed', style: 'melee', label: 'Big axe', heavy: true, anim: '2H_Melee_Attack_Chop', hp: 85, hit: [4, 9], cd: 1.6, reach: 2.8, tint: '#ffcf9a', home: [-6, 31],
     look: { skin: 'bronze', eyes: 'brown', eyeStyle: 'happy', mouth: 'grin', hair: 'mohawk', hairCol: 'black', beard: 'full', head: 'chibi' },
     say: { hi: 'Gus big. Gus strong. Gus also likes flowers. You want Gus to come smash things?', ally: ['Gus coming!', 'Smash time!', 'Gus help friend!'], hit: ['SMASH!', 'Bonk!', 'Gus hit good!'], hurt: ['Gus not like that.', 'Ouchie.'], ko: 'Gus... take... little nap...', rival: ['Gus fight you now. Sorry.', 'No hard feelings. SMASH!'], lose: 'You strong! Gus proud of you!', win: 'Gus win! You want hug?', idle: ['This flower called Daisy. Gus named her.', 'Gus hungry. Gus always hungry.'], talkAlly: 'Gus stay close. Gus protect friend!', talkRival: 'Gus ready for rematch!' } },
   { id: 'nyx', name: 'Nyx', title: 'Mischief Mage', model: 'mage', style: 'magic', anim: 'Spellcast_Shoot', hp: 40, hit: [3, 7], cd: 1.3, reach: 9, tint: '#e0b0ff', home: [-30, 3],
@@ -3857,10 +3973,10 @@ const crewFaces = {};
 function renderCrew(el) {
   el.innerHTML = `<h3>Crew <small>Pick a side for each adventurer</small></h3><div class="crewlist">${crew.map((c) => {
     const cf = crewCfg(c), D = c.def;
-    if (!crewFaces[c.id]) crewFaces[c.id] = facePreview(c.look);
+    if (!crewFaces[c.id]) crewFaces[c.id] = portrait(c.look);
     const status = c.state === 'ko' ? `Knocked out, back in ${Math.max(1, Math.ceil(c.koUntil - now))}s` : cf.mode === 'ally' ? (c.foe ? 'Fighting!' : 'Following you') : cf.mode === 'rival' ? (now < c.calmUntil ? 'Sulking after your last duel' : 'Looking for you...') : 'Hanging around near home';
     return `<div class="crewcard" style="--c:${D.tint}">
-      <div class="ctop"><img class="cface" src="${crewFaces[c.id]}" alt=""><div class="cinfo"><b>${D.name}</b><small>${D.title} · ${CREW_STYLE[D.style]}</small><div class="chp"><i style="width:${(Math.max(0, c.hp || 0) / crewMax(c)) * 100}%"></i></div><small class="cstat">${status}</small></div></div>
+      <div class="ctop"><img class="cface" src="${crewFaces[c.id]}" alt=""><div class="cinfo"><b>${D.name}</b><small>${D.title} · ${D.label || CREW_STYLE[D.style]}</small><div class="chp"><i style="width:${(Math.max(0, c.hp || 0) / crewMax(c)) * 100}%"></i></div><small class="cstat">${status}</small></div></div>
       <div class="seg" role="group" aria-label="${D.name}'s side">${Object.entries(CREW_MODES).map(([k, [nm, tip]]) => `<button data-crew="${c.id}" data-mode="${k}" class="m-${k}" aria-pressed="${cf.mode === k}" title="${tip}">${nm}</button>`).join('')}</div>
       ${cf.mode === 'ally' ? `<div class="seg tac" role="group" aria-label="How ${D.name} fights">${Object.entries(CREW_TACTICS).map(([k, [nm, tip]]) => `<button data-crew="${c.id}" data-tactic="${k}" aria-pressed="${cf.tactic === k}" title="${tip}">${nm}</button>`).join('')}</div>` : ''}
     </div>`;

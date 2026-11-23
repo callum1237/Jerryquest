@@ -178,7 +178,10 @@ export function buildWorld(library) {
 
   // forest belt around the valley, with gaps where the roads leave
   const kinds = { trees_A_large: [], trees_B_large: [], trees_A_medium: [], trees_B_medium: [] };
+  const rounds = { A: [], B: [], C: [] };
   const treeAt = (x, z, big) => {
+    // mostly round, bouncy storybook trees, with a few pines mixed in
+    if (rng() < 0.7) { rounds['ABC'[Math.floor(rng() * 3)]].push(M(x, 0, z, S_NATURE * (big ? 1.15 : 0.95) * (0.85 + rng() * 0.35), rng() * 6)); colliders.push({ x, z, r: big ? 1.35 : 1.0 }); return; }
     const k = big ? (rng() > 0.5 ? 'trees_A_large' : 'trees_B_large') : (rng() > 0.5 ? 'trees_A_medium' : 'trees_B_medium');
     kinds[k].push(M(x, 0, z, S_NATURE * (0.85 + rng() * 0.35), rng() * 6));
     colliders.push({ x, z, r: big ? 1.35 : 1.0 });
@@ -228,6 +231,7 @@ export function buildWorld(library) {
   tintTrees(instanced(lib.trees_B_large, glimmerBig), -2.6, 0.85, 1.05);
   tintTrees(instanced(lib.trees_A_medium, glimmerTrees), -0.9, 1.1, 1.1);
   for (const [k, list] of Object.entries(kinds)) if (list.length) instanced(lib[k], list);
+  for (const [k, list] of Object.entries(rounds)) if (list.length) instanced(roundTree(k), list);
 
   // scenery rocks, more of them in the Crags
   const rocks = { rock_single_A: [], rock_single_B: [], rock_single_C: [] };
@@ -389,4 +393,21 @@ function buildTown(T) {
   T.homely = [];
   const homely = [['bucket_water', 2.2, -2.4], ['sack', -4.6, 3.4], ['sack', -4, 4.2], ['wheelbarrow', 5.2, 3.6], ['resource_lumber', -6.2, -2]];
   for (const [nm, dx, dz] of homely) { const o = place(nm, T.x + dx, T.z + dz, S_PROP, rng() * 6, { collide: false }); if (o) { o.visible = false; T.homely.push(o); } }
+}
+
+// A chunky, toy-like round tree built in code: a stubby trunk and a cluster of fat leafy balls.
+function roundTree(kind) {
+  const leaf = { A: '#46b83a', B: '#7cd043', C: '#2f9a48' }[kind];
+  const g = new THREE.Group();
+  const trunkMat = new THREE.MeshStandardMaterial({ color: '#8a5530', roughness: 1 });
+  const leafMat = new THREE.MeshStandardMaterial({ color: leaf, roughness: 1 });
+  const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.09, 0.55, 8), trunkMat); trunk.position.y = 0.27; g.add(trunk);
+  const ball = new THREE.SphereGeometry(1, 14, 10);
+  const blobs = kind === 'B' ? [[0, 0.82, 0, 0.36], [0, 1.18, 0, 0.26]] : [[0, 0.78, 0, 0.36], [0.24, 0.66, 0.05, 0.25], [-0.22, 0.68, -0.06, 0.24], [0.02, 1.06, 0, 0.24]];
+  for (const [x, y, z, r] of blobs) { const m = new THREE.Mesh(ball, leafMat); m.position.set(x, y, z); m.scale.set(r, r * 0.92, r); g.add(m); }
+  if (kind === 'B') { // a few red apples
+    const apple = new THREE.MeshStandardMaterial({ color: '#e8402f', roughness: 1 });
+    for (const [x, y, z] of [[0.2, 0.75, 0.27], [-0.25, 0.9, 0.18], [0.05, 0.6, -0.32], [0.3, 0.95, -0.1]]) { const a = new THREE.Mesh(new THREE.SphereGeometry(0.05, 8, 6), apple); a.position.set(x, y, z); g.add(a); }
+  }
+  return g;
 }
