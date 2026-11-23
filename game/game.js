@@ -786,7 +786,8 @@ function partySet(p, why) {
 }
 function chatCommand(line) {
   const [cmd, ...rest] = line.slice(1).split(/\s+/), arg = rest.join(' ');
-  if (!/^(p|party)$/i.test(cmd)) { sys('Commands: /p name to invite, /p list, /p leave, /p kick name, /p damage on|off, /p disband'); return; }
+  if (/^(t|trade)$/i.test(cmd)) { if (!arg) sys('Trade: /trade name, standing near them.'); else tradeInvite(arg); return; }
+  if (!/^(p|party)$/i.test(cmd)) { sys('Commands: /p name to invite, /p list, /p leave, /p kick name, /p damage on|off, /p disband, /trade name'); return; }
   if (!net.on) { sys('Parties need the game server.'); return; }
   const sub = (rest[0] || '').toLowerCase(), me = myId(), lead = party && party.leader === me;
   if (!sub || sub === 'help') { sys('Party: /p name invites someone. /p list shows your party. /p leave. Leader only: /p kick name, /p damage on or off, /p disband.'); return; }
@@ -868,6 +869,8 @@ function invitePrompt(from, name) {
 }
 function onNet(ev, m) {
   const me = myId(), from = m.id, peer = net.peers.get(from);
+  if (['ti', 'ta', 'to', 'tx'].includes(ev)) { tradeNet(ev, from, m); return; }
+  if (ev === 'wb') { wbNet(m); return; }
   if (ev === 'pi') { if (peer) invitePrompt(from, (peer && peer.name) || m.name || 'Someone'); return; }
   if (ev === 'pa') {
     if (!invites.has(from) || now - invites.get(from) > 60) return;
@@ -1013,6 +1016,171 @@ function takeDuelLoss(from, pick) {
     toast(`${who} took your ${GEAR[k].name}!`, gearIcon(GEAR[k]), true);
   }
   refreshUI(); save();
+}
+
+// ---------- world bosses ----------
+// Every 20 minutes (by the real clock, so every player sees the same one at the same time) King Wobblegut,
+// a giant golden jelly, flops down in one of the lands for 7 minutes. Everyone hits the same health bar:
+// each hit is shared as a fraction of its health, so a level 5 and a level 80 hero both matter.
+// Anyone who helped gets the reward, and it's tougher the more heroes are close by.
+const WB_EVERY = 20 * 60 * 1000, WB_LIVE = 7 * 60 * 1000;
+const WB_SPOTS = [['out', 50, 6, 'the Glimmerwood road'], ['frost', 1000, -4, 'the Frostwhisker road'], ['marsh', 2000, -4, 'the Gobbler Marsh road'], ['sands', 3000, 2, 'the Brassbolt dunes']];
+ENEMY_TYPES.wb_wobble = { name: 'King Wobblegut', title: 'World Boss · everyone can help', model: 'slime', hp: 3000, maxHit: 10, xp: 0, boss: true, world: true, scale: 4, coins: [0, 1], drop: 'royal_jelly', slam: 8, noBones: true, poof: true, tintAll: '#ffcf3a', mass: 40 };
+ITEMS.royal_jelly = 'Royal jelly'; SELL.royal_jelly = 400;
+let wb = null, wbSlot = -1, wbWarned = -1, wbDmg = 0, wbAt = 0, wbRemote = false;
+const wbInfo = (t = Date.now()) => { const slot = Math.floor(t / WB_EVERY), into = t - slot * WB_EVERY; return { slot, spot: WB_SPOTS[slot % WB_SPOTS.length], live: into < WB_LIVE, left: WB_LIVE - into, next: (slot + 1) * WB_EVERY - t }; };
+const landName = (w) => (w === 'out' ? 'the Valley' : w === 'frost' ? 'Frostwhisker Peaks' : w === 'marsh' ? 'Gobbler Marsh' : 'Brassbolt Sands');
+function wbTick() {
+  if (!player || now < wbAt) return;
+  wbAt = now + 1;
+  const I = wbInfo();
+  if (I.next < 60000 && wbWarned !== I.slot + 1) {
+    wbWarned = I.slot + 1; const sp = WB_SPOTS[(I.slot + 1) % WB_SPOTS.length];
+    const t = `World boss! King Wobblegut lands on ${sp[3]} in ${landName(sp[0])} in one minute. Bring friends!`;
+    sys(t); toast(t, ICONS.star, true);
+  }
+  // reward once it falls
+  if (wb && wb.state === 'dead' && !wb.paid) {
+    wb.paid = true;
+    if (wbDmg > 0) {
+      S.wbKills = (S.wbKills || 0) + 1; S.wbDone = { [wbSlot]: 1 };
+      const c = 200 + heroLvl() * 60; S.coins += c;
+      giveHeroXp(Math.round((HXT[Math.min(HERO_MAX, heroLvl() + 1)] - HXT[heroLvl()]) * 0.35), player.pos.clone().setY(4.4));
+      toast(`King Wobblegut is beaten! You helped and earned ${fmt(c)} coins.`, ICONS.coins, true);
+    } else toast('King Wobblegut was beaten by other heroes. Hit it next time to share the reward!', ICONS.star);
+    refreshUI(); save();
+  }
+  const here = I.live && where === I.spot[0] && !(S.wbDone || {})[I.slot];
+  if (wb && (!here || wbSlot !== I.slot) && wb.state !== 'dead') { removeEnemy(wb); wb = null; $('bossbar').hidden = true; }
+  if (wb && wb.state === 'dead' && wbSlot !== I.slot) wb = null;
+  if (here && !wb) {
+    // scale to this hero: about 70 of your hits alone, more with friends nearby; it hits for about a tenth of your health
+    let near = 0; for (const [, p] of net.peers) if (p.where === where && Math.hypot(p.x - I.spot[1], p.z - I.spot[2]) < 60) near++;
+    const T = ENEMY_TYPES.wb_wobble, hit = W().dmg * dmgMult() * pathDmg();
+    T.hp = Math.max(400, Math.round(hit * 70 * (1 + 0.7 * near))); T.maxHit = Math.max(4, Math.round(maxHp() * 0.1));
+    wbSlot = I.slot; wbDmg = 0;
+    wb = spawnEnemy('wb_wobble', I.spot[1], I.spot[2]); wb.temp = true; wb.inside = where;
+    burst(wb.pos.clone().setY(3), '#ffe07a', 80, 10, 1.8);
+  }
+}
+// called from hurtEnemy for our own hits
+function wbShare(e, dmg) { if (e.T.world && !wbRemote && dmg > 0) { wbDmg += dmg; sendNet('wb', { slot: wbSlot, f: dmg / e.T.hp }); } }
+function wbNet(m) {
+  if (!wb || wb.state === 'dead' || m.slot !== wbSlot) return;
+  const d = Math.max(0, Math.min(0.2, +m.f || 0)) * wb.T.hp;
+  if (d <= 0) return;
+  if (wb.hp - d > 0) { wb.hp -= d; if (wb.state === 'idle') wb.state = 'chase'; return; }
+  wbRemote = true; hurtEnemy(wb, Math.ceil(wb.hp)); wbRemote = false;
+}
+
+// ---------- trading ----------
+// /trade name opens a trade window with another hero. Both sides put in coins, bag items or spare gear,
+// press Ready, and the swap happens only when both are ready with the exact same deal on screen.
+// Changing anything un-readies both sides, so nobody can sneak a swap.
+let trade = null; // { with, name, mine: {coins, items:{}, gear:[]}, theirs, ready, theirReady, el }
+const tradeAsked = new Map();
+const emptyOffer = () => ({ coins: 0, items: {}, gear: [] });
+const offerKey = (o) => JSON.stringify([o.coins | 0, Object.entries(o.items || {}).filter(([, n]) => n > 0).sort(), [...(o.gear || [])].sort()]);
+const spareGear = () => S.owned.filter((k) => GEAR[k] && !Object.values(S.equip).includes(k) && k !== STARTER.weapon && k !== STARTER.armour);
+function tradeInvite(arg) {
+  if (!net.on) { sys('Trading needs the game server.'); return; }
+  const found = peerByName(arg);
+  if (!found) { sys(`Nobody called "${arg}" is online right now.`); return; }
+  const [id, p] = found;
+  if (trade) { sys('Finish your current trade first.'); return; }
+  if (p.where !== where || Math.hypot(player.pos.x - p.x, player.pos.z - p.z) > 20) { sys(`Walk closer to ${p.name} to trade.`); return; }
+  tradeAsked.set(id, now); sendNet('ti', { to: id, name: heroName() });
+  sys(`Trade request sent to ${p.name}.`);
+}
+function tradePrompt(from, name) {
+  if (trade) return;
+  const el = document.createElement('div'); el.className = 'pinvite panel';
+  el.innerHTML = `<p><b></b> wants to trade with you!</p><div class="row"><button class="primary" type="button">Trade</button><button type="button">No thanks</button></div>`;
+  el.querySelector('b').textContent = name;
+  const [yes, no] = el.querySelectorAll('button');
+  yes.onclick = () => { el.remove(); if (trade) return; sendNet('ta', { to: from }); tradeOpen(from, name); };
+  no.onclick = () => el.remove();
+  setTimeout(() => el.remove(), 30000);
+  document.body.appendChild(el); sfx('coin');
+}
+function tradeOpen(id, name) {
+  trade = { with: id, name, mine: emptyOffer(), theirs: emptyOffer(), ready: false, theirReady: false, el: document.createElement('div') };
+  trade.el.className = 'tradewin panel'; document.body.appendChild(trade.el);
+  sys(`Trading with ${name}. Add things, then press Ready.`);
+  tradeRender();
+}
+function tradeClose(msg) {
+  if (!trade) return;
+  trade.el.remove(); trade = null;
+  if (msg) { sys(msg); toast(msg, ICONS.coins); }
+}
+function tradeSend() { if (trade) sendNet('to', { to: trade.with, offer: trade.mine, ready: trade.ready, sees: offerKey(trade.theirs) }); }
+function tradeChanged() { trade.ready = false; trade.theirReady = false; tradeSend(); tradeRender(); }
+function offerHtml(o, mine) {
+  const rows = [];
+  if (o.coins > 0) rows.push(`<button type="button" data-tc="1" ${mine ? '' : 'disabled'}><img src="${ICONS.coins}" alt="">${fmt(o.coins)} coins</button>`);
+  for (const [k, n] of Object.entries(o.items || {})) if (n > 0 && ITEMS[k]) rows.push(`<button type="button" data-ti="${k}" ${mine ? '' : 'disabled'}><img src="${ICONS[k]}" alt="">${n} × ${esc(ITEMS[k])}</button>`);
+  for (const k of o.gear || []) if (GEAR[k]) rows.push(`<button type="button" data-tg="${k}" ${mine ? '' : 'disabled'}><img src="${gearIcon(GEAR[k])}" alt="">${esc(GEAR[k].name)}</button>`);
+  return rows.join('') || '<em>Nothing yet</em>';
+}
+function tradeRender() {
+  if (!trade) return;
+  const T = trade, el = T.el;
+  const bag = Object.entries(S.inv).filter(([k, n]) => ITEMS[k] && n - (T.mine.items[k] || 0) > 0);
+  const gear = spareGear().filter((k) => !T.mine.gear.includes(k));
+  el.innerHTML = `<h3>Trade with <span></span></h3>
+    <div class="tcols"><div><h4>You give${T.ready ? ' <b class="rdy">Ready</b>' : ''}</h4><div class="toffer">${offerHtml(T.mine, true)}</div></div>
+    <div><h4>They give${T.theirReady ? ' <b class="rdy">Ready</b>' : ''}</h4><div class="toffer">${offerHtml(T.theirs, false)}</div></div></div>
+    <div class="tadd"><label>Coins <input type="number" min="0" step="10" value="${T.mine.coins || ''}" placeholder="0" max="${S.coins}"></label>
+    <div class="tbag">${bag.map(([k, n]) => `<button type="button" data-add="${k}" title="${esc(ITEMS[k])}"><img src="${ICONS[k]}" alt=""><small>${n - (T.mine.items[k] || 0)}</small></button>`).join('')}${gear.map((k) => `<button type="button" data-addg="${k}" title="${esc(GEAR[k].name)}" class="g"><img src="${gearIcon(GEAR[k])}" alt=""></button>`).join('')}</div>
+    <p class="hint">Tap things in your bag to add them. Tap them in "You give" to take them back. Worn gear can't be traded.</p></div>
+    <div class="row"><button type="button" class="primary" id="tready">${T.ready ? 'Waiting for them...' : 'Ready'}</button><button type="button" id="tcancel">Cancel</button></div>`;
+  el.querySelector('h3 span').textContent = T.name;
+  const inp = el.querySelector('input');
+  inp.onchange = () => { T.mine.coins = Math.max(0, Math.min(S.coins, Math.floor(+inp.value || 0))); tradeChanged(); };
+  inp.onkeydown = (e) => e.stopPropagation(); inp.onkeyup = (e) => e.stopPropagation();
+  el.querySelectorAll('[data-add]').forEach((b) => { b.onclick = () => { const k = b.dataset.add; T.mine.items[k] = (T.mine.items[k] || 0) + 1; tradeChanged(); }; });
+  el.querySelectorAll('[data-addg]').forEach((b) => { b.onclick = () => { T.mine.gear.push(b.dataset.addg); tradeChanged(); }; });
+  el.querySelectorAll('.toffer [data-ti]:not([disabled])').forEach((b) => { b.onclick = () => { const k = b.dataset.ti; T.mine.items[k]--; if (T.mine.items[k] <= 0) delete T.mine.items[k]; tradeChanged(); }; });
+  el.querySelectorAll('.toffer [data-tg]:not([disabled])').forEach((b) => { b.onclick = () => { T.mine.gear = T.mine.gear.filter((k) => k !== b.dataset.tg); tradeChanged(); }; });
+  el.querySelectorAll('.toffer [data-tc]:not([disabled])').forEach((b) => { b.onclick = () => { T.mine.coins = 0; tradeChanged(); }; });
+  el.querySelector('#tready').onclick = () => { if (T.ready) return; T.ready = true; tradeSend(); tradeRender(); tradeTry(); };
+  el.querySelector('#tcancel').onclick = () => { sendNet('tx', { to: T.with }); tradeClose('Trade cancelled.'); };
+}
+// both ready and both see the same deal: swap
+function tradeTry() {
+  const T = trade;
+  if (!T || !T.ready || !T.theirReady || T.theySee !== offerKey(T.mine)) return;
+  const o = T.mine;
+  // check we still have everything we offered
+  if (S.coins < o.coins || Object.entries(o.items).some(([k, n]) => (S.inv[k] || 0) < n) || o.gear.some((k) => !spareGear().includes(k))) { sendNet('tx', { to: T.with }); tradeClose('Trade cancelled: something in your offer is gone.'); return; }
+  S.coins -= o.coins;
+  for (const [k, n] of Object.entries(o.items)) takeItem(k, n);
+  S.owned = S.owned.filter((k) => !o.gear.includes(k));
+  if (S.plus) for (const k of o.gear) delete S.plus[k];
+  const t = T.theirs;
+  S.coins += Math.max(0, t.coins | 0);
+  for (const [k, n] of Object.entries(t.items || {})) if (ITEMS[k] && n > 0) addItem(k, Math.min(9999, n | 0));
+  for (const k of t.gear || []) if (GEAR[k] && !S.owned.includes(k)) S.owned.push(k);
+  sfx('win'); burst(player.pos.clone().setY(2), '#ffe07a', 40, 6, 1.2);
+  const name = T.name; tradeClose(`Trade with ${name} done!`);
+  S.trades = (S.trades || 0) + 1;
+  refreshUI(); save();
+}
+function tradeNet(ev, from, m) {
+  const peer = net.peers.get(from);
+  if (ev === 'ti') { if (peer) tradePrompt(from, peer.name || m.name || 'Someone'); return; }
+  if (ev === 'ta') { if (!tradeAsked.has(from) || now - tradeAsked.get(from) > 60 || trade) return; tradeAsked.delete(from); tradeOpen(from, (peer && peer.name) || 'Friend'); return; }
+  if (!trade || trade.with !== from) return;
+  if (ev === 'tx') { tradeClose(`${trade.name} cancelled the trade.`); return; }
+  if (ev === 'to') {
+    const o = m.offer || {}, clean = { coins: Math.max(0, Math.floor(+o.coins || 0)), items: {}, gear: (Array.isArray(o.gear) ? o.gear : []).filter((k) => GEAR[k]).slice(0, 8) };
+    for (const [k, n] of Object.entries(o.items || {}).slice(0, 20)) if (ITEMS[k] && n > 0) clean.items[k] = Math.floor(n);
+    const changed = offerKey(clean) !== offerKey(trade.theirs);
+    trade.theirs = clean; trade.theirReady = !!m.ready; trade.theySee = m.sees;
+    if (changed) trade.ready = false;
+    tradeRender(); tradeTry();
+  }
 }
 
 // ---------- chat ----------
@@ -3700,6 +3868,7 @@ function hurtEnemy(e, dmg, src = null, power = 1) {
   else if (now < (e.dizzyUntil || 0)) dmg = Math.round(dmg * 1.5);
   if (e.coreOpen) { dmg = Math.round(dmg * 1.3); if (rng() < 0.15) floatText(head.clone().setY(5), 'Core hit!', 'gain'); }
   e.hp = Math.max(0, e.hp - dmg);
+  wbShare(e, dmg);
   // the Avalanche Twins share one strength: hurt one and the other feels it (and gets angry)
   if (e.T.twin) {
     const p = enemies.find((o) => o.type === e.T.twin);
@@ -5194,7 +5363,7 @@ function tick() {
   regionTick(); lightTick();
   if (player) { spotTick(); goldenTick(); tinyTick(dt); pompTick(dt); }
 
-  if (player) { gulpTick(); lanternTick(dt); wingTick(); stormTick(dt); castleTick(dt); colossusTick(dt); cosTick(); weaponSparkle(); flairTick(player, dt, player.name === 'Running_A' || player.name === 'Walking_A' || (player.name || '').startsWith('Running')); }
+  if (player) { gulpTick(); lanternTick(dt); wingTick(); stormTick(dt); castleTick(dt); colossusTick(dt); cosTick(); wbTick(); weaponSparkle(); flairTick(player, dt, player.name === 'Running_A' || player.name === 'Walking_A' || (player.name || '').startsWith('Running')); }
   if (player && !player.dead && !uiLock() && !gulped) {
     const busy = now < player.busyUntil;
     let mx = 0, mz = 0;
@@ -6669,6 +6838,7 @@ function titleList() {
     ['nemesis', "Pompington's Nemesis", 'Defeat Pompington', beaten('boss_pomp')], ['breaker', 'Colossus Breaker', 'Defeat the Brassbolt Colossus', beaten('boss_colossus')],
     ['night', 'Child of the Night', 'Choose the Vampire path', S.path === 'vampire'], ['halo', 'Halo Bearer', 'Choose the Angel path', S.path === 'angel'], ['stubborn', 'The Stubborn One', 'Choose the Human path', S.path === 'human'],
     ['mayor', 'The Mayor', 'Free a monster town', Object.keys(S.towns || {}).length > 0], ['tycoon', 'Tycoon', 'Be worth 100,000 coins', S.started && netWorth() >= 100000],
+    ['worldbreaker', 'Worldbreaker', 'Help beat King Wobblegut', (S.wbKills || 0) > 0],
     ['gatherer', 'Master Gatherer', 'Reach level 50 in any gathering skill', SKILLS.some(([k]) => lvl(k) >= 50)],
   ];
   for (const [id, name, how, ok] of extra) T.push({ id, name, how, ok: !!ok, col: '#e8a93a' });
@@ -7298,7 +7468,7 @@ function makeGagronFriend() {
   npcs.push(gagronFriend);
 }
 
-window.__jq = { adv(s) { for (let t = 0; t < s; t += 0.05) { for (let i = timers.length - 1; i >= 0; i--) { timers[i].t -= 0.05; if (timers[i].t <= 0) { const f = timers[i].f; timers.splice(i, 1); f(); } } bossFxTick(0.05); } }, get party() { return party; }, BOSS_AI, PHASE_SETUP, get gulped() { return gulped; }, wriggle, toggleBigMap, spawnEnemy, openPathChoice, choosePath, startLanternNight, get lanterns() { return lanterns; }, duelOffer, duelPrize, onNet, chatCommand, canFight, openUpgrade, openBoard, boardToday, queueLetter, makeGagronFriend, net, peerActors, runeTick, bossFx, renderer, scene, openMayor, darkOmen, netWorth, liberateTown, spots, spotEffect, setGolden, goldenCaught, pompArrive, get goldenE() { return goldenE; }, spinWheel, dayTick, get bossIntro() { return bossIntro; }, bossSkip, startBossScene, sailTo, regions, closeSheet, renderHotbar, crew, setCrewMode, TOWNS, liberateTown, chests, openChest, stopRoulette, enemies, startBossIntro, closeDialog, advanceDialog, dash, attackPress, craft, CRAFTS, openCreator, closeCreator, creator, rebuildHero, setZoom: (z) => { zoom = z; }, hurtEnemy, goThrough, get where() { return where; }, INTERIORS, equipGear, spendPoint, giveHeroXp, heroLvl, stat, maxHp, defDiv, openWeaponShop, openKing, jump, eat, eatBest, openShop, swing, swingTarget, hitNode, projectiles, timers, get S() { return S; }, get player() { return player; }, enemies, nodes, npcs, startTask, doAction, giveXp, save, openSheet, openDialog };
+window.__jq = { wbInfo, wbTick, get wb() { return wb; }, WB_SPOTS, tradeOpen, tradeNet, offerKey, get trade() { return trade; }, adv(s) { for (let t = 0; t < s; t += 0.05) { for (let i = timers.length - 1; i >= 0; i--) { timers[i].t -= 0.05; if (timers[i].t <= 0) { const f = timers[i].f; timers.splice(i, 1); f(); } } bossFxTick(0.05); } }, get party() { return party; }, BOSS_AI, PHASE_SETUP, get gulped() { return gulped; }, wriggle, toggleBigMap, spawnEnemy, openPathChoice, choosePath, startLanternNight, get lanterns() { return lanterns; }, duelOffer, duelPrize, onNet, chatCommand, canFight, openUpgrade, openBoard, boardToday, queueLetter, makeGagronFriend, net, peerActors, runeTick, bossFx, renderer, scene, openMayor, darkOmen, netWorth, liberateTown, spots, spotEffect, setGolden, goldenCaught, pompArrive, get goldenE() { return goldenE; }, spinWheel, dayTick, get bossIntro() { return bossIntro; }, bossSkip, startBossScene, sailTo, regions, closeSheet, renderHotbar, crew, setCrewMode, TOWNS, liberateTown, chests, openChest, stopRoulette, enemies, startBossIntro, closeDialog, advanceDialog, dash, attackPress, craft, CRAFTS, openCreator, closeCreator, creator, rebuildHero, setZoom: (z) => { zoom = z; }, hurtEnemy, goThrough, get where() { return where; }, INTERIORS, equipGear, spendPoint, giveHeroXp, heroLvl, stat, maxHp, defDiv, openWeaponShop, openKing, jump, eat, eatBest, openShop, swing, swingTarget, hitNode, projectiles, timers, get S() { return S; }, get player() { return player; }, enemies, nodes, npcs, startTask, doAction, giveXp, save, openSheet, openDialog };
 window.addEventListener('error', (e) => { const m = $('loadmsg'); if (m) m.textContent = `Something went wrong: ${e.message}`; });
 main().catch((err) => {
   console.error(err);

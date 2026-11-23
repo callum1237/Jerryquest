@@ -185,6 +185,14 @@ export const ICONS = {
     for (const [x, c] of [[-16, '#ff5a6a'], [0, '#5fb3e6'], [16, '#66c46a']]) shape(g, c, () => g.arc(x, 12, 5, 0, 7));
     shine(g, -20, -4, 4);
   }),
+  royal_jelly: make((g) => {
+    // a wobbly golden jelly with a tiny crown
+    shape(g, '#ffcf3a', () => { g.moveTo(-30, 26); g.quadraticCurveTo(-34, -14, 0, -16); g.quadraticCurveTo(34, -14, 30, 26); g.closePath(); });
+    shape(g, '#ffe58a', () => g.ellipse(-8, 0, 9, 12, -0.3, 0, 7));
+    shape(g, '#ffd84a', () => { g.moveTo(-12, -14); g.lineTo(-14, -30); g.lineTo(-5, -22); g.lineTo(0, -32); g.lineTo(5, -22); g.lineTo(14, -30); g.lineTo(12, -14); g.closePath(); });
+    for (const x of [-9, 9]) shape(g, '#3a2010', () => g.arc(x, 6, 3.5, 0, 7));
+    shine(g, -16, -4, 4);
+  }),
   frost_crown: make((g) => {
     shape(g, '#bfefff', () => { g.moveTo(-30, 22); g.lineTo(-30, -10); g.lineTo(-18, 2); g.lineTo(-10, -26); g.lineTo(0, -2); g.lineTo(10, -26); g.lineTo(18, 2); g.lineTo(30, -10); g.lineTo(30, 22); g.closePath(); });
     for (const x of [-16, 0, 16]) shape(g, '#7fd3ff', () => g.arc(x, 12, 4.5, 0, 7));
