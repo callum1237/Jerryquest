@@ -2568,6 +2568,7 @@ function guideTick() {
   guide.star.visible = !!t && d < 45;
   const L = guide.label;
   if (!t || d <= 4.5 || creator.open) L.hidden = true;
+  if (!t) { guide.g.visible = false; guide.star.visible = false; }
   if (!t) return;
   guide.g.position.set(P.x, 0.25 + P.y, P.z);
   const want = Math.atan2(t.x - P.x, t.z - P.z) + Math.PI;
@@ -3011,6 +3012,7 @@ function renderSheet() {
   } else if (sheetMode === 'opts') {
     el.innerHTML = `<h3>Options</h3><div class="opts">
       <button id="o-style" aria-pressed="${styled.on}">Storybook look: ${styled.on ? 'On' : 'Off'}</button>
+      <button id="o-guide" aria-pressed="${S.guideOn !== false}">Quest arrow: ${S.guideOn !== false ? 'On' : 'Off'}</button>
       <h4>Time of day</h4>
       <div class="seg" id="o-tod">${[['cycle', 'Day and night'], ['day', 'Day'], ['golden', 'Golden hour'], ['night', 'Night']].map(([k, nm]) => `<button data-tod="${k}" aria-pressed="${(S.tod || 'cycle') === k}">${nm}</button>`).join('')}</div>
       <h4>Sound</h4>
@@ -3024,6 +3026,7 @@ function renderSheet() {
       ${net.on ? `<button id="o-out" class="primary">Log out (${net.user.name})</button>` : ''}
       <p class="hint">${net.on ? 'Your progress saves online, so it follows you to any computer.' : 'Progress saves in this browser.'}</p></div>`;
     $('o-style').onclick = () => { setStyled(!styled.on); renderSheet(); };
+    $('o-guide').onclick = () => { S.guideOn = S.guideOn === false; save(); renderSheet(); };
     el.querySelectorAll('[data-bind]').forEach((b) => { b.onclick = () => { bindCapture = { act: b.dataset.bind, slot: +b.dataset.slot }; renderSheet(); }; });
     const vols = () => { S.vol = { music: +$('o-music').value, sfx: +$('o-sfx').value }; setVolumes(S.vol.music, S.vol.sfx); save(); };
     $('o-music').oninput = vols; $('o-sfx').oninput = () => { vols(); sfx('coin'); };
