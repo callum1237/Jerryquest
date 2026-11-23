@@ -39,7 +39,7 @@ export const M = (x, y, z, s = 1, ry = 0) => new THREE.Matrix4().compose(
   new THREE.Vector3(x, y, z), new THREE.Quaternion().setFromEuler(new THREE.Euler(0, ry, 0)), new THREE.Vector3(s, s, s));
 
 // A copy of a model with its colours multiplied by a tint (the original stays untouched).
-function tinted(tpl, col) {
+export function tinted(tpl, col) {
   const c = tpl.clone(true);
   c.traverse((o) => { if (o.isMesh) { o.material = o.material.clone(); o.material.color.set(col); } });
   return c;

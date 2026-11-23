@@ -177,6 +177,11 @@ export const ICONS = {
     for (const [x, c] of [[-16, '#ff5a6a'], [0, '#5fb3e6'], [16, '#66c46a']]) shape(g, c, () => g.arc(x, 12, 5, 0, 7));
     shine(g, -20, -4, 4);
   }),
+  frost_crown: make((g) => {
+    shape(g, '#bfefff', () => { g.moveTo(-30, 22); g.lineTo(-30, -10); g.lineTo(-18, 2); g.lineTo(-10, -26); g.lineTo(0, -2); g.lineTo(10, -26); g.lineTo(18, 2); g.lineTo(30, -10); g.lineTo(30, 22); g.closePath(); });
+    for (const x of [-16, 0, 16]) shape(g, '#7fd3ff', () => g.arc(x, 12, 4.5, 0, 7));
+    shine(g, -20, -2, 4);
+  }),
   dragon_scale: make((g) => {
     shape(g, '#e0452a', () => { g.moveTo(0, -32); g.quadraticCurveTo(30, -20, 26, 6); g.quadraticCurveTo(18, 26, 0, 34); g.quadraticCurveTo(-18, 26, -26, 6); g.quadraticCurveTo(-30, -20, 0, -32); });
     shape(g, '#ffb347', () => { g.moveTo(0, -18); g.quadraticCurveTo(16, -10, 13, 6); g.quadraticCurveTo(8, 18, 0, 22); g.quadraticCurveTo(-8, 18, -13, 6); g.quadraticCurveTo(-16, -10, 0, -18); });

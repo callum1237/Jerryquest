@@ -3,6 +3,7 @@ import { THREE, scene, camera, renderer, sun, sky, PRESETS, env, applyPreset, st
   loadModel, burst, updateParticles, render, rng } from './engine.js';
 import * as SkeletonUtils from 'three/addons/utils/SkeletonUtils.js';
 import { buildWorld, buildFlowers, place, colliders, clouds, dynamic, LAKE, CAMP, MINE, S_NATURE, blocked, isFree, ZONES, WORLD_R, VS, TOWNS, ROADS } from './world.js';
+import { LANDS, VALLEY_DOCK, buildLands, makeSnow } from './lands.js';
 import { ICONS } from './icons.js';
 import { buildInteriors, INTERIORS } from './interiors.js';
 import { unlockAudio, playMusic, sfx, setVolumes } from './audio.js';
@@ -19,6 +20,11 @@ const SKILL_NAME = Object.fromEntries(SKILLS);
 const XPT = [0, 0];
 { let pts = 0; for (let l = 1; l < 99; l++) { pts += Math.floor(l + 300 * Math.pow(2, l / 7)); XPT[l + 1] = Math.floor(pts / 4); } }
 const levelOf = (xp) => { let l = 1; while (l < 99 && xp >= XPT[l + 1]) l++; return l; };
+// Hero levels: cheap at first, steep later. Going from level L to L+1 costs 60 + 40 × L^1.6 XP,
+// so level 1 → 2 is 100 XP, 10 → 11 about 1,650, 50 → 51 about 21,000 and 100 → 101 about 63,500.
+const HERO_MAX = 150, HXT = [0, 0];
+for (let l = 1; l < HERO_MAX; l++) HXT[l + 1] = HXT[l] + Math.round(60 + 40 * Math.pow(l, 1.6));
+const heroLevelOf = (xp) => { let l = 1; while (l < HERO_MAX && xp >= HXT[l + 1]) l++; return l; };
 
 // ---------- the hero: one level, three stats ----------
 // Every level gives +1 Attack, +1 Defense and +1 Health for free, plus 2 points to spend anywhere.
@@ -51,7 +57,7 @@ const ITEMS = {
   bread: 'Bread', pie: 'Apple pie', stew: 'Hearty stew', grilled_shrimp: 'Grilled shrimp', grilled_trout: 'Grilled trout', fish_pie: 'Fish pie',
   bone_dust: 'Bone dust', dark_essence: 'Dark essence',
   dragon_scale: "Gagron's fire scale", silver_ring: 'Silver ring', ruby: 'Ruby', golden_crown: 'Tiny golden crown',
-  lucky_sock: "Bonecrusher's lucky sock", gloom_hat: "Gloomcaster's droopy hat", rattle_tooth: "Rattlebones' gold tooth",
+  lucky_sock: "Bonecrusher's lucky sock", frost_crown: "Queen Frostwhisker's ice crown", gloom_hat: "Gloomcaster's droopy hat", rattle_tooth: "Rattlebones' gold tooth",
 };
 // Food heals; bought from Marta's stall in the market.
 const FOOD = { bread: { heal: 8, price: 8 }, pie: { heal: 20, price: 20 }, stew: { heal: 40, price: 40 }, grilled_shrimp: { heal: 6 }, grilled_trout: { heal: 14 }, fish_pie: { heal: 32 } };
@@ -102,7 +108,7 @@ const gearStats = (g) => (g.slot === 'weapon'
 const BOSS_WEAPON = { boss_gagron: 'k_flame', boss_crusher: 'k_cleaver', boss_gloom: 'm_gloom', boss_rattle: 'a_rattle' };
 const DARK_KING = 'Morgoth the Menacing'; // working name, change it here
 // Everything can be sold. Treasures (rings, rubies, crowns) are rare drops worth a lot.
-const SELL = { grilled_shrimp: 5, grilled_trout: 12, fish_pie: 26, dragon_scale: 90, bread: 4, pie: 10, stew: 20, silver_ring: 40, ruby: 120, golden_crown: 400, bone_dust: 3, dark_essence: 15, lucky_sock: 60, gloom_hat: 60, rattle_tooth: 60, logs: 3, oak_logs: 6, copper_ore: 4, iron_ore: 8, shrimp: 3, trout: 8, bones: 2 };
+const SELL = { grilled_shrimp: 5, grilled_trout: 12, fish_pie: 26, dragon_scale: 90, bread: 4, pie: 10, stew: 20, silver_ring: 40, ruby: 120, golden_crown: 400, bone_dust: 3, dark_essence: 15, lucky_sock: 60, frost_crown: 300, gloom_hat: 60, rattle_tooth: 60, logs: 3, oak_logs: 6, copper_ore: 4, iron_ore: 8, shrimp: 3, trout: 8, bones: 2 };
 const NODES = {
   tree: { skill: 'woodcutting', req: 1, xp: 25, item: 'logs', name: 'Tree', verb: 'Chop', doing: 'Chopping', deplete: 0.3, respawn: 14 },
   oak: { skill: 'woodcutting', req: 5, xp: 40, item: 'oak_logs', name: 'Oak tree', verb: 'Chop', doing: 'Chopping', deplete: 0.22, respawn: 20 },
@@ -123,6 +129,12 @@ const ENEMY_TYPES = {
   // the first story boss: a fire dragon in a cave north-east of the castle. Breathes fire and rains fireballs.
   boss_gagron: { name: 'Gagron the Hideous', model: 'dragon', hp: 260, maxHit: 7, xp: 900, boss: true, dragon: true, scale: 2.1, coins: [120, 200], drop: 'dragon_scale', inside: 'cave', noBones: true },
   boss_rattle: { name: 'Captain Rattlebones', model: 'skel_minion', hp: 150, maxHit: 7, weapon: 'Skeleton_Blade', xp: 800, boss: true, scale: 2.3, coins: [90, 150], drop: 'rattle_tooth', slam: 6 },
+  // Chapter 2, Frostwhisker Peaks: icy skeletons that hit harder and give much more XP
+  frost_minion: { name: 'Frost Skeleton', model: 'skel_minion', hp: 48, maxHit: 7, weapon: 'Skeleton_Blade', xp: 70, tint: '#bfe6ff', inside: 'frost', coins: [10, 22] },
+  frost_warrior: { name: 'Icebone Warrior', model: 'skel_warrior', hp: 80, maxHit: 9, weapon: 'Skeleton_Blade', xp: 120, tint: '#9fd0ff', inside: 'frost', coins: [16, 30] },
+  frost_mage: { name: 'Frost Caster', model: 'skel_mage', hp: 56, maxHit: 8, weapon: 'Skeleton_Staff', xp: 100, ranged: true, tint: '#d8c8ff', inside: 'frost', coins: [14, 26] },
+  boss_frost: { name: 'Queen Frostwhisker', model: 'mage', hp: 420, maxHit: 12, weapon: 'Skeleton_Staff', xp: 3000, boss: true, scale: 2.4, coins: [300, 450], drop: 'frost_crown', ranged: true, spread: true, slam: 5.5, inside: 'frost', tint: '#cfeaff',
+    look: { sex: 'f', skin: 'porcelain', eyes: 'sky', eyeStyle: 'sharp', mouth: 'cat', hair: 'hime', hairLen: 'long', hairCol: 'snow', mark: 'star', ears: 'elf' } },
 };
 const QUESTS = {
   firewood: {
@@ -182,8 +194,21 @@ Object.assign(QUESTS, {
   st_hollow: {
     story: true, chapter: 'Chapter 1', name: 'The Shard of the Hollow', giver: 'king', after: ['st_dragon'], bossType: 'boss_rattle',
     intro: `The third shard sank into Haunted Hollow, north of the castle. Captain Rattlebones leads ${DARK_KING}'s restless dead there. Put him to rest, if only for a while.`,
-    ready: 'The Hollow shard, cold as moonlight. Three of the pieces are home.', done: 'Three shards, safe. But the Heartstone is not whole...',
+    ready: 'The Hollow shard, cold as moonlight. Three of the pieces are home.', done: 'The shards are home, but the Heartstone will not mend, and a cold wind blows from the north. Take the ship at the lake pier to Frostwhisker Peaks.',
     need: { boss: 1 }, reward: { coins: 150, xp: { hero: 500 } }, desc: 'Defeat Captain Rattlebones in Haunted Hollow (north).',
+  },
+  // Chapter 2: a new land. Sail from the pier on the village lake to Frostwhisker Peaks.
+  st_frost1: {
+    story: true, chapter: 'Chapter 2', name: 'The Frozen North', giver: 'elder', after: ['st_crags', 'st_glimmer', 'st_hollow'], land: 'frost',
+    intro: 'Brr! You came all the way from Jerry Valley? Then you felt it too: the cold that crept south the night your Heartstone cracked. Queen Frostwhisker has woken up in her Ice Palace, and her frost skeletons are everywhere. Clear a few of them out of our woods and hills, and then we can talk about the Queen.',
+    ready: 'You fought them off! Snowdrop has not been this brave in years. Come, warm your hands, and I will tell you about the Queen.', done: 'Snowdrop is safer thanks to you. The Queen still sits in her Ice Palace to the north.',
+    need: { kills: 6 }, reward: { coins: 300, xp: { hero: 2500 } }, desc: 'Defeat 6 frost monsters in Frostwhisker Peaks.',
+  },
+  st_frost_boss: {
+    story: true, chapter: 'Chapter 2', name: 'The Ice Queen', giver: 'elder', after: ['st_frost1'], bossType: 'boss_frost', land: 'frost',
+    intro: 'Queen Frostwhisker wants every land frozen solid, yours included. She thinks the cracked Heartstone means nobody can stop her. Her Ice Palace is straight north up the snowy path. Watch for her icy blasts, and when the ground glows, move!',
+    ready: 'The Queen is beaten and the snow is just snow again! You are a hero of the north as well as the valley.', done: 'Frostwhisker Peaks is free. The Queen sulks in her palace, much less frosty.',
+    need: { boss: 1 }, reward: { coins: 800, xp: { hero: 8000 } }, desc: 'Defeat Queen Frostwhisker in the Ice Palace (north).',
   },
 });
 // The story is split into chapters, and each new chapter takes you to a new land.
@@ -191,7 +216,7 @@ Object.assign(QUESTS, {
 const CHAPTERS = [
   { id: 'pro', tag: 'Prologue', name: 'The Crack', land: 'Jerry Valley', quests: ['st_1'] },
   { id: 'c1', tag: 'Chapter 1', name: 'The Shards', land: 'Jerry Valley', quests: ['st_dragon', 'st_crags', 'st_glimmer', 'st_hollow'] },
-  { id: 'c2', tag: 'Chapter 2', name: 'The Frozen North', land: 'Frostwhisker Peaks', quests: [], soon: true },
+  { id: 'c2', tag: 'Chapter 2', name: 'The Frozen North', land: 'Frostwhisker Peaks', quests: ['st_frost1', 'st_frost_boss'] },
   { id: 'c3', tag: 'Chapter 3', name: 'The Hungry Swamp', land: 'Gobbler Marsh', quests: [], soon: true },
   { id: 'c4', tag: 'Chapter 4', name: 'The Clockwork Ruins', land: 'Brassbolt Sands', quests: [], soon: true },
   { id: 'c5', tag: 'Chapter 5', name: 'The Dark King', land: 'The Floating Castle', quests: [], soon: true },
@@ -246,11 +271,12 @@ function loadSave() {
 }
 function save() {
   if (!S.started || !player) return;
-  S.pos = where === 'out' ? [player.root.position.x, player.root.position.z] : [INTERIORS[where].exitTo.x, INTERIORS[where].exitTo.z];
+  S.pos = where === 'out' || LANDS[where] ? [player.root.position.x, player.root.position.z] : [INTERIORS[where].exitTo.x, INTERIORS[where].exitTo.z];
+  S.land = LANDS[where] ? where : 'out';
   try { localStorage.setItem(SAVE_KEY, JSON.stringify(S)); } catch (e) { /* storage unavailable */ }
 }
 const lvl = (k) => levelOf(S.xp[k]);
-const heroLvl = () => levelOf(S.hero.xp);
+const heroLvl = () => heroLevelOf(S.hero.xp);
 // a stat = 1 at level 1, +1 every level, plus whatever points you spent on it
 const stat = (k) => heroLvl() * AUTO_PER_LEVEL + S.hero.alloc[k];
 const freePoints = () => (heroLvl() - 1) * FREE_PER_LEVEL - Object.values(S.hero.alloc).reduce((a, b) => a + b, 0);
@@ -326,7 +352,7 @@ class Actor {
 }
 
 const G = {}, lib = {};
-let player = null;
+let player = null, snowFx = null;
 const npcs = [];
 const enemies = [];
 const nodes = [];
@@ -342,6 +368,8 @@ async function main() {
   for (const c of G.gear.scene.children) lib[c.name] = c;
   for (const c of G.interior.scene.children) lib[c.name] = c;
   buildWorld(lib);
+  buildLands();
+  snowFx = makeSnow();
   // the tavern door sits in front of the tavern, which moved out with the rest of the village
   buildInteriors(lib, { tavern: { outside: { x: -4.0 * VS, z: -17 * VS + 4.7 }, exitTo: { x: -4.0 * VS + 0.6, z: -17 * VS + 7.6 } } });
   buildDoors();
@@ -383,6 +411,7 @@ function showPick() {
 function startHero() {
   player = new Actor(heroModel());
   player.root.position.set(S.pos[0], 0, S.pos[1]);
+  if (S.land && LANDS[S.land]) where = S.land;
   player.base = {};
   player.root.traverse((o) => { if (o.name === '1H_Sword') player.base.weapon = o; if (o.name === 'Badge_Shield') player.base.shield = o; });
   borrowKnightGear();
@@ -831,6 +860,7 @@ function faceTick(a = player) {
   if (!a || !a.faceMats) return;
   let st = 'open';
   if (a.dead || now < (a.hurtFace || 0)) st = 'hurt';
+  else if (now < (a.emoteUntil || 0)) st = a.emoteFace;
   else if (now < (a.talkUntil || 0) && Math.sin(now * 26) > -0.2) st = 'talk';
   else if (now < (a.blinkUntil || 0)) st = 'blink';
   else if (now > (a.blinkAt || 0)) { a.blinkUntil = now + 0.14; a.blinkAt = now + 2.2 + Math.random() * 3.5; st = 'blink'; }
@@ -1196,6 +1226,15 @@ function buildNpcs() {
       lines: ['Captain Rattlebones keeps getting up. I keep putting him down. It is a living. Well. Sort of.', 'Do not mind the gravestones. Most of them are empty. Most.'] },
     { id: 'penny', name: 'Penny the Banker', model: 'mage', x: -3 * VS, z: 13.5 * VS, hide: [], bank: true, tint: '#ffe08a' },
     { id: 'tom', name: 'Old Tom the Barkeep', model: 'barbarian', x: INTERIORS.tavern.barkeep.x, z: INTERIORS.tavern.barkeep.z, hide: [], shop: 'food', tint: '#e8c89a', inside: 'tavern', face: 'south' },
+    { id: 'captain', name: 'Captain Barnaby Gale', model: 'barbarian', x: VALLEY_DOCK.x, z: VALLEY_DOCK.z, hide: [], tint: '#5a8ad8', sail: 'frost',
+      look: { skin: 'tan', eyes: 'blue', eyeStyle: 'happy', mouth: 'grin', hair: 'short', beard: 'full', hairCol: 'ginger' } },
+    { id: 'captain2', name: 'Captain Barnaby Gale', model: 'barbarian', x: LANDS.frost.captain.x, z: LANDS.frost.captain.z, hide: [], tint: '#5a8ad8', sail: 'out', inside: 'frost',
+      look: { skin: 'tan', eyes: 'blue', eyeStyle: 'happy', mouth: 'grin', hair: 'short', beard: 'full', hairCol: 'ginger' } },
+    { id: 'elder', name: 'Elder Mittens', model: 'mage', x: LANDS.frost.elder.x, z: LANDS.frost.elder.z, hide: [], tint: '#9fd0ff', inside: 'frost',
+      look: { sex: 'f', skin: 'porcelain', eyes: 'sky', eyeStyle: 'happy', mouth: 'smile', hair: 'bun', hairCol: 'snow', mark: 'rosy', hat: true } },
+    { id: 'snowkid', name: 'Pip Snowdrift', model: 'heroine', x: LANDS.frost.village.x + 6, z: LANDS.frost.village.z + 5, hide: [], tint: '#ff9ab8', inside: 'frost',
+      look: { sex: 'f', skin: 'peach', eyes: 'green', eyeStyle: 'round', mouth: 'grin', hair: 'twin', hairLen: 'shoulder', hairCol: 'ginger', mark: 'freckles' },
+      lines: ['I built every snowman on Snowman Hills! Well, most of them. Some of them built themselves...', 'Queen Frostwhisker used to be nice, Granny says. Then she got bored of everyone being warm.', 'Watch out on the frozen pond. It is very slippy. I know from experience!'] },
   ];
   for (const d of defs) makeNpc(d);
 }
@@ -1298,6 +1337,7 @@ function spawnEnemy(k, x, z) {
   if (T.boss || T.tint) e.root.traverse((o) => { if (o.isMesh && (T.town && !T.boss ? /Body/ : /Body|Head/).test(o.name)) tinted(o, T.tint || (k === 'boss_gloom' ? '#c8a8ff' : k === 'boss_crusher' ? '#ffd0a0' : '#c0ffc8')); });
   if (T.boss) addSilhouette(e.root, '#ff8a9a');
   if ((T.model || k).startsWith('skel')) skeletonize(e, T);
+  if (T.look) { const hat = e.root.getObjectByName('Mage_Hat'); if (hat) hat.visible = false; dressNpc(e, { ...NPC_BASE, ...T.look }); if (k === 'boss_frost') e.root.traverse((o) => { if (o.isBone && o.name === 'head') { const c = makeCrown(); c.traverse((m) => { if (m.isMesh) registerMesh(m, toon('#bfefff')); }); o.add(c); } }); }
   if (!T.boss) { const bar = document.createElement('div'); bar.className = 'hpbar'; bar.hidden = true; bar.innerHTML = '<i></i>'; document.body.appendChild(bar); e.bar = bar; }
   else e.bar = { hidden: true, style: {}, firstChild: { style: {} } };
   e.flashMats = [];
@@ -1342,6 +1382,12 @@ function buildEnemies() {
   spawnEnemy('boss_rattle', ZONES.hollow.x, ZONES.hollow.z + 2);
   spawnEnemy('boss_gagron', INTERIORS.cave.lair.x, INTERIORS.cave.lair.z);
   buildTownMonsters();
+  const FZs = LANDS.frost.zones;
+  const fring = (Z, list, r) => list.forEach((k, i) => { const a = (i / list.length) * Math.PI * 2 + 0.7; spawnEnemy(k, Z.x + Math.cos(a) * r, Z.z + Math.sin(a) * r); });
+  fring(FZs.woods, ['frost_minion', 'frost_warrior', 'frost_minion', 'frost_mage', 'frost_minion'], 11);
+  fring(FZs.hills, ['frost_mage', 'frost_minion', 'frost_warrior', 'frost_minion'], 10);
+  fring({ x: FZs.palace.x, z: FZs.palace.z + 18 }, ['frost_warrior', 'frost_mage', 'frost_warrior'], 6);
+  spawnEnemy('boss_frost', FZs.palace.x, FZs.palace.z - 1);
 }
 
 // ---------- inventory, xp, quests ----------
@@ -1459,7 +1505,9 @@ function guideTick() {
   let t = show && questTarget(id);
   if (t && t.inside !== where) {
     // the goal is in another place: lead to the door first
-    if (where !== 'out') { const d = INTERIORS[where].room.door; t = { x: d.x, z: d.z, inside: where }; }
+    if (LANDS[where]) { const C = LANDS[where].captain; t = { x: C.x, z: C.z, inside: where }; }
+    else if (LANDS[t.inside] && where === 'out') t = { x: VALLEY_DOCK.x, z: VALLEY_DOCK.z, inside: 'out' };
+    else if (where !== 'out') { const d = INTERIORS[where].room.door; t = { x: d.x, z: d.z, inside: where }; }
     else { const I = INTERIORS[t.inside]; t = I && I.outside ? { x: I.outside.x, z: I.outside.z, inside: 'out' } : null; }
   }
   const P = player.pos;
@@ -1737,12 +1785,48 @@ function goThrough(to) {
     setTimeout(() => { fading = false; }, 250);
   }, 320);
 }
+// ---------- ships between lands ----------
+const chapter1Done = () => ['st_dragon', 'st_crags', 'st_glimmer', 'st_hollow'].every((k) => S.quests[k] && S.quests[k].state === 'done');
+function openSail(npc) {
+  talking = npc;
+  const to = npc.sail, L = LANDS[to];
+  const text = to === 'out' ? 'Ready to head home to Jerry Valley? The sea is calm and the biscuits are fresh.'
+    : chapter1Done() ? `Ahoy! The King says you are bound for ${L.name}. Wrap up warm, it is snowing up there!`
+      : `Ahoy! I sail to ${L.name}, far to the north. The monsters there are much tougher than the valley's. The King will send you there in Chapter 2, but I can take you for a look now if you are brave.`;
+  const d = $('dialog');
+  d.innerHTML = '<h3></h3><p></p><div class="row"></div>';
+  d.querySelector('h3').textContent = npc.name; d.querySelector('p').textContent = text;
+  const row = d.querySelector('.row');
+  const go = document.createElement('button'); go.className = 'primary'; go.textContent = to === 'out' ? 'Sail home' : `Sail to ${L.name}`; go.onclick = () => { closeDialog(); sailTo(to); }; row.appendChild(go);
+  const no = document.createElement('button'); no.textContent = 'Not yet'; no.onclick = closeDialog; row.appendChild(no);
+  showDialog(d, { talky: true });
+  npc.actor.face(player.pos.x, player.pos.z);
+}
+function sailTo(to) {
+  if (fading) return;
+  fading = true; held = false; mouseHeld = false; moveTarget = null; pending = null; marker.visible = false; cancelTask();
+  const name = to === 'out' ? 'Jerry Valley' : LANDS[to].name;
+  $('fade').dataset.label = `Sailing to ${name}...`; $('fade').classList.add('on', 'sail'); sfx('door');
+  setTimeout(() => {
+    const pp = player.pos, A = to === 'out' ? VALLEY_DOCK.arrive : LANDS[to].arrive;
+    pp.set(A.x, 0, A.z); player.root.rotation.y = to === 'out' ? Math.PI / 2 : Math.PI;
+    where = to;
+    camPos.copy(pp).setY(0).add(CAM_OFF.clone().multiplyScalar(zoom * (camera.aspect < 1 ? 1.3 : 1)));
+    setTimeout(() => {
+      $('fade').classList.remove('on', 'sail');
+      toast(to === 'out' ? 'Home sweet Jerry Valley!' : `Welcome to ${name}!`, null, true);
+      setTimeout(() => { fading = false; }, 250);
+      save(); refreshUI();
+    }, 1100);
+  }, 400);
+}
 function checkDoors() {
   if (fading || !player || player.dead) return;
   const pp = player.pos;
   if (where === 'out') {
     for (const [id, I] of Object.entries(INTERIORS)) if (Math.hypot(pp.x - I.outside.x, pp.z - I.outside.z) < 1.3) { goThrough(id); return; }
   } else {
+    if (!INTERIORS[where]) return;
     const d = INTERIORS[where].room.door;
     if (pp.z > d.z && Math.abs(pp.x - d.x) < 2.6) goThrough('out');
   }
@@ -1765,7 +1849,10 @@ function refreshUI() {
     if (n.shop || n.bank) { n.marker.userData.draw('$'); continue; }
     if (n.king) { const st = storyStep(); n.marker.userData.draw(st.some(questReady) ? '?' : st.some((q) => S.quests[q].state === 'todo') ? '!' : '♛'); continue; }
     if (n.lines) { n.marker.userData.draw(''); continue; }
-    const qid = Object.keys(QUESTS).find((k) => QUESTS[k].giver === n.id && !QUESTS[k].story);
+    if (n.sail) { n.marker.userData.draw('⚓'); continue; }
+    let qid = Object.keys(QUESTS).find((k) => QUESTS[k].giver === n.id && !QUESTS[k].story);
+    if (!qid) qid = Object.keys(QUESTS).find((k) => QUESTS[k].giver === n.id && storyOpen(k) && S.quests[k].state !== 'done');
+    if (!qid) { n.marker.userData.draw(''); continue; }
     const st = S.quests[qid].state;
     n.marker.userData.draw(st === 'todo' ? '!' : questReady(qid) ? '?' : '');
   }
@@ -1777,7 +1864,7 @@ function renderSheet() {
   if (sheetMode === 'craft') { renderCraft(el); return; }
   if (sheetMode === 'crew') { renderCrew(el); return; }
   if (sheetMode === 'skills') {
-    const L = heroLvl(), cur = XPT[L], next = XPT[Math.min(99, L + 1)], free = freePoints();
+    const L = heroLvl(), cur = HXT[L], next = HXT[Math.min(HERO_MAX, L + 1)], free = freePoints();
     const pct = L >= 99 ? 100 : ((S.hero.xp - cur) / (next - cur)) * 100;
     const effect = { atk: `Weapon damage × ${dmgMult().toFixed(1)}`, def: `Damage taken ÷ ${defDiv().toFixed(1)}${gearDef() ? ` (gear +${gearDef()})` : ''}`, hp: `${maxHp()} max health` };
     const w = W();
@@ -2080,13 +2167,25 @@ function finishQuest(id, npc) {
 }
 function openDialog(npc) {
   if (npc.crew) { openCrewTalk(npc); return; }
+  if (npc.sail) { openSail(npc); return; }
   if (npc.lines) { openTalk(npc); return; }
   if (npc.king) { openKing(npc); return; }
   if (npc.bank) { openBank(npc); return; }
   if (npc.shop && npc.shop !== 'food') { openWeaponShop(npc); return; }
   if (npc.shop) { openShop(npc); return; }
   talking = npc;
-  const qid = Object.keys(QUESTS).find((k) => QUESTS[k].giver === npc.id && !QUESTS[k].story);
+  let qid = Object.keys(QUESTS).find((k) => QUESTS[k].giver === npc.id && !QUESTS[k].story);
+  if (!qid) {
+    // story givers outside the castle (like Elder Mittens) hand out their chapter's quests in order
+    const ks = Object.keys(QUESTS).filter((k) => QUESTS[k].giver === npc.id);
+    qid = ks.find((k) => storyOpen(k) && S.quests[k].state !== 'done') || [...ks].reverse().find((k) => S.quests[k].state === 'done');
+    if (!qid) {
+      const d = $('dialog'); d.innerHTML = '<h3></h3><p></p><div class="row"><button>Goodbye</button></div>';
+      d.querySelector('h3').textContent = npc.name;
+      d.querySelector('p').textContent = 'Welcome to Snowdrop, traveller! Our troubles are big ones. Help your own kingdom first (finish Chapter 1 for King Jerrold), then come back and see me.';
+      d.querySelector('button').onclick = closeDialog; showDialog(d, { talky: true }); return;
+    }
+  }
   const q = QUESTS[qid], st = S.quests[qid];
   const parts = [`${q.reward.coins} coins`];
   for (const [k, v] of Object.entries(q.reward.xp)) parts.push(`${v} ${k === 'hero' ? 'hero' : SKILL_NAME[k]} XP`);
@@ -2196,7 +2295,7 @@ const BIND_ACTIONS = [
   ['jump', 'Jump', ['Space', '']], ['interact', 'Talk / use / skip', ['KeyE', 'KeyF']],
   ['eat', 'Eat best food', ['KeyH', '']], ['map', 'Map', ['KeyM', '']],
   ['hero', 'Hero sheet', ['KeyK', '']], ['bag', 'Bag', ['KeyI', 'KeyB']], ['quests', 'Quests', ['KeyQ', '']],
-  ['craft', 'Craft', ['KeyN', '']],
+  ['craft', 'Craft', ['KeyG', '']], ['emote', 'Emote wheel', ['KeyN', '']],
   ...[1, 2, 3, 4, 5, 6, 7, 8].map((i) => [`hot${i}`, `Hotbar slot ${i}`, [`Digit${i}`, '']]),
 ];
 const MOVE_KEY = { up: 'u', down: 'd', left: 'l', right: 'r', sprint: 'sprint' };
@@ -2243,6 +2342,7 @@ addEventListener('keydown', (e) => {
     keys.add(mk); if (mk !== 'sprint') { cancelTask(); moveTarget = null; }
     return;
   }
+  if (emoteWheelOpen() && !e.repeat) { const m = /^(Digit|Numpad)([1-9])$/.exec(e.code); if (m) { e.preventDefault(); doEmote(+m[2] - 1); return; } if (e.code === 'Escape') { toggleEmotes(false); return; } }
   if (e.repeat && act !== 'interact') return;
   if (act === 'attack') attackPress(true);
   else if (act === 'dash') dash();
@@ -2255,6 +2355,7 @@ addEventListener('keydown', (e) => {
   else if (act === 'bag') openSheet('bag');
   else if (act === 'quests') openSheet('quests');
   else if (act === 'craft') openSheet('craft');
+  else if (act === 'emote') toggleEmotes();
   else if (act.startsWith('hot') && typeof useHotbar === 'function') useHotbar(+act.slice(3) - 1);
 });
 addEventListener('keyup', (e) => {
@@ -2699,7 +2800,7 @@ function knockTick(e, dt) {
   if (Math.abs(e.kb.x) + Math.abs(e.kb.y) > 0.05) {
     ep.x += e.kb.x * dt; ep.z += e.kb.y * dt;
     e.kb.multiplyScalar(Math.exp(-10 * dt));
-    if (e.inside === 'out') pushOut(ep, e.T.boss ? 1.2 : 0.6);
+    if (e.inside === 'out' || LANDS[e.inside]) pushOut(ep, e.T.boss ? 1.2 : 0.6);
   }
   if (e.lift > 0) { e.vy -= 32 * dt; e.lift = Math.max(0, e.lift + e.vy * dt); if (!e.lift) e.vy = 0; ep.y = e.lift; }
   // white flash that fades over a few frames
@@ -2731,7 +2832,7 @@ function hurtEnemy(e, dmg, src = null, power = 1) {
       if (e.T.town) { const T = TOWNS.find((t) => t.id === e.T.town); later(1.5, () => liberateTown(T)); }
     }
     floatText(e.pos.clone().setY(2.4), `+${coins} coins`, 'gain');
-    for (const k of Object.keys(QUESTS)) if (S.quests[k].state === 'active' && QUESTS[k].need.kills !== undefined) S.quests[k].kills++;
+    for (const k of Object.keys(QUESTS)) if (S.quests[k].state === 'active' && QUESTS[k].need.kills !== undefined && (!QUESTS[k].land || QUESTS[k].land === e.inside)) S.quests[k].kills++;
     refreshUI();
     later(e.T.boss ? 90 : 16, () => {
       if (e.T.town && townFree(e.T.town)) return; // freed towns stay free
@@ -2867,7 +2968,7 @@ function slamTick(dt) {
       const e = s2.e; sfx('slam');
       burst(e.pos.clone().setY(0.5), '#ffd08a', 60, 9, 1.4);
       shake = 0.5;
-      if (e.hp > 0 && !player.dead && where === 'out' && Math.hypot(player.pos.x - e.pos.x, player.pos.z - e.pos.z) < s2.R) {
+      if (e.hp > 0 && !player.dead && where === e.inside && Math.hypot(player.pos.x - e.pos.x, player.pos.z - e.pos.z) < s2.R) {
         if (dodging()) floatText(player.pos.clone().setY(3.6), 'Dodged!', 'miss');
         else hurtPlayer(Math.round(e.T.maxHit * 1.6));
       }
@@ -2958,7 +3059,7 @@ function enemyTick(e, dt) {
 // ---------- minimap ----------
 const MAP_R = 165, MAP_PX = 1024;
 const mapBg = document.createElement('canvas'); mapBg.width = mapBg.height = MAP_PX;
-const PLACES = [['Village', 0, -4], ['Skeleton camp', CAMP.x, CAMP.z + 9], ['Mine', MINE.x, MINE.z - 9], ['Castle', 4, -54], ...Object.values(ZONES).map((Z) => [Z.name, Z.x, Z.z - Z.r * 0.55]), ...TOWNS.map((T) => [T.name, T.x, T.z - 9])];
+const PLACES = [['Village', 0, -4], ['Skeleton camp', CAMP.x, CAMP.z + 9], ['Mine', MINE.x, MINE.z - 9], ['Castle', 4, -54], ['Ship', VALLEY_DOCK.x - 2, VALLEY_DOCK.z + 7], ...Object.values(ZONES).map((Z) => [Z.name, Z.x, Z.z - Z.r * 0.55]), ...TOWNS.map((T) => [T.name, T.x, T.z - 9])];
 // Photograph the world from straight above once, and use it as the map picture.
 function bakeMap() {
   const cam = new THREE.OrthographicCamera(-MAP_R, MAP_R, MAP_R, -MAP_R, 1, 500);
@@ -3003,12 +3104,38 @@ function bakeMap() {
   }
   g.beginPath(); g.arc(M2(0), M2(0), R2(WORLD_R), 0, 7); g.lineWidth = 8; g.strokeStyle = ink; g.stroke();
 }
+// Each faraway land gets its own board-style map, painted once from its layout.
+const LAND_MAP_R = 88, landMaps = {};
+function landMap(L) {
+  if (landMaps[L.id]) return landMaps[L.id];
+  const cv = document.createElement('canvas'); cv.width = cv.height = MAP_PX; const g = cv.getContext('2d');
+  const M2x = (v) => ((v - L.x + LAND_MAP_R) / (LAND_MAP_R * 2)) * MAP_PX, M2z = (v) => ((v - L.z + LAND_MAP_R) / (LAND_MAP_R * 2)) * MAP_PX, R2 = (r) => (r / (LAND_MAP_R * 2)) * MAP_PX, ink = '#3a2010';
+  g.fillStyle = '#c8d8ea'; g.fillRect(0, 0, MAP_PX, MAP_PX);
+  g.fillStyle = '#4fb0e8'; g.fillRect(M2x(L.x - 34), M2z(L.z + 56), R2(68), MAP_PX);
+  g.beginPath(); g.arc(M2x(L.x), M2z(L.z), R2(L.r), 0, 7); g.fillStyle = '#f2f7ff'; g.fill();
+  for (const Z of Object.values(L.zones)) { g.beginPath(); g.arc(M2x(Z.x), M2z(Z.z), R2(Z.r + 3), 0, 7); g.fillStyle = Z.name === 'Ice Palace' ? '#bfe6fb' : '#e2ecf8'; g.fill(); g.lineWidth = 4; g.strokeStyle = 'rgba(58,32,16,.4)'; g.setLineDash([10, 8]); g.stroke(); g.setLineDash([]); }
+  g.beginPath(); g.arc(M2x(L.pond.x), M2z(L.pond.z), R2(L.pond.r), 0, 7); g.fillStyle = '#a8dcf6'; g.fill(); g.lineWidth = 4; g.strokeStyle = '#fff'; g.stroke();
+  const road = (x1, z1, x2, z2) => { g.lineCap = 'round'; g.beginPath(); g.moveTo(M2x(x1), M2z(z1)); g.lineTo(M2x(x2), M2z(z2)); g.lineWidth = 13; g.strokeStyle = ink; g.stroke(); g.lineWidth = 8; g.strokeStyle = '#f5dfa6'; g.stroke(); };
+  const V = L.village, Z = L.zones;
+  road(L.arrive.x, L.arrive.z + 5, V.x, V.z); road(V.x, V.z, Z.palace.x, Z.palace.z + Z.palace.r); road(V.x, V.z, Z.woods.x + 8, Z.woods.z + 10); road(V.x, V.z, Z.hills.x - 8, Z.hills.z + 4);
+  g.beginPath(); g.arc(M2x(V.x), M2z(V.z), R2(7), 0, 7); g.fillStyle = '#f5dfa6'; g.fill(); g.lineWidth = 3; g.strokeStyle = ink; g.stroke();
+  for (const c of colliders) {
+    if (c.r < 0.9 || c.r > 1.7 || Math.hypot(c.x - L.x, c.z - L.z) > L.r + 6) continue;
+    g.beginPath(); g.arc(M2x(c.x), M2z(c.z), R2(c.r * 1.7), 0, 7); g.fillStyle = '#2f7a6a'; g.fill(); g.lineWidth = 1.5; g.strokeStyle = 'rgba(20,40,40,.8)'; g.stroke();
+    g.beginPath(); g.arc(M2x(c.x) - 2, M2z(c.z) - 3, R2(c.r * 0.7), 0, 7); g.fillStyle = '#ffffff'; g.fill();
+  }
+  g.beginPath(); g.arc(M2x(L.x), M2z(L.z), R2(L.r), 0, 7); g.lineWidth = 8; g.strokeStyle = ink; g.stroke();
+  // the ship in the harbour
+  g.fillStyle = '#8a5230'; g.beginPath(); g.ellipse(M2x(L.x), M2z(L.z + 66), R2(2), R2(4), 0, 0, 7); g.fill(); g.strokeStyle = ink; g.lineWidth = 2; g.stroke();
+  L.places = [['Snowdrop', V.x, V.z - 9], ['Harbour', L.x, L.z + 58], ...Object.values(Z).map((z2) => [z2.name, z2.x, z2.z - z2.r * 0.6]), ['Frozen Pond', L.pond.x, L.pond.z - L.pond.r - 2]];
+  return (landMaps[L.id] = cv);
+}
 const mini = $('minimap'), bigMap = $('bigmap');
 let lastMap = 0, mapBaked = 0;
 function toggleBigMap(force) {
   const show = force ?? bigMap.hidden;
   bigMap.hidden = !show;
-  if (show) drawMap(bigMap.querySelector('canvas'), true);
+  if (show) { bigMap.querySelector('h3').textContent = LANDS[where] ? `Map of ${LANDS[where].name}` : 'Map of Jerry Valley'; drawMap(bigMap.querySelector('canvas'), true); }
 }
 mini.addEventListener('click', () => toggleBigMap(true));
 $('jumpbtn').addEventListener('pointerdown', (e) => { e.preventDefault(); jump(); });
@@ -3021,13 +3148,14 @@ function drawMap(cv, full) {
   const dpr = Math.min(devicePixelRatio || 1, 2), css = cv.clientWidth || 150;
   if (cv.width !== Math.round(css * dpr)) { cv.width = cv.height = Math.round(css * dpr); }
   const W = cv.width, g = cv.getContext('2d');
-  const p = player.pos, half = full ? MAP_R : 34;
-  const cx = full ? 0 : p.x, cz = full ? 0 : p.z;
+  const Lm = LANDS[where], MR = Lm ? LAND_MAP_R : MAP_R, ox = Lm ? Lm.x : 0, oz = Lm ? Lm.z : 0, bg = Lm ? landMap(Lm) : mapBg;
+  const p = player.pos, half = full ? MR : 34;
+  const cx = full ? ox : p.x, cz = full ? oz : p.z;
   const k = W / (half * 2);
   const toPx = (x, z) => [(x - cx + half) * k, (z - cz + half) * k];
-  const src = (v) => ((v + MAP_R) / (MAP_R * 2)) * MAP_PX;
+  const srcX = (v) => ((v - ox + MR) / (MR * 2)) * MAP_PX, srcZ = (v) => ((v - oz + MR) / (MR * 2)) * MAP_PX;
   g.clearRect(0, 0, W, W);
-  if (where !== 'out') {
+  if (where !== 'out' && !Lm) {
     g.fillStyle = '#3a2618'; g.fillRect(0, 0, W, W);
     g.font = `700 ${(full ? 22 : 13) * dpr}px Fredoka, Trebuchet MS, sans-serif`; g.textAlign = 'center'; g.fillStyle = '#ffe9a0';
     const words = INTERIORS[where].name.split(' ');
@@ -3037,17 +3165,18 @@ function drawMap(cv, full) {
   g.save();
   if (!full) { g.beginPath(); g.arc(W / 2, W / 2, W / 2, 0, 7); g.clip(); }
   g.fillStyle = '#3f7a3a'; g.fillRect(0, 0, W, W);
-  g.drawImage(mapBg, src(cx - half), src(cz - half), src(cx + half) - src(cx - half), src(cz + half) - src(cz - half), 0, 0, W, W);
+  g.drawImage(bg, srcX(cx - half), srcZ(cz - half), srcX(cx + half) - srcX(cx - half), srcZ(cz + half) - srcZ(cz - half), 0, 0, W, W);
   const dot = (x, z, r, fill) => { const [u, v] = toPx(x, z); g.beginPath(); g.arc(u, v, r * dpr, 0, 7); g.fillStyle = fill; g.fill(); g.lineWidth = 1.5 * dpr; g.strokeStyle = '#3a2010'; g.stroke(); };
   const S1 = (full ? 1 : 0.85) * dpr;
   const flag = (x, z, col) => { const [u, v] = toPx(x, z); g.lineWidth = 2.5 * S1; g.strokeStyle = '#3a2010'; g.beginPath(); g.moveTo(u, v + 8 * S1); g.lineTo(u, v - 12 * S1); g.stroke(); g.beginPath(); g.moveTo(u, v - 12 * S1); g.lineTo(u + 12 * S1, v - 8 * S1); g.lineTo(u, v - 3 * S1); g.closePath(); g.fillStyle = col; g.fill(); g.lineWidth = 1.5 * S1; g.stroke(); };
   const skull = (x, z, r) => { const [u, v] = toPx(x, z); g.beginPath(); g.arc(u, v, r * S1, 0, 7); g.fillStyle = '#ff3a5a'; g.fill(); g.lineWidth = 2 * S1; g.strokeStyle = '#3a2010'; g.stroke(); g.beginPath(); g.arc(u, v - r * 0.1 * S1, r * 0.55 * S1, 0, 7); g.fillStyle = '#fff'; g.fill(); g.fillStyle = '#3a2010'; for (const sx of [-1, 1]) { g.beginPath(); g.arc(u + sx * r * 0.22 * S1, v - r * 0.12 * S1, r * 0.14 * S1, 0, 7); g.fill(); } };
   const chestIcon = (x, z) => { const [u, v] = toPx(x, z), w = 7 * S1; g.fillStyle = '#ffd23f'; g.strokeStyle = '#3a2010'; g.lineWidth = 1.5 * S1; g.beginPath(); g.roundRect(u - w, v - w * 0.7, w * 2, w * 1.4, 2 * S1); g.fill(); g.stroke(); g.beginPath(); g.moveTo(u - w, v - w * 0.1); g.lineTo(u + w, v - w * 0.1); g.stroke(); };
   for (const c of chests) if (!c.open) chestIcon(c.x, c.z);
-  for (const e of enemies) if (e.hp > 0 && e.state !== 'rising' && e.state !== 'gone' && e.inside === 'out') { if (e.T.boss) skull(e.pos.x, e.pos.z, 8); else dot(e.pos.x, e.pos.z, full ? 2.5 : 3.5, '#ff5a4a'); }
-  for (const c of crew) if (c.inside === 'out') dot(c.x, c.z, full ? 3.5 : 4, crewCfg(c).mode === 'ally' ? '#5ad87a' : crewCfg(c).mode === 'rival' ? '#ff7a3a' : '#c8a8ff');
-  for (const T of TOWNS) flag(T.x - 5, T.z - 3, townFree(T.id) ? '#3a8fe8' : '#d8324a');
+  for (const e of enemies) if (e.hp > 0 && e.state !== 'rising' && e.state !== 'gone' && e.inside === where) { if (e.T.boss) skull(e.pos.x, e.pos.z, 8); else dot(e.pos.x, e.pos.z, full ? 2.5 : 3.5, '#ff5a4a'); }
+  for (const c of crew) if (c.inside === where) dot(c.x, c.z, full ? 3.5 : 4, crewCfg(c).mode === 'ally' ? '#5ad87a' : crewCfg(c).mode === 'rival' ? '#ff7a3a' : '#c8a8ff');
+  if (!Lm) for (const T of TOWNS) flag(T.x - 5, T.z - 3, townFree(T.id) ? '#3a8fe8' : '#d8324a');
   for (const n of npcs) {
+    if ((n.inside || 'out') !== where) continue;
     const qid = Object.keys(QUESTS).find((q) => QUESTS[q].giver === n.id && !QUESTS[q].story);
     const st = qid && S.quests[qid].state;
     const col = n.king ? '#c58bff' : n.shop ? '#ffe9a0' : st === 'todo' ? '#ffd23f' : qid && questReady(qid) ? '#9cff6b' : '#f6efdc';
@@ -3056,7 +3185,7 @@ function drawMap(cv, full) {
   if (full) {
     g.font = `700 ${13 * dpr}px Fredoka, Trebuchet MS, sans-serif`; g.textAlign = 'center'; g.lineJoin = 'round';
     // place names on little ribbons
-    for (const [name, x, z] of PLACES) {
+    for (const [name, x, z] of (Lm ? Lm.places : PLACES)) {
       const [u, v] = toPx(x, z), w = g.measureText(name).width + 14 * dpr, h = 19 * dpr;
       g.fillStyle = '#7a4ac8'; g.strokeStyle = '#3a2010'; g.lineWidth = 2 * dpr;
       g.beginPath(); g.roundRect(u - w / 2, v - h * 0.72, w, h, 6 * dpr); g.fill(); g.stroke();
@@ -3095,6 +3224,14 @@ function collide(p, r = 0.7) {
   for (const c of colliders) {
     const dx = p.x - c.x, dz = p.z - c.z, d = Math.hypot(dx, dz), m = c.r + r;
     if (d < m && d > 0.0001) { p.x = c.x + (dx / d) * m; p.z = c.z + (dz / d) * m; }
+  }
+  const Lw = LANDS[where];
+  if (Lw) {
+    // stay on the land: inside its ring, and on the shore side of the harbour
+    let dx = p.x - Lw.x, dz = p.z - Lw.z; const d = Math.hypot(dx, dz);
+    if (d > Lw.r) { dx *= Lw.r / d; dz *= Lw.r / d; }
+    if (dz > 54) dz = 54;
+    p.x = Lw.x + dx; p.z = Lw.z + dz; return;
   }
   if (where !== 'out') return;
   const d = Math.hypot(p.x, p.z);
@@ -3196,7 +3333,7 @@ function tick() {
   for (const [i, c] of dynamic.crystals.entries()) { c.position.y = 2.4 + Math.sin(now * 1.6 + i) * 0.4; c.rotation.y = now * 0.8 + i; }
   if (player) { player.mixer.update(dt); if (player.headScale && player.headInfo) player.headInfo.bone.scale.setScalar(player.headScale); faceTick(player); }
   for (const n of npcs) npcLife(n, dt);
-  crewTick(dt); crewTags(); townTick(); if (now > 45 && !document.body.classList.contains('nohint')) document.body.classList.add('nohint'); occluderTick(dt);
+  crewTick(dt); crewTags(); heroTag(); emoteTick(); townTick(); if (snowFx) { snowFx.visible = where === 'frost'; if (snowFx.visible && player) snowFx.userData.tick(dt, player.pos.x, player.pos.z); } if (now > 45 && !document.body.classList.contains('nohint')) document.body.classList.add('nohint'); occluderTick(dt);
   guideTick(); musicTick();
 
   for (let i = lootPops.length - 1; i >= 0; i--) {
@@ -3327,7 +3464,7 @@ let musicAt = 0;
 // ---------- boss intros ----------
 // The first time a boss notices you (and again after a while), the action pauses: black bars slide in,
 // the camera swoops to the boss, it roars, and its name slams onto the screen.
-const BOSS_TITLES = { boss_crusher: 'Brute of the Grumble Crags', boss_gloom: 'Sorcerer of Glimmerwood', boss_rattle: 'Terror of Haunted Hollow', boss_gagron: 'Fire Dragon of the Ember Cave' };
+const BOSS_TITLES = { boss_frost: 'Ice Queen of Frostwhisker Peaks', boss_crusher: 'Brute of the Grumble Crags', boss_gloom: 'Sorcerer of Glimmerwood', boss_rattle: 'Terror of Haunted Hollow', boss_gagron: 'Fire Dragon of the Ember Cave' };
 let bossIntro = null;
 function bossIntroTick(dt = 0) {
   if (bossIntro) {
@@ -3378,6 +3515,7 @@ function musicTick() {
   const boss = player && enemies.some((e) => e.T.boss && e.inside === where && e.hp > 0 && (e.state === 'chase' || e.state === 'slam') && Math.hypot(e.pos.x - player.pos.x, e.pos.z - player.pos.z) < 32);
   if (boss) playMusic('boss');
   else if (where === 'cave') playMusic('cave');
+  else if (LANDS[where]) playMusic('frost');
   else if (where !== 'out' || (player && Math.hypot(player.pos.x, player.pos.z) < 50) || (player && Math.hypot(player.pos.x - 4, player.pos.z + 64) < 28)) playMusic('village');
   else playMusic('field');
 }
@@ -4059,6 +4197,68 @@ function crewNeutral(c, dt) {
   else if (toP > 12) c.greeted = false;
 }
 // name tags with a health bar and speech bubbles, drawn over each crew member
+// ---------- your name tag ----------
+// Grey up to level 30, green past 30, blue from 50 and red from 100. When accounts go live it shows the account name.
+const tagColour = (l) => (l >= 100 ? '#d8324a' : l >= 50 ? '#3a7ae8' : l > 30 ? '#3aa860' : '#8a8a94');
+let heroTagEl = null;
+function heroTag() {
+  if (!heroTagEl) { heroTagEl = document.createElement('div'); heroTagEl.className = 'herotag'; heroTagEl.innerHTML = '<b></b>'; document.body.appendChild(heroTagEl); }
+  const show = player && S.started && !player.dead && !creator.open && !bossIntro && S.nameTag !== false;
+  if (!show) { heroTagEl.hidden = true; return; }
+  const v = tmpV.set(player.pos.x, player.pos.y + 4.4, player.pos.z).project(camera);
+  if (v.z > 1) { heroTagEl.hidden = true; return; }
+  heroTagEl.hidden = false;
+  heroTagEl.style.left = `${(v.x * 0.5 + 0.5) * innerWidth}px`; heroTagEl.style.top = `${(-v.y * 0.5 + 0.5) * innerHeight}px`;
+  const l = heroLvl(), txt = `${heroName()} · Lv ${l}`, col = tagColour(l);
+  if (heroTagEl.dataset.t !== txt + col) { heroTagEl.dataset.t = txt + col; heroTagEl.firstChild.textContent = txt; heroTagEl.style.setProperty('--tc', col); }
+}
+
+// ---------- emotes ----------
+// Press N for the wheel, then 1-9 or click. Your hero acts it out with a big face and a pop-up bubble.
+const EMOTES = [
+  { name: 'Wave', icon: '👋', anim: 'Interact', face: 'talk', say: 'Hi!' },
+  { name: 'Cheer', icon: '🎉', anim: 'Cheer', face: 'blink', say: 'Woo!' },
+  { name: 'Laugh', icon: '😆', anim: 'Cheer', speed: 1.7, face: 'blink', say: 'Ha ha!' },
+  { name: 'Angry', icon: '💢', anim: 'Unarmed_Melee_Attack_Kick', face: 'hurt', say: 'Grr!' },
+  { name: 'Sad', icon: '😢', anim: 'Sit_Floor_Idle', loop: true, face: 'hurt', say: 'Aww...' },
+  { name: 'Love', icon: '💖', anim: 'Spellcasting', face: 'blink', say: '' },
+  { name: 'Shock', icon: '❗', anim: 'Hit_A', face: 'hurt', say: 'Eek!' },
+  { name: 'Sleep', icon: '💤', anim: 'Lie_Idle', loop: true, face: 'blink', say: 'Zzz' },
+  { name: 'Taunt', icon: '😜', anim: 'Use_Item', speed: 1.4, face: 'talk', say: 'Nyah!' },
+];
+let emoteEl = null, emoteBubble = null;
+const emoteWheelOpen = () => !!(emoteEl && !emoteEl.hidden);
+function toggleEmotes(force) {
+  if (!emoteEl) {
+    emoteEl = document.createElement('div'); emoteEl.id = 'emotewheel'; emoteEl.hidden = true;
+    emoteEl.innerHTML = `<div class="ew-ring">${EMOTES.map((m, i) => { const a = (i / EMOTES.length) * Math.PI * 2 - Math.PI / 2; return `<button data-i="${i}" style="left:calc(50% + ${Math.cos(a) * 112}px);top:calc(50% + ${Math.sin(a) * 112}px)" aria-label="${m.name} (${i + 1})"><span>${m.icon}</span><small>${i + 1} ${m.name}</small></button>`; }).join('')}<div class="ew-mid">Emotes<small>1-9 or click</small></div></div>`;
+    emoteEl.addEventListener('pointerdown', (e) => { const b = e.target.closest('button'); e.stopPropagation(); if (b) doEmote(+b.dataset.i); else toggleEmotes(false); });
+    document.body.appendChild(emoteEl);
+  }
+  const show = force ?? emoteEl.hidden;
+  if (show && (!player || player.dead || uiLock())) return;
+  emoteEl.hidden = !show;
+}
+function doEmote(i) {
+  toggleEmotes(false);
+  const m = EMOTES[i]; if (!m || !player || player.dead || player.air) return;
+  cancelTask(); moveTarget = null;
+  player.play(m.anim, m.loop ? { fade: 0.15 } : { once: true, fade: 0.1, speed: m.speed || 1, onFinish: () => { if (player.name === m.anim) player.play('Idle', { fade: 0.15 }); } });
+  player.busyUntil = now + 0.2; player.emoteUntil = now + 2.2; player.emoteFace = m.face;
+  if (m.face === 'talk') player.talkUntil = now + 0.8;
+  if (!emoteBubble) { emoteBubble = document.createElement('div'); emoteBubble.className = 'emotebubble'; document.body.appendChild(emoteBubble); }
+  emoteBubble.innerHTML = `<span>${m.icon}</span>${m.say ? `<b>${m.say}</b>` : ''}`;
+  emoteBubble.classList.remove('pop'); void emoteBubble.offsetWidth; emoteBubble.classList.add('pop');
+  emoteBubble.dataset.until = String(now + 2.2);
+  burst(player.pos.clone().setY(3.2), m.face === 'hurt' ? '#ff8a6a' : '#ffe07a', 14, 3);
+}
+function emoteTick() {
+  if (!emoteBubble || !player) return;
+  const on = now < +emoteBubble.dataset.until && !creator.open;
+  emoteBubble.hidden = !on; if (!on) return;
+  const v = tmpV.set(player.pos.x, player.pos.y + 5.6, player.pos.z).project(camera);
+  emoteBubble.style.left = `${(v.x * 0.5 + 0.5) * innerWidth}px`; emoteBubble.style.top = `${(-v.y * 0.5 + 0.5) * innerHeight}px`;
+}
 function crewTags() {
   for (const c of crew) {
     const show = c.inside === where && player && dist2d(c.pos, player.pos) < 34 && !creator.open && !bossIntro;

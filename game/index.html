@@ -288,6 +288,8 @@
   @keyframes banner { 0% { opacity: 0; transform: translate(-50%, -30%) scale(.8); } 12% { opacity: 1; transform: translate(-50%, -50%) scale(1.05); } 20% { transform: translate(-50%, -50%) scale(1); } 80% { opacity: 1; } 100% { opacity: 0; transform: translate(-50%, -60%); } }
   #fade { position: fixed; inset: 0; background: #1c120c; opacity: 0; pointer-events: none; transition: opacity .3s; z-index: 5; }
   #fade.on { opacity: 1; }
+  #fade.sail { background: linear-gradient(#7cc8f0, #3a8ad0); }
+  #fade.sail::after { content: attr(data-label); position: absolute; inset: 0; display: grid; place-items: center; font: 800 clamp(22px, 5vw, 40px)/1 var(--display, sans-serif); color: #fff; text-shadow: 0 3px 0 #1c4a7a; }
   .shop.wide { grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); }
   .shop.sell { grid-template-columns: repeat(auto-fill, minmax(118px, 1fr)); }
   .shop.sell .buy img { width: 34px; height: 34px; }
@@ -599,6 +601,22 @@
   #status .who > div { flex: 1; min-width: 0; justify-items: start; row-gap: 2px; }
   #status .who h2 { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; line-height: 1.1; }
   .chaptag { font: 800 10px/1 var(--display, inherit); color: #fff; background: #8a5ad8; border: 2px solid var(--ink, #2b160c); border-radius: 999px; padding: 2px 7px; white-space: nowrap; box-shadow: 0 2px 0 var(--ink, #2b160c); }
+  .herotag { position: fixed; transform: translate(-50%, -100%); pointer-events: none; z-index: 2; --tc: #8a8a94; }
+  .herotag b { display: block; font: 800 12px/1 var(--display, sans-serif); color: #fff; background: var(--tc); border: 2px solid var(--ink, #2b160c); border-radius: 8px; padding: 2px 7px; white-space: nowrap; box-shadow: 0 2px 0 var(--ink, #2b160c); }
+  body.creating .herotag, body:has(#bossintro:not([hidden])) .herotag { display: none; }
+  #emotewheel { position: fixed; inset: 0; z-index: 30; background: rgb(30 18 10 / .25); }
+  #emotewheel .ew-ring { position: absolute; left: 50%; top: 50%; width: 300px; height: 300px; transform: translate(-50%, -50%); }
+  #emotewheel button { position: absolute; transform: translate(-50%, -50%); width: 70px; height: 70px; border-radius: 50%; border: 3px solid var(--ink, #2b160c); background: #fff8e4; box-shadow: 0 4px 0 var(--ink, #2b160c); display: grid; place-items: center; align-content: center; padding: 0; cursor: pointer; }
+  #emotewheel button:hover, #emotewheel button:focus-visible { background: #ffe07a; transform: translate(-50%, -50%) scale(1.1); }
+  #emotewheel button span { font-size: 28px; line-height: 1; }
+  #emotewheel button small { font: 800 10px/1 var(--display, sans-serif); color: var(--ink, #2b160c); margin-top: 2px; white-space: nowrap; }
+  #emotewheel .ew-mid { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); width: 96px; height: 96px; border-radius: 50%; background: #8a5ad8; color: #fff; border: 3px solid var(--ink, #2b160c); display: grid; place-items: center; align-content: center; font: 800 16px/1.1 var(--display, sans-serif); text-align: center; }
+  #emotewheel .ew-mid small { font-size: 10px; opacity: .85; }
+  .emotebubble { position: fixed; transform: translate(-50%, -100%); pointer-events: none; z-index: 3; display: flex; align-items: center; gap: 4px; background: #fff; border: 3px solid var(--ink, #2b160c); border-radius: 18px; padding: 4px 10px; box-shadow: 0 3px 0 var(--ink, #2b160c); }
+  .emotebubble span { font-size: 30px; line-height: 1; }
+  .emotebubble b { font: 800 15px/1 var(--display, sans-serif); color: var(--ink, #2b160c); }
+  .emotebubble.pop { animation: emotepop .35s cubic-bezier(.3,1.6,.5,1); }
+  @keyframes emotepop { from { scale: .2; } to { scale: 1; } }
 </style>
 
 <div id="stage"></div>
