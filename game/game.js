@@ -4267,10 +4267,13 @@ function bossAdd(boss, k, x, z) {
   burst(new THREE.Vector3(x, 0.5, z), '#b9ff8a', 24, 4);
   return a;
 }
-function bossCleanup(e) {
+function bossCleanup(e, reset = false) {
   e.phase = 1; e.shield = false; e.dizzyUntil = 0; e.flyN = 0; e.root.position.y = 0; frostCleanup(e); sandsCleanup(e);
   for (const r of e.runes || []) { scene.remove(r.g); }
   e.runes = null;
+  // a boss that just walked home keeps its helpers: they fight on and fade away once they lose
+  // interest. They only fall apart when the boss itself is beaten, so nothing near you dies for no reason.
+  if (reset) { for (const a of e.adds || []) if (a.hp > 0) a.boss = null; e.adds = []; }
   for (const a of e.adds || []) if (enemies.includes(a)) { if (a.hp > 0) { a.hp = 0; a.state = 'dead'; a.bar.hidden = true; a.play('Death_A', { once: true, clamp: true }); later(0.75, () => collapse(a)); } later(4, () => removeEnemy(a)); }
   e.adds = []; e.addWave = 0; e.enraged = false; e.nextSpecial = null;
 }
@@ -5220,7 +5223,8 @@ function enemyTick(e, dt) {
     pushOut(ep, big ? 1.3 : 0.6);
   } else if (e.state === 'return') {
     const dx = e.home.x - ep.x, dz = e.home.y - ep.z, d = Math.hypot(dx, dz);
-    if (d < 0.5) { e.state = 'idle'; e.hp = e.T.hp; e.swings = 0; e.play('Idle'); if (e.T.boss) bossCleanup(e); }
+    if (d < 0.5 && e.temp && !e.boss && !e.T.boss) { e.state = 'gone'; e.hp = 0; e.bar.hidden = true; burst(ep.clone().setY(1), '#d8d0ff', 16, 3); e.root.visible = false; later(1, () => removeEnemy(e)); return; }
+    if (d < 0.5) { e.state = 'idle'; e.hp = e.T.hp; e.swings = 0; e.play('Idle'); if (e.T.boss) bossCleanup(e, true); }
     else { ep.x += (dx / d) * 4 * dt; ep.z += (dz / d) * 4 * dt; pushOut(ep, big ? 1.3 : 0.6); e.face(e.home.x, e.home.y); e.play('Walking_A'); }
     if (d >= 0.5 && now - (e.stuckAt || 0) > 6) { e.stuckAt = now; if (Math.hypot(ep.x - (e.lastX || 0), ep.z - (e.lastZ || 0)) < 1) { ep.x = e.home.x; ep.z = e.home.y; } e.lastX = ep.x; e.lastZ = ep.z; }
   } else {
