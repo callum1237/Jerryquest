@@ -272,6 +272,8 @@ export function buildWorld(library) {
     const a = rng() * Math.PI * 2, rr = 34 + rng() * 22;
     const x = Math.cos(a) * rr, z = Math.sin(a) * rr;
     if (blocked(x, z) || !isFree(x, z, 1)) continue;
+    // v65: no loose boulders on or beside the roads (the dice are still rolled so the rest of the world stays put)
+    if (nearRoad(x, z, 5)) { rng(); rng(); rng(); continue; }
     rocks[Object.keys(rocks)[Math.floor(rng() * 3)]].push(M(x, 0, z, S_NATURE * (0.8 + rng() * 0.8), rng() * 6));
   }
   for (let i = 0; i < 34; i++) {
@@ -398,7 +400,8 @@ export function buildFlowers() {
       if (fi < FN && rng() > 0.45) { flowers.setColorAt(fi, col); flowers.setMatrixAt(fi++, M(x + 0.3, 0, z + 0.2, 0.8 + rng() * 0.6, rng() * 6)); }
     }
   }
-  tufts.count = ti; flowers.count = fi;
+  // v65: fewer bushes and flowers round the village, for a cleaner look
+  tufts.count = Math.min(ti, 28); flowers.count = Math.min(fi, 42);
   tufts.castShadow = false; tufts.receiveShadow = true; flowers.receiveShadow = true;
   registerMesh(tufts, toon('#4f9d3a')); registerMesh(flowers, toon('#ffffff'));
   scene.add(tufts, flowers);

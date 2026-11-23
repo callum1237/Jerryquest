@@ -2641,6 +2641,8 @@ function npcLife(n, dt) {
   if (player && Math.hypot(a.root.position.x - player.pos.x, a.root.position.z - player.pos.z) > 55) return;
   a.mixer.update(dt);
   n.marker.position.y = 4.6 + Math.sin(now * 3 + n.x) * 0.15;
+  // v65: shop coins only show when you're close, so the village isn't covered in floating coins
+  if (n.shop || n.bank) n.marker.material.opacity = player && Math.hypot(a.root.position.x - player.pos.x, a.root.position.z - player.pos.z) < 20 ? 1 : 0;
   if (!a.root.visible) return;
   headPose(a);
   faceTick(a);
@@ -2676,7 +2678,8 @@ const npcIdle = (n) => n.actor.play(n.id === 'fenwick' ? 'Spellcasting' : 'Idle'
 for (const k of ['mud_gloop', 'boss_gobbler', 'sand_gloop']) ENEMY_TYPES[k].alias = ENEMY_TYPES.bog_slime.alias;
 ENEMY_TYPES.dust_bat.alias = ENEMY_TYPES.mire_bat.alias;
 // Toughness pass (Callum, Nov 23): every monster hits harder and takes longer to beat; bosses much more so.
-const MOB_HP = 2.2, MOB_HIT = 1.9, BOSS_HP = 4.5, BOSS_HIT = 3;
+// v65 (Callum: "mobs a bit stronger"): ordinary monsters +32% health (2.2 -> 2.9) and +18% damage (1.9 -> 2.25). Bosses unchanged.
+const MOB_HP = 2.9, MOB_HIT = 2.25, BOSS_HP = 4.5, BOSS_HIT = 3;
 // each chapter's land is a big step up from the last
 const CHAPTER_MULT = { out: 1, frost: 1.35, marsh: 1.75, sands: 2.3 };
 function farMult(w, x, z) {
@@ -2832,7 +2835,8 @@ function giveHeroXp(amount, at) {
     // levelling up heals you fully, but not in the middle of a fight (that made fights too easy)
     const fighting = player && (inCombat() || !$('bossbar').hidden);
     if (!fighting) S.hp = maxHp();
-    toast(`Hero level ${after}! +${n} Attack, Defense and Health, and ${n * FREE_PER_LEVEL} points to spend.`, ICONS.star, true);
+    toast(`Level ${after}! Spend your new points on your Hero card (Tab).`, ICONS.star, true);
+    unlockNotes(before, after);
     levelFanfare('#ffd84a');
     const el = $('banner'); el.textContent = `Level up! Hero ${after}`; el.classList.add('lvl'); el.classList.remove('show'); void el.offsetWidth; el.classList.add('show'); zoneNow = null; setTimeout(() => el.classList.remove('lvl'), 3300);
     burst(player.pos.clone().setY(1.5), '#ffd23f', 60, 7, 1.5);
@@ -2990,7 +2994,7 @@ function questProgress(id) {
 // ---------- UI ----------
 let sheetMode = null;
 // Little messages at the top. The same message again just bumps a "×2" on the one already showing,
-// and no more than three stack up at once, so the screen never fills with notes.
+// and no more than two stack up at once, so the screen never fills with notes.
 function toast(text, icon, big = false) {
   const box = $('toasts'), life = Math.max(big ? 3000 : 1800, Math.min(4500, 1400 + text.length * 50));
   for (const t of box.children) {
@@ -3006,7 +3010,7 @@ function toast(text, icon, big = false) {
   el.innerHTML = `${icon ? `<img src="${icon}" alt="">` : ''}<span></span>`;
   el.querySelector('span').textContent = text;
   box.appendChild(el);
-  while (box.children.length > 3) box.firstChild.remove();
+  while (box.children.length > 2) box.firstChild.remove();
   el._gone = setTimeout(() => el.remove(), life);
 }
 // Pop-up numbers and words. Ones that land on top of each other stack neatly instead of
@@ -3145,15 +3149,16 @@ function rollLoot(e) {
     const wk = BOSS_WEAPON[e.type];
     if (wk && !S.owned.includes(wk) && rng() < 0.35) { S.owned.push(wk); popLoot(at, 'chest', 0.6); toast(`${gearRarity(WEAPONS[wk])[1].toUpperCase()} DROP: ${WEAPONS[wk].name} (${gearStats(WEAPONS[wk])})! Equip it from your bag.`, ICONS[WEAPONS[wk].type], true); }
   } else {
-    if (rng() < 0.5) give('bone_dust');
-    if (rng() < (e.type === 'skel_minion' ? 0.08 : 0.15)) give('dark_essence');
-    if (rng() < 0.1) give(['bread', 'pie'][rng() < 0.7 ? 0 : 1]);
+    // v65: drops from ordinary monsters are about half as common as before (Callum: "drops shouldnt be so common")
+    if (rng() < 0.25) give('bone_dust');
+    if (rng() < (e.type === 'skel_minion' ? 0.04 : 0.075)) give('dark_essence');
+    if (rng() < 0.05) give(['bread', 'pie'][rng() < 0.7 ? 0 : 1]);
     // treasures: rare, and worth selling
-    if (rng() < (e.type === 'skel_minion' ? 0.03 : 0.06)) give('silver_ring');
-    if (rng() < (e.type === 'skel_minion' ? 0.006 : 0.015)) { give('ruby'); toast('A ruby! That will sell for a lot.', ICONS.ruby, true); }
+    if (rng() < (e.type === 'skel_minion' ? 0.015 : 0.03)) give('silver_ring');
+    if (rng() < (e.type === 'skel_minion' ? 0.003 : 0.0075)) { give('ruby'); toast('A ruby! That will sell for a lot.', ICONS.ruby, true); }
     cosDrop(e, at, false);
     // very rare: a shop weapon you don't own yet
-    if (rng() < 0.025) {
+    if (rng() < 0.012) {
       const pool = Object.keys(GEAR).filter((k) => !GEAR[k].unique && GEAR[k].price > 0 && GEAR[k].price <= 160 && !S.owned.includes(k));
       if (pool.length) { const wk = pool[Math.floor(rng() * pool.length)]; S.owned.push(wk); popLoot(at, 'chest', 0.4); toast(`Rare drop: ${GEAR[wk].name}! Equip it from your bag.`, gearIcon(GEAR[wk]), true); }
     }
@@ -3345,8 +3350,20 @@ function checkDoors() {
     if (pp.z > d.z && Math.abs(pp.x - d.x) < 2.6) goThrough('out');
   }
 }
+// v65: a new hero's screen starts simple. Extra buttons appear as you level up (nothing is taken away for good):
+//   level 3: special attack button and chat; level 4: the Crew menu and the rest of the hotbar.
+function hudUnlocks() { return [[3, 'gate-special', 'New: your special attack! Press R (or the star button).'], [3, 'gate-chat', 'New: chat. Say hello to other players!'], [4, 'gate-crew', 'New: the Crew menu. Team up with the valley adventurers.']]; }
+function hudGate() {
+  const L = heroLvl();
+  for (const [lv, cls] of hudUnlocks()) document.body.classList.toggle(cls, L < lv);
+}
+function unlockNotes(before, after) {
+  const msgs = hudUnlocks().filter(([lv]) => before < lv && after >= lv).map((u) => u[2]);
+  if (msgs.length) setTimeout(() => toast(msgs.join(" "), ICONS.star, true), 1500);
+}
 function refreshUI() {
   if (!S.started) return;
+  hudGate();
   $('status').classList.toggle('compact', !S.hudOpen); $('status').classList.toggle('pts', freePoints() > 0);
   $('hudmore').setAttribute('aria-expanded', String(!!S.hudOpen)); $('hudmore').textContent = S.hudOpen ? '▴' : '▾';
   const mh = maxHp();
@@ -3392,13 +3409,13 @@ function renderSheet() {
     el.innerHTML = `<h3>Hero <small>Level ${L}</small></h3>
       <div class="herolvl"><div class="xp"><i style="width:${pct}%"></i></div><small>${Math.floor(S.hero.xp - cur)} / ${next - cur} XP to level ${L + 1}</small></div>
       <div class="stats">${Object.entries(STATS).map(([k, [nm, ic]]) => `<div class="stat"><img src="${ICONS[ic]}" alt=""><span class="nm">${nm}</span><span class="lv">${stat(k)}</span><small>${effect[k]}</small>${free > 0 ? `<button class="plus" data-stat="${k}" aria-label="Add a point to ${nm}">+</button>` : ''}</div>`).join('')}</div>
-      <p class="hint">${free > 0 ? `<b>${free} point${free > 1 ? 's' : ''} to spend.</b> ` : ''}Each level gives +1 to every stat and ${FREE_PER_LEVEL} points to spend. Defense and Health keep you alive about equally, so mixing them works best.</p>
+      <p class="hint">${free > 0 ? `<b>${free} point${free > 1 ? 's' : ''} to spend.</b> ` : ''}You get ${FREE_PER_LEVEL} more points each level.</p>
       <h4 class="sub">Weapon</h4><div class="gearbtn now"><b><img src="${ICONS[w.type]}" alt="">${w.name}</b><span>${gearStats(w)}</span></div>
       <h4 class="sub">Gathering</h4><div class="skills">${SKILLS.filter(([k]) => k !== 'crafting').map(([k, nm]) => {
       const l = lvl(k), c0 = XPT[l], n0 = XPT[Math.min(99, l + 1)];
       const pc = l >= 99 ? 100 : ((S.xp[k] - c0) / (n0 - c0)) * 100;
       return `<div class="skill" title="${Math.floor(S.xp[k])} XP"><img src="${ICONS[k]}" alt=""><span class="nm">${nm}</span><span class="lv">${l}</span><div class="xp"><i style="width:${pc}%"></i></div></div>`;
-    }).join('')}</div><p class="hint">Gathering skills level up as you use them. Speed rises as you travel and makes you run faster.</p>${worthHtml()}`;
+    }).join('')}</div><p class="hint">Skills level up as you use them.</p>${worthHtml()}`;
     el.querySelectorAll('[data-stat]').forEach((b) => { b.onclick = () => spendPoint(b.dataset.stat); });
   } else if (sheetMode === 'bag') { renderBag(el); return;
   } else if (sheetMode === 'bagOld') {
@@ -3416,7 +3433,7 @@ function renderSheet() {
     };
     el.innerHTML = `<h3>Bag <small>${S.coins} coins${S.bank ? ` · ${S.bank} banked` : ''}</small></h3><div class="bag">${slots.join('')}</div>
       ${group('weapon', 'Weapons')}${group('shield', 'Shields')}${group('armour', 'Armour')}${S.owned.some((k) => GEAR[k] && GEAR[k].slot === 'gadget') ? group('gadget', 'Gadgets') : ''}
-      <p class="hint">Press + on food or gear to put it on your hotbar, then press its number key to use it. Your weapon decides how you fight: swords up close, staffs and wands throw magic, crossbows shoot. Tap food to eat it and heal (or press H). Marta at the market buys anything in your bag, and the smiths buy back spare gear.</p>`;
+      <p class="hint">Press + to put something on your hotbar. Tap food (or press H) to eat and heal.</p>`;
     el.querySelectorAll('[data-eat]').forEach((b) => { b.onclick = () => eat(b.dataset.eat); });
     el.querySelectorAll('[data-pin]').forEach((b) => { b.onclick = () => { pinToHotbar(b.dataset.pin); renderSheet(); }; });
     el.querySelectorAll('[data-gear]').forEach((b) => { b.onclick = () => { const g = GEAR[b.dataset.gear]; S.equip[g.slot] = g.slot === 'gadget' && S.equip.gadget === b.dataset.gear ? null : b.dataset.gear; cancelTask(); equipGear(); buildGearBar(); updateTitle(); save(); renderSheet(); burst(player.pos.clone().setY(1.6), '#ffe07a', 20, 4); }; });
@@ -3461,7 +3478,7 @@ function renderSheet() {
       <h4>Show</h4><div class="toggles">
         <button id="l-hat" aria-pressed="${S.look.hat}">Helmet</button>
         <button id="l-cape" aria-pressed="${S.look.cape}">Cape</button></div>
-      <p class="hint">Armour changes the colour of your arms and legs. Your look belongs to your hero and other players will see it once online play arrives.</p></div>`;
+      <p class="hint">Armour changes the colour of your arms and legs.</p></div>`;
     el.querySelectorAll('.swatch').forEach((b) => { b.onclick = () => { S.look[b.dataset.part] = b.dataset.col; if (['skin', 'eyes', 'hairCol'].includes(b.dataset.part)) S.look.hat = false; applyLook(); save(); renderSheet(); }; });
     el.querySelectorAll('[data-hair]').forEach((b) => { b.onclick = () => { S.look.hair = b.dataset.hair; if (S.look.hair !== 'none') S.look.hat = false; applyLook(); save(); renderSheet(); }; });
     el.querySelectorAll('[data-opt]').forEach((b) => { b.onclick = () => { S.look[b.dataset.opt] = b.dataset.val; S.look.hat = false; applyLook(); save(); renderSheet(); }; });
@@ -4490,7 +4507,7 @@ function comboOf(w) {
 let specialReady = 0;
 function special() {
   if (!player || player.dead || uiLock() || where === 'castle' || where === 'tavern') return;
-  if (now < specialReady) { toast(`${SPECIALS[specialOf(W())].name} is recharging...`, ICONS.star); return; }
+  if (now < specialReady) return; // v65: the button already counts down, no extra note
   if (talking) closeDialog();
   if (player.task) cancelTask();
   if (now - aim.at < 2.5) { player.face(aim.x, aim.z); aim.at = -99; }
@@ -4777,7 +4794,7 @@ function hurtEnemy(e, dmg, src = null, power = 1) {
     } else {
     giveHeroXp(e.T.xp, e.pos.clone().setY(4)); partyShareXp(e.T.xp, e.pos);
     const coins = e.T.coins ? e.T.coins[0] + Math.floor(rng() * (e.T.coins[1] - e.T.coins[0])) : 3 + Math.floor(rng() * 9);
-    S.coins += coins; addItem('bones'); later(0.25, () => sfx('coin'));
+    S.coins += coins; if (e.T.boss || rng() < 0.6) addItem('bones'); later(0.25, () => sfx('coin')); // v65: bones 60% from ordinary monsters (was every kill)
     rollLoot(e);
     if (e.T.boss) {
       bossCleanup(e); lastBossKill = now; queueLetter(e.type); S.beat = { ...(S.beat || {}), [e.type]: ((S.beat || {})[e.type] || 0) + 1 };
@@ -6080,7 +6097,7 @@ function bakeMap() {
   // trees as chunky round clumps
   for (const c of colliders) {
     if (c.r < 0.95 || c.r > 1.4 || Math.hypot(c.x, c.z) > WORLD_R) continue;
-    if (Math.abs(Math.sin(c.x * 12.99 + c.z * 78.23) * 43758.5) % 1 < 0.5) continue; // half the trees keep the board readable
+    if (Math.abs(Math.sin(c.x * 12.99 + c.z * 78.23) * 43758.5) % 1 < 0.75) continue; // v65: a quarter of the trees keeps the board readable
     const x = M2(c.x), y = M2(c.z), r = R2(c.r * 1.9);
     g.beginPath(); g.arc(x, y, r, 0, 7); g.fillStyle = '#2f8a3c'; g.fill(); g.lineWidth = 1.5; g.strokeStyle = 'rgba(30,50,20,.8)'; g.stroke();
     g.beginPath(); g.arc(x - r * 0.3, y - r * 0.3, r * 0.4, 0, 7); g.fillStyle = 'rgba(160,230,120,.45)'; g.fill();
@@ -6108,7 +6125,7 @@ function landMap(L) {
   for (const T of TOWNS) if (T.land === L.id) { g.beginPath(); g.arc(M2x(T.x), M2z(T.z), R2(7.5), 0, 7); g.fillStyle = '#f5dfa6'; g.fill(); g.lineWidth = 3; g.strokeStyle = ink; g.stroke(); }
   for (const c of colliders) {
     if (c.r < 0.9 || c.r > 1.9 || Math.hypot(c.x - L.x, c.z - L.z) > L.r + 6) continue;
-    if (Math.abs(Math.sin(c.x * 12.99 + c.z * 78.23) * 43758.5) % 1 < 0.35) continue; // thin them out so the board stays readable
+    if (Math.abs(Math.sin(c.x * 12.99 + c.z * 78.23) * 43758.5) % 1 < 0.6) continue; // thin them out so the board stays readable
     g.beginPath(); g.arc(M2x(c.x), M2z(c.z), R2(c.r * 1.7), 0, 7); g.fillStyle = C.tree; g.fill(); g.lineWidth = 1.5; g.strokeStyle = 'rgba(20,40,40,.8)'; g.stroke();
     g.beginPath(); g.arc(M2x(c.x) - 2, M2z(c.z) - 3, R2(c.r * 0.7), 0, 7); g.fillStyle = C.treeHi; g.fill();
   }
@@ -6167,15 +6184,17 @@ function drawMap(cv, full) {
   const skull = (x, z, r) => { const [u, v] = toPx(x, z); g.beginPath(); g.arc(u, v, r * S1, 0, 7); g.fillStyle = '#ff3a5a'; g.fill(); g.lineWidth = 2 * S1; g.strokeStyle = '#3a2010'; g.stroke(); g.beginPath(); g.arc(u, v - r * 0.1 * S1, r * 0.55 * S1, 0, 7); g.fillStyle = '#fff'; g.fill(); g.fillStyle = '#3a2010'; for (const sx of [-1, 1]) { g.beginPath(); g.arc(u + sx * r * 0.22 * S1, v - r * 0.12 * S1, r * 0.14 * S1, 0, 7); g.fill(); } };
   const chestIcon = (x, z) => { const [u, v] = toPx(x, z), w = 7 * S1; g.fillStyle = '#ffd23f'; g.strokeStyle = '#3a2010'; g.lineWidth = 1.5 * S1; g.beginPath(); g.roundRect(u - w, v - w * 0.7, w * 2, w * 1.4, 2 * S1); g.fill(); g.stroke(); g.beginPath(); g.moveTo(u - w, v - w * 0.1); g.lineTo(u + w, v - w * 0.1); g.stroke(); };
   for (const c of chests) if (!c.open) chestIcon(c.x, c.z);
-  for (const e of enemies) if (e.hp > 0 && e.state !== 'rising' && e.state !== 'gone' && e.inside === where) { if (e.T.boss) skull(e.pos.x, e.pos.z, 8); else dot(e.pos.x, e.pos.z, full ? 2.5 : 3.5, '#ff5a4a'); }
+  // v65: the big map stays clean (places, bosses, quests); ordinary monsters only show on the little corner map
+  for (const e of enemies) if (e.hp > 0 && e.state !== 'rising' && e.state !== 'gone' && e.inside === where) { if (e.T.boss) skull(e.pos.x, e.pos.z, 8); else if (!full) dot(e.pos.x, e.pos.z, 3.5, '#ff5a4a'); }
   if (party) for (const m of party.members) { const p = net.peers.get(m.id); if (p && p.where === where && m.id !== myId()) { dot(p.x, p.z, full ? 6 : 5.5, '#4fc3ff'); if (full) { const [u, v] = toPx(p.x, p.z); g.font = `800 ${11 * dpr}px Fredoka, sans-serif`; g.textAlign = 'center'; g.lineWidth = 3 * dpr; g.strokeStyle = '#3a2010'; g.strokeText(m.name, u, v - 9 * dpr); g.fillStyle = '#bfe9ff'; g.fillText(m.name, u, v - 9 * dpr); } } }
-  for (const c of crew) if (c.inside === where) dot(c.x, c.z, full ? 3.5 : 4, crewCfg(c).mode === 'ally' ? '#5ad87a' : crewCfg(c).mode === 'rival' ? '#ff7a3a' : '#c8a8ff');
+  for (const c of crew) if (c.inside === where && !full) dot(c.x, c.z, full ? 3.5 : 4, crewCfg(c).mode === 'ally' ? '#5ad87a' : crewCfg(c).mode === 'rival' ? '#ff7a3a' : '#c8a8ff');
   for (const T of TOWNS) if ((T.land || null) === (Lm ? Lm.id : null)) flag(T.x - 5, T.z - 3, townFree(T.id) ? '#3a8fe8' : '#d8324a');
   for (const n of npcs) {
     if ((n.inside || 'out') !== where) continue;
     const qid = Object.keys(QUESTS).find((q) => QUESTS[q].giver === n.id && !QUESTS[q].story);
     const st = qid && S.quests[qid].state;
     const col = n.king ? '#c58bff' : n.shop ? '#ffe9a0' : st === 'todo' ? '#ffd23f' : qid && questReady(qid) ? '#ff6ad5' : '#f6efdc';
+    if (full && col === '#f6efdc') continue; // v65: the big map only marks people you need (king, shops, quests)
     dot(n.x, n.z, full ? 4 : 4.5, col);
   }
   // event pickups: unlit lanterns and lost crates
@@ -6196,7 +6215,8 @@ function drawMap(cv, full) {
       g.font = `700 ${fs * 0.82 * dpr}px Fredoka, Trebuchet MS, sans-serif`;
       for (const T of TOWNS) {
         if ((T.land || null) !== (Lm ? Lm.id : null)) continue;
-        const [u, v] = toPx(T.x, T.z - 9), txt = townFree(T.id) ? `Mayor ${mayorName(T)}` : 'Monsters!';
+        if (!townFree(T.id)) continue; // v65: the red flag already says monsters hold it
+        const [u, v] = toPx(T.x, T.z - 9), txt = `Mayor ${mayorName(T)}`;
         g.lineWidth = 3 * dpr; g.strokeStyle = '#3a2010'; g.strokeText(txt, u, v + fs * 1.45 * dpr); g.fillStyle = townFree(T.id) ? '#bfe6ff' : '#ffb0b8'; g.fillText(txt, u, v + fs * 1.45 * dpr);
       }
       g.font = `700 ${fs * dpr}px Fredoka, Trebuchet MS, sans-serif`;
@@ -7941,7 +7961,7 @@ for (const [id, c] of Object.entries(COS.outfit)) c.id = id;
 const COS_ODDS = { out: [70, 24, 5, 1, 0, 0], frost: [50, 32, 13, 4.5, 0.5, 0], marsh: [35, 33, 20, 10, 1.8, 0.2], sands: [22, 30, 25, 17, 5.2, 0.8] };
 function cosDrop(e, at, boss) {
   const land = ['frost', 'marsh', 'sands'].includes(e.inside) ? e.inside : 'out';
-  if (rng() > (boss ? 0.3 : e.temp ? 0.002 : 0.012)) return;
+  if (rng() > (boss ? 0.3 : e.temp ? 0.001 : 0.006)) return;
   const odds = COS_ODDS[land].slice(); if (boss) { odds[0] *= 0.4; odds[3] *= 1.6; odds[4] *= 2; odds[5] *= 2; }
   let roll = rng() * odds.reduce((a, b) => a + b, 0), r = 0;
   while (r < 5 && roll > odds[r]) { roll -= odds[r]; r++; }
@@ -8388,7 +8408,7 @@ function renderBag(el) {
       const g = GEAR[k], [rc] = g ? gearRarity(g) : itemRarity(k), nm = g ? g.name : ITEMS[k];
       slots.push(`<button class="slot ${rc}${bagPick === k ? ' on' : ''}${(S.hotbar || []).includes(k) ? ' pinned' : ''}" data-item="${k}" data-drag="${k}" data-bagdrop="${i}" title="${nm}"><img src="${g ? gearIcon(g) : ICONS[k]}" alt="${nm}">${g ? (plusOf(k) ? `<span>+${plusOf(k)}</span>` : '') : `<span>${S.inv[k]}</span>`}</button>`);
     }
-    let info = '<p class="hint">Drag things to rearrange your bag, or drag them onto the hotbar. Drag a hotbar slot off the bar to clear it. Tap an item to see what it is worth.</p>';
+    let info = '<p class="hint">Drag items to move them or onto the hotbar. Tap one to see its worth.</p>';
     if (bagPick && GEAR[bagPick] && S.owned.includes(bagPick)) {
       const k = bagPick, g = GEAR[k], [rc, rn] = gearRarity(g);
       info = `<div class="iteminfo ${rc}"><img src="${gearIcon(g)}" alt=""><div><b>${g.name}${plusOf(k) ? ` +${plusOf(k)}` : ''}</b><small><i class="rar">${rn}</i> · ${SLOT_NAMES[g.slot]} · spare, not equipped</small></div><div class="row"><button class="primary" data-equip="${k}">Equip</button><button data-pin="${k}" aria-pressed="${(S.hotbar || []).includes(k)}">Hotbar</button></div></div>`;
@@ -8396,7 +8416,7 @@ function renderBag(el) {
       const k = bagPick, [rc, rn] = itemRarity(k), f = FOOD[k];
       info = `<div class="iteminfo ${rc}"><img src="${ICONS[k]}" alt=""><div><b>${ITEMS[k]}</b><small><i class="rar">${rn}</i> · ${S.inv[k]} in your bag${SELL[k] ? ` · sells for ${fmt(SELL[k])} each` : ''}${f ? ` · heals ${f.heal}` : ''}</small></div><div class="row">${f ? `<button class="primary" data-eat="${k}">Eat</button>` : ''}<button data-pin="${k}" aria-pressed="${(S.hotbar || []).includes(k)}">Hotbar</button></div></div>`;
     }
-    body = `<div class="bagbar"><span>${keys.length} things</span><button data-bagsort="kind">Sort by type</button><button data-bagsort="rar">Sort by rarity</button></div><div class="bag five">${slots.join('')}</div>${info}`;
+    body = `<div class="bagbar"><span>${keys.length} things</span>${keys.length >= 8 ? '<button data-bagsort="kind">Sort by type</button><button data-bagsort="rar">Sort by rarity</button>' : ''}</div><div class="bag five">${slots.join('')}</div>${info}`;
   } else {
     const C = cosState(), T = titleList(), cur = heroTitle();
     const total = Object.values(COS).reduce((a, s) => a + Object.keys(s).length, 0), have = Object.keys(C.got).length;
@@ -8487,16 +8507,16 @@ function renderCard(el) {
       <div class="hcstats">
         <div class="hclvl"><b>Level ${L}</b><div class="hcbar"><i style="width:${pct.toFixed(1)}%"></i></div><small>${L >= 99 ? 'Max level' : `${fmt(S.hero.xp - cur)} / ${fmt(next - cur)} XP`}</small></div>
         <div class="hcrow"><img src="${ICONS.coins}" alt=""><span>Gold</span><b>${fmt(nw.coins)}</b></div>
-        <div class="hcrow"><img src="${ICONS.coins}" alt=""><span>In the bank</span><b>${fmt(nw.bank)}</b></div>
+        ${nw.bank ? `<div class="hcrow"><img src="${ICONS.coins}" alt=""><span>In the bank</span><b>${fmt(nw.bank)}</b></div>` : ''}
         <div class="hcrow"><img src="${ICONS.star}" alt=""><span>Items</span><b>${fmt(nw.items)}</b></div>
-        <div class="hcrow"><img src="${ICONS.star}" alt=""><span>Towns</span><b>${fmt(nw.towns)}</b></div>
+        ${nw.towns ? `<div class="hcrow"><img src="${ICONS.star}" alt=""><span>Towns</span><b>${fmt(nw.towns)}</b></div>` : ''}
         <div class="hcrow total"><span>Net worth</span><b>${fmt(nw.total)}</b></div>
       </div>
     </div>
-    <h4 class="sub">Your towns <small>${mine.length} of ${TOWNS.length}</small></h4>
-    ${mine.length ? `<div class="hctowns">${mine.map((T) => `<div class="hctown"><b>${esc(T.name)}</b><span>${'★'.repeat(T.stars || 1)} · ${TOWN_LEVELS[townLvl(T)] ? TOWN_LEVELS[townLvl(T)].name : 'Town'}</span><small>${fmt(weeklyTax(T))} tax a week · worth ${fmt(townValue(T))}</small></div>`).join('')}</div>`
-      : '<p class="hint">You don\'t run any towns yet. Beat the monster holding a town to become its mayor and collect taxes every week.</p>'}
     ${heroStatsHtml()}
+    ${mine.length ? `<h4 class="sub">Your towns <small>${mine.length} of ${TOWNS.length}</small></h4>` : ''}
+    ${mine.length ? `<div class="hctowns">${mine.map((T) => `<div class="hctown"><b>${esc(T.name)}</b><span>${'★'.repeat(T.stars || 1)} · ${TOWN_LEVELS[townLvl(T)] ? TOWN_LEVELS[townLvl(T)].name : 'Town'}</span><small>${fmt(weeklyTax(T))} tax a week · worth ${fmt(townValue(T))}</small></div>`).join('')}</div>`
+      : ''}
     <div class="row"><button id="cardclose">Close (Tab)</button></div>`;
   previewMount();
   el.querySelectorAll('[data-stat]').forEach((b) => { b.onclick = () => spendPoint(b.dataset.stat); });
@@ -8508,7 +8528,7 @@ function heroStatsHtml() {
   const effect = { atk: `Weapon damage × ${dmgMult().toFixed(1)}`, def: `Damage taken ÷ ${defDiv().toFixed(1)}${gearDef() ? ` (gear +${gearDef()})` : ''}`, hp: `${maxHp()} max health` };
   return `<h4 class="sub">Stats ${free > 0 ? `<small><b>${free} point${free > 1 ? 's' : ''} to spend</b></small>` : ''}</h4>
       <div class="stats">${Object.entries(STATS).map(([k, [nm, ic]]) => `<div class="stat"><img src="${ICONS[ic]}" alt=""><span class="nm">${nm}</span><span class="lv">${stat(k)}</span><small>${effect[k]}</small>${free > 0 ? `<button class="plus" data-stat="${k}" aria-label="Add a point to ${nm}">+</button>` : ''}</div>`).join('')}</div>
-      <p class="hint">Each level gives +1 to every stat and ${FREE_PER_LEVEL} points to spend. Defense and Health keep you alive about equally, so mixing them works best.</p>
+      <p class="hint">You get ${FREE_PER_LEVEL} more points each level.</p>
       <h4 class="sub">Gathering</h4><div class="skills">${SKILLS.filter(([k]) => k !== 'crafting').map(([k, nm]) => {
       const l = lvl(k), c0 = XPT[l], n0 = XPT[Math.min(99, l + 1)];
       const pc = l >= 99 ? 100 : ((S.xp[k] - c0) / (n0 - c0)) * 100;
