@@ -4279,18 +4279,28 @@ function gatherTick(task) {
 const projectiles = [];
 const orbGeo = new THREE.IcosahedronGeometry(0.4, 1);
 // Projectiles fly in a straight line and hit whatever hitbox they pass through.
-const slashMat = new THREE.MeshBasicMaterial({ color: '#fff1b8', transparent: true, opacity: 0.9, depthWrite: false, fog: false, side: THREE.DoubleSide, blending: THREE.AdditiveBlending });
-const slashGeo = new THREE.RingGeometry(1.05, 1.5, 36, 1, -Math.PI / 2 - 1.05, 2.1), slashGeo2 = new THREE.RingGeometry(1.2, 1.38, 36, 1, -Math.PI / 2 - 0.9, 1.8);
+// A thin, wide crescent that tapers to sharp points at both tips, lying flat and bowed forward (+Z).
+function crescentGeo(R, W, A, n = 40) {
+  const pos = [], idx = [];
+  for (let i = 0; i <= n; i++) {
+    const u = i / n, t = -A + 2 * A * u, w = W * Math.pow(Math.sin(u * Math.PI), 0.9);
+    const ri = R - w * 0.25, ro = R + w * 0.75; // the bulge sits on the leading edge
+    pos.push(Math.sin(t) * ri, 0, Math.cos(t) * ri - R, Math.sin(t) * ro, 0, Math.cos(t) * ro - R);
+    if (i < n) { const k = i * 2; idx.push(k, k + 1, k + 2, k + 1, k + 3, k + 2); }
+  }
+  const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); g.setIndex(idx); return g;
+}
+const slashGeoA = crescentGeo(2.1, 0.32, 1.25), slashGeoB = crescentGeo(2.1, 0.13, 1.18);
 function shoot(from, dir, kind, range, owner, onHit, opt = {}) {
   let mesh;
   if (kind === 'slash') {
-    // a flat golden crescent with a bright core, travelling edge first
+    // a crisp, thin sword-beam crescent: glowing edge, white-hot core and a few fading after-images behind it
     mesh = new THREE.Group();
-    const a = new THREE.Mesh(slashGeo, slashMat.clone()); a.rotation.x = -Math.PI / 2;
-    const b = new THREE.Mesh(slashGeo2, new THREE.MeshBasicMaterial({ color: '#ffffff', transparent: true, opacity: 1, depthWrite: false, fog: false, side: THREE.DoubleSide })); b.rotation.x = -Math.PI / 2; b.position.y = 0.02;
-    a.position.z = b.position.z = -0.9; // centre the arc on the projectile
-    for (const m of [a, b]) { m.layers.set(1); m.renderOrder = 5; mesh.add(m); }
-    mesh.scale.setScalar(opt.size || 1);
+    const mat = (col, op, add) => new THREE.MeshBasicMaterial({ color: col, transparent: true, opacity: op, depthWrite: false, fog: false, side: THREE.DoubleSide, blending: add ? THREE.AdditiveBlending : THREE.NormalBlending });
+    const parts = [[slashGeoA, '#ffd86a', 0.95, true, 0], [slashGeoB, '#ffffff', 1, false, 0.01]];
+    for (const [k, op] of [[1, 0.45], [2, 0.25], [3, 0.12]]) parts.push([slashGeoA, '#ffe9a8', op, true, -0.01 * k, -0.55 * k, 1 - 0.08 * k]);
+    for (const [g, col, op, add, y, z = 0, sc = 1] of parts) { const m = new THREE.Mesh(g, mat(col, op, add)); m.position.set(0, y, z); m.scale.set(sc, 1, sc); m.userData.op = op; m.layers.set(1); m.renderOrder = 5; mesh.add(m); }
+    mesh.userData.size = opt.size || 1; mesh.scale.set(0.5 * mesh.userData.size, 1, 0.8 * mesh.userData.size);
   } else if (kind === 'bolt') {
     // the arrow model stands upright, so lay it along the flight line (lookAt aims +Z)
     const a = lib.arrow.clone(true); stylize(a); a.rotation.x = -Math.PI / 2; a.scale.setScalar(2.6);
@@ -4303,7 +4313,7 @@ function shoot(from, dir, kind, range, owner, onHit, opt = {}) {
   mesh.lookAt(from.clone().add(dir));
   scene.add(mesh);
   const pr = { mesh, dir: dir.clone().setY(0).normalize(), kind, owner, onHit, speed: kind === 'bolt' ? 26 : kind === 'slash' ? 20 : kind === 'dark' ? 11 : 17, left: range + 1 };
-  if (opt.pierce) { pr.pierce = opt.pierce; pr.R = 1.4 * (opt.size || 1); pr.range = range + 1; }
+  if (opt.pierce) { pr.pierce = opt.pierce; pr.R = 1.9 * (opt.size || 1); pr.range = range + 1; }
   projectiles.push(pr);
 }
 // Your damage: the weapon's base damage, multiplied by your Attack, with a little luck either way.
@@ -4349,6 +4359,10 @@ function knockTick(e, dt) {
 }
 let poisonHit = false;
 function hurtEnemy(e, dmg, src = null, power = 1) {
+  // never hurt something that is already down, fading out or still climbing out of the ground.
+  // (Hitting a corpse used to run its death a second time, which queued a second respawn: that's
+  // what made skeletons pop back up mid-fight and then keel over for no reason.)
+  if (!e || e.hp <= 0 || e.state === 'dead' || e.state === 'gone' || e.state === 'rising') return;
   const head = e.pos.clone().setY(3.4);
   e.barAt = now; // its health bar shows for a little while after each hit
   if (e.state === 'idle' || e.state === 'walk') e.state = 'chase';
@@ -4381,8 +4395,9 @@ function hurtEnemy(e, dmg, src = null, power = 1) {
   if (!crewHitting) giveHeroXp(dmg * HIT_HERO_XP);
   if (e.hp <= 0) {
     e.state = 'dead'; e.bar.hidden = true;
+    const life = e.life = (e.life || 0) + 1; // each death gets its own id, so old timers can't touch a respawned monster
     e.play('Death_A', { once: true, clamp: true, fade: 0.1 });
-    if (!e.T.noBones) later(0.75, () => { if (e.state === 'dead') collapse(e); });
+    if (!e.T.noBones) later(0.75, () => { if (e.state === 'dead' && e.life === life) collapse(e); });
     if (e.T.poof) later(0.8, () => { if (e.state === 'dead') { burst(e.pos.clone().setY(0.8), e.T.tintAll || '#9fe07a', 24, 4); e.root.visible = false; } });
     // a shared boss beaten by other heroes: only those who hit it get loot and quest credit
     const unpaid = e.T.boss && (bossRemote || wbRemote) && !e.myDmg;
@@ -4416,7 +4431,7 @@ function hurtEnemy(e, dmg, src = null, power = 1) {
     refreshUI();
     later(e.temp ? 5 : e.T.boss ? 90 : 16, () => {
       if (e.temp) { removeEnemy(e); return; } // ambush skeletons don't come back
-      if (!enemies.includes(e)) return;
+      if (!enemies.includes(e) || e.life !== life || e.state !== 'dead') return;
       if (e.T.town && townFree(e.T.town)) return; // freed towns stay free
       e.hp = e.T.hp; e.state = 'rising'; e.myDmg = 0;
       reassemble(e);
@@ -6115,8 +6130,11 @@ function tick() {
       // the slash wave cuts through: each foe is struck once, and it fades as it flies
       for (const e of enemies) if (e.hp > 0 && !pr.pierce.has(e) && e.state !== 'rising' && e.state !== 'gone' && e.inside === where && Math.hypot(e.pos.x - pp.x, e.pos.z - pp.z) < pr.R + (e.T.boss ? 1.2 : 0.3)) { pr.pierce.add(e); pr.onHit(e); }
       for (const c of crew) if (!pr.pierce.has(c) && isRival(c) && crewUp(c) && c.inside === where && Math.hypot(c.pos.x - pp.x, c.pos.z - pp.z) < pr.R) { pr.pierce.add(c); pr.onHit(c); }
-      const life = Math.max(0, pr.left / pr.range);
-      pr.mesh.children.forEach((m) => { m.material.opacity = (m === pr.mesh.children[0] ? 0.9 : 1) * Math.min(1, life * 2.2); });
+      // it snaps open wide right after launch, then thins and fades as it runs out
+      const life = Math.max(0, pr.left / pr.range), age = 1 - life, sz = pr.mesh.userData.size || 1;
+      const open = Math.min(1, age * 6), wide = 0.5 + 0.7 * (1 - Math.pow(1 - open, 3)) + age * 0.25;
+      pr.mesh.scale.set(wide * sz, 1, (0.8 + 0.2 * open) * sz);
+      pr.mesh.children.forEach((m) => { m.material.opacity = m.userData.op * Math.min(1, life * 2.5); });
       if (rng() < 0.7) burst(pp.clone().addScaledVector(pr.dir, 0.4), '#ffe9a8', 1, 1.5);
       if (pr.left <= 0) { scene.remove(pr.mesh); projectiles.splice(i, 1); }
       continue;
