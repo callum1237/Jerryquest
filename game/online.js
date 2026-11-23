@@ -154,8 +154,8 @@ export async function connect(profile) {
   channel.subscribe((status) => { if (status === 'SUBSCRIBED') channel.track(me); });
 }
 // ---------- player-to-player messages ----------
-// Parties (invite, accept, state, leave), duels (hit, knock-out) and shared party XP.
-const NET_EVENTS = ['pi', 'pa', 'ps', 'pl', 'hit', 'ko', 'px'];
+// Parties (invite, accept, state, leave), duels (hit, knock-out, the winner's prize) and shared party XP.
+const NET_EVENTS = ['pi', 'pa', 'ps', 'pl', 'hit', 'ko', 'loot', 'px'];
 export function sendNet(ev, payload = {}) {
   if (!channel || !net.on || !NET_EVENTS.includes(ev)) return;
   channel.send({ type: 'broadcast', event: ev, payload: { ...payload, id: net.user.id } });

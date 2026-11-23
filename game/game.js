@@ -762,11 +762,8 @@ function onNet(ev, m) {
     return;
   }
   if (ev === 'hit') { if (canFight(from, true)) hurtPlayer(Math.max(1, Math.min(9999, +m.dmg || 0)), from); return; }
-  if (ev === 'ko') {
-    const c = Math.max(0, Math.min(1e7, Math.floor(+m.coins || 0)));
-    S.coins += c; giveHeroXp(60 + heroLvl() * 10);
-    toast(`You won the duel against ${(peer && peer.name) || 'a hero'}!${c ? ` +${fmt(c)} coins` : ''}`, ICONS.coins, true); sfx('win'); refreshUI(); save(); return;
-  }
+  if (ev === 'ko') { if (peer && m.offer) duelPrize(from, peer.name || 'a hero', m.offer); return; }
+  if (ev === 'loot') { takeDuelLoss(from, m.pick); return; }
   if (ev === 'px') {
     if (!inParty(from) || m.w !== where || !player || player.dead) return;
     if (Math.hypot(player.pos.x - m.x, player.pos.z - m.z) > 40) return;
@@ -821,6 +818,66 @@ function renderParty() {
 }
 let partyUiAt = 0;
 function partyTick() { if (party && now > partyUiAt) { partyUiAt = now + 0.5; renderParty(); } }
+
+// ---------- duel prizes ----------
+// The winner picks ONE: 80% of the coins the loser carried, their weapon, their armour, or 2 bag items.
+// Starter gear can't be taken. Banked coins are always safe.
+const STARTER = { weapon: 'k_sword', armour: 'ar_cloth' };
+let duelLoss = null;
+function duelOffer() {
+  const o = { coins: Math.floor(S.coins * 0.8) };
+  for (const sl of ['weapon', 'armour']) { const k = S.equip[sl]; if (k && GEAR[k] && k !== STARTER[sl]) o[sl] = [k, plusOf(k)]; }
+  // the two most valuable things in the bag
+  const best = Object.entries(S.inv).filter(([k, n]) => n > 0 && SELL[k]).sort((a, b) => SELL[b[0]] - SELL[a[0]]);
+  const items = []; let left = 2;
+  for (const [k, n] of best) { if (!left) break; const t = Math.min(n, left); items.push([k, t]); left -= t; }
+  if (items.length) o.items = items;
+  return o;
+}
+function duelPrize(from, name, offer) {
+  const el = document.createElement('div'); el.className = 'pinvite duelprize panel';
+  const opts = [];
+  const c = Math.max(0, Math.floor(+offer.coins || 0));
+  if (c > 0) opts.push(['coins', `<img src="${ICONS.coins}" alt="">${fmt(c)} coins`]);
+  for (const sl of ['weapon', 'armour']) { const g = offer[sl] && GEAR[offer[sl][0]]; if (g) opts.push([sl, `<img src="${gearIcon(g)}" alt="">${esc(g.name)}${offer[sl][1] ? ` +${offer[sl][1]}` : ''}`]); }
+  const items = (Array.isArray(offer.items) ? offer.items : []).filter(([k]) => ITEMS[k]);
+  if (items.length) opts.push(['items', items.map(([k, n]) => `<img src="${ICONS[k]}" alt="">${n} × ${esc(ITEMS[k])}`).join(' ')]);
+  sfx('win');
+  if (!opts.length) { toast(`You won the duel against ${name}! They had nothing worth taking.`, ICONS.star, true); return; }
+  el.innerHTML = `<p>You beat <b></b>! Pick one prize:</p><div class="prizes">${opts.map(([k, h]) => `<button type="button" data-pz="${k}">${h}</button>`).join('')}</div>`;
+  el.querySelector('b').textContent = name;
+  el.querySelectorAll('[data-pz]').forEach((b) => { b.onclick = () => {
+    const k = b.dataset.pz; el.remove();
+    if (k === 'coins') S.coins += c;
+    else if (k === 'items') for (const [id, n] of items) addItem(id, Math.max(1, Math.min(2, n | 0)));
+    else {
+      const [gk, plus] = offer[k];
+      if (!S.owned.includes(gk)) S.owned.push(gk);
+      if (plus > plusOf(gk)) S.plus = { ...(S.plus || {}), [gk]: Math.min(PLUS_MAX, plus | 0) };
+    }
+    sendNet('loot', { to: from, pick: k });
+    toast(`Prize taken from ${name}!`, ICONS.coins, true); sfx('coin'); giveHeroXp(60 + heroLvl() * 10); refreshUI(); save();
+  }; });
+  setTimeout(() => el.remove(), 45000);
+  document.body.appendChild(el);
+}
+function takeDuelLoss(from, pick) {
+  if (!duelLoss || duelLoss.from !== from || now > duelLoss.until) return;
+  const o = duelLoss.offer; duelLoss = null;
+  const who = (net.peers.get(from) || {}).name || 'The winner';
+  if (pick === 'coins') { const c = Math.min(S.coins, o.coins || 0); S.coins -= c; toast(`${who} took ${fmt(c)} of your coins.`, ICONS.coins, true); }
+  else if (pick === 'items' && o.items) { for (const [k, n] of o.items) if (S.inv[k]) takeItem(k, Math.min(S.inv[k], n)); toast(`${who} took ${o.items.map(([k, n]) => `${n} ${ITEMS[k]}`).join(' and ')} from your bag.`, ICONS.bag, true); }
+  else if ((pick === 'weapon' || pick === 'armour') && o[pick]) {
+    const k = o[pick][0];
+    S.owned = S.owned.filter((x) => x !== k);
+    if (S.plus) delete S.plus[k];
+    if (S.equip[pick] === k) S.equip[pick] = STARTER[pick];
+    if (!S.owned.includes(STARTER[pick])) S.owned.push(STARTER[pick]);
+    equipGear(); if (typeof buildGearBar === 'function') buildGearBar();
+    toast(`${who} took your ${GEAR[k].name}!`, gearIcon(GEAR[k]), true);
+  }
+  refreshUI(); save();
+}
 
 // ---------- chat ----------
 // Enter opens the chat box; Enter again sends to everyone on the server. Messages fade from the corner
@@ -3429,9 +3486,10 @@ function hurtPlayer(dmg, from = null) {
     const lost = Math.floor(S.coins / 2);
     const foe = from && net.peers.get(from);
     if (foe) {
-      // beaten in a duel: the winner takes the coins you were carrying
-      S.coins -= lost; sendNet('ko', { to: from, coins: lost });
-      toast(`${foe.name || 'Another hero'} beat you in a duel${lost > 0 ? ` and took ${fmt(lost)} coins` : ''}! Bank your coins to keep them safe.`, null, true);
+      // beaten in a duel: you keep your coins on you, but the winner picks one prize from you
+      duelLoss = { from, until: now + 60, offer: duelOffer() };
+      sendNet('ko', { to: from, offer: duelLoss.offer });
+      toast(`${foe.name || 'Another hero'} beat you in a duel! They get to pick one prize from you. Bank your coins to keep them safe.`, null, true);
     } else if (lost > 0) { S.coins -= lost; dropPouch(lost); }
     if (!foe) toast(lost > 0 ? `You were knocked out and dropped ${lost} coins where you fell! Go back for them, or bank your coins next time.` : 'You were knocked out! You wake up by the well.', null, true);
     later(3, () => {
@@ -6083,7 +6141,7 @@ function makeGagronFriend() {
   npcs.push(gagronFriend);
 }
 
-window.__jq = { get party() { return party; }, onNet, chatCommand, canFight, openUpgrade, openBoard, boardToday, queueLetter, makeGagronFriend, net, peerActors, runeTick, bossFx, renderer, scene, openMayor, darkOmen, netWorth, liberateTown, spots, spotEffect, setGolden, goldenCaught, pompArrive, get goldenE() { return goldenE; }, spinWheel, dayTick, get bossIntro() { return bossIntro; }, bossSkip, startBossScene, sailTo, regions, closeSheet, renderHotbar, crew, setCrewMode, TOWNS, liberateTown, chests, openChest, stopRoulette, enemies, startBossIntro, closeDialog, advanceDialog, dash, attackPress, craft, CRAFTS, openCreator, closeCreator, creator, rebuildHero, setZoom: (z) => { zoom = z; }, hurtEnemy, goThrough, get where() { return where; }, INTERIORS, equipGear, spendPoint, giveHeroXp, heroLvl, stat, maxHp, defDiv, openWeaponShop, openKing, jump, eat, eatBest, openShop, swing, swingTarget, hitNode, projectiles, timers, get S() { return S; }, get player() { return player; }, enemies, nodes, npcs, startTask, doAction, giveXp, save, openSheet, openDialog };
+window.__jq = { get party() { return party; }, duelOffer, duelPrize, onNet, chatCommand, canFight, openUpgrade, openBoard, boardToday, queueLetter, makeGagronFriend, net, peerActors, runeTick, bossFx, renderer, scene, openMayor, darkOmen, netWorth, liberateTown, spots, spotEffect, setGolden, goldenCaught, pompArrive, get goldenE() { return goldenE; }, spinWheel, dayTick, get bossIntro() { return bossIntro; }, bossSkip, startBossScene, sailTo, regions, closeSheet, renderHotbar, crew, setCrewMode, TOWNS, liberateTown, chests, openChest, stopRoulette, enemies, startBossIntro, closeDialog, advanceDialog, dash, attackPress, craft, CRAFTS, openCreator, closeCreator, creator, rebuildHero, setZoom: (z) => { zoom = z; }, hurtEnemy, goThrough, get where() { return where; }, INTERIORS, equipGear, spendPoint, giveHeroXp, heroLvl, stat, maxHp, defDiv, openWeaponShop, openKing, jump, eat, eatBest, openShop, swing, swingTarget, hitNode, projectiles, timers, get S() { return S; }, get player() { return player; }, enemies, nodes, npcs, startTask, doAction, giveXp, save, openSheet, openDialog };
 window.addEventListener('error', (e) => { const m = $('loadmsg'); if (m) m.textContent = `Something went wrong: ${e.message}`; });
 main().catch((err) => {
   console.error(err);

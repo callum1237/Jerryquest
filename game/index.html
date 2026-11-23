@@ -675,6 +675,10 @@
   .pinvite { position: fixed; left: 50%; top: 18%; transform: translateX(-50%); z-index: 8; padding: 14px 18px; text-align: center; width: min(340px, calc(100vw - 32px)); animation: emotepop .3s cubic-bezier(.3,1.6,.5,1); }
   .pinvite p { margin: 0 0 10px; font: 700 16px/1.3 var(--body, sans-serif); }
   .pinvite p b { color: #5b2f9c; }
+  .duelprize .prizes { display: grid; gap: 6px; }
+  .duelprize .prizes button { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 6px; font: 800 14px var(--display, sans-serif); color: var(--ink); background: linear-gradient(180deg, #fffbea, #fbe0a6); border: 2.5px solid var(--ink); border-radius: 12px; padding: 7px 10px; box-shadow: 0 2px 0 var(--ink); cursor: pointer; }
+  .duelprize .prizes button:hover { background: linear-gradient(180deg, #fff1a8, #f2b93c); }
+  .duelprize .prizes img { width: 22px; height: 22px; }
   .pinvite .row { display: flex; gap: 8px; justify-content: center; }
   #partyframe { position: fixed; left: max(14px, env(safe-area-inset-left, 0px)); top: 112px; z-index: 4; width: 210px; padding: 8px 12px 10px; pointer-events: none; }
   #partyframe h4 { margin: 0 0 4px; font: 800 12px/1.2 var(--display, sans-serif); color: #5b2f9c; letter-spacing: .04em; text-transform: uppercase; }
