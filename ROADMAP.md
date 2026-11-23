@@ -5,7 +5,7 @@
 3. **Accounts and saving**: sign up and log in; character, skills, bag, bank, quests and position saved online. Adds a **wealth leaderboard** (richest players, counting bank and pocket coins).
 4. **Shared world**: everyone online in the same persistent world, gathering, fighting and questing together. PvP rule: when another player knocks you out, they pick ONE prize: 80% of the coins in your pocket, OR your weapon, OR your armour, OR two items from your bag.
 
-Recent builds: v21 original music and sound, chest roulette, boss intros, wider camera. v22 crew companions (ally, neutral or rival, with tactics) and three monster towns (1 to 3 stars) to free for bank income. v23 Dokapon-style look: lower camera that shows faces, bigger heads, face portraits in dialogue and the hero badge, round toy trees, brighter colours, candy-coloured menu, buildings fade when they hide you.
+Recent builds: v21 original music and sound, chest roulette, boss intros, wider camera. v22 crew companions (ally, neutral or rival, with tactics) and three monster towns (1 to 3 stars) to free for bank income. v23 Dokapon-style look: lower camera that shows faces, bigger heads, face portraits in dialogue and the hero badge, round toy trees, brighter colours, candy-coloured menu, buildings fade when they hide you. v24 polish pass: compact HUD (icon menu, hidden empty hotbar slots, phone menu button), board-game map with roads, flags and labels, real skeletons with glowing eyes, Honeymeadow flowers, hives, haystacks and pumpkins, wheat fields, striped tents, stone-ring campfire, spooky Haunted Hollow, bubbling lava pools, softer mountain tops.
 
 ## Design rules
 

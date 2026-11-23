@@ -353,7 +353,7 @@
   }
   /* hero creator: the 3D hero on the left (or top on phones), choices on a parchment panel */
   body.creating #status, body.creating #menu, body.creating #actionbar, body.creating #minimap, body.creating #jumpbtn, body.creating #specialbtn,
-  body.creating .dash, body.creating #sprintbtn, body.creating #bossbar, body.creating #sheet, body.creating #dialog, body.creating #tracker { display: none !important; }
+  body.creating .dash, body.creating #sprintbtn, body.creating #menutoggle, body.creating #bossbar, body.creating #sheet, body.creating #dialog, body.creating #tracker { display: none !important; }
   #creator { position: fixed; inset: 0; z-index: 30; display: grid; grid-template-columns: 1fr min(460px, 42vw); pointer-events: none;
     background: radial-gradient(ellipse 60% 75% at 30% 50%, transparent 40%, rgb(30 22 54 / .55)); }
   .cc-stage { pointer-events: auto; position: relative; cursor: grab; touch-action: none; }
@@ -502,6 +502,7 @@
   #b-crew { --c: #e0483e !important; } #b-look { --c: #e85fa8 !important; } #b-opts { --c: #7a6ad8 !important; }
   #menu button[aria-pressed="true"] { transform: translateY(2px) scale(1.04); box-shadow: inset 0 3px 0 rgb(255 255 255 / .55), 0 2px 0 var(--ink), 0 0 0 3px #fff8c8; }
   .panel { border-width: 3.5px; }
+  body.sheet-open:not(.sheet-bag) #hotbar { display: none; }
   /* crew: name tags, speech bubbles and the Crew menu */
   .crewtag { position: fixed; transform: translate(-50%, -100%); display: flex; flex-direction: column; align-items: center; gap: 2px; pointer-events: none; z-index: 2; --m: #8f62d8; }
   .crewtag[data-mode="ally"] { --m: #3aa860; } .crewtag[data-mode="rival"] { --m: #d8433a; }
@@ -538,7 +539,61 @@
   @keyframes bicard { 0%, 26% { opacity: 0; transform: translateX(-50%) scale(2.6) rotate(-4deg); } 34% { opacity: 1; transform: translateX(-50%) scale(1) rotate(-3deg); } 40% { transform: translateX(-50%) scale(1.08) rotate(-3deg); } 46%, 86% { opacity: 1; transform: translateX(-50%) scale(1) rotate(-3deg); } 100% { opacity: 0; transform: translateX(-50%) scale(1.1) rotate(-3deg); } }
   .bi-card b { display: block; font: 800 clamp(34px, 8vw, 72px)/1 var(--display); color: #fff1b0; -webkit-text-stroke: 3px #3a0a0a; text-shadow: 0 6px 0 #a0201a, 0 10px 24px rgb(0 0 0 / .6); letter-spacing: .02em; white-space: nowrap; }
   .bi-card small { display: inline-block; font: 800 clamp(13px, 2.6vw, 20px)/1 var(--display); color: #fff; background: #c8283a; border: 3px solid #3a0a0a; border-radius: 10px; padding: 5px 14px; margin-bottom: 8px; box-shadow: 0 4px 0 #3a0a0a; }
-  body:has(#bossintro:not([hidden])) #hotbar, body:has(#bossintro:not([hidden])) #actionbar, body:has(#bossintro:not([hidden])) #status, body:has(#bossintro:not([hidden])) #menu, body:has(#bossintro:not([hidden])) #minimap, body:has(#bossintro:not([hidden])) #specialbtn { opacity: 0; transition: opacity .2s; }
+  body:has(#bossintro:not([hidden])) #hotbar, body:has(#bossintro:not([hidden])) #actionbar, body:has(#bossintro:not([hidden])) #status, body:has(#bossintro:not([hidden])) #menu, body:has(#bossintro:not([hidden])) #minimap, body:has(#bossintro:not([hidden])) #specialbtn, body:has(#bossintro:not([hidden])) #bossbar { opacity: 0; transition: opacity .2s; }
+
+  /* ---------- compact HUD: everything is still here, it just takes far less room ---------- */
+  #menu { padding: 5px; gap: 5px; }
+  #menu button { width: 44px; height: 44px; padding: 0; justify-content: center; font-size: 0; gap: 0; border-radius: 50%; }
+  #menu button img { width: 24px; height: 24px; }
+  #sheet { top: calc(env(safe-area-inset-top, 0px) + 66px); }
+  #menutoggle { display: none; }
+  #hotbar .hot.empty { display: none; }
+  body.sheet-bag #hotbar .hot.empty { display: grid; }
+  body:not(.sheet-bag) #hotbar:not(:has(.hot:not(.empty))) { display: none; }
+  #hotbar { bottom: calc(env(safe-area-inset-bottom, 0px) + 78px); padding: 4px 5px; gap: 4px; }
+  #hotbar .hot { width: 40px; height: 40px; }
+  #hotbar .hot img { width: 26px; height: 26px; }
+  #action { font-size: 17px; padding: 7px 16px; min-width: 120px; }
+  #action img { width: 24px; height: 24px; }
+  #actionbar { padding: 5px 6px; gap: 8px; }
+  body.nohint #actionhint { display: none; }
+  #minimap { width: 132px; height: 132px; box-shadow: inset 0 0 0 3px #f7d77a, 0 4px 0 var(--ink), 0 0 0 2px #fff6c8; }
+  #specialbtn { width: 60px; height: 60px; left: calc(50% + 212px); bottom: calc(env(safe-area-inset-bottom, 0px) + 16px); font-size: 9.5px; }
+  body.nohint #specialbtn { left: calc(50% + 80px); }
+  #specialbtn img { width: 24px; height: 24px; }
+  #status { padding: 8px 12px 10px; width: 232px; }
+  #status.compact { width: 196px; }
+  .toast { font-size: 14px; padding: 4px 12px; }
+  #bigmap .mapwrap { box-sizing: border-box; }
+  @media (max-width: 700px) {
+    /* phone: one menu button opens a grid of icons; the game buttons sit round the thumbs like a gamepad */
+    #menutoggle { display: grid; place-items: center; position: fixed; left: calc(env(safe-area-inset-left, 0px) + 12px); bottom: calc(env(safe-area-inset-bottom, 0px) + 84px); width: 52px; height: 52px; padding: 0; border-radius: 50%; z-index: 4; }
+    #menutoggle img { width: 26px; height: 26px; }
+    body.menu-open #menutoggle { background: linear-gradient(180deg, #ffe58a, var(--gold)); }
+    #menu { display: none; }
+    body.menu-open #menu { display: grid; grid-template-columns: repeat(4, 52px); gap: 8px; padding: 10px; left: calc(env(safe-area-inset-left, 0px) + 12px); right: auto; bottom: calc(env(safe-area-inset-bottom, 0px) + 146px); top: auto; z-index: 5; }
+    #menu button { width: 52px; height: 52px; flex: none; font-size: 0; padding: 0; }
+    #menu button img { width: 26px; height: 26px; }
+    #actionbar { left: auto; right: calc(env(safe-area-inset-right, 0px) + 12px); transform: none; bottom: calc(env(safe-area-inset-bottom, 0px) + 14px); padding: 0; background: none; border: 0; box-shadow: none; }
+    #action { width: 78px; height: 78px; min-width: 0; border-radius: 50%; padding: 0; flex-direction: column; gap: 0; font-size: 11px; }
+    #action img { width: 30px; height: 30px; }
+    #jumpbtn { right: calc(env(safe-area-inset-right, 0px) + 100px); bottom: calc(env(safe-area-inset-bottom, 0px) + 12px); width: 54px; height: 54px; font-size: 13px; }
+    #specialbtn, body.nohint #specialbtn { left: auto; right: calc(env(safe-area-inset-right, 0px) + 16px); bottom: calc(env(safe-area-inset-bottom, 0px) + 102px); width: 56px; height: 56px; }
+    #dashr { left: auto; right: calc(env(safe-area-inset-right, 0px) + 82px); bottom: calc(env(safe-area-inset-bottom, 0px) + 78px); width: 44px; height: 44px; }
+    #sprintbtn { width: 54px; height: 54px; bottom: calc(env(safe-area-inset-bottom, 0px) + 18px); font-size: 13px; }
+    #hotbar { bottom: calc(env(safe-area-inset-bottom, 0px) + 16px); left: calc(env(safe-area-inset-left, 0px) + 76px); transform: none; }
+    #hotbar .hot { width: 38px; height: 38px; }
+    #hotbar .hot:nth-child(n+5) { display: none !important; }
+    #minimap { width: 92px; height: 92px; }
+    #status, #status.compact { width: 168px; }
+    #toasts { top: calc(env(safe-area-inset-top, 0px) + 112px); }
+    #toasts .toast:nth-last-child(n+3) { display: none; }
+    .toast { font-size: 13px; }
+    #sheet { bottom: calc(env(safe-area-inset-bottom, 0px) + 146px); }
+    #dialog { bottom: calc(env(safe-area-inset-bottom, 0px) + 104px); }
+    #bossbar { bottom: auto; top: calc(env(safe-area-inset-top, 0px) + 112px); }
+    body.sheet-open #menutoggle { z-index: 6; }
+  }
 </style>
 
 <div id="stage"></div>
@@ -552,14 +607,15 @@
   <div id="tracker"></div>
 </section>
 
+<button id="menutoggle" class="panel" aria-label="Menu" aria-expanded="false"><img data-icon="bag" alt=""></button>
 <nav id="menu" class="panel" aria-label="Menus">
-  <button id="b-skills" aria-pressed="false"><img data-icon="star" alt="">Hero</button>
-  <button id="b-bag" aria-pressed="false"><img data-icon="bag" alt="">Bag</button>
-  <button id="b-quests" aria-pressed="false"><img data-icon="scroll" alt="">Quests</button>
-  <button id="b-craft" aria-pressed="false"><img data-icon="hammer" alt="">Craft</button>
-  <button id="b-crew" aria-pressed="false"><img data-icon="shield" alt="">Crew</button>
-  <button id="b-look" aria-pressed="false"><img data-icon="mirror" alt="">Look</button>
-  <button id="b-opts" aria-pressed="false"><img data-icon="gear" alt="">Options</button>
+  <button id="b-skills" aria-pressed="false" title="Hero" aria-label="Hero"><img data-icon="star" alt="">Hero</button>
+  <button id="b-bag" aria-pressed="false" title="Bag" aria-label="Bag"><img data-icon="bag" alt="">Bag</button>
+  <button id="b-quests" aria-pressed="false" title="Quests" aria-label="Quests"><img data-icon="scroll" alt="">Quests</button>
+  <button id="b-craft" aria-pressed="false" title="Craft" aria-label="Craft"><img data-icon="hammer" alt="">Craft</button>
+  <button id="b-crew" aria-pressed="false" title="Crew" aria-label="Crew"><img data-icon="shield" alt="">Crew</button>
+  <button id="b-look" aria-pressed="false" title="Look" aria-label="Look"><img data-icon="mirror" alt="">Look</button>
+  <button id="b-opts" aria-pressed="false" title="Options" aria-label="Options"><img data-icon="gear" alt="">Options</button>
 </nav>
 
 <aside id="sheet" class="panel" hidden></aside>
@@ -571,7 +627,7 @@
 </div>
 
 <canvas id="minimap" class="panel" title="Map (M)" hidden></canvas>
-<div id="bigmap" class="overlay" hidden><div class="panel mapwrap"><h3>Map of the valley</h3><canvas></canvas><p class="hint">Gold: treasure chest. Yellow: someone with a quest. Green: quest ready to hand in. Red: monsters. Tap anywhere to close.</p></div></div>
+<div id="bigmap" class="overlay" hidden><div class="panel mapwrap"><h3>Map of the valley</h3><canvas></canvas><p class="hint">Chests are gold boxes, skulls are bosses, red dots are monsters. Red flags are towns held by monsters, blue flags are towns you freed. Yellow dots have a quest for you, green ones are ready to hand in. Your crew show as green (ally), lilac (neutral) or orange (rival). Tap anywhere to close.</p></div></div>
 <button id="jumpbtn" class="panel" aria-label="Jump">Jump</button>
 <button id="specialbtn" class="panel" aria-label="Special attack (R)" title="Special attack (R)"><img data-icon="star" alt=""><span>Special</span></button>
 <button id="dashr" class="panel dash" aria-label="Dash">&raquo;</button>

@@ -38,6 +38,12 @@ export let lib = {};
 export const M = (x, y, z, s = 1, ry = 0) => new THREE.Matrix4().compose(
   new THREE.Vector3(x, y, z), new THREE.Quaternion().setFromEuler(new THREE.Euler(0, ry, 0)), new THREE.Vector3(s, s, s));
 
+// A copy of a model with its colours multiplied by a tint (the original stays untouched).
+function tinted(tpl, col) {
+  const c = tpl.clone(true);
+  c.traverse((o) => { if (o.isMesh) { o.material = o.material.clone(); o.material.color.set(col); } });
+  return c;
+}
 export function instanced(template, matrices, opts = {}) {
   template.updateMatrixWorld(true);
   const inv = new THREE.Matrix4().copy(template.matrixWorld).invert();
@@ -161,7 +167,7 @@ export function buildWorld(library) {
   ];
   for (const [n, x0, z0, s] of ring) { const mine = /mine/.test(n), x = mine ? x0 : x0 * VS, z = mine ? z0 : z0 * VS; place(n, x, z, s, faceCenter(x, z)); }
   place('building_castle_blue', 4, -66, 14, 0); // big enough to feel like a king lives there
-  place('building_grain', 20 * VS, 14 * VS, S_BUILD, 0.6);
+  wheatField(20 * VS, 14 * VS, 9, 7, 0.6);
   for (let i = 0; i < 5; i++) place(i === 2 ? 'fence_wood_straight_gate' : 'fence_wood_straight', 16 * VS + i * 3.4, 22 * VS, S_PROP + 1.4, 0, { collide: false });
   const props = [
     ['barrel', -7, -12], ['barrel', -8.5, -12.5], ['crate_A_big', -9, -14], ['sack', 5, 11], ['sack', 6, 10.6], ['crate_B_small', 10, 11],
@@ -171,15 +177,23 @@ export function buildWorld(library) {
   for (const [n, x, z] of props) { const v = n === 'resource_stone' ? 1 : VS; place(n, x * v, z * v, S_PROP, rng() * 6, { shrink: 0.6 }); }
 
   // skeleton camp
-  place('tent', CAMP.x - 5, CAMP.z + 1, S_PROP + 1, 0.8);
-  place('tent', CAMP.x + 4, CAMP.z + 6, S_PROP + 1, -0.6);
+  tentAt(CAMP.x - 5, CAMP.z + 1, 0.8);
+  tentAt(CAMP.x + 4, CAMP.z + 6, -0.6, '#4a7ac8');
   buildCampfire(CAMP.x, CAMP.z - 2);
   for (const T of TOWNS) buildTown(T);
+  // bubbling lava pools in the Crags and round Cinderholt
+  const Cr = ZONES.crags;
+  for (const [dx, dz, r] of [[12, -10, 3.2], [-13, 8, 2.6], [8, 15, 2.2], [-6, -16, 2.8]]) lavaPool(Cr.x + dx, Cr.z + dz, r);
+  const Ci = TOWNS.find((T) => T.id === 'cinderholt');
+  const ash = new THREE.Mesh(new THREE.CircleGeometry(Ci.r + 2, 40)); ash.rotation.x = -Math.PI / 2; ash.position.set(Ci.x, 0.025, Ci.z);
+  registerMesh(ash, toon('#9a6a58', { polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1 })); ash.receiveShadow = true; scene.add(ash);
+  for (const [dx, dz, r] of [[-15, 6, 2.4], [8, -16, 2], [15, 10, 2.2]]) lavaPool(Ci.x + dx, Ci.z + dz, r);
 
   // forest belt around the valley, with gaps where the roads leave
   const kinds = { trees_A_large: [], trees_B_large: [], trees_A_medium: [], trees_B_medium: [] };
   const rounds = { A: [], B: [], C: [] };
   const treeAt = (x, z, big) => {
+    if ((dynamic.lavas || []).some((L) => Math.hypot(x - L.x, z - L.z) < L.r + 3)) return;
     // mostly round, bouncy storybook trees, with a few pines mixed in
     if (rng() < 0.7) { rounds['ABC'[Math.floor(rng() * 3)]].push(M(x, 0, z, S_NATURE * (big ? 1.15 : 0.95) * (0.85 + rng() * 0.35), rng() * 6)); colliders.push({ x, z, r: big ? 1.35 : 1.0 }); return; }
     const k = big ? (rng() > 0.5 ? 'trees_A_large' : 'trees_B_large') : (rng() > 0.5 ? 'trees_A_medium' : 'trees_B_medium');
@@ -250,17 +264,31 @@ export function buildWorld(library) {
   }
   const cragHills = [];
   for (let i = 0; i < 9; i++) { const a = (i / 9) * Math.PI * 2, Z = ZONES.crags; const x = Z.x + Math.cos(a) * (Z.r + 6), z = Z.z + Math.sin(a) * (Z.r + 6); if (!nearRoad(x, z, 8)) cragHills.push(M(x, 0, z, 7 + rng() * 3, rng() * 6)); }
-  instanced(lib.mountain_C_grass, cragHills);
+  // warm the crag hills so their grassy tops read as dry ochre, not acid green
+  instanced(tinted(lib.mountain_C_grass, '#e6c49a'), cragHills);
   for (const [k, list] of Object.entries(rocks)) instanced(lib[k], list);
 
   // Honeymeadow hamlet: homes, windmill, fields
   const H = ZONES.meadow;
-  const hamlet = [['building_home_A_red', -9, -3], ['building_home_B_yellow', 9, -5], ['building_home_A_blue', -11, 9], ['building_windmill_green', 15, 10], ['building_grain', -2, 14], ['building_well_blue', 0, 2]];
+  const hamlet = [['building_home_A_red', -9, -3], ['building_home_B_yellow', 9, -5], ['building_home_A_blue', -11, 9], ['building_windmill_green', 15, 10], ['building_well_blue', 0, 2]];
+  wheatField(H.x - 2, H.z + 14, 7, 5, 0);
   for (const [n, dx, dz] of hamlet) place(n, H.x + dx, H.z + dz, n === 'building_windmill_green' ? 6 : S_BUILD, Math.atan2(-dx, -dz));
-  for (let r2 = 0; r2 < 3; r2++) for (let i = 0; i < 5; i++) place('building_grain', H.x + 20 + i * 3.2, H.z - 12 + r2 * 4.5, 3, 0, { collide: false });
+  wheatField(H.x + 26.5, H.z - 7.5, 13, 9, 0);
   for (let i = 0; i < 6; i++) place('fence_wood_straight', H.x + 18.5 + i * 3.4, H.z - 15, S_PROP + 1.4, 0, { collide: false });
   for (const [n, dx, dz] of [['sack', 4, 6], ['crate_A_big', 6, 6], ['wheelbarrow', -5, 5], ['barrel', 7, -1], ['resource_lumber', -14, 2]]) place(n, H.x + dx, H.z + dz, S_PROP, rng() * 6, { shrink: 0.6 });
   addPath(new THREE.CircleGeometry(6, 32), H.x, H.z);
+  // Honeymeadow is the land of honey: giant flowers, beehives, haystacks and a pumpkin patch
+  const spots = (n, rMin, rMax, pad) => { const out = []; for (let i = 0; i < n * 4 && out.length < n; i++) { const a = rng() * Math.PI * 2, rr = rMin + rng() * (rMax - rMin); const x = H.x + Math.cos(a) * rr, z = H.z + Math.sin(a) * rr; if (nearRoad(x, z, 3) || !isFree(x, z, pad)) continue; out.push([x, z]); } return out; };
+  const flowerKinds = { pink: [], yellow: [], blue: [] };
+  for (const [x, z] of spots(26, 9, H.r + 2, 1.2)) flowerKinds[['pink', 'yellow', 'blue'][Math.floor(rng() * 3)]].push(M(x, 0, z, 2.2 + rng() * 1.4, rng() * 6));
+  for (const [k, list] of Object.entries(flowerKinds)) instanced(giantFlower(k), list);
+  const hives = spots(6, 10, H.r - 4, 2).map(([x, z]) => { colliders.push({ x, z, r: 0.9 }); return M(x, 0, z, 1.7, rng() * 6); });
+  instanced(beehive(), hives);
+  const hay = spots(7, 12, H.r, 2).map(([x, z]) => { colliders.push({ x, z, r: 1.3 }); return M(x, 0, z, 1.6 + rng() * 0.5, rng() * 6); });
+  instanced(haystack(), hay);
+  const pumpkins = [];
+  for (let i = 0; i < 18; i++) { const x = H.x - 22 + (i % 6) * 2.2 + rng() * 0.6, z = H.z - 8 + Math.floor(i / 6) * 2.4 + rng() * 0.6; if (isFree(x, z, 0.8)) pumpkins.push(M(x, 0, z, 0.9 + rng() * 0.5, rng() * 6)); }
+  instanced(pumpkin(), pumpkins);
 
   // Haunted Hollow: dead-grey trees, gravestones, tents
   const W = ZONES.hollow, dead = [];
@@ -270,16 +298,25 @@ export function buildWorld(library) {
     if (nearRoad(x, z, 4) || !isFree(x, z, 1.5)) continue;
     dead.push(M(x, 0, z, S_NATURE * (0.9 + rng() * 0.4), rng() * 6)); colliders.push({ x, z, r: 1.0 });
   }
-  tintTrees(instanced(lib.trees_A_medium, dead), 2.6, 0.2, 0.85);
-  const stoneM = toon('#a7a3ad');
+  instanced(deadTree(), dead);
+  // spooky purple mist and glowing pumpkin lanterns
+  const mist = new THREE.Mesh(new THREE.CircleGeometry(W.r + 6, 48), new THREE.MeshBasicMaterial({ color: '#8a6ad8', transparent: true, opacity: 0.18, depthWrite: false, fog: false }));
+  mist.rotation.x = -Math.PI / 2; mist.position.set(W.x, 0.06, W.z); mist.layers.set(1); scene.add(mist);
+  const lanterns = [];
+  for (let i = 0; i < 10; i++) { const a = rng() * Math.PI * 2, rr = 6 + rng() * (W.r - 4), x = W.x + Math.cos(a) * rr, z = W.z + Math.sin(a) * rr; if (isFree(x, z, 1)) lanterns.push(M(x, 0, z, 1.4, rng() * 6)); }
+  instanced(pumpkin(true), lanterns);
+  const stoneM = toon('#a7a3ad'), dirtM = toon('#6a4a3a'), carveM = toon('#4a4552');
   for (let i = 0; i < 18; i++) {
     const x = W.x - 9 + (i % 6) * 3.6, z = W.z - 4 + Math.floor(i / 6) * 4.5;
     const g = new THREE.Mesh(new THREE.BoxGeometry(1.2, 1.5, 0.35)); g.position.set(x + (rng() - 0.5), 0.7, z); g.rotation.set((rng() - 0.5) * 0.2, (rng() - 0.5) * 0.4, (rng() - 0.5) * 0.25);
     g.castShadow = true; registerMesh(g, stoneM); scene.add(g);
     const top = new THREE.Mesh(new THREE.CylinderGeometry(0.6, 0.6, 0.35, 12, 1, false, 0, Math.PI)); top.rotation.set(Math.PI / 2, 0, Math.PI / 2); top.position.set(0, 0.75, 0); registerMesh(top, stoneM); g.add(top);
+    const mound = new THREE.Mesh(new THREE.SphereGeometry(1, 12, 8)); mound.scale.set(0.75, 0.22, 1.1); mound.position.set(x, 0.02, z + 1.2); registerMesh(mound, dirtM); scene.add(mound);
+    const cross = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.6, 0.06)); cross.position.set(0, 0.15, 0.19); registerMesh(cross, carveM); g.add(cross);
+    const bar = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.12, 0.06)); bar.position.set(0, 0.25, 0.19); registerMesh(bar, carveM); g.add(bar);
     colliders.push({ x, z, r: 0.7 });
   }
-  place('tent', W.x + 12, W.z + 8, S_PROP + 1, 2.2);
+  tentAt(W.x + 12, W.z + 8, 2.2, '#6a5a8a');
 
   // Glimmerwood: glowing mushrooms and floating crystals
   const G = ZONES.glimmer;
@@ -311,7 +348,8 @@ export function buildWorld(library) {
     const a = (i / 44) * Math.PI * 2 + rng() * 0.08, rr = WORLD_R + 14 + rng() * 10;
     far[['mountain_A_grass_trees', 'mountain_B_grass_trees', 'mountain_C_grass'][i % 3]].push(M(Math.cos(a) * rr, -1, Math.sin(a) * rr, 14 + rng() * 5, rng() * 6));
   }
-  for (const [k, list] of Object.entries(far)) instanced(lib[k], list, { cast: false });
+  // soften the mountain tops from acid yellow to a calm sage green
+  for (const [k, list] of Object.entries(far)) instanced(tinted(lib[k], '#c4dcbc'), list, { cast: false });
 
   for (let i = 0; i < 20; i++) {
     const c = place(i % 2 ? 'cloud_big' : 'cloud_small', -150 + rng() * 300, -150 + rng() * 300, 4 + rng() * 2, rng() * 6, { collide: false, y: 26 + rng() * 6 });
@@ -349,16 +387,19 @@ export function buildFlowers() {
 }
 
 function buildCampfire(x, z) {
-  const logs = toon('#7a4a2a');
+  const logs = toon('#7a4a2a'), stoneC = toon('#9a96a0');
+  for (let i = 0; i < 8; i++) { const a = (i / 8) * Math.PI * 2, st = new THREE.Mesh(new THREE.DodecahedronGeometry(0.42, 0)); st.scale.set(1, 0.6, 1); st.position.set(x + Math.cos(a) * 1.25, 0.18, z + Math.sin(a) * 1.25); st.rotation.y = a; st.castShadow = true; registerMesh(st, stoneC); scene.add(st); }
   for (let i = 0; i < 3; i++) {
-    const log = new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.22, 2.2, 6));
+    const log = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.3, 2.0, 8));
     log.rotation.set(Math.PI / 2, 0, (i / 3) * Math.PI);
     log.position.set(x, 0.25, z); log.castShadow = true; registerMesh(log, logs); scene.add(log);
   }
   const outer = new THREE.Mesh(new THREE.ConeGeometry(0.75, 2.0, 7), new THREE.MeshBasicMaterial({ color: '#ff7a1f', fog: false }));
   const inner = new THREE.Mesh(new THREE.ConeGeometry(0.4, 1.3, 7), new THREE.MeshBasicMaterial({ color: '#ffe36b', fog: false }));
   outer.position.set(x, 1.1, z); inner.position.set(x, 0.85, z);
-  for (const f of [outer, inner]) { f.layers.set(1); scene.add(f); dynamic.flames.push(f); }
+  const side1 = new THREE.Mesh(new THREE.ConeGeometry(0.4, 1.2, 7), new THREE.MeshBasicMaterial({ color: '#ff9a2f', fog: false })); side1.position.set(x + 0.45, 0.75, z + 0.2);
+  const side2 = new THREE.Mesh(new THREE.ConeGeometry(0.35, 1.0, 7), new THREE.MeshBasicMaterial({ color: '#ff5a1f', fog: false })); side2.position.set(x - 0.4, 0.65, z - 0.25);
+  for (const f of [outer, inner, side1, side2]) { f.layers.set(1); scene.add(f); dynamic.flames.push(f); }
   dynamic.fireLight = new THREE.PointLight('#ff8a3a', 30, 18, 1.6);
   dynamic.fireLight.position.set(x, 2.2, z);
   scene.add(dynamic.fireLight);
@@ -388,7 +429,7 @@ function buildTown(T) {
   // the monsters' mess: tents, crates, barrels and bones
   T.junk = [];
   const junk = [['tent', 5.5, 0.8, S_PROP + 1], ['tent', -5, 2.2, S_PROP + 1], ['crate_A_big', 3, 4.5, S_PROP], ['barrel', -3.2, -4.6, S_PROP], ['barrel', -2.2, -5.4, S_PROP], ['crate_B_small', 4.4, -3.8, S_PROP], ['resource_stone', 1.6, 5.6, S_PROP]];
-  for (const [nm, dx, dz, sc] of junk) { const o = place(nm, T.x + dx, T.z + dz, sc, rng() * 6, { shrink: 0.6 }); if (o) T.junk.push(o); }
+  for (const [nm, dx, dz, sc] of junk) { const o = nm === 'tent' ? tentAt(T.x + dx, T.z + dz, rng() * 6, '#7a3a8a') : place(nm, T.x + dx, T.z + dz, sc, rng() * 6, { shrink: 0.6 }); if (o) T.junk.push(o); }
   // a few homely things that appear once the town is free
   T.homely = [];
   const homely = [['bucket_water', 2.2, -2.4], ['sack', -4.6, 3.4], ['sack', -4, 4.2], ['wheelbarrow', 5.2, 3.6], ['resource_lumber', -6.2, -2]];
@@ -410,4 +451,95 @@ function roundTree(kind) {
     for (const [x, y, z] of [[0.2, 0.75, 0.27], [-0.25, 0.9, 0.18], [0.05, 0.6, -0.32], [0.3, 0.95, -0.1]]) { const a = new THREE.Mesh(new THREE.SphereGeometry(0.05, 8, 6), apple); a.position.set(x, y, z); g.add(a); }
   }
   return g;
+}
+
+// ---------- chunky storybook props, built in code ----------
+const stdMat = (c) => new THREE.MeshStandardMaterial({ color: c, roughness: 1 });
+function giantFlower(kind) {
+  const petal = { pink: '#ff7eb6', yellow: '#ffd23f', blue: '#7fb8ff' }[kind];
+  const g = new THREE.Group();
+  const stem = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.07, 1.2, 6), stdMat('#3fa340')); stem.position.y = 0.6; g.add(stem);
+  const leaf = new THREE.Mesh(new THREE.SphereGeometry(0.2, 8, 6), stdMat('#4cbf45')); leaf.scale.set(1, 0.25, 0.5); leaf.position.set(0.15, 0.45, 0); g.add(leaf);
+  const head = new THREE.Group(); head.position.y = 1.25; head.rotation.x = -0.5; g.add(head);
+  const pm = stdMat(petal), pg = new THREE.SphereGeometry(0.16, 10, 8);
+  for (let i = 0; i < 7; i++) { const a = (i / 7) * Math.PI * 2, p = new THREE.Mesh(pg, pm); p.scale.set(1, 0.35, 0.7); p.position.set(Math.cos(a) * 0.2, 0, Math.sin(a) * 0.2); p.rotation.y = -a; head.add(p); }
+  const mid = new THREE.Mesh(new THREE.SphereGeometry(0.12, 10, 8), stdMat('#ffb21f')); mid.scale.y = 0.6; mid.position.y = 0.04; head.add(mid);
+  return g;
+}
+function beehive() {
+  const g = new THREE.Group(), y = stdMat('#f4b62a'), dk = stdMat('#c98a14');
+  const post = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, 0.5, 6), stdMat('#7a4a2a')); post.position.y = 0.25; g.add(post);
+  [[0.62, 0.32], [0.88, 0.28], [1.1, 0.22], [1.27, 0.14]].forEach(([h, r], i) => { const m = new THREE.Mesh(new THREE.SphereGeometry(r, 14, 8), i % 2 ? dk : y); m.scale.y = 0.62; m.position.y = h; g.add(m); });
+  const door = new THREE.Mesh(new THREE.SphereGeometry(0.07, 8, 6), stdMat('#3a2210')); door.position.set(0, 0.62, 0.3); g.add(door);
+  return g;
+}
+function haystack() {
+  const g = new THREE.Group(), h = stdMat('#e8c050');
+  const base = new THREE.Mesh(new THREE.CylinderGeometry(0.62, 0.7, 0.55, 12), h); base.position.y = 0.27; g.add(base);
+  const top = new THREE.Mesh(new THREE.SphereGeometry(0.62, 12, 8, 0, Math.PI * 2, 0, Math.PI / 2), stdMat('#f2d26a')); top.position.y = 0.54; top.scale.y = 0.8; g.add(top);
+  const band = new THREE.Mesh(new THREE.TorusGeometry(0.66, 0.04, 6, 20), stdMat('#a5762c')); band.rotation.x = Math.PI / 2; band.position.y = 0.4; g.add(band);
+  return g;
+}
+function pumpkin(lantern = false) {
+  const g = new THREE.Group(), o = lantern ? new THREE.MeshBasicMaterial({ color: '#ff9a2a' }) : stdMat('#f08a24'), og = new THREE.SphereGeometry(0.22, 10, 8);
+  for (let i = 0; i < 5; i++) { const a = (i / 5) * Math.PI * 2, m = new THREE.Mesh(og, o); m.scale.set(0.8, 1, 1.2); m.position.set(Math.cos(a) * 0.12, 0.22, Math.sin(a) * 0.12); m.rotation.y = -a; g.add(m); }
+  const st = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.04, 0.14, 5), stdMat('#4a7a2a')); st.position.y = 0.46; g.add(st);
+  return g;
+}
+
+// A striped A-frame tent with a dark doorway.
+function tentAt(x, z, ry = 0, col = '#d8433a') {
+  const g = new THREE.Group();
+  const tri = (w, h) => { const sh = new THREE.Shape(); sh.moveTo(-w / 2, 0); sh.lineTo(w / 2, 0); sh.lineTo(0, h); sh.closePath(); return sh; };
+  const prism = (w, h, d) => { const geo = new THREE.ExtrudeGeometry(tri(w, h), { depth: d, bevelEnabled: false }); geo.translate(0, 0, -d / 2); return geo; };
+  const body = new THREE.Mesh(prism(2.8, 2.2, 3)); registerMesh(body, toon(col)); body.castShadow = true; g.add(body);
+  // cream stripes running across the canvas
+  for (const sz of [-0.75, 0.75]) { const st = new THREE.Mesh(prism(2.86, 2.23, 0.32)); st.position.z = sz; registerMesh(st, toon('#fff1d6')); g.add(st); }
+  const door = new THREE.Mesh(new THREE.ShapeGeometry(tri(1.15, 1.45))); door.position.set(0, 0.01, 1.52); registerMesh(door, toon('#3a2210')); g.add(door);
+  const flap = new THREE.Mesh(new THREE.ShapeGeometry(tri(0.7, 1.1))); flap.position.set(0.5, 0.01, 1.53); flap.rotation.y = -0.5; registerMesh(flap, toon('#fff1d6')); g.add(flap);
+  for (const sz of [-1.6, 1.6]) { const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, 2.7, 6)); pole.position.set(0, 1.35, sz); registerMesh(pole, toon('#7a4a2a')); g.add(pole); }
+  const pen = new THREE.Mesh(new THREE.ConeGeometry(0.22, 0.5, 3)); pen.rotation.z = -Math.PI / 2; pen.position.set(0.22, 2.55, 1.6); registerMesh(pen, toon('#ffd23f')); g.add(pen);
+  g.position.set(x, 0, z); g.rotation.y = ry; g.name = 'tent';
+  scene.add(g); colliders.push({ x, z, r: 1.6 });
+  return g;
+}
+// A twisty, leafless spooky tree.
+function deadTree() {
+  const g = new THREE.Group(), bark = stdMat('#6a5a72');
+  const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.11, 0.9, 6), bark); trunk.position.y = 0.45; trunk.rotation.z = 0.08; g.add(trunk);
+  for (const [y, a, l, tilt] of [[0.62, 0, 0.42, 0.9], [0.72, 2.1, 0.36, 0.8], [0.82, 4.2, 0.32, 1.0], [0.9, 1.0, 0.26, 0.5]]) {
+    const b = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.045, l, 5), bark);
+    const holder = new THREE.Group(); holder.position.y = y; holder.rotation.y = a; g.add(holder);
+    b.position.set(0, l / 2, 0); const piv = new THREE.Group(); piv.rotation.z = tilt; piv.add(b); holder.add(piv);
+  }
+  return g;
+}
+// A bubbling lava pool: a glowing disc with dark crust bits and a black rock rim.
+function lavaPool(x, z, r) {
+  const lava = new THREE.Mesh(new THREE.CircleGeometry(r, 28), new THREE.MeshBasicMaterial({ color: '#ff7a1f', fog: false, polygonOffset: true, polygonOffsetFactor: -3, polygonOffsetUnits: -3 }));
+  lava.rotation.x = -Math.PI / 2; lava.position.set(x, 0.07, z); scene.add(lava);
+  const hot = new THREE.Mesh(new THREE.CircleGeometry(r * 0.55, 20), new THREE.MeshBasicMaterial({ color: '#ffd23f', fog: false, polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -4 }));
+  hot.rotation.x = -Math.PI / 2; hot.position.set(x + r * 0.1, 0.08, z - r * 0.1); scene.add(hot);
+  const rim = new THREE.Mesh(new THREE.TorusGeometry(r, 0.35, 6, 24)); rim.rotation.x = Math.PI / 2; rim.position.set(x, 0.1, z); rim.scale.z = 0.5; registerMesh(rim, toon('#3a2a2e')); scene.add(rim);
+  const crustM = toon('#4a2a1e');
+  for (let i = 0; i < 4; i++) { const a = rng() * 6.28, rr = rng() * r * 0.7, c = new THREE.Mesh(new THREE.DodecahedronGeometry(0.3 + rng() * 0.25, 0)); c.scale.y = 0.3; c.position.set(x + Math.cos(a) * rr, 0.1, z + Math.sin(a) * rr); registerMesh(c, crustM); scene.add(c); }
+  const glow = new THREE.PointLight('#ff6a1f', 14, r * 4, 1.6); glow.position.set(x, 1.2, z); scene.add(glow);
+  colliders.push({ x, z, r: r * 0.9 });
+  dynamic.lavas = dynamic.lavas || []; dynamic.lavas.push({ x, z, r, hot });
+}
+// A field of chunky wheat: instanced stalk clusters on a strip of brown soil.
+function wheatField(x, z, cols, rows, ry = 0) {
+  const soil = new THREE.Mesh(new THREE.PlaneGeometry(cols * 1.25 + 1, rows * 1.25 + 1)); soil.rotation.set(-Math.PI / 2, 0, ry); soil.position.set(x, 0.04, z);
+  registerMesh(soil, toon('#9a6a3a', { polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 })); soil.receiveShadow = true; scene.add(soil);
+  const tpl = new THREE.Group(), stalk = stdMat('#e8c040'), ear = stdMat('#f6d65a');
+  for (const [dx, dz, h] of [[0, 0, 1.15], [0.22, 0.12, 1.0], [-0.2, 0.1, 0.95], [0.05, -0.22, 1.05]]) {
+    const s1 = new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.035, h, 5), stalk); s1.position.set(dx, h / 2, dz); tpl.add(s1);
+    const e1 = new THREE.Mesh(new THREE.CapsuleGeometry(0.07, 0.22, 3, 6), ear); e1.position.set(dx, h + 0.1, dz); tpl.add(e1);
+  }
+  const mats = [], c = Math.cos(ry), sn = Math.sin(ry);
+  for (let i = 0; i < cols; i++) for (let j = 0; j < rows; j++) {
+    const lx = (i - (cols - 1) / 2) * 1.25 + (rng() - 0.5) * 0.3, lz = (j - (rows - 1) / 2) * 1.25 + (rng() - 0.5) * 0.3;
+    mats.push(M(x + lx * c + lz * sn, 0, z - lx * sn + lz * c, 1.5 + rng() * 0.3, rng() * 6));
+  }
+  instanced(tpl, mats);
 }

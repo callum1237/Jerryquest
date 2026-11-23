@@ -2,7 +2,7 @@
 import { THREE, scene, camera, renderer, sun, sky, PRESETS, env, applyPreset, styled, setStyled, stylize, toon, registerMesh,
   loadModel, burst, updateParticles, render, rng } from './engine.js';
 import * as SkeletonUtils from 'three/addons/utils/SkeletonUtils.js';
-import { buildWorld, buildFlowers, place, colliders, clouds, dynamic, LAKE, CAMP, MINE, S_NATURE, blocked, isFree, ZONES, WORLD_R, VS, TOWNS } from './world.js';
+import { buildWorld, buildFlowers, place, colliders, clouds, dynamic, LAKE, CAMP, MINE, S_NATURE, blocked, isFree, ZONES, WORLD_R, VS, TOWNS, ROADS } from './world.js';
 import { ICONS } from './icons.js';
 import { buildInteriors, INTERIORS } from './interiors.js';
 import { unlockAudio, playMusic, sfx, setVolumes } from './audio.js';
@@ -398,7 +398,7 @@ const EYE_COLOURS = {
 const EYE_STYLES = { round: 'Big and round', sharp: 'Determined', sleepy: 'Sleepy', happy: 'Happy', classic: 'Little dots' };
 const HEAD_SIZES = { normal: ['Normal', 1.2], big: ['Big', 1.4], chibi: ['Chibi', 1.56] };
 // a lower, closer camera than a straight top-down view, so you can see everyone's faces
-const CAM_OFF = new THREE.Vector3(0, 17, 27);
+const CAM_OFF = new THREE.Vector3(0, 15, 26);
 const BEARDS = { none: 'None', stache: 'Moustache', curly: 'Curly moustache', goatee: 'Goatee', full: 'Big beard', wizard: 'Wizard beard' };
 let hairMatId = 0;
 function hairMatsFor(col) {
@@ -1275,6 +1275,7 @@ function spawnEnemy(k, x, z) {
   e.play('Idle');
   if (T.boss || T.tint) e.root.traverse((o) => { if (o.isMesh && (T.town && !T.boss ? /Body/ : /Body|Head/).test(o.name)) tinted(o, T.tint || (k === 'boss_gloom' ? '#c8a8ff' : k === 'boss_crusher' ? '#ffd0a0' : '#c0ffc8')); });
   if (T.boss) addSilhouette(e.root, '#ff8a9a');
+  if ((T.model || k).startsWith('skel')) skeletonize(e, T);
   if (!T.boss) { const bar = document.createElement('div'); bar.className = 'hpbar'; bar.hidden = true; bar.innerHTML = '<i></i>'; document.body.appendChild(bar); e.bar = bar; }
   else e.bar = { hidden: true, style: {}, firstChild: { style: {} } };
   e.flashMats = [];
@@ -1288,6 +1289,25 @@ function spawnEnemy(k, x, z) {
   e.mass = T.mass || (T.dragon ? 16 : T.boss ? 7 : k === 'skel_minion' ? 0.8 : k === 'skel_warrior' ? 1.3 : 1);
   e.kb = new THREE.Vector2(); e.vy = 0; e.lift = 0; e.staggerUntil = 0; e.flashT = 0;
   enemies.push(e);
+}
+
+// Skeletons get cool bone-white skulls and glowing eyes, so they never read as bald villagers.
+const skullBoxes = {}, eyeGeo = new THREE.SphereGeometry(1, 10, 8);
+function skeletonize(e, T) {
+  const model = T.model || e.type;
+  if (!T.boss && !T.tint) e.root.traverse((o) => { if (o.isMesh && /Head|Body/.test(o.name)) tinted(o, '#d4e0ff'); });
+  else if (!T.boss) e.root.traverse((o) => { if (o.isMesh && /Head/.test(o.name)) tinted(o, '#d4e0ff'); });
+  if (!(model in skullBoxes)) { const tmp = SkeletonUtils.clone(G[model].scene); skullBoxes[model] = measureHead(tmp); }
+  const box = skullBoxes[model];
+  let bone = null; e.root.traverse((o) => { if (!bone && o.isBone && o.name === 'head') bone = o; });
+  if (!box || !bone) return;
+  const sz = box.getSize(new THREE.Vector3()), col = T.boss || T.town ? '#ff5a3a' : '#7ff6ff';
+  const mat = new THREE.MeshBasicMaterial({ color: col, fog: false });
+  for (const sx of [-1, 1]) {
+    const m = new THREE.Mesh(eyeGeo, mat); m.layers.set(1);
+    m.position.set((box.min.x + box.max.x) / 2 + sx * sz.x * 0.19, box.min.y + sz.y * 0.42, box.max.z - sz.z * 0.1);
+    m.scale.setScalar(sz.x * 0.075); bone.add(m);
+  }
 }
 function buildEnemies() {
   for (const [k, dx, dz] of [['skel_warrior', -3, -4], ['skel_minion', -6, 3], ['skel_mage', 2, 6], ['skel_minion', 5, -1], ['skel_minion', -1, 9]]) spawnEnemy(k, CAMP.x + dx, CAMP.z + dz);
@@ -1831,11 +1851,12 @@ function renderSheet() {
 let resetting = false;
 function openSheet(mode) {
   if (sheetMode === mode && !$('sheet').hidden) { closeSheet(); return; }
-  sheetMode = mode; $('sheet').hidden = false; renderSheet(); document.body.classList.add('sheet-open');
+  sheetMode = mode; $('sheet').hidden = false; renderSheet(); document.body.classList.add('sheet-open'); document.body.classList.toggle('sheet-bag', mode === 'bag');
   for (const m of ['skills', 'bag', 'quests', 'craft', 'crew', 'look', 'opts']) $(`b-${m}`).setAttribute('aria-pressed', String(m === mode));
 }
-function closeSheet() { document.body.classList.remove('sheet-open'); $('sheet').hidden = true; sheetMode = null; for (const m of ['skills', 'bag', 'quests', 'craft', 'crew', 'look', 'opts']) $(`b-${m}`).setAttribute('aria-pressed', 'false'); }
-for (const m of ['skills', 'bag', 'quests', 'craft', 'crew', 'look', 'opts']) $(`b-${m}`).addEventListener('click', () => (m === 'look' ? openCreator('edit') : openSheet(m)));
+function closeSheet() { document.body.classList.remove('sheet-open', 'sheet-bag'); $('sheet').hidden = true; sheetMode = null; for (const m of ['skills', 'bag', 'quests', 'craft', 'crew', 'look', 'opts']) $(`b-${m}`).setAttribute('aria-pressed', 'false'); }
+for (const m of ['skills', 'bag', 'quests', 'craft', 'crew', 'look', 'opts']) $(`b-${m}`).addEventListener('click', () => { document.body.classList.remove('menu-open'); $('menutoggle').setAttribute('aria-expanded', 'false'); if (m === 'look') openCreator('edit'); else openSheet(m); });
+$('menutoggle').addEventListener('click', () => { const open = document.body.classList.toggle('menu-open'); $('menutoggle').setAttribute('aria-expanded', String(open)); if (!open) closeSheet(); });
 
 // dialogue
 let talking = null;
@@ -2926,10 +2947,30 @@ function bakeMap() {
   const img = new ImageData(MAP_PX, MAP_PX), row = MAP_PX * 4;
   for (let y = 0; y < MAP_PX; y++) img.data.set(px.subarray((MAP_PX - 1 - y) * row, (MAP_PX - y) * row), y * row);
   const g = mapBg.getContext('2d');
-  g.putImageData(img, 0, 0);
-  // warm, storybook paper tint
-  g.globalCompositeOperation = 'soft-light'; g.fillStyle = '#ffdca0'; g.fillRect(0, 0, MAP_PX, MAP_PX);
-  g.globalCompositeOperation = 'source-over';
+  // Paint the map like a game board: flat land colours, fat cream roads, clumps of round trees.
+  // The photo from above sits faintly underneath for the little details.
+  const M2 = (v) => ((v + MAP_R) / (MAP_R * 2)) * MAP_PX, R2 = (r) => (r / (MAP_R * 2)) * MAP_PX;
+  const ink = '#3a2010';
+  g.fillStyle = '#8fd16a'; g.fillRect(0, 0, MAP_PX, MAP_PX);
+  g.beginPath(); g.arc(M2(0), M2(0), R2(WORLD_R), 0, 7); g.fillStyle = '#7cc35a'; g.fill();
+  for (const Z of Object.values(ZONES)) { g.beginPath(); g.arc(M2(Z.x), M2(Z.z), R2(Z.r + 4), 0, 7); g.fillStyle = Z.grass; g.fill(); g.lineWidth = 4; g.strokeStyle = 'rgba(58,32,16,.45)'; g.setLineDash([10, 8]); g.stroke(); g.setLineDash([]); }
+  for (const T of TOWNS) { g.beginPath(); g.arc(M2(T.x), M2(T.z), R2(T.r), 0, 7); g.fillStyle = '#b8d878'; g.fill(); }
+  g.beginPath(); g.arc(M2(LAKE.x), M2(LAKE.z), R2(LAKE.r), 0, 7); g.fillStyle = '#4aa8f0'; g.fill(); g.lineWidth = 5; g.strokeStyle = '#f1d79c'; g.stroke();
+  const road = (x1, z1, x2, z2, w) => { g.lineCap = 'round'; g.beginPath(); g.moveTo(M2(x1), M2(z1)); g.lineTo(M2(x2), M2(z2)); g.lineWidth = w + 5; g.strokeStyle = ink; g.stroke(); g.lineWidth = w; g.strokeStyle = '#f5dfa6'; g.stroke(); };
+  for (const [tx, tz, fx, fz] of ROADS) road(fx, fz, tx, tz, 9);
+  road(0, 0, 4, -50, 8); road(0, 0, 0, 52, 8); road(0, 0, -28, -4, 8); road(0, 0, 22, 10, 7);
+  for (const [x, z, r] of [[0, 0, 9], ...TOWNS.map((T) => [T.x, T.z, 7.5]), [ZONES.meadow.x, ZONES.meadow.z, 6]]) { g.beginPath(); g.arc(M2(x), M2(z), R2(r), 0, 7); g.fillStyle = '#f5dfa6'; g.fill(); g.lineWidth = 3; g.strokeStyle = ink; g.stroke(); }
+  // the photo, faintly, for buildings and rocks
+  const ph = document.createElement('canvas'); ph.width = ph.height = MAP_PX; ph.getContext('2d').putImageData(img, 0, 0);
+  g.globalAlpha = 0.28; g.drawImage(ph, 0, 0); g.globalAlpha = 1;
+  // trees as chunky round clumps
+  for (const c of colliders) {
+    if (c.r < 0.95 || c.r > 1.4 || Math.hypot(c.x, c.z) > WORLD_R) continue;
+    const x = M2(c.x), y = M2(c.z), r = R2(c.r * 1.9);
+    g.beginPath(); g.arc(x, y, r, 0, 7); g.fillStyle = '#2f8a3c'; g.fill(); g.lineWidth = 1.5; g.strokeStyle = 'rgba(30,50,20,.8)'; g.stroke();
+    g.beginPath(); g.arc(x - r * 0.3, y - r * 0.3, r * 0.4, 0, 7); g.fillStyle = 'rgba(160,230,120,.45)'; g.fill();
+  }
+  g.beginPath(); g.arc(M2(0), M2(0), R2(WORLD_R), 0, 7); g.lineWidth = 8; g.strokeStyle = ink; g.stroke();
 }
 const mini = $('minimap'), bigMap = $('bigmap');
 let lastMap = 0, mapBaked = 0;
@@ -2967,8 +3008,14 @@ function drawMap(cv, full) {
   g.fillStyle = '#3f7a3a'; g.fillRect(0, 0, W, W);
   g.drawImage(mapBg, src(cx - half), src(cz - half), src(cx + half) - src(cx - half), src(cz + half) - src(cz - half), 0, 0, W, W);
   const dot = (x, z, r, fill) => { const [u, v] = toPx(x, z); g.beginPath(); g.arc(u, v, r * dpr, 0, 7); g.fillStyle = fill; g.fill(); g.lineWidth = 1.5 * dpr; g.strokeStyle = '#3a2010'; g.stroke(); };
-  for (const c of chests) if (!c.open) dot(c.x, c.z, full ? 3 : 3.5, '#ffd23f');
-  for (const e of enemies) if (e.hp > 0 && e.state !== 'rising') dot(e.pos.x, e.pos.z, e.T.boss ? 6 : full ? 2.5 : 3.5, e.T.boss ? '#ff2a6a' : '#ff5a4a');
+  const S1 = (full ? 1 : 0.85) * dpr;
+  const flag = (x, z, col) => { const [u, v] = toPx(x, z); g.lineWidth = 2.5 * S1; g.strokeStyle = '#3a2010'; g.beginPath(); g.moveTo(u, v + 8 * S1); g.lineTo(u, v - 12 * S1); g.stroke(); g.beginPath(); g.moveTo(u, v - 12 * S1); g.lineTo(u + 12 * S1, v - 8 * S1); g.lineTo(u, v - 3 * S1); g.closePath(); g.fillStyle = col; g.fill(); g.lineWidth = 1.5 * S1; g.stroke(); };
+  const skull = (x, z, r) => { const [u, v] = toPx(x, z); g.beginPath(); g.arc(u, v, r * S1, 0, 7); g.fillStyle = '#ff3a5a'; g.fill(); g.lineWidth = 2 * S1; g.strokeStyle = '#3a2010'; g.stroke(); g.beginPath(); g.arc(u, v - r * 0.1 * S1, r * 0.55 * S1, 0, 7); g.fillStyle = '#fff'; g.fill(); g.fillStyle = '#3a2010'; for (const sx of [-1, 1]) { g.beginPath(); g.arc(u + sx * r * 0.22 * S1, v - r * 0.12 * S1, r * 0.14 * S1, 0, 7); g.fill(); } };
+  const chestIcon = (x, z) => { const [u, v] = toPx(x, z), w = 7 * S1; g.fillStyle = '#ffd23f'; g.strokeStyle = '#3a2010'; g.lineWidth = 1.5 * S1; g.beginPath(); g.roundRect(u - w, v - w * 0.7, w * 2, w * 1.4, 2 * S1); g.fill(); g.stroke(); g.beginPath(); g.moveTo(u - w, v - w * 0.1); g.lineTo(u + w, v - w * 0.1); g.stroke(); };
+  for (const c of chests) if (!c.open) chestIcon(c.x, c.z);
+  for (const e of enemies) if (e.hp > 0 && e.state !== 'rising' && e.state !== 'gone' && e.inside === 'out') { if (e.T.boss) skull(e.pos.x, e.pos.z, 8); else dot(e.pos.x, e.pos.z, full ? 2.5 : 3.5, '#ff5a4a'); }
+  for (const c of crew) if (c.inside === 'out') dot(c.x, c.z, full ? 3.5 : 4, crewCfg(c).mode === 'ally' ? '#5ad87a' : crewCfg(c).mode === 'rival' ? '#ff7a3a' : '#c8a8ff');
+  for (const T of TOWNS) flag(T.x - 5, T.z - 3, townFree(T.id) ? '#3a8fe8' : '#d8324a');
   for (const n of npcs) {
     const qid = Object.keys(QUESTS).find((q) => QUESTS[q].giver === n.id && !QUESTS[q].story);
     const st = qid && S.quests[qid].state;
@@ -2977,7 +3024,22 @@ function drawMap(cv, full) {
   }
   if (full) {
     g.font = `700 ${13 * dpr}px Fredoka, Trebuchet MS, sans-serif`; g.textAlign = 'center'; g.lineJoin = 'round';
-    for (const [name, x, z] of PLACES) { const [u, v] = toPx(x, z); g.lineWidth = 4 * dpr; g.strokeStyle = '#3a2010'; g.strokeText(name, u, v); g.fillStyle = '#fff6dc'; g.fillText(name, u, v); }
+    // place names on little ribbons
+    for (const [name, x, z] of PLACES) {
+      const [u, v] = toPx(x, z), w = g.measureText(name).width + 14 * dpr, h = 19 * dpr;
+      g.fillStyle = '#7a4ac8'; g.strokeStyle = '#3a2010'; g.lineWidth = 2 * dpr;
+      g.beginPath(); g.roundRect(u - w / 2, v - h * 0.72, w, h, 6 * dpr); g.fill(); g.stroke();
+      g.fillStyle = '#fff3c4'; g.fillText(name, u, v + 1 * dpr);
+    }
+    // compass
+    const cxp = W - 30 * dpr, cyp = 34 * dpr;
+    g.beginPath(); g.arc(cxp, cyp, 18 * dpr, 0, 7); g.fillStyle = '#fff3c4'; g.fill(); g.lineWidth = 2.5 * dpr; g.strokeStyle = '#3a2010'; g.stroke();
+    g.beginPath(); g.moveTo(cxp, cyp - 14 * dpr); g.lineTo(cxp + 6 * dpr, cyp); g.lineTo(cxp - 6 * dpr, cyp); g.closePath(); g.fillStyle = '#d8324a'; g.fill();
+    g.beginPath(); g.moveTo(cxp, cyp + 14 * dpr); g.lineTo(cxp + 6 * dpr, cyp); g.lineTo(cxp - 6 * dpr, cyp); g.closePath(); g.fillStyle = '#8a7a6a'; g.fill();
+    g.fillStyle = '#3a2010'; g.fillText('N', cxp, cyp - 20 * dpr);
+  } else {
+    g.font = `800 ${10 * dpr}px Fredoka, Trebuchet MS, sans-serif`; g.textAlign = 'center'; g.fillStyle = '#d8324a'; g.strokeStyle = '#fff'; g.lineWidth = 3 * dpr;
+    g.strokeText('N', W / 2, 12 * dpr); g.fillText('N', W / 2, 12 * dpr);
   }
   // you: an arrow pointing the way you face
   const [u, v] = toPx(p.x, p.z), a = player.root.rotation.y, sz = (full ? 7 : 8) * dpr;
@@ -3103,7 +3165,7 @@ function tick() {
   for (const [i, c] of dynamic.crystals.entries()) { c.position.y = 2.4 + Math.sin(now * 1.6 + i) * 0.4; c.rotation.y = now * 0.8 + i; }
   if (player) { player.mixer.update(dt); if (player.headScale && player.headInfo) player.headInfo.bone.scale.setScalar(player.headScale); faceTick(player); }
   for (const n of npcs) npcLife(n, dt);
-  crewTick(dt); crewTags(); townTick(); occluderTick(dt);
+  crewTick(dt); crewTags(); townTick(); if (now > 180 && !document.body.classList.contains('nohint')) document.body.classList.add('nohint'); occluderTick(dt);
   guideTick(); musicTick();
 
   for (let i = lootPops.length - 1; i >= 0; i--) {
@@ -3198,6 +3260,11 @@ function tick() {
   const fl = 0.85 + 0.15 * Math.sin(now * 17) + 0.1 * Math.sin(now * 7.3);
   if (dynamic.fireLight) dynamic.fireLight.intensity = 30 * fl * P.fire;
   dynamic.flames.forEach((f, i) => { f.scale.set(1, fl * (i ? 1.1 : 1), 1); f.rotation.y = now * (i ? -2 : 2); });
+  if (dynamic.lavas && player) for (const L of dynamic.lavas) {
+    if (Math.abs(L.x - player.pos.x) > 50 || Math.abs(L.z - player.pos.z) > 50) continue;
+    L.hot.scale.setScalar(1 + Math.sin(now * 2 + L.x) * 0.12);
+    if (rng() < dt * 3) burst(new THREE.Vector3(L.x + (rng() - 0.5) * L.r, 0.3, L.z + (rng() - 0.5) * L.r), rng() < 0.5 ? '#ffb02a' : '#ff5a1f', 3, 2.5, 2.5);
+  }
   for (const c of clouds) { c.position.x += dt * 0.8; if (c.position.x > 110) c.position.x = -110; }
 
   const focus = player ? tmpF.copy(player.pos).setY(0) : tmpF.set(0, 0, 4);
@@ -3448,7 +3515,7 @@ function talkCam(dt) {
   let dx = pp.x - n.x, dz = pp.z - n.z; const d = Math.hypot(dx, dz) || 1; dx /= d; dz /= d;
   // stand off to one side of the pair so the speaker's face is in view and the hero isn't in the way
   const side = (a) => [dx * Math.cos(a) - dz * Math.sin(a), dx * Math.sin(a) + dz * Math.cos(a)];
-  const A = side(1.25), B = side(-1.25), [cx, cz] = A[1] > B[1] ? A : B;
+  const A = side(1.5), B = side(-1.5), [cx, cz] = A[1] > B[1] ? A : B;
   const dist = phone ? 12 : 10;
   const mid = tmpT.set(n.x + (pp.x - n.x) * 0.25, 0, n.z + (pp.z - n.z) * 0.25);
   camPos.lerp(tmpV.set(mid.x + cx * dist, phone ? 5.6 : 4.4, mid.z + cz * dist), 1 - Math.pow(0.004, dt));
@@ -3986,7 +4053,7 @@ function renderCrew(el) {
   el.querySelectorAll('[data-tactic]').forEach((b) => { b.onclick = () => { const c = crew.find((x) => x.id === b.dataset.crew); crewCfg(c).tactic = b.dataset.tactic; c.foe = null; save(); renderSheet(); }; });
 }
 
-window.__jq = { crew, setCrewMode, TOWNS, liberateTown, chests, openChest, stopRoulette, enemies, startBossIntro, closeDialog, advanceDialog, dash, attackPress, craft, CRAFTS, openCreator, closeCreator, creator, rebuildHero, setZoom: (z) => { zoom = z; }, hurtEnemy, goThrough, get where() { return where; }, INTERIORS, equipGear, spendPoint, giveHeroXp, heroLvl, stat, maxHp, defDiv, openWeaponShop, openKing, jump, eat, eatBest, openShop, swing, swingTarget, hitNode, projectiles, timers, get S() { return S; }, get player() { return player; }, enemies, nodes, npcs, startTask, doAction, giveXp, save, openSheet, openDialog };
+window.__jq = { closeSheet, renderHotbar, crew, setCrewMode, TOWNS, liberateTown, chests, openChest, stopRoulette, enemies, startBossIntro, closeDialog, advanceDialog, dash, attackPress, craft, CRAFTS, openCreator, closeCreator, creator, rebuildHero, setZoom: (z) => { zoom = z; }, hurtEnemy, goThrough, get where() { return where; }, INTERIORS, equipGear, spendPoint, giveHeroXp, heroLvl, stat, maxHp, defDiv, openWeaponShop, openKing, jump, eat, eatBest, openShop, swing, swingTarget, hitNode, projectiles, timers, get S() { return S; }, get player() { return player; }, enemies, nodes, npcs, startTask, doAction, giveXp, save, openSheet, openDialog };
 window.addEventListener('error', (e) => { const m = $('loadmsg'); if (m) m.textContent = `Something went wrong: ${e.message}`; });
 main().catch((err) => {
   console.error(err);
