@@ -878,6 +878,8 @@
     #hotbar { bottom: calc(env(safe-area-inset-bottom, 0px) + 52px) !important; }
     #menutoggle { bottom: calc(env(safe-area-inset-bottom, 0px) + 98px); }
   }
+  #travel { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; justify-content: center; margin-top: 8px; font-size: 13px; }
+  #travel button { font-size: 13px; padding: 4px 12px; }
 </style>
 
 <div id="stage"></div>
@@ -915,7 +917,7 @@
 </div>
 
 <canvas id="minimap" class="panel" title="Map (M)" hidden></canvas>
-<div id="bigmap" class="overlay" hidden><div class="panel mapwrap"><h3>Map of the valley</h3><canvas></canvas><div class="maplegend"><span><i style="background:#ffd23f;border-radius:2px"></i>Chest</span><span><i style="background:#e8304a"></i>Monster</span><span><i style="background:#fff;box-shadow:inset 0 0 0 3px #e8304a"></i>Boss</span><span><i style="background:#ffd23f"></i>Quest</span><span><i style="background:#ff6ad5"></i>Hand in</span><span><i style="background:#ffb43a"></i>Event</span><span><i style="background:#c9a8ff"></i>Crew</span></div><p class="hint">Tap anywhere to close.</p></div></div>
+<div id="bigmap" class="overlay" hidden><div class="panel mapwrap"><h3>Map of the valley</h3><canvas></canvas><div class="maplegend"><span><i style="background:#ffd23f;border-radius:2px"></i>Chest</span><span><i style="background:#e8304a"></i>Monster</span><span><i style="background:#fff;box-shadow:inset 0 0 0 3px #e8304a"></i>Boss</span><span><i style="background:#ffd23f"></i>Quest</span><span><i style="background:#ff6ad5"></i>Hand in</span><span><i style="background:#ffb43a"></i>Event</span><span><i style="background:#c9a8ff"></i>Crew</span></div><div id="travel"></div><p class="hint">Tap anywhere else to close. M opens the map.</p></div></div>
 <button id="jumpbtn" class="panel" aria-label="Jump">Jump</button>
 <button id="specialbtn" class="panel" aria-label="Special attack (R)" title="Special attack (R)"><img data-icon="star" alt=""><span>Special</span></button>
 <button id="dashr" class="panel dash" aria-label="Dash">&raquo;</button>

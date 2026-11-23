@@ -2898,13 +2898,13 @@ function openSail(npc) {
   showDialog(d, { talky: true });
   npc.actor.face(player.pos.x, player.pos.z);
 }
-function sailTo(to) {
+function sailTo(to, at = null, label = null) {
   if (fading) return;
   fading = true; held = false; mouseHeld = false; moveTarget = null; pending = null; marker.visible = false; cancelTask();
   const name = to === 'out' ? 'Jerry Valley' : LANDS[to].name;
-  $('fade').dataset.label = `Sailing to ${name}...`; $('fade').classList.add('on', 'sail'); sfx('door');
+  $('fade').dataset.label = label || `Sailing to ${name}...`; $('fade').classList.add('on', 'sail'); sfx('door');
   setTimeout(() => {
-    const pp = player.pos, A = to === 'out' ? VALLEY_DOCK.arrive : LANDS[to].arrive;
+    const pp = player.pos, A = at || (to === 'out' ? VALLEY_DOCK.arrive : LANDS[to].arrive);
     pp.set(A.x, 0, A.z); player.root.rotation.y = to === 'out' ? Math.PI / 2 : Math.PI;
     where = to;
     camPos.copy(pp).setY(0).add(CAM_OFF.clone().multiplyScalar(zoom * (camera.aspect < 1 ? 1.3 : 1)));
@@ -2916,6 +2916,25 @@ function sailTo(to) {
       save(); refreshUI();
     }, 1100);
   }, 400);
+}
+// ---------- fast travel ----------
+// From the big map you can jump straight to the village of any land you have unlocked, as long as
+// nothing is fighting you. It saves a long walk back to the quest giver or the ship.
+const inCombat = () => enemies.some((e) => e.hp > 0 && e.state !== 'idle' && e.state !== 'walk' && e.state !== 'return' && e.state !== 'dead' && e.inside === where && Math.hypot(e.pos.x - player.pos.x, e.pos.z - player.pos.z) < 26);
+function travelSpots() {
+  const out = [{ w: 'out', name: 'Jerry Valley (village well)', at: { x: 0, z: 6 } }];
+  if (INTERIORS.castle && INTERIORS.castle.exitTo) out.push({ w: 'out', name: 'Castle gate (Jerry Valley)', at: INTERIORS.castle.exitTo });
+  out.push({ w: 'out', name: 'Harbour (Jerry Valley)', at: VALLEY_DOCK.arrive });
+  for (const [id, L] of Object.entries(LANDS)) if (landOpen(id)) out.push({ w: id, name: `${L.villageName || L.name} (${L.name})`, at: { x: L.village.x, z: L.village.z + 4 } });
+  return out;
+}
+function fastTravel(i) {
+  const T = travelSpots()[i]; if (!T || !player) return;
+  if (player.dead || bossIntro || roulette) return;
+  if (inCombat()) { toast('You can\'t fast travel in the middle of a fight!', ICONS.boot); return; }
+  if (!LANDS[where] && where !== 'out') { toast('Step outside first, then fast travel.', ICONS.boot); return; }
+  toggleBigMap(false); closeDialog(); closeSheet();
+  sailTo(T.w, T.at, T.w === where ? `Travelling to ${T.name.split(' (')[0]}...` : `Sailing to ${T.name.split(' (')[0]}...`);
 }
 function checkDoors() {
   if (fading || !player || player.dead) return;
@@ -3174,7 +3193,7 @@ function openKing(npc) {
     else if (st.state === 'todo') { text = q.intro; btn = ['I will do it', () => { st.state = 'active'; S.track = k; toast(`${q.chapter}: ${q.name}`, ICONS.scroll, true); refreshUI(); save(); closeDialog(); }]; }
     else { text = `${q.desc} So far: ${questProgress(k)}.`; btn = ['On my way', closeDialog]; }
     d.innerHTML = `<h3>${npc.name}</h3><div class="chapter">${q.chapter} · ${q.name}</div><p></p>${st.state === 'todo' ? `<div class="reward">Reward: ${q.reward.coins} coins and ${Object.values(q.reward.xp)[0]} XP</div>` : ''}
-      <div class="row"><button class="primary" id="kq"></button><button id="kingbye">Farewell</button></div>`;
+      <div class="row"><button class="primary" id="kq" data-e="1"></button><button id="kingbye">Farewell</button></div>`;
     d.querySelector('p').textContent = text; $('kq').textContent = btn[0]; $('kq').onclick = btn[1];
     $('kingbye').onclick = closeDialog;
     showDialog(d, { talky: true }); npc.actor.face(player.pos.x, player.pos.z);
@@ -3341,7 +3360,7 @@ function openDialog(npc, plain = false) {
   d.querySelector('h3').textContent = npc.name;
   d.querySelector('p').textContent = text;
   for (const [label, cls, fn] of buttons) {
-    const b = document.createElement('button'); b.textContent = label; if (cls) b.className = cls; b.onclick = fn;
+    const b = document.createElement('button'); b.textContent = label; if (cls) { b.className = cls; b.dataset.e = '1'; } b.onclick = fn;
     d.querySelector('.row').appendChild(b);
   }
   showDialog(d, { talky: true });
@@ -3418,6 +3437,8 @@ function advanceDialog() {
   }
   const btns = [...dlg.d.querySelectorAll('.row button')];
   if (dlg.talky && btns.length === 1) { btns[0].click(); return true; }
+  // quest givers and letters: E presses the main button (accept, hand in, close the letter)
+  const go = dlg.d.querySelector('.row button[data-e]'); if (go && !go.disabled) { go.click(); return true; }
   return false;
 }
 let dlgClosedAt = 0;
@@ -3901,16 +3922,16 @@ function startTask(t) {
   if (t.type === 'chest') { openChest(t.n); return; }
   const def = t.n.def;
   if (lvl(def.skill) < def.req) { toast(`You need ${SKILL_NAME[def.skill]} level ${def.req} for that.`, ICONS[def.skill]); return; }
-  player.task = { ...t, next: now + 1.4 };
+  player.task = { ...t, next: now + 1.0 };
   showGear('rod'); player.play('1H_Ranged_Aiming');
 }
 
 function gatherTick(task) {
   const n = task.n, def = n.def;
   if (now < task.next) return;
-  task.next = now + 2.4 + rng() * 1.0;
+  task.next = now + 1.6 + rng() * 0.8;
   const l = lvl(def.skill);
-  const chance = THREE.MathUtils.clamp(0.32 + (l - def.req) * 0.04, 0.22, 0.85);
+  const chance = THREE.MathUtils.clamp(0.42 + (l - def.req) * 0.04, 0.22, 0.85);
   burst(new THREE.Vector3(n.x, 1.5, n.z), '#bff4ff', 8, 3);
   if (rng() > chance) return;
   addItem(def.item);
@@ -4082,9 +4103,12 @@ function hurtPlayer(dmg, from = null) {
       sendNet('ko', { to: from, offer: duelLoss.offer });
       toast(`${foe.name || 'Another hero'} beat you in a duel! They get to pick one prize from you. Bank your coins to keep them safe.`, null, true);
     } else if (lost > 0) { S.coins -= lost; dropPouch(lost); }
-    if (!foe) toast(lost > 0 ? `You were knocked out and dropped ${lost} coins where you fell! Go back for them, or bank your coins next time.` : 'You were knocked out! You wake up by the well.', null, true);
-    later(3, () => {
-      player.root.position.set(0, 0, 6); player.air = false; where = 'out'; camPos.set(0, 30, 40);
+    if (!foe) toast(lost > 0 ? `You were knocked out and dropped ${lost} coins where you fell! Go back for them, or bank your coins next time.` : 'You were knocked out! You wake up in the nearest village.', null, true);
+    later(2.2, () => {
+      // wake up in the nearest village: the one in the land you fell in, or just outside a cave or house
+      const L = LANDS[where], I = !L && INTERIORS[where], at = L ? { x: L.village.x, z: L.village.z + 4 } : I && I.exitTo ? I.exitTo : { x: 0, z: 6 };
+      where = L ? where : 'out'; player.root.position.set(at.x, 0, at.z); player.air = false;
+      camPos.copy(player.pos).setY(0).add(CAM_OFF.clone().multiplyScalar(zoom * (camera.aspect < 1 ? 1.3 : 1)));
       S.hp = maxHp(); player.dead = false; player.play('Idle'); refreshUI(); save();
     });
   } else if (!player.task && now > player.busyUntil) {
@@ -5269,7 +5293,11 @@ let lastMap = 0, mapBaked = 0;
 function toggleBigMap(force) {
   const show = force ?? bigMap.hidden;
   bigMap.hidden = !show;
-  if (show) { bigMap.querySelector('h3').textContent = LANDS[where] ? `Map of ${LANDS[where].name}` : 'Map of Jerry Valley'; drawMap(bigMap.querySelector('canvas'), true); }
+  if (show) {
+    bigMap.querySelector('h3').textContent = LANDS[where] ? `Map of ${LANDS[where].name}` : 'Map of Jerry Valley'; drawMap(bigMap.querySelector('canvas'), true);
+    const box = $('travel'); box.innerHTML = '<b>Fast travel:</b> ' + travelSpots().map((T, i) => `<button data-go="${i}">${T.name.split(' (')[0]}</button>`).join('');
+    box.querySelectorAll('[data-go]').forEach((b) => { b.onclick = (ev) => { ev.stopPropagation(); fastTravel(+b.dataset.go); }; });
+  }
 }
 mini.addEventListener('click', () => toggleBigMap(true));
 $('jumpbtn').addEventListener('pointerdown', (e) => { e.preventDefault(); jump(); });
@@ -5587,8 +5615,9 @@ function tick() {
       if (talking) closeDialog();
       const len = Math.hypot(mx, mz); mx /= len; mz /= len;
       const sprinting = (keys.has('sprint') || sprintToggle) && stamina > 1 && !busy;
-      if (sprinting) { stamina = Math.max(0, stamina - dt * 22); staminaAt = now + 1; if (stamina <= 1) sprintToggle = false; }
-      const speed = 7.8 * (1 + (lvl('speed') - 1) * 0.006) * (sprinting ? 1.55 : 1) * pathSpeed();
+      // sprinting only tires you out in a fight: out of combat you can run as long as you like
+      if (sprinting && inCombat()) { stamina = Math.max(0, stamina - dt * 15); staminaAt = now + 0.8; if (stamina <= 1) sprintToggle = false; }
+      const speed = 8.4 * (1 + (lvl('speed') - 1) * 0.006) * (sprinting ? 1.55 : 1) * pathSpeed();
       const ox = pp.x, oz = pp.z;
       pp.x += mx * speed * dt; pp.z += mz * speed * dt;
       collide(pp); collide(pp);
@@ -5631,7 +5660,7 @@ function tick() {
       player.root.rotation.y += diff * Math.min(1, dt * 3);
     }
     checkDoors();
-    if (now > staminaAt && stamina < 100) stamina = Math.min(100, stamina + dt * 16);
+    if (now > staminaAt && stamina < 100) stamina = Math.min(100, stamina + dt * 24);
     $('stamfill').style.width = `${stamina}%`; $('status').classList.toggle('tired', stamina < 99);
     if (player.air) {
       pp.y += player.vy * dt; player.vy -= GRAV * dt;
@@ -7672,8 +7701,8 @@ function letterTick() {
   sfx('whoosh'); burst(player.pos.clone().setY(3), '#5a3a7a', 30, 5, 1);
   const d = $('dialog');
   const vision = id.startsWith('vision_');
-  d.innerHTML = vision ? '<h3>A vision of light</h3><p class="via">Your halo glows warm and bright.</p><div class="letter"></div><div class="row"><button id="lbye" class="primary">Remember it</button></div>'
-    : `<h3>A letter from ${DARK_KING}</h3><p class="via">Delivered by Flapsworth the bat, who is shaking a little.</p><div class="letter"></div><div class="row"><button id="lbye" class="primary">Fold it away</button></div>`;
+  d.innerHTML = vision ? '<h3>A vision of light</h3><p class="via">Your halo glows warm and bright.</p><div class="letter"></div><div class="row"><button id="lbye" class="primary" data-e="1">Remember it</button></div>'
+    : `<h3>A letter from ${DARK_KING}</h3><p class="via">Delivered by Flapsworth the bat, who is shaking a little.</p><div class="letter"></div><div class="row"><button id="lbye" class="primary" data-e="1">Fold it away</button></div>`;
   d.querySelector('.letter').textContent = vision ? LETTERS[id] : `${LETTERS[id]}\n\nYours menacingly,\n${DARK_KING}`;
   $('lbye').onclick = () => { letterOpen = null; closeDialog(); };
   letterOpen = id; showDialog(d);
