@@ -513,7 +513,7 @@ export function buildSands() {
   // Oasis Rest: striped tents round a well, and a little palm-ringed pool
   for (const [dx, dz, c, tr] of [[-11, -3, '#e86a4a', '#f5e2b0'], [11, -4, '#4a8ad8', '#f5e2b0'], [-11, 9, '#e8b03a', '#fff1d6'], [-2, 13, '#a85ad8', '#f5e2b0']]) tent(V.x + dx, V.z + dz, Math.atan2(-dx, -dz), c, tr);
   place('building_well_blue', V.x, V.z - 1, S_BUILD);
-  for (const [n, dx, dz] of [['barrel', 6, 3], ['crate_A_big', -6, 4], ['sack', 7, 4], ['crate_A_small', -7, 5]]) place(n, V.x + dx, V.z + dz, S_PROP, rng() * 6, { shrink: 0.6 });
+  for (const [n, dx, dz] of [['barrel', 6, 3], ['crate_A_big', -6, 4], ['sack', 7, 4], ['crate_B_small', -7, 5]]) place(n, V.x + dx, V.z + dz, S_PROP, rng() * 6, { shrink: 0.6 });
   pier(DX, DZ + 52, 10, 0);
   makeShip(DX, DZ + 66, 0, '#fff1d6', '#d89a3a');
   colliders.push({ x: DX, z: DZ + 66, r: 3 });

@@ -169,7 +169,7 @@ const NODES = {
 // How many hits of health each tree/rock has, and the size of its hitbox.
 const NODE_HP = { tree: 5, oak: 9, copper: 5, iron: 8, frostsilver: 11, bogwood: 14, palm: 16, sunstone: 16 };
 const ENEMY_TYPES = {
-  skel_minion: { name: 'Skeleton', hp: 16, maxHit: 3, weapon: 'Skeleton_Blade', xp: 15 },
+  skel_minion: { name: 'Skeleton', hp: 12, maxHit: 3, weapon: 'Skeleton_Blade', xp: 15 },
   skel_warrior: { name: 'Skeleton Warrior', hp: 28, maxHit: 5, weapon: 'Skeleton_Blade', xp: 30 },
   skel_mage: { name: 'Skeleton Mage', hp: 22, maxHit: 4, weapon: 'Skeleton_Staff', xp: 25, ranged: true },
   // minibosses: big, tough, and every third attack is a giant slam you can see coming (jump or run!)
@@ -2125,7 +2125,7 @@ function spawnEnemy(k, x, z) {
   const e = new Actor(G[T.model || k], { scale: T.scale || 1.3 });
   if (T.weapon) { const w = lib[T.weapon].clone(true); stylize(w); e.attach(w); }
   if (T.alias) e.alias = T.alias;
-  if (T.tintAll) e.root.traverse((o) => { if (o.isMesh) tinted(o, T.tintAll); });
+  if (T.tintAll) e.root.traverse((o) => { if (o.isMesh && !/Eye/i.test((o.userData.mats && o.userData.mats.std.name) || (o.material && o.material.name) || '')) tinted(o, T.tintAll); });
   if (T.dragon) e.alias = { Idle: 'Flying_Idle', Idle_Combat: 'Flying_Idle', Running_A: 'Fast_Flying', Walking_A: 'Flying_Idle', Hit_A: 'HitReact', Death_A: 'Death', '1H_Melee_Attack_Chop': 'Headbutt', Spellcast_Shoot: 'Punch', Spellcasting: 'Yes', '2H_Melee_Attack_Chop': 'Punch' };
   e.inside = T.inside || 'out';
   e.type = k; e.T = T; e.home = new THREE.Vector2(x, z);
@@ -3151,7 +3151,6 @@ function advanceDialog() {
   }
   const btns = [...dlg.d.querySelectorAll('.row button')];
   if (dlg.talky && btns.length === 1) { btns[0].click(); return true; }
-  if (dlg.talky) { const pr = btns.find((b) => b.classList.contains('primary')); if (pr) { pr.click(); return true; } }
   return false;
 }
 function closeDialog() { $('dialog').hidden = true; talking = null; dlg = null; clearInterval(typing); document.body.classList.remove('talking'); }
@@ -3647,7 +3646,7 @@ function shoot(from, dir, kind, range, owner, onHit) {
 // Your damage: the weapon's base damage, multiplied by your Attack, with a little luck either way.
 function heroDamage() {
   if (rng() < 0.1) return 0;
-  return Math.max(1, Math.round(W().dmg * dmgMult() * pathDmg() * (0.8 + rng() * 0.4)));
+  return Math.max(1, Math.round(W().dmg * dmgMult() * pathDmg() * (heroLvl() < 5 ? 1.35 : 1) * (0.8 + rng() * 0.4)));
 }
 let hitStopUntil = 0;
 // Every hit shoves the enemy away from where the blow came from. Heavy weapons and specials shove harder,
@@ -4318,6 +4317,7 @@ function makeLanterns() {
 function startLanternNight() {
   makeLanterns();
   for (const l of lanterns) setLantern(l, false);
+  if (S.quests.st_lantern) { S.quests.st_lantern.lit = []; S.quests.st_lantern.lanterns = 0; }
   toast('Lantern Night! Light the five lantern posts around the marsh. Watch out for mud gloops!', ICONS.star, true);
 }
 function setLantern(l, on) {
@@ -4331,12 +4331,12 @@ function lanternTick(dt) {
   if (!st || where !== 'marsh' || !player || player.dead) { document.body.classList.remove('lanternnight'); return; }
   const active = st.state === 'active';
   document.body.classList.toggle('lanternnight', active && (st.lanterns || 0) < 5);
-  if (!lanterns.length) { if (st.state === 'todo') return; makeLanterns(); for (const l of lanterns) setLantern(l, st.state === 'done' || (st.lanterns || 0) >= 5); }
+  if (!lanterns.length) { if (st.state === 'todo') return; makeLanterns(); lanterns.forEach((l, i) => setLantern(l, st.state === 'done' || (st.lanterns || 0) >= 5 || (st.lit || []).includes(i))); }
   for (const l of lanterns) {
     if (l.lit) { if (rng() < dt * 3) burst(new THREE.Vector3(l.x + 0.8, 2.6, l.z), '#ffcf6a', 2, 1.5, 0.6); continue; }
     if (!active) continue;
     if (Math.hypot(player.pos.x - l.x, player.pos.z - l.z) < 2.4) {
-      setLantern(l, true); st.lanterns = (st.lanterns || 0) + 1; sfx('win');
+      setLantern(l, true); st.lanterns = (st.lanterns || 0) + 1; st.lit = [...(st.lit || []), lanterns.indexOf(l)]; sfx('win');
       burst(new THREE.Vector3(l.x + 0.8, 2.5, l.z), '#ffd23f', 40, 6, 1.2);
       toast(`Lantern lit! ${st.lanterns} of 5.`, ICONS.star);
       for (let i = 0; i < 2; i++) { const a = rng() * 6.28, m = spawnEnemy('mud_gloop', l.x + Math.cos(a) * 6, l.z + Math.sin(a) * 6); m.temp = true; m.state = 'chase'; burst(m.pos.clone().setY(0.5), '#9a7a52', 20, 4); }
@@ -4425,7 +4425,9 @@ const RIDDLES = [
   ['The poor have it, the rich need it, and if you eat it you die. What is it?', ['Gold', 'Nothing', 'Sand'], 1],
   ['What goes up but never comes down?', ['A kite', 'Your age', 'The Colossus'], 1],
 ];
+const riddleGuards = [];
 function openRiddle(npc) {
+  for (let k = riddleGuards.length - 1; k >= 0; k--) if (!enemies.includes(riddleGuards[k]) || riddleGuards[k].state === 'dead') riddleGuards.splice(k, 1);
   talking = npc;
   const st = S.quests.st_sphinx, d = $('dialog');
   const say = (text, btns) => {
@@ -4439,6 +4441,7 @@ function openRiddle(npc) {
     return;
   }
   if ((st.riddles || 0) >= 3) { say('THREE RIDDLES ANSWERED. THE DESERT WARDSTONE WAS CARRIED TO THE COLOSSUS. IT BEATS IN ITS CHEST. GO TELL THE PROFESSOR.', [['Goodbye', '', closeDialog]]); return; }
+  if (riddleGuards.some((m) => m.state !== 'dead' && enemies.includes(m))) { say('INTRUDER PROTOCOL STILL ACTIVE. DEFEAT MY GUARDS FIRST.', [['Goodbye', '', closeDialog]]); return; }
   const used = st.used || [], pool = RIDDLES.map((r, i) => i).filter((i) => !used.includes(i));
   const i = pool[Math.floor(rng() * pool.length)], [q, opts, right] = RIDDLES[i];
   say(`RIDDLE ${(st.riddles || 0) + 1} OF 3. ${q}`, opts.map((o, k) => [o, 'primary', () => {
@@ -4451,7 +4454,7 @@ function openRiddle(npc) {
     } else {
       sfx('slam'); closeDialog();
       toast('WRONG. INTRUDER PROTOCOL ENGAGED. (Beat the guards, then try another riddle.)', ICONS.dark_omen, true);
-      for (let j = 0; j < 2; j++) { const a = rng() * 6.28, m = spawnEnemy(j ? 'clock_conjurer' : 'clock_soldier', npc.actor.pos.x + Math.cos(a) * 6, npc.actor.pos.z + 4 + Math.sin(a) * 4); m.temp = true; m.state = 'chase'; burst(m.pos.clone().setY(1), '#ffd27a', 30, 5, 1.2); }
+      for (let j = 0; j < 2; j++) { const a = rng() * 6.28, m = spawnEnemy(j ? 'clock_conjurer' : 'clock_soldier', npc.actor.pos.x + Math.cos(a) * 6, npc.actor.pos.z + 4 + Math.sin(a) * 4); m.temp = true; m.state = 'chase'; riddleGuards.push(m); burst(m.pos.clone().setY(1), '#ffd27a', 30, 5, 1.2); }
       if (st.used.length >= RIDDLES.length) st.used = [];
       save();
     }
@@ -4479,6 +4482,7 @@ function makeCrates() {
 function startSandstorm() {
   makeCrates();
   for (const c of crates) { c.got = false; c.g.visible = true; }
+  if (S.quests.st_storm) { S.quests.st_storm.got = []; S.quests.st_storm.crates = 0; }
   toast('Sandstorm! Find the four lost caravan crates. Follow the golden beams!', ICONS.crate, true);
 }
 let storm = null;
@@ -4504,13 +4508,13 @@ function stormTick(dt) {
     }
   }
   if (!st || where !== 'sands') return;
-  if (!crates.length) { if (st.state !== 'active') return; makeCrates(); }
+  if (!crates.length) { if (st.state !== 'active') return; makeCrates(); crates.forEach((c, i) => { c.got = (st.got || []).includes(i); }); }
   for (const c of crates) {
     c.g.visible = st.state === 'active' && !c.got && (st.crates || 0) < 4;
     if (!c.g.visible) continue;
     c.g.children[2].material.opacity = 0.25 + Math.sin(now * 3) * 0.1;
     if (Math.hypot(player.pos.x - c.x, player.pos.z - c.z) < 2.2) {
-      c.got = true; st.crates = (st.crates || 0) + 1; sfx('coin');
+      c.got = true; st.crates = (st.crates || 0) + 1; st.got = [...(st.got || []), crates.indexOf(c)]; sfx('coin');
       burst(new THREE.Vector3(c.x, 1, c.z), '#ffe27a', 40, 6, 1.2);
       toast(`Crate found! ${st.crates} of 4.`, ICONS.crate);
       for (let i = 0; i < 2; i++) { const a = rng() * 6.28, m = spawnEnemy(i ? 'sand_gloop' : 'dust_bat', c.x + Math.cos(a) * 7, c.z + Math.sin(a) * 7); m.temp = true; m.state = 'chase'; }
@@ -4534,7 +4538,8 @@ function castleTick(dt) {
     if (Math.hypot(player.pos.x - P.x, player.pos.z - P.z) < 6) {
       cq.castle = 1; sfx('bossintro'); save(); refreshUI();
       toast('The Floating Castle! Purple lights flicker in its towers...', ICONS.dark_omen, true);
-      queueLetter('st_castle');
+      camMoment = { t: 0, dur: 4.5, target: fc.position };
+      later(4.8, () => queueLetter('st_castle'));
     }
   }
 }
@@ -4937,9 +4942,12 @@ function drawMap(cv, full) {
     if ((n.inside || 'out') !== where) continue;
     const qid = Object.keys(QUESTS).find((q) => QUESTS[q].giver === n.id && !QUESTS[q].story);
     const st = qid && S.quests[qid].state;
-    const col = n.king ? '#c58bff' : n.shop ? '#ffe9a0' : st === 'todo' ? '#ffd23f' : qid && questReady(qid) ? '#9cff6b' : '#f6efdc';
+    const col = n.king ? '#c58bff' : n.shop ? '#ffe9a0' : st === 'todo' ? '#ffd23f' : qid && questReady(qid) ? '#ff6ad5' : '#f6efdc';
     dot(n.x, n.z, full ? 4 : 4.5, col);
   }
+  // event pickups: unlit lanterns and lost crates
+  if (where === 'marsh' && S.quests.st_lantern && S.quests.st_lantern.state === 'active') for (const l of lanterns) if (!l.lit) dot(l.x, l.z, full ? 4.5 : 4, '#ffb43a');
+  if (where === 'sands' && S.quests.st_storm && S.quests.st_storm.state === 'active') for (const c of crates) if (!c.got) dot(c.x, c.z, full ? 4.5 : 4, '#ffb43a');
   if (full) {
     const fs = Math.max(9, Math.min(13, W / dpr / 38)); // smaller ribbons on a phone so names don't pile up
     g.font = `700 ${fs * dpr}px Fredoka, Trebuchet MS, sans-serif`; g.textAlign = 'center'; g.lineJoin = 'round';
@@ -5387,6 +5395,7 @@ function tick() {
   bossIntroTick(dt);
   if (creator.open && player) creatorCam(dt);
   else if (bossIntro) introCam(dt);
+  else if (camMoment && player && camMoment.t < camMoment.dur) momentCam(dt);
   else if (player && dlg && dlg.talky && talking && talking.actor && !$('dialog').hidden) talkCam(dt);
   else if (!player && !$('pick').hidden) titleCam();
   else {
@@ -5750,6 +5759,17 @@ function closeCreator(keep) {
 // While the creator is open the camera frames the hero up close, shifted left of the panel.
 // While someone talks, the camera swoops in on them so you can see their face.
 const tmpT = new THREE.Vector3();
+// Short story camera moments: swing round to look at something big, then hand back to the player.
+let camMoment = null;
+function momentCam(dt) {
+  const m = camMoment, p = player.pos, t = m.target; m.t += dt;
+  let dx = p.x - t.x, dz = p.z - t.z; const d = Math.hypot(dx, dz) || 1; dx /= d; dz /= d;
+  camPos.lerp(tmpV.set(p.x + dx * 7 - dz * 6, p.y + 5, p.z + dz * 7 + dx * 6), 1 - Math.pow(0.02, dt));
+  camera.position.copy(camPos);
+  if (camera.view && camera.view.enabled) { camera.clearViewOffset(); camera.updateProjectionMatrix(); }
+  if (talkCam.near0 && camera.near !== talkCam.near0) { camera.near = talkCam.near0; camera.updateProjectionMatrix(); }
+  camera.lookAt(t.x, t.y * 0.75, t.z);
+}
 function talkCam(dt) {
   const n = talking.actor.pos, pp = player.pos, phone = camera.aspect < 1;
   let dx = pp.x - n.x, dz = pp.z - n.z; const d = Math.hypot(dx, dz) || 1; dx /= d; dz /= d;
@@ -6573,7 +6593,7 @@ function goldenCaught(e) {
 // glowing weapons by tier, a ground aura that grows with rank, flashier specials, titles, and cosmetics
 // you earn only by playing (beating bosses, reaching ranks, catching golden monsters, freeing towns).
 const RANKS = [
-  { min: 1, name: 'Noob', col: '#9a9aa8' },
+  { min: 1, name: 'Rookie', col: '#9a9aa8' },
   { min: 10, name: 'Adventurer', col: '#5fbf6a' },
   { min: 25, name: 'Veteran', col: '#4f9ae8' },
   { min: 45, name: 'Champion', col: '#b06ae8' },
@@ -6627,15 +6647,17 @@ let cosAt = 0;
 function cosTick() {
   if (!player || now < cosAt) return;
   cosAt = now + 2;
-  const C = cosState();
+  const C = cosState(), fresh = [];
   for (const id of cosEarned()) {
     if (C.got[id]) continue;
     C.got[id] = 1;
     const [slot, k] = id.split(':');
-    toast(`New look unlocked: ${COS[slot][k].name}! Wear it from your Bag (Style tab).`, ICONS.star, true);
-    burst(player.pos.clone().setY(2), '#ffe07a', 40, 6, 1.2);
-    save();
+    fresh.push(COS[slot][k].name);
   }
+  if (!fresh.length) return;
+  toast(fresh.length === 1 ? `New look unlocked: ${fresh[0]}! Wear it from your Bag (Style tab).` : `${fresh.length} new looks unlocked: ${fresh.slice(0, 3).join(', ')}${fresh.length > 3 ? '...' : ''}! See your Bag (Style tab).`, ICONS.star, true);
+  burst(player.pos.clone().setY(2), '#ffe07a', 40, 6, 1.2);
+  save();
 }
 // titles shown over your name tag
 function titleList() {
@@ -7244,7 +7266,7 @@ let letterAt = 0;
 function letterTick() {
   if (!player || now < letterAt || !(S.letterQueue || []).length) return;
   letterAt = now + 1;
-  if (uiLock() || !$('dialog').hidden || !$('sheet').hidden || pomp || player.dead) return;
+  if (uiLock() || !$('dialog').hidden || !$('sheet').hidden || pomp || player.dead || (camMoment && camMoment.t < camMoment.dur)) return;
   if (enemies.some((e) => e.T.boss && e.hp > 0 && (e.state === 'chase' || e.state === 'slam'))) return;
   const id = S.letterQueue.shift(); save();
   // Flapsworth swoops down beside you
