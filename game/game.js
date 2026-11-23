@@ -2328,7 +2328,15 @@ for (const k of ['mud_gloop', 'boss_gobbler', 'sand_gloop']) ENEMY_TYPES[k].alia
 ENEMY_TYPES.dust_bat.alias = ENEMY_TYPES.mire_bat.alias;
 // Toughness pass (Callum, Nov 23): every monster hits harder and takes longer to beat; bosses much more so.
 const MOB_HP = 2.2, MOB_HIT = 1.9, BOSS_HP = 3.5, BOSS_HIT = 2.4;
-function toughen(T) { if (T.world || T.toughened) return; T.toughened = true; T.hp = Math.round(T.hp * (T.boss ? BOSS_HP : MOB_HP)); T.maxHit = Math.max(1, Math.round(T.maxHit * (T.boss ? BOSS_HIT : MOB_HIT))); }
+// each chapter's land is a big step up from the last
+const CHAPTER_MULT = { out: 1, frost: 1.35, marsh: 1.75, sands: 2.3 };
+function farMult(w, x, z) {
+  const c = w === 'out' || !LANDS[w] ? { x: 0, z: 0 } : LANDS[w].village;
+  if (!c || (w !== 'out' && !LANDS[w])) return 1;
+  const d = Math.hypot(x - c.x, z - c.z);
+  return 1 + Math.min(0.8, Math.max(0, (d - 35) / 110));
+}
+function toughen(T) { if (T.world || T.toughened) return; T.toughened = true; const ch = CHAPTER_MULT[T.inside || 'out'] || 1; T.hp = Math.round(T.hp * (T.boss ? BOSS_HP : MOB_HP) * ch); T.maxHit = Math.max(1, Math.round(T.maxHit * (T.boss ? BOSS_HIT : MOB_HIT) * ch)); }
 // Valley critters: round, goofy monsters alongside the skeletons (Quaternius CC0 slime and bat)
 Object.assign(ENEMY_TYPES, {
   jelly_slime: { name: 'Jelly Slime', model: 'slime', hp: 14, maxHit: 3, xp: 18, scale: 0.6, noBones: true, poof: true, tintAll: '#ff8ac8', mass: 0.9, coins: [3, 10], alias: ENEMY_TYPES.bog_slime.alias },
@@ -2346,6 +2354,11 @@ function spawnEnemy(k, x, z) {
   if (T.dragon) e.alias = { Idle: 'Flying_Idle', Idle_Combat: 'Flying_Idle', Running_A: 'Fast_Flying', Walking_A: 'Flying_Idle', Hit_A: 'HitReact', Death_A: 'Death', '1H_Melee_Attack_Chop': 'Headbutt', Spellcast_Shoot: 'Punch', Spellcasting: 'Yes', '2H_Melee_Attack_Chop': 'Punch' };
   e.inside = T.inside || 'out';
   e.type = k; e.T = T; e.home = new THREE.Vector2(x, z);
+  // monsters far from the land's village are naturally fiercer (up to +80% health and damage, and better rewards)
+  const far = farMult(e.inside, x, z);
+  if (!T.boss && !T.town && !T.world && far > 1.05) {
+    e.T = { ...T, hp: Math.round(T.hp * far), maxHit: Math.max(1, Math.round(T.maxHit * far)), xp: Math.round(T.xp * far), coins: T.coins ? T.coins.map((c) => Math.round(c * far)) : T.coins, name: far >= 1.4 ? `Fierce ${T.name}` : T.name };
+  }
   e.root.position.set(x, 0, z); e.root.rotation.y = rng() * 6;
   e.hp = T.hp; e.state = 'idle'; e.timer = rng() * 3; e.target = new THREE.Vector2(); e.nextHit = 0; e.swings = 0;
   e.play('Idle');
