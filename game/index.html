@@ -326,6 +326,14 @@
   @keyframes glowpulse { 50% { box-shadow: 0 0 0 3px rgb(255 216 74 / .55), 0 3px 0 var(--ink); } }
   @media (prefers-reduced-motion: reduce) { #classes .spend { animation: none; } }
   .card.begin { width: min(360px, 100%); }
+  .acct label { display: grid; gap: 4px; font-weight: 800; color: var(--ink); font-size: 14px; }
+  .acct input { font: 700 16px var(--body); padding: 9px 11px; border: 2px solid var(--ink); border-radius: 10px; background: #fffaf0; color: var(--ink); }
+  .acct input:focus { outline: 3px solid #f6c453; outline-offset: 1px; }
+  .acct .row { gap: 8px; }
+  .acct-msg { min-height: 1.3em; font-size: 13px; color: var(--ink-soft) !important; }
+  .acct-msg.bad { color: #b3263a !important; }
+  .linky { background: none; border: 0; box-shadow: none; color: var(--ink-soft); text-decoration: underline; font-weight: 700; cursor: pointer; justify-self: center; padding: 4px; }
+  .card.acct:hover { transform: none; }
   .statpill { display: inline-flex; align-items: center; gap: 4px; margin-right: 10px; font-weight: 800; }
   .statpill img { width: 20px; height: 20px; }
   .gearbtn { display: flex; justify-content: space-between; align-items: center; text-align: left; font-size: 14px; }

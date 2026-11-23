@@ -8,6 +8,7 @@ import { LANDS, VALLEY_DOCK, buildLands, makeSnow } from './lands.js';
 import { ICONS } from './icons.js';
 import { buildInteriors, INTERIORS, lavaPools } from './interiors.js';
 import { unlockAudio, playMusic, sfx, setVolumes } from './audio.js';
+import { net, resume, signIn, signOut, loadCloud, cloudSave, flushSave, refreshBoard, setTown, connect, updateProfile, sendPos } from './online.js';
 
 const $ = (id) => document.getElementById(id);
 const clock = new THREE.Clock();
@@ -252,8 +253,15 @@ let S = fresh();
 function loadSave() {
   try {
     const raw = localStorage.getItem(SAVE_KEY);
-    if (raw) {
-      const d = JSON.parse(raw); const f = fresh();
+    if (raw) return parseSave(JSON.parse(raw));
+  } catch (e) { /* storage unavailable */ }
+  return false;
+}
+// turns saved data (from this browser or the cloud) into the game state
+function parseSave(d) {
+  {
+    if (d) {
+      const f = fresh();
       // older saves had classes and Melee/Magic/Ranged skills: fold that into the hero
       if (d.cls && !d.hero) {
         const old = d.xp || {};
@@ -268,7 +276,7 @@ function loadSave() {
       delete S.cls;
       return true;
     }
-  } catch (e) { /* storage unavailable */ }
+  }
   return false;
 }
 function save() {
@@ -276,6 +284,7 @@ function save() {
   S.pos = where === 'out' || LANDS[where] ? [player.root.position.x, player.root.position.z] : [INTERIORS[where].exitTo.x, INTERIORS[where].exitTo.z];
   S.land = LANDS[where] ? where : 'out';
   try { localStorage.setItem(SAVE_KEY, JSON.stringify(S)); } catch (e) { /* storage unavailable */ }
+  if (net.on) cloudSave(S, { name: heroName(), level: heroLvl(), worth: netWorth().total });
 }
 const lvl = (k) => levelOf(S.xp[k]);
 const heroLvl = () => heroLevelOf(S.hero.xp);
@@ -390,12 +399,112 @@ async function main() {
   poolLights();
   $('coinicon').src = ICONS.coins; $('hearticon').src = ICONS.heart; $('booticon').src = ICONS.boot;
   document.querySelectorAll('[data-icon]').forEach((im) => { im.src = ICONS[im.dataset.icon]; });
-  const had = loadSave(); rebuildBinds(); applyTowns();
-  dayTick(0, true);
+  const had = loadSave(); rebuildBinds();
+  const begin = () => {
+    rebuildBinds(); applyTowns(); dayTick(0, true);
+    if (S.started) { startHero(); if (!S.name) openCreator('new'); } else showPick();
+    if (net.on) goOnline();
+  };
+  if (net.enabled && await resume()) {
+    try { const d = await loadCloud(); if (d) parseSave(d); net.on = true; } catch (e) { console.warn(e); }
+  }
   $('loading').style.opacity = '0';
   setTimeout(() => $('loading').remove(), 700);
-  if (had && S.started) { startHero(); if (!S.name) openCreator('new'); } else showPick();
+  if (net.enabled && !net.on) showAccount(had, begin); else begin();
   renderer.setAnimationLoop(tick);
+}
+
+// ---------- accounts ----------
+// With online switched on, you sign in (or make an account) before playing. Your save then lives
+// in the cloud, so it follows you to any computer. "Play offline" keeps the old browser save.
+function showAccount(had, begin) {
+  const cards = $('cards');
+  $('pick').querySelector('.sub').textContent = 'Make an account to save online and play with your friends.';
+  cards.innerHTML = `<form class="card panel begin acct" id="acct" autocomplete="on">
+    <h3><img src="${ICONS.star}" alt="">Play online</h3>
+    <label>Username<input id="a-name" name="username" autocomplete="username" maxlength="16" required></label>
+    <label>Password<input id="a-pass" name="password" type="password" autocomplete="current-password" minlength="6" required></label>
+    <p class="acct-msg" id="a-msg" role="status"></p>
+    <div class="row wrap"><button class="primary" id="a-in" type="submit">Sign in</button><button id="a-new" type="button">Make an account</button></div>
+    <button id="a-off" class="linky" type="button">Play offline instead</button>
+  </form>`;
+  $('pick').hidden = false;
+  const go = async (create) => {
+    const msg = $('a-msg'); msg.textContent = create ? 'Making your account...' : 'Signing in...'; msg.classList.remove('bad');
+    for (const b of cards.querySelectorAll('button')) b.disabled = true;
+    const r = await signIn($('a-name').value, $('a-pass').value, create);
+    if (r.error) { msg.textContent = r.error; msg.classList.add('bad'); for (const b of cards.querySelectorAll('button')) b.disabled = false; return; }
+    let d = null;
+    try { d = await loadCloud(); } catch (e) { msg.textContent = 'Signed in, but your save could not load. Try again in a moment.'; msg.classList.add('bad'); for (const b of cards.querySelectorAll('button')) b.disabled = false; return; }
+    if (d) parseSave(d);
+    else if (!had) S = fresh(); // a brand new hero. (A hero already saved in this browser moves into the new account.)
+    if (!S.name) S.name = net.user.name;
+    net.on = true;
+    $('pick').hidden = true;
+    $('pick').querySelector('.sub').textContent = 'One hero, built your way. Every hero can fight, chop, mine and fish.';
+    begin();
+  };
+  $('acct').addEventListener('submit', (e) => { e.preventDefault(); go(false); });
+  $('a-new').onclick = () => { if ($('acct').reportValidity()) go(true); };
+  $('a-off').onclick = () => { net.enabled = false; $('pick').hidden = true; begin(); };
+}
+let profileKey = '';
+function profile() { return { name: heroName(), lvl: heroLvl(), look: S.look, w: where, x: player ? player.pos.x : 0, z: player ? player.pos.z : 0 }; }
+function goOnline() {
+  net.onTowns = syncTowns;
+  net.onPeerGone = dropPeer;
+  connect(profile()).then(() => toast(`Online as ${net.user.name}. Friends who are playing show up in the world.`, ICONS.star));
+  save();
+}
+
+// ---------- other players ----------
+const peerActors = new Map();
+const PEER_HATS = ['Barbarian_Hat', 'Mage_Hat', 'Knight_Helmet'];
+function makePeer(id, p) {
+  const look = { ...fresh().look, ...(p.look || {}) };
+  const a = new Actor(look.sex === 'f' ? G.heroine : G.knight, { hide: look.hat ? [] : PEER_HATS });
+  dressNpc(a, look);
+  a.root.position.set(p.x || 0, 0, p.z || 0);
+  a.play('Idle');
+  const tag = document.createElement('div'); tag.className = 'herotag peer'; tag.innerHTML = '<b></b>'; document.body.appendChild(tag);
+  const pa = { a, tag, key: JSON.stringify(look), anim: 'Idle' };
+  peerActors.set(id, pa);
+  return pa;
+}
+function dropPeer(id) {
+  const pa = peerActors.get(id);
+  if (!pa) return;
+  scene.remove(pa.a.root); pa.tag.remove(); peerActors.delete(id);
+}
+const ONE_SHOT = /Attack|Hit_|Death|Jump|Dodge|Use_Item|Interact|Cheer|Spellcast|Block/;
+function peersTick(dt) {
+  if (!net.on || !player) return;
+  sendPos(player.pos.x, player.pos.z, player.root.rotation.y, player.name || 'Idle', where);
+  const key = `${heroName()}|${heroLvl()}|${JSON.stringify(S.look)}`;
+  if (key !== profileKey) { profileKey = key; updateProfile(profile()); }
+  for (const [id, p] of net.peers) {
+    let pa = peerActors.get(id);
+    if (pa && pa.key !== JSON.stringify({ ...fresh().look, ...(p.look || {}) })) { dropPeer(id); pa = null; }
+    if (!pa) pa = makePeer(id, p);
+    const here = p.where === where && !creator.open;
+    pa.a.root.visible = here;
+    if (!here) { pa.tag.hidden = true; continue; }
+    // glide towards the last position they sent
+    const k = Math.min(1, dt * 10);
+    p.x += (p.gx - p.x) * k; p.z += (p.gz - p.z) * k;
+    if (Math.hypot(p.gx - p.x, p.gz - p.z) > 12) { p.x = p.gx; p.z = p.gz; }
+    pa.a.root.position.set(p.x, 0, p.z);
+    let dr = (p.ry || 0) - pa.a.root.rotation.y; dr = Math.atan2(Math.sin(dr), Math.cos(dr));
+    pa.a.root.rotation.y += dr * k;
+    if (p.a && p.a !== pa.anim) { pa.anim = p.a; pa.a.play(p.a, { once: ONE_SHOT.test(p.a), clamp: /Death/.test(p.a) }); }
+    pa.a.mixer.update(dt);
+    const v = tmpV.set(p.x, 4.4, p.z).project(camera);
+    if (v.z > 1 || bossIntro) { pa.tag.hidden = true; continue; }
+    pa.tag.hidden = false;
+    pa.tag.style.left = `${(v.x * 0.5 + 0.5) * innerWidth}px`; pa.tag.style.top = `${(-v.y * 0.5 + 0.5) * innerHeight}px`;
+    const txt = `${p.name || 'Friend'} · Lv ${p.lvl || 1}`, col = tagColour(p.lvl || 1);
+    if (pa.tag.dataset.t !== txt + col) { pa.tag.dataset.t = txt + col; pa.tag.firstChild.textContent = txt; pa.tag.style.setProperty('--tc', col); }
+  }
 }
 
 function showPick() {
@@ -1994,16 +2103,18 @@ function renderSheet() {
       <div class="binds">${BIND_ACTIONS.map(([a, label]) => `<div class="bind"><span>${label}</span>${[0, 1].map((i) => `<button data-bind="${a}" data-slot="${i}" class="${bindCapture && bindCapture.act === a && bindCapture.slot === i ? 'waiting' : ''}">${bindCapture && bindCapture.act === a && bindCapture.slot === i ? 'Press a key…' : keyLabel(binds()[a][i])}</button>`).join('')}</div>`).join('')}</div>
       <button id="o-binds">Reset controls to default</button>
       <button id="o-reset" class="danger">Start over</button>
-      <p class="hint">Progress saves in this browser for now. Accounts that save online come in the next step.</p></div>`;
+      ${net.on ? `<button id="o-out">Sign out (${net.user.name})</button>` : ''}
+      <p class="hint">${net.on ? 'Your progress saves online, so it follows you to any computer.' : 'Progress saves in this browser.'}</p></div>`;
     $('o-style').onclick = () => { setStyled(!styled.on); renderSheet(); };
     el.querySelectorAll('[data-bind]').forEach((b) => { b.onclick = () => { bindCapture = { act: b.dataset.bind, slot: +b.dataset.slot }; renderSheet(); }; });
     const vols = () => { S.vol = { music: +$('o-music').value, sfx: +$('o-sfx').value }; setVolumes(S.vol.music, S.vol.sfx); save(); };
     $('o-music').oninput = vols; $('o-sfx').oninput = () => { vols(); sfx('coin'); };
+    if ($('o-out')) $('o-out').onclick = async () => { save(); resetting = true; await flushSave(); await signOut(); try { localStorage.removeItem(SAVE_KEY); } catch (e) { /* ignore */ } location.reload(); };
     $('o-binds').onclick = () => { delete S.binds; rebuildBinds(); save(); renderSheet(); };
     $('o-tod').querySelectorAll('button').forEach((b) => { b.onclick = () => { S.tod = b.dataset.tod; dayTick(0, true); save(); renderSheet(); }; });
     $('o-reset').onclick = () => {
       const b = $('o-reset');
-      if (b.dataset.armed) { resetting = true; try { localStorage.removeItem(SAVE_KEY); } catch (e) { /* ignore */ } location.reload(); }
+      if (b.dataset.armed) { resetting = true; try { localStorage.removeItem(SAVE_KEY); } catch (e) { /* ignore */ } if (net.on) { S = fresh(); cloudSave(S, { name: net.user.name, level: 1, worth: 0 }, true); setTimeout(() => location.reload(), 1500); } else location.reload(); }
       else { b.dataset.armed = '1'; b.textContent = 'Tap again to erase your progress'; }
     };
   }
@@ -3575,7 +3686,7 @@ function tick() {
   for (const [i, c] of dynamic.crystals.entries()) { c.position.y = 2.4 + Math.sin(now * 1.6 + i) * 0.4; c.rotation.y = now * 0.8 + i; }
   if (player) { player.mixer.update(dt); if (player.headScale && player.headInfo) player.headInfo.bone.scale.setScalar(player.headScale); faceTick(player); }
   for (const n of npcs) npcLife(n, dt);
-  crewTick(dt); crewTags(); heroTag(); emoteTick(); bossShoutTick(); townTick(); if (snowFx) { snowFx.visible = where === 'frost'; if (snowFx.visible && player) snowFx.userData.tick(dt, player.pos.x, player.pos.z); } if (now > 45 && !document.body.classList.contains('nohint')) document.body.classList.add('nohint'); occluderTick(dt);
+  crewTick(dt); crewTags(); heroTag(); peersTick(dt); emoteTick(); bossShoutTick(); townTick(); if (snowFx) { snowFx.visible = where === 'frost'; if (snowFx.visible && player) snowFx.userData.tick(dt, player.pos.x, player.pos.z); } if (now > 45 && !document.body.classList.contains('nohint')) document.body.classList.add('nohint'); occluderTick(dt);
   guideTick(); musicTick();
 
   for (let i = lootPops.length - 1; i >= 0; i--) {
@@ -4219,7 +4330,10 @@ for (const T of TOWNS) {
     scale: 2 + 0.15 * T.stars, coins: [80 * T.stars, 140 * T.stars], slam: 4.5 + T.stars * 0.5, town: T.id, tint: tier.tint };
 }
 const stars = (n) => '★'.repeat(n) + '☆'.repeat(3 - n);
-const townFree = (id) => !!(S.towns && S.towns[id]);
+const townFree = (id) => !!((S.towns && S.towns[id]) || remoteMayor(id));
+const townMine = (id) => !!(S.towns && S.towns[id]);
+// online: a town another player runs
+const remoteMayor = (id) => { const r = net.on && net.towns.get(id); return r && r.mayor_id && r.mayor_id !== net.user.id ? r : null; };
 function buildTownMonsters() {
   for (const T of TOWNS) {
     const mix = TOWN_MIX[T.stars];
@@ -4232,8 +4346,15 @@ function applyTowns() {
   for (const T of TOWNS) if (!T.signTex) buildTownSign(T);
   for (const T of TOWNS) { if (townFree(T.id)) liberateTown(T, true); else applyTownLooks(T); }
 }
-function liberateTown(T, quiet = false) {
-  S.towns = S.towns || {}; if (!S.towns[T.id]) S.towns[T.id] = heroName();
+function liberateTown(T, quiet = false, remote = false) {
+  S.towns = S.towns || {};
+  if (!remote && !S.towns[T.id]) {
+    S.towns[T.id] = heroName();
+    // online, the buildings stay with the town when it changes hands
+    const r = net.on && net.towns.get(T.id);
+    if (r && r.lvl) S.townLvl = { ...(S.townLvl || {}), [T.id]: r.lvl };
+  }
+  if (!remote && net.on) setTown(T.id, { mayor_id: net.user.id, mayor_name: heroName(), lvl: townLvl(T) });
   for (const n of T.folk || []) { n.inside = undefined; n.actor.root.visible = true; }
   T.flagRed.visible = false; T.flagBlue.visible = true;
   for (const o of T.junk) o.visible = false;
@@ -4268,6 +4389,23 @@ function liberateTown(T, quiet = false) {
   refreshUI(); save();
 }
 function townTick() { mayorTick(); }
+function syncTowns() {
+  if (!player) return;
+  for (const T of TOWNS) {
+    const r = net.towns.get(T.id), mine = townMine(T.id);
+    if (!r) { if (mine) setTown(T.id, { mayor_id: net.user.id, mayor_name: heroName(), lvl: townLvl(T) }); continue; }
+    if (r.mayor_id === net.user.id) { if (!mine) { S.towns = S.towns || {}; S.towns[T.id] = heroName(); liberateTown(T, true, true); } continue; }
+    const wasFree = T.flagBlue.visible;
+    if (mine) {
+      delete S.towns[T.id];
+      toast(r.mayor_id ? `${r.mayor_name || 'Another player'} took ${T.name} from you!` : `Someone used a Dark Omen on ${T.name}! Monsters have taken it back.`, ICONS.dark_omen, true);
+      save();
+    }
+    if (r.mayor_id && !wasFree) liberateTown(T, true, true);
+    else if (!r.mayor_id && wasFree) darkOmen(T, true);
+    else refreshSign(T);
+  }
+}
 
 // ---------- crew ----------
 // Adventurers who live around the valley. Talk to them (or open the Crew menu) to set each one as:
@@ -4842,9 +4980,9 @@ const TOWN_LEVELS = [
   { name: 'Busy town', cost: 700, days: 1, what: 'a watchtower and a grain store' },
   { name: 'Grand town', cost: 1600, days: 2, what: 'a golden fountain with your statue' },
 ];
-const townLvl = (T) => (S.townLvl && S.townLvl[T.id]) || 0;
-const townBuild = (T) => S.townBuild && S.townBuild[T.id];
-const mayorName = (T) => (typeof (S.towns || {})[T.id] === 'string' ? S.towns[T.id] : heroName());
+const townLvl = (T) => { const r = remoteMayor(T.id); return r ? r.lvl || 0 : (S.townLvl && S.townLvl[T.id]) || 0; };
+const townBuild = (T) => !remoteMayor(T.id) && S.townBuild && S.townBuild[T.id];
+const mayorName = (T) => { const r = remoteMayor(T.id); if (r) return r.mayor_name || 'a friend'; return typeof (S.towns || {})[T.id] === 'string' ? S.towns[T.id] : heroName(); };
 const weeklyTax = (T) => Math.round(400 * T.stars * (1 + 0.75 * townLvl(T)));
 const upgradeCost = (T, l) => TOWN_LEVELS[l].cost * T.stars;
 function townValue(T) {
@@ -4945,7 +5083,7 @@ function mayorTick() {
   if (S.taxWeek === undefined) S.taxWeek = week;
   if (week > S.taxWeek) {
     const weeks = week - S.taxWeek; S.taxWeek = week;
-    const mine = TOWNS.filter((T) => townFree(T.id));
+    const mine = TOWNS.filter((T) => townMine(T.id));
     if (mine.length) {
       const amount = weeks * mine.reduce((a, T) => a + weeklyTax(T), 0);
       S.bank = (S.bank || 0) + amount; sfx('jackpot');
@@ -4958,6 +5096,7 @@ function mayorTick() {
     if (b && S.gameDays >= b.done) {
       S.townLvl = { ...(S.townLvl || {}), [T.id]: b.lvl }; delete S.townBuild[T.id];
       buildSite(T, false); townExtras(T, b.lvl); refreshSign(T);
+      if (net.on && townMine(T.id)) setTown(T.id, { mayor_id: net.user.id, mayor_name: heroName(), lvl: b.lvl });
       burst(new THREE.Vector3(T.x, 4, T.z), '#ffe07a', 70, 7, 1.6); sfx('win');
       toast(`${T.name} is now a ${TOWN_LEVELS[b.lvl].name}! Weekly taxes rise to ${fmt(weeklyTax(T))} coins.`, ICONS.coins, true);
       save();
@@ -4968,7 +5107,23 @@ function mayorTick() {
 // The town clerk runs the Mayor's office: taxes, upgrades and the Dark Omen.
 function openMayor(npc) {
   talking = npc;
-  const T = TOWNS.find((t) => t.id === npc.clerk), d = $('dialog'), lvl = townLvl(T), b = townBuild(T), next = TOWN_LEVELS[lvl + 1];
+  const T0 = TOWNS.find((t) => t.id === npc.clerk), r = remoteMayor(T0.id);
+  if (r) {
+    const dd = $('dialog'), omen0 = (S.inv.dark_omen || 0) > 0;
+    dd.innerHTML = `<h3>${T0.name} town hall</h3><p>Welcome, traveller! Our town is run by Mayor ${r.mayor_name || 'a friend'}. Taxes go to them every game week.</p>
+      <div class="mayorgrid"><div><small>Mayor</small><b>${r.mayor_name || '?'}</b></div><div><small>Town</small><b>${TOWN_LEVELS[r.lvl || 0].name}</b></div><div><small>Weekly taxes</small><b>${fmt(weeklyTax(T0))}</b></div><div><small>Town worth</small><b>${fmt(townValue(T0))}</b></div></div>
+      <p class="mnote">${omen0 ? 'You carry a Dark Omen. Use it here and the monsters return. Beat their tyrant and the town is yours.' : 'Want this town? Find a Dark Omen (bosses and golden monsters drop them), bring it here, then beat the monsters it releases.'}</p>
+      <div class="row wrap">${omen0 ? '<button id="m-omen" class="danger">Use a Dark Omen here</button>' : ''}<button id="m-bye">Goodbye</button></div>`;
+    if ($('m-omen')) $('m-omen').onclick = () => {
+      const btn = $('m-omen');
+      if (!btn.dataset.sure) { btn.dataset.sure = '1'; btn.textContent = `Are you sure? ${r.mayor_name || 'They'} will lose the town. Tap again.`; return; }
+      S.inv.dark_omen--; closeDialog(); darkOmen(T0);
+    };
+    $('m-bye').onclick = closeDialog;
+    showDialog(dd); npc.actor.face(player.pos.x, player.pos.z);
+    return;
+  }
+  const T = T0, d = $('dialog'), lvl = townLvl(T), b = townBuild(T), next = TOWN_LEVELS[lvl + 1];
   const omen = (S.inv.dark_omen || 0) > 0;
   let up = '';
   if (b) up = `<div class="mayorbuild"><b>Building: ${TOWN_LEVELS[b.lvl].name}</b><div class="bar"><i style="width:${Math.round(100 * (1 - (b.done - S.gameDays) / TOWN_LEVELS[b.lvl].days))}%"></i></div><small>Ready in ${daysText(Math.max(0, b.done - S.gameDays))} of game time</small></div>`;
@@ -4995,8 +5150,10 @@ function openMayor(npc) {
 }
 // A Dark Omen calls the monsters back. The town loses its mayor (the buildings stay), and whoever
 // beats the tyrant again becomes the new mayor. With friends online, this is how you steal a town.
-function darkOmen(T) {
+function darkOmen(T, remote = false) {
   if (S.towns) delete S.towns[T.id];
+  if (S.townBuild) delete S.townBuild[T.id];
+  if (!remote && net.on) setTown(T.id, { mayor_id: null, mayor_name: null, lvl: townLvl(T) });
   T.flagRed.visible = true; T.flagBlue.visible = false;
   for (const o of T.junk) o.visible = true;
   for (const o of T.homely) o.visible = false;
@@ -5007,7 +5164,9 @@ function darkOmen(T) {
     reassemble(e);
     later(0.3, () => { const ok = e.play('Spawn_Ground_Skeletons', { once: true, clamp: true, onFinish: () => { e.state = 'idle'; e.play('Idle'); } }); if (!ok) { e.state = 'idle'; e.play('Idle'); } });
   }
-  burst(new THREE.Vector3(T.x, 3, T.z), '#8a3ad8', 120, 9, 1.8); sfx('slam');
+  burst(new THREE.Vector3(T.x, 3, T.z), '#8a3ad8', 120, 9, 1.8);
+  if (remote) { refreshSign(T); return; }
+  sfx('slam');
   toast(`The Dark Omen cracks open! Monsters pour back into ${T.name}. Beat the tyrant to claim it.`, ICONS.dark_omen, true);
   refreshSign(T); refreshUI(); save();
 }
@@ -5015,12 +5174,20 @@ function darkOmen(T) {
 // ---------- net worth ----------
 function itemsValue() { let v = 0; for (const [k, n] of Object.entries(S.inv || {})) v += (SELL[k] || 0) * n; return v; }
 function netWorth() {
-  const towns = TOWNS.filter((T) => townFree(T.id)).reduce((a, T) => a + townValue(T), 0);
+  const towns = TOWNS.filter((T) => townMine(T.id)).reduce((a, T) => a + townValue(T), 0);
   return { coins: S.coins, bank: S.bank || 0, items: itemsValue(), towns, total: S.coins + (S.bank || 0) + itemsValue() + towns };
 }
-// Until accounts go live, you race the valley's other adventurers. They get richer as the days go by.
+let richAsked = 0;
+// Online, the list shows real players. Offline, you race the valley's other adventurers. They get richer as the days go by.
 const RIVAL_WORTH = [['Sir Percival Pompington', 2400, 420], ['Big Gus', 900, 160], ['Saffy Quickshot', 650, 190], ['Sir Bramble', 800, 140], ['Nyx', 500, 230]];
 function richList() {
+  if (net.on) {
+    if (!richAsked || performance.now() - richAsked > 30000) { richAsked = performance.now(); refreshBoard().then(() => { if (!$('sheet').hidden && sheetMode === 'skills') renderSheet(); }); }
+    const rows = (net.board || []).map((r) => ({ name: r.name, worth: Number(r.net_worth) }));
+    if (!rows.some((r) => r.name === heroName())) rows.push({ name: heroName(), worth: netWorth().total });
+    for (const r of rows) if (r.name === heroName()) { r.me = true; r.worth = netWorth().total; }
+    return rows.sort((a, b) => b.worth - a.worth).slice(0, 20);
+  }
   const d = S.gameDays || 0;
   const rows = RIVAL_WORTH.map(([n, base, per]) => ({ name: n, worth: Math.round(base + per * d) }));
   rows.push({ name: heroName(), worth: netWorth().total, me: true });
@@ -5031,10 +5198,10 @@ function worthHtml() {
   return `<h4>Net worth <small>${fmt(w.total)} coins</small></h4>
     <div class="worthgrid"><span>Pocket <b>${fmt(w.coins)}</b></span><span>Bank <b>${fmt(w.bank)}</b></span><span>Items <b>${fmt(w.items)}</b></span><span>Towns <b>${fmt(w.towns)}</b></span></div>
     <h4>Richest in the kingdom</h4><ol class="richlist">${list.map((r) => `<li class="${r.me ? 'me' : ''}"><span>${r.name}</span><b>${fmt(r.worth)}</b></li>`).join('')}</ol>
-    <p class="hint">Friends join this list when online accounts arrive.</p>`;
+    <p class="hint">${net.on ? 'Every player in JerryQuest, richest first.' : 'Play online to race your friends on this list.'}</p>`;
 }
 
-window.__jq = { renderer, scene, openMayor, darkOmen, netWorth, liberateTown, spots, spotEffect, setGolden, goldenCaught, pompArrive, get goldenE() { return goldenE; }, spinWheel, dayTick, get bossIntro() { return bossIntro; }, bossSkip, startBossScene, sailTo, regions, closeSheet, renderHotbar, crew, setCrewMode, TOWNS, liberateTown, chests, openChest, stopRoulette, enemies, startBossIntro, closeDialog, advanceDialog, dash, attackPress, craft, CRAFTS, openCreator, closeCreator, creator, rebuildHero, setZoom: (z) => { zoom = z; }, hurtEnemy, goThrough, get where() { return where; }, INTERIORS, equipGear, spendPoint, giveHeroXp, heroLvl, stat, maxHp, defDiv, openWeaponShop, openKing, jump, eat, eatBest, openShop, swing, swingTarget, hitNode, projectiles, timers, get S() { return S; }, get player() { return player; }, enemies, nodes, npcs, startTask, doAction, giveXp, save, openSheet, openDialog };
+window.__jq = { net, peerActors, renderer, scene, openMayor, darkOmen, netWorth, liberateTown, spots, spotEffect, setGolden, goldenCaught, pompArrive, get goldenE() { return goldenE; }, spinWheel, dayTick, get bossIntro() { return bossIntro; }, bossSkip, startBossScene, sailTo, regions, closeSheet, renderHotbar, crew, setCrewMode, TOWNS, liberateTown, chests, openChest, stopRoulette, enemies, startBossIntro, closeDialog, advanceDialog, dash, attackPress, craft, CRAFTS, openCreator, closeCreator, creator, rebuildHero, setZoom: (z) => { zoom = z; }, hurtEnemy, goThrough, get where() { return where; }, INTERIORS, equipGear, spendPoint, giveHeroXp, heroLvl, stat, maxHp, defDiv, openWeaponShop, openKing, jump, eat, eatBest, openShop, swing, swingTarget, hitNode, projectiles, timers, get S() { return S; }, get player() { return player; }, enemies, nodes, npcs, startTask, doAction, giveXp, save, openSheet, openDialog };
 window.addEventListener('error', (e) => { const m = $('loadmsg'); if (m) m.textContent = `Something went wrong: ${e.message}`; });
 main().catch((err) => {
   console.error(err);
