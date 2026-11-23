@@ -3,8 +3,8 @@ import { THREE, scene, camera, renderer, sun, sky, PRESETS, env, applyPreset, bl
   loadModel, burst, updateParticles, render, rng } from './engine.js';
 import * as SkeletonUtils from 'three/addons/utils/SkeletonUtils.js';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
-import { buildWorld, buildFlowers, place, tentAt, S_PROP, S_BUILD, colliders, clouds, dynamic, LAKE, CAMP, MINE, S_NATURE, blocked, isFree, ZONES, WORLD_R, VS, TOWNS, ROADS, townFacing } from './world.js';
-import { LANDS, VALLEY_DOCK, buildLands, makeSnow, landRoads, SANDS_FX, palmNode, roundNode } from './lands.js';
+import { buildWorld, buildFlowers, place, tentAt, S_PROP, S_BUILD, colliders, clouds, dynamic, LAKE, CAMP, MINE, S_NATURE, blocked, isFree, ZONES, WORLD_R, VS, TOWNS, ROADS, townFacing, VALLEY_ARENAS } from './world.js';
+import { LANDS, VALLEY_DOCK, buildLands, makeSnow, landRoads, coastOf, SANDS_FX, palmNode, roundNode } from './lands.js';
 import { ICONS } from './icons.js';
 import { buildInteriors, INTERIORS, lavaPools } from './interiors.js';
 import { unlockAudio, playMusic, sfx, setVolumes, fxMute } from './audio.js';
@@ -69,7 +69,7 @@ const SPECIALS = {
 };
 const specialOf = (w) => (w.type === 'magic' ? 'nova' : w.type === 'ranged' ? 'volley' : w.heavy ? 'quake' : 'whirl');
 const ITEMS = {
-  logs: 'Logs', oak_logs: 'Oak logs', copper_ore: 'Copper ore', iron_ore: 'Iron ore', frostsilver_ore: 'Frostsilver ore', shrimp: 'Raw shrimp', trout: 'Raw trout', bones: 'Bones',
+  logs: 'Logs', oak_logs: 'Oak logs', copper_ore: 'Copper ore', iron_ore: 'Iron ore', frostsilver_ore: 'Frostsilver ore', silver_ore: 'Silver ore', gold_ore: 'Gold ore', shrimp: 'Raw shrimp', trout: 'Raw trout', bones: 'Bones',
   bread: 'Bread', pie: 'Apple pie', stew: 'Hearty stew', grilled_shrimp: 'Grilled shrimp', grilled_trout: 'Grilled trout', fish_pie: 'Fish pie',
   bone_dust: 'Bone dust', dark_essence: 'Dark essence',
   dragon_scale: "Gagron's fire scale", silver_ring: 'Silver ring', ruby: 'Ruby', golden_crown: 'Tiny golden crown', frost_gem: 'Frost gem',
@@ -188,7 +188,7 @@ const gadgetMult = (k) => 1 + (((ARMOUR[S.equip.gadget] || {}).bonus || {})[k] |
 const BOSS_WEAPON = { boss_gagron: 'k_flame', boss_crusher: 'k_cleaver', boss_gloom: 'm_gloom', boss_rattle: 'a_rattle', boss_twin_a: 'a_twin', boss_gobbler: 'k_tongue', boss_colossus: 'k_colossus', boss_pomp: 'a_pomp' };
 const DARK_KING = 'Morgoth the Menacing'; // working name, change it here
 // Everything can be sold. Treasures (rings, rubies, crowns) are rare drops worth a lot.
-const SELL = { palm_logs: 22, sunstone_ore: 70, sphinx_coin: 600, pomp_monocle: 900, colossus_core: 1500, bogwood_logs: 14, mireiron_ore: 40, mire_charm: 500, rusty_helm: 500, gobbler_tooth: 800, grilled_shrimp: 5, grilled_trout: 12, fish_pie: 26, dragon_scale: 90, bread: 4, pie: 10, stew: 20, silver_ring: 40, ruby: 120, golden_crown: 400, frost_gem: 260, bone_dust: 3, dark_essence: 15, lucky_sock: 60, frost_crown: 300, gloom_hat: 60, rattle_tooth: 60, dark_omen: 500, logs: 3, oak_logs: 6, copper_ore: 4, iron_ore: 8, frostsilver_ore: 22, shrimp: 3, trout: 8, bones: 2 };
+const SELL = { palm_logs: 22, sunstone_ore: 70, sphinx_coin: 600, pomp_monocle: 900, colossus_core: 1500, bogwood_logs: 14, mireiron_ore: 40, mire_charm: 500, rusty_helm: 500, gobbler_tooth: 800, grilled_shrimp: 5, grilled_trout: 12, fish_pie: 26, dragon_scale: 90, bread: 4, pie: 10, stew: 20, silver_ring: 40, ruby: 120, golden_crown: 400, frost_gem: 260, bone_dust: 3, dark_essence: 15, lucky_sock: 60, frost_crown: 300, gloom_hat: 60, rattle_tooth: 60, dark_omen: 500, logs: 3, oak_logs: 6, copper_ore: 4, iron_ore: 8, silver_ore: 15, gold_ore: 30, frostsilver_ore: 22, shrimp: 3, trout: 8, bones: 2 };
 const NODES = {
   tree: { skill: 'woodcutting', req: 1, xp: 25, item: 'logs', name: 'Tree', verb: 'Chop', doing: 'Chopping', deplete: 0.3, respawn: 14 },
   oak: { skill: 'woodcutting', req: 5, xp: 40, item: 'oak_logs', name: 'Oak tree', verb: 'Chop', doing: 'Chopping', deplete: 0.22, respawn: 20 },
@@ -199,11 +199,13 @@ const NODES = {
   mireiron: { skill: 'fishing', req: 30, xp: 120, item: 'mireiron_ore', name: 'Mireiron in the deep pool', verb: 'Fish', doing: 'Fishing up', deplete: 0, respawn: 0 },
   frostsilver: { skill: 'mining', req: 15, xp: 70, item: 'frostsilver_ore', name: 'Frostsilver rock', verb: 'Mine', doing: 'Mining', deplete: 0.75, respawn: 24 },
   iron: { skill: 'mining', req: 6, xp: 35, item: 'iron_ore', name: 'Iron rock', verb: 'Mine', doing: 'Mining', deplete: 0.7, respawn: 18 },
+  silver: { skill: 'mining', req: 10, xp: 50, item: 'silver_ore', name: 'Silver rock', verb: 'Mine', doing: 'Mining', deplete: 0.7, respawn: 20 },
+  gold: { skill: 'mining', req: 20, xp: 85, item: 'gold_ore', name: 'Gold rock', verb: 'Mine', doing: 'Mining', deplete: 0.8, respawn: 28 },
   shrimp: { skill: 'fishing', req: 1, xp: 12, item: 'shrimp', name: 'Shrimp spot', verb: 'Fish', doing: 'Fishing', deplete: 0, respawn: 0 },
   trout: { skill: 'fishing', req: 5, xp: 45, item: 'trout', name: 'Trout spot', verb: 'Fish', doing: 'Fishing', deplete: 0, respawn: 0 },
 };
 // How many hits of health each tree/rock has, and the size of its hitbox.
-const NODE_HP = { tree: 5, oak: 9, copper: 5, iron: 8, frostsilver: 11, bogwood: 14, palm: 16, sunstone: 16 };
+const NODE_HP = { tree: 5, oak: 9, copper: 5, iron: 8, silver: 9, gold: 12, frostsilver: 11, bogwood: 14, palm: 16, sunstone: 16 };
 const ENEMY_TYPES = {
   skel_minion: { name: 'Skeleton', hp: 12, maxHit: 3, weapon: 'Skeleton_Blade', xp: 15 },
   skel_warrior: { name: 'Skeleton Warrior', hp: 28, maxHit: 5, weapon: 'Skeleton_Blade', xp: 30 },
@@ -249,6 +251,8 @@ const ENEMY_TYPES = {
   boss_frost: { name: 'Queen Frostwhisker', model: 'mage', hp: 1400, maxHit: 13, weapon: 'Skeleton_Staff', xp: 3000, boss: true, scale: 2.4, coins: [300, 450], drop: 'frost_crown', ranged: true, spread: true, slam: 5.5, inside: 'frost', tint: '#cfeaff',
     look: { sex: 'f', skin: 'porcelain', eyes: 'sky', eyeStyle: 'sharp', mouth: 'cat', hair: 'hime', hairLen: 'long', hairCol: 'snow', mark: 'star', ears: 'elf' } },
 };
+// a few bosses move and swing a bit quicker (their warnings on the floor stay the same length)
+for (const [k, f] of [['boss_crusher', 1.25], ['boss_rattle', 1.25], ['boss_grumble', 1.2], ['boss_twin_a', 1.2], ['boss_twin_b', 1.2], ['boss_sogg', 1.25], ['boss_mire', 1.15], ['boss_pomp', 1.2], ['boss_frost', 1.15]]) if (ENEMY_TYPES[k]) ENEMY_TYPES[k].fast = f;
 const QUESTS = {
   firewood: {
     name: 'Firewood for the Tavern', giver: 'bertha',
@@ -264,7 +268,7 @@ const QUESTS = {
   },
   supper: {
     name: "The Wizard's Supper", giver: 'fenwick',
-    intro: 'Ahem. A wizard cannot live on spells alone. Fetch me 3 raw shrimp from the lake, and 2 copper ore from the mine for my new cauldron.',
+    intro: 'Ahem. A wizard cannot live on spells alone. Fetch me 3 raw shrimp from the lake, and 2 copper ore from the Old Quarry out east, past the road to the dragon cave, for my new cauldron.',
     ready: 'Shrimp AND copper! My cauldron and my belly thank you.', done: 'Mmm, shrimp stew. Truly the finest magic.',
     need: { shrimp: 3, copper_ore: 2 }, reward: { coins: 100, xp: { fishing: 150, mining: 150 } }, desc: 'Bring Fenwick 3 raw shrimp and 2 copper ore.',
   },
@@ -628,7 +632,6 @@ async function main() {
   buildFlowers();
   buildTools();
   mergeStatic();
-  buildSpots();
   poolLights();
   $('coinicon').src = ICONS.coins; $('hearticon').src = ICONS.heart; $('booticon').src = ICONS.boot;
   document.querySelectorAll('[data-icon]').forEach((im) => { im.src = ICONS[im.dataset.icon]; });
@@ -2276,6 +2279,7 @@ function hpNode(n) {
   document.body.appendChild(bar); n.bar = bar;
   return n;
 }
+const ORE_COL = { copper: ['#ff9b3d', '#5a2600'], iron: ['#a8c8f0', '#1b2f52'], silver: ['#eef3fa', '#4a5a6e'], gold: ['#ffe04a', '#7a5200'], frostsilver: ['#7fe8ff', '#1a5a70'], sunstone: ['#ffc84a', '#8a4a00'] };
 function buildNodes() {
   const addTree = (x, z, kind) => {
     if (blocked(x, z) || !isFree(x, z, 2.5) || Math.hypot(x, z) < 12) return;
@@ -2289,7 +2293,7 @@ function buildNodes() {
   const addRock = (x, z, kind) => {
     place(rng() > 0.5 ? 'rock_single_D' : 'rock_single_E', x, z, S_NATURE * 2.6, rng() * 6, { shrink: 0.5 });
     const gems = new THREE.Group();
-    const mats = toon(kind === 'copper' ? '#ff9b3d' : kind === 'frostsilver' ? '#7fe8ff' : kind === 'sunstone' ? '#ffc84a' : '#a8c8f0', { emissive: kind === 'copper' ? '#5a2600' : kind === 'frostsilver' ? '#1a5a70' : kind === 'sunstone' ? '#8a4a00' : '#1b2f52' });
+    const [col, glow] = ORE_COL[kind] || ORE_COL.iron, mats = toon(col, { emissive: glow });
     for (let i = 0; i < 4; i++) {
       const c = new THREE.Mesh(crystalGeo);
       const a = (i / 4) * Math.PI * 2 + rng();
@@ -2301,13 +2305,17 @@ function buildNodes() {
     gems.position.set(x, 0, z); scene.add(gems);
     nodes.push(hpNode({ kind, def: NODES[kind], x, z, full: gems, alive: true, respawnAt: 0, reach: 2.6, r: 1.3 }));
   };
-  const rockSpots = [[-4, 2, 'copper'], [2, 4, 'copper'], [5, -2, 'copper'], [-2, -5, 'copper'], [-7, -3, 'iron'], [7, 4, 'iron'], [1, 9, 'iron'], [-6, 7, 'copper']];
+  // the Old Quarry: copper by the way in, then iron, silver, and gold at the very back by the mine shaft
+  const rockSpots = [[-12, -3, 'copper'], [-11, 4, 'copper'], [-8, -9, 'copper'], [-8, 9, 'copper'], [-6, 0, 'copper'], [-3, -12, 'copper'],
+    [-2, 5, 'iron'], [0, -6, 'iron'], [-1, 12, 'iron'], [3, 0, 'iron'], [4, -12, 'iron'],
+    [6, 7, 'silver'], [7, -7, 'silver'], [9, 13, 'silver'], [3, 14, 'silver'],
+    [11, -10, 'gold'], [12, 6, 'gold'], [9, 1, 'gold']];
   for (const [dx, dz, k] of rockSpots) addRock(MINE.x + dx, MINE.z + dz, k);
   // Frostsilver only grows in the north, around Snowman Hills
-  for (const [dx, dz] of [[-20, -14], [-24, -8], [-18, -4], [-12, 18], [-20, 14]]) addRock(LANDS.frost.zones.hills.x + dx, LANDS.frost.zones.hills.z + dz, 'frostsilver');
+  for (const [dx, dz] of [[14, -13], [16, -2], [3, -16], [2, 15], [-8, 14]]) addRock(LANDS.frost.zones.hills.x + dx, LANDS.frost.zones.hills.z + dz, 'frostsilver');
   // Bogwood: dark, mossy trees around Lilypad Landing (Woodcutting 30)
   const ML = LANDS.marsh;
-  for (const [dx, dz] of [[-16, 14], [-20, 2], [16, 16], [22, 0], [-8, -14], [10, -16], [-28, 24], [30, 20]]) {
+  for (const [dx, dz] of [[-12, -12], [12, -12], [-20, -20], [20, -20], [-20, 14], [20, 14], [-28, -14], [28, -14]]) {
     const x = ML.village.x + dx, z = ML.village.z + dz;
     if (!isFree(x, z, 2)) continue;
     const full = place('tree_single_A', x, z, S_NATURE * 1.35, rng() * 6, { shrink: 0.35 });
@@ -2401,9 +2409,9 @@ function buildNpcs() {
   const defs = [
     { id: 'bertha', name: 'Bertha the Innkeeper', model: 'barbarian', x: -7.2 * VS, z: -11 * VS, hide: [] },
     { id: 'rowan', name: 'Captain Rowan', model: 'knight', x: 12 * VS, z: -18 * VS, hide: [] },
-    { id: 'fenwick', name: 'Old Fenwick', model: 'mage', x: 15 * VS, z: -4.5 * VS, hide: [] },
+    { id: 'fenwick', name: 'Old Fenwick', model: 'mage', x: 14 * VS, z: -4.5 * VS, hide: [] },
     { id: 'marta', name: 'Marta the Baker', model: 'barbarian', x: 7.5 * VS, z: 10.2 * VS, hide: [], shop: 'food', tint: '#bfe3ff' },
-    { id: 'pip', name: 'Pip of the Request Board', model: 'archer', x: -10.5, z: 12, hide: [], board: true, tint: '#ffd8a0' },
+    { id: 'pip', name: 'Pip of the Request Board', model: 'archer', x: -9.5 * VS, z: 11.5 * VS, hide: [], board: true, tint: '#ffd8a0' },
     { id: 'brom', name: 'Brom the Blacksmith', model: 'barbarian', x: 5.5 * VS, z: -19.8 * VS, hide: [], shop: 'melee', tint: '#ffb38a' },
     { id: 'wisteria', name: 'Madame Wisteria', model: 'mage', x: 18.4 * VS, z: -21.6 * VS, hide: [], shop: 'magic', tint: '#f0b0ff' },
     { id: 'hazel', name: 'Hazel the Fletcher', model: 'heroine', x: -22 * VS, z: 10.5 * VS, hide: [], shop: 'ranged', tint: '#d8f0a0' },
@@ -2415,11 +2423,11 @@ function buildNpcs() {
       lines: ['Back in my day, skeletons said please before they stabbed you.', 'Have you tried my apple pie? Marta in the village sells it. I taught her!', 'The windmill squeaks a little song at night. Listen closely.'] },
     { id: 'crier', name: 'Bertram the Town Crier', model: 'knight', x: -6 * VS, z: 5 * VS, hide: ['Knight_Helmet'], tint: '#ffd08a',
       lines: ['Hear ye! Four lands lie beyond the woods: Glimmerwood to the east, Grumble Crags to the west, Honeymeadow to the south and Haunted Hollow to the north!', 'Hear ye! Each land has a fearsome boss. Watch for the red glow on the ground and get out of the way!', 'Hear ye! Hold Shift to sprint, press C (or tap any direction twice) to dash in any direction, J or click to attack, R for your special attack, and M for the map. Hear ye!', 'Hear ye! Coins in the bank are safe. Coins in your pocket? Half of them fall out when you get knocked out!', 'Hear ye! Adventurers wander the valley. Talk to them or open the Crew menu to make them allies, leave them be, or make them your rivals!', 'Hear ye! Monsters have taken Thornbury, Mossbrook and Cinderholt! Defeat each town\'s tyrant to free it, and the townsfolk will send you coins.'] },
-    { id: 'lumi', name: 'Lumi the Wisp-keeper', model: 'mage', x: ZONES.glimmer.x - 14, z: ZONES.glimmer.z + 4, hide: [], tint: '#9ff0ff',
+    { id: 'lumi', name: 'Lumi the Wisp-keeper', model: 'mage', x: ZONES.glimmer.x - 22, z: ZONES.glimmer.z + 8, hide: [], tint: '#9ff0ff',
       lines: ['The Gloomcaster stole the colour from half my mushrooms. The rest glow twice as bright out of spite!', 'Glimmerwood hums at night. Can you hear it? No? Try humming back.'] },
-    { id: 'dot', name: 'Prospector Dot', model: 'heroine', x: ZONES.crags.x + 15, z: ZONES.crags.z + 4, hide: [], tint: '#e8b080',
+    { id: 'dot', name: 'Prospector Dot', model: 'heroine', x: ZONES.crags.x + 23, z: ZONES.crags.z + 6, hide: [], tint: '#e8b080',
       lines: ['Bonecrusher sleeps in the middle of the Crags. Well, "sleeps". Mostly he stomps.', 'When the ground glows red, jump! I learned that one the hard way. Twice.'] },
-    { id: 'mort', name: 'Gravekeeper Mort', model: 'barbarian', x: ZONES.hollow.x + 12, z: ZONES.hollow.z + 12, hide: [], tint: '#a8a8c0',
+    { id: 'mort', name: 'Gravekeeper Mort', model: 'barbarian', x: ZONES.hollow.x - 16, z: ZONES.hollow.z + 16, hide: [], tint: '#a8a8c0',
       lines: ['Captain Rattlebones keeps getting up. I keep putting him down. It is a living. Well. Sort of.', 'Do not mind the gravestones. Most of them are empty. Most.'] },
     { id: 'penny', name: 'Penny the Banker', model: 'mage', x: -3 * VS, z: 13.5 * VS, hide: [], bank: true, tint: '#ffe08a' },
     { id: 'tom', name: 'Old Tom the Barkeep', model: 'barbarian', x: INTERIORS.tavern.barkeep.x, z: INTERIORS.tavern.barkeep.z, hide: [], shop: 'food', tint: '#e8c89a', inside: 'tavern', face: 'south' },
@@ -2636,9 +2644,9 @@ function skeletonize(e, T) {
 function buildEnemies() {
   for (const [k, dx, dz] of [['skel_warrior', -3, -4], ['skel_minion', -6, 3], ['skel_mage', 2, 6], ['skel_minion', 5, -1], ['skel_minion', -1, 9]]) spawnEnemy(k, CAMP.x + dx, CAMP.z + dz);
   const ring = (Z, list, r) => list.forEach((k, i) => { const a = (i / list.length) * Math.PI * 2 + 0.4; spawnEnemy(k, Z.x + Math.cos(a) * r, Z.z + Math.sin(a) * r); });
-  ring(ZONES.crags, ['skel_warrior', 'skel_minion', 'skel_warrior', 'skel_minion'], 16);
-  ring(ZONES.glimmer, ['skel_mage', 'mint_slime', 'skel_mage', 'mint_slime', 'jelly_slime'], 17);
-  ring(ZONES.hollow, ['skel_minion', 'hollow_bat', 'skel_warrior', 'hollow_bat', 'skel_mage', 'hollow_bat'], 14);
+  ring(ZONES.crags, ['skel_warrior', 'skel_minion', 'skel_warrior', 'skel_minion'], 27);
+  ring(ZONES.glimmer, ['skel_mage', 'mint_slime', 'skel_mage', 'mint_slime', 'jelly_slime'], 28);
+  ring(ZONES.hollow, ['skel_minion', 'hollow_bat', 'skel_warrior', 'hollow_bat', 'skel_mage', 'hollow_bat'], 24);
   ring(ZONES.meadow, ['honey_slime', 'jelly_slime', 'honey_slime', 'jelly_slime', 'honey_slime'], 14);
   // a few soft starter critters on the roads near the village
   for (const [x, z] of [[30, 34], [-34, 40], [44, -30]]) spawnEnemy('jelly_slime', x, z);
@@ -2650,8 +2658,8 @@ function buildEnemies() {
   const FZs = LANDS.frost.zones;
   const fring = (Z, list, r) => list.forEach((k, i) => { const a = (i / list.length) * Math.PI * 2 + 0.7; spawnEnemy(k, Z.x + Math.cos(a) * r, Z.z + Math.sin(a) * r); });
   fring(FZs.woods, ['frost_minion', 'frost_warrior', 'frost_minion', 'frost_mage', 'frost_minion'], 11);
-  fring({ x: FZs.hills.x - 10, z: FZs.hills.z - 4 }, ['frost_mage', 'frost_minion', 'frost_warrior', 'frost_minion'], 8);
-  fring({ x: FZs.palace.x, z: FZs.palace.z + 18 }, ['frost_warrior', 'frost_mage', 'frost_warrior'], 6);
+  fring(FZs.hills, ['frost_mage', 'frost_minion', 'frost_warrior', 'frost_minion'], 6);
+  fring({ x: FZs.palace.x + 16, z: FZs.palace.z + 18 }, ['frost_warrior', 'frost_mage', 'frost_warrior'], 5);
   spawnEnemy('boss_frost', FZs.palace.x, FZs.palace.z - 1);
   const FA = LANDS.frost.arenas;
   spawnEnemy('boss_grumble', FA.grumble.x, FA.grumble.z);
@@ -2659,18 +2667,20 @@ function buildEnemies() {
   spawnEnemy('boss_twin_b', FA.twins.x + 3, FA.twins.z - 2);
   // Gobbler Marsh
   const MZs = LANDS.marsh.zones, MV = LANDS.marsh.village;
-  fring(MZs.mire, ['bog_slime', 'bog_witchling', 'mire_bat', 'bog_slime', 'bog_witchling'], 11);
-  fring(MZs.ruins, ['bog_knight', 'mire_bat', 'bog_knight', 'bog_slime'], 10);
-  fring({ x: MZs.gobbler.x, z: MZs.gobbler.z + 20 }, ['bog_knight', 'mire_bat', 'bog_slime'], 6);
-  fring({ x: MV.x, z: MV.z - 18 }, ['bog_slime', 'mire_bat', 'bog_slime'], 7);
+  // the bog's monsters live in four camps out in the open, away from the boss stages and the boardwalks
+  const MC = LANDS.marsh.camps;
+  fring(MC[0], ['bog_slime', 'bog_witchling', 'mire_bat', 'bog_slime', 'bog_witchling'], MC[0].r);
+  fring(MC[1], ['bog_knight', 'mire_bat', 'bog_knight', 'bog_slime'], MC[1].r);
+  fring(MC[2], ['bog_knight', 'mire_bat', 'bog_slime'], MC[2].r);
+  fring(MC[3], ['bog_slime', 'mire_bat', 'bog_slime'], MC[3].r);
   spawnEnemy('boss_mire', MZs.mire.x + 1, MZs.mire.z + 1);
   spawnEnemy('boss_sogg', MZs.ruins.x, MZs.ruins.z);
   spawnEnemy('boss_gobbler', MZs.gobbler.x, MZs.gobbler.z);
   // Brassbolt Sands
   const DZs = LANDS.sands.zones, DV = LANDS.sands.village;
   fring({ x: DZs.sphinx.x + 4, z: DZs.sphinx.z + 18 }, ['sand_gloop', 'clock_conjurer', 'dust_bat', 'sand_gloop'], 8);
-  fring(DZs.workshop, ['clock_soldier', 'dust_bat', 'clock_soldier', 'clock_conjurer'], 12);
-  fring({ x: DZs.colossus.x, z: DZs.colossus.z + 22 }, ['clock_soldier', 'dust_bat', 'sand_gloop'], 6);
+  fring({ x: DZs.workshop.x - 8, z: DZs.workshop.z + 24 }, ['clock_soldier', 'dust_bat', 'clock_soldier', 'clock_conjurer'], 6);
+  fring({ x: DZs.colossus.x + 16, z: DZs.colossus.z + 26 }, ['clock_soldier', 'dust_bat', 'sand_gloop'], 5);
   fring({ x: DV.x, z: DV.z - 18 }, ['sand_gloop', 'dust_bat', 'sand_gloop'], 7);
   spawnEnemy('boss_pomp', DZs.workshop.x, DZs.workshop.z);
   spawnEnemy('boss_colossus', DZs.colossus.x, DZs.colossus.z - 2);
@@ -2916,7 +2926,7 @@ function zoneBanner() {
   if (!player || where !== 'out') return;
   const z = Object.values(ZONES).find((Z) => Math.hypot(player.pos.x - Z.x, player.pos.z - Z.z) < Z.r + 4);
   const tw = TOWNS.find((T) => Math.hypot(player.pos.x - T.x, player.pos.z - T.z) < T.r + 4);
-  const name = tw ? `${tw.name} ${stars(tw.stars)}${townFree(tw.id) ? '' : ' · held by monsters'}` : z ? z.name : Math.hypot(player.pos.x, player.pos.z) < 46 ? 'Jerry Village' : Math.hypot(player.pos.x - 4, player.pos.z + 64) < 28 ? 'Castle grounds' : null;
+  const name = tw ? `${tw.name} ${stars(tw.stars)}${townFree(tw.id) ? '' : ' · held by monsters'}` : z ? z.name : Math.hypot(player.pos.x - MINE.x, player.pos.z - MINE.z) < MINE.r + 3 ? 'Old Quarry · copper, iron, silver, gold' : Math.hypot(player.pos.x, player.pos.z) < 52 ? 'Jerry Village' : Math.hypot(player.pos.x - 4, player.pos.z + 64) < 28 ? 'Castle grounds' : null;
   if (name && name !== zoneNow) {
     const el = $('banner'); el.textContent = name; el.classList.remove('show'); void el.offsetWidth; el.classList.add('show');
   }
@@ -3034,8 +3044,8 @@ function rollLoot(e) {
 }
 // ---------- treasure chests (open one and spin your luck!) ----------
 const chests = [];
-const CHEST_SPOTS = [[6 * VS, 26 * VS], [-30 * VS, 22 * VS], [36 * VS, -26 * VS], [-12 * VS, -38 * VS], [ZONES.glimmer.x + 10, ZONES.glimmer.z - 12], [ZONES.crags.x - 8, ZONES.crags.z + 14],
-  [ZONES.meadow.x - 16, ZONES.meadow.z + 12], [ZONES.hollow.x - 14, ZONES.hollow.z - 6], [70, 60], [-64, 70], [-70, -60], [66, -66]];
+const CHEST_SPOTS = [[6 * VS, 26 * VS], [-30 * VS, 22 * VS], [36 * VS, -26 * VS], [-12 * VS, -38 * VS], [ZONES.glimmer.x + 16, ZONES.glimmer.z - 18], [ZONES.crags.x - 12, ZONES.crags.z + 20],
+  [ZONES.meadow.x - 16, ZONES.meadow.z + 12], [ZONES.hollow.x - 26, ZONES.hollow.z - 14], [70, 60], [-64, 70], [-70, -60], [66, -66]];
 function buildChests() {
   for (const [x, z] of CHEST_SPOTS) {
     const m = lib.chest_gold.clone(true); stylize(m); m.position.set(x, 0, z); m.scale.setScalar(1.3); m.rotation.y = rng() * 6; scene.add(m);
@@ -4668,7 +4678,7 @@ function bossSpecial(e) {
     e.enraged = true; bossSay(e, 'ENRAGED!');
     burst(ep.clone().setY(2.5), '#ff3b2f', 60, 9, 1.4); sfx('slam');
   }
-  e.nextSpecial = now + (e.enraged ? 3.6 : 6.5) + rng() * 1.5;
+  e.nextSpecial = now + ((e.enraged ? 3.6 : 6.5) + rng() * 1.5) / Math.sqrt(e.T.fast || 1);
   const pick = (e.specN = (e.specN || 0) + 1 + Math.floor(rng() * 2)) % 4;
   const toward = Math.atan2(player.pos.x - ep.x, player.pos.z - ep.z), dir = toward + Math.PI;
   e.face(player.pos.x, player.pos.z);
@@ -5099,7 +5109,7 @@ const lanterns = [];
 function makeLanterns() {
   if (lanterns.length) return;
   const L = LANDS.marsh, Z = L.zones, V = L.village;
-  const spots = [[V.x - 14, V.z - 14], [Z.mire.x + 12, Z.mire.z + 10], [Z.ruins.x - 12, Z.ruins.z + 8], [Z.gobbler.x - 10, Z.gobbler.z + 16], [L.pond.x - 4, L.pond.z + 12]];
+  const spots = [[V.x - 14, V.z - 14], [Z.mire.x + 18, Z.mire.z + 16], [Z.ruins.x - 18, Z.ruins.z + 16], [Z.gobbler.x - 12, Z.gobbler.z + 18], [L.pond.x - 4, L.pond.z + 12]];
   for (const [x0, z0] of spots) {
     let x = x0, z = z0;
     for (let t = 0; t < 20 && !isFree(x, z, 1.2); t++) { x = x0 + (rng() - 0.5) * 6; z = z0 + (rng() - 0.5) * 6; }
@@ -5591,10 +5601,10 @@ function enemyTick(e, dt) {
     if (big && !foe && !e.T.world && toHero < 30 && now > (e.nextSpecial ??= now + 3) && now > (e.dizzyUntil || 0) && now > (e.staggerUntil || 0) && bossSpecial(e)) return;
     if (toP > reach) {
       const dx = tp.x - ep.x, dz = tp.z - ep.z;
-      ep.x += (dx / toP) * 4.2 * dt; ep.z += (dz / toP) * 4.2 * dt;
+      const sp = 4.2 * (e.T.fast || 1); ep.x += (dx / toP) * sp * dt; ep.z += (dz / toP) * sp * dt;
       if (e.name !== '1H_Melee_Attack_Chop' && e.name !== 'Spellcast_Shoot' && e.name !== 'Hit_A') e.play('Running_A', { fade: 0.15 });
     } else if (now > e.nextHit) {
-      e.nextHit = now + (big ? 1.5 : 1.9) + rng() * 0.6;
+      e.nextHit = now + (big ? 1.5 / (e.T.fast || 1) : 1.9) + rng() * (big && e.T.fast ? 0.4 : 0.6);
       const dmg = big ? bossDmg(e, 0.65 + rng() * 0.45) : rng() < 0.3 ? 0 : 1 + Math.floor(rng() * e.T.maxHit);
       if (BOSS_AI[e.type] && BOSS_AI[e.type](e, toP)) return;
       if (e.T.dragon) { dragonAttack(e, toP); return; }
@@ -5651,7 +5661,7 @@ function enemyTick(e, dt) {
 // ---------- minimap ----------
 const MAP_R = 165, MAP_PX = 1024;
 const mapBg = document.createElement('canvas'); mapBg.width = mapBg.height = MAP_PX;
-const PLACES = [['Village', 0, -4], ['Skeleton camp', CAMP.x, CAMP.z + 9], ['Mine', MINE.x, MINE.z - 9], ['Castle', 4, -54], ['Ship', VALLEY_DOCK.x + 8, VALLEY_DOCK.z - 9], ...Object.values(ZONES).map((Z) => [Z.name, Z.x, Z.z - Z.r * 0.55]), ...TOWNS.map((T) => [T.name, T.x, T.z - 9])];
+const PLACES = [['Village', 0, -4], ['Skeleton camp', CAMP.x, CAMP.z + 9], ['Old Quarry', MINE.x, MINE.z - MINE.r - 3], ['Shop', 7 * VS, 15.5 * VS - 7], ['Castle', 4, -54], ['Ship', VALLEY_DOCK.x + 8, VALLEY_DOCK.z - 9], ...Object.values(ZONES).map((Z) => [Z.name, Z.x, Z.z - Z.r * 0.55]), ...TOWNS.map((T) => [T.name, T.x, T.z - 9])];
 // Photograph the world from straight above once, and use it as the map picture.
 function bakeMap() {
   const cam = new THREE.OrthographicCamera(-MAP_R, MAP_R, MAP_R, -MAP_R, 1, 500);
@@ -5682,7 +5692,9 @@ function bakeMap() {
   g.beginPath(); g.arc(M2(LAKE.x), M2(LAKE.z), R2(LAKE.r), 0, 7); g.fillStyle = '#4aa8f0'; g.fill(); g.lineWidth = 5; g.strokeStyle = '#f1d79c'; g.stroke();
   const road = (x1, z1, x2, z2, w) => { g.lineCap = 'round'; g.beginPath(); g.moveTo(M2(x1), M2(z1)); g.lineTo(M2(x2), M2(z2)); g.lineWidth = w + 5; g.strokeStyle = ink; g.stroke(); g.lineWidth = w; g.strokeStyle = '#f5dfa6'; g.stroke(); };
   for (const [tx, tz, fx, fz] of ROADS) road(fx, fz, tx, tz, 9);
-  road(0, 0, 4, -50, 8); road(0, 0, 0, 52, 8); road(0, 0, -28, -4, 8); road(0, 0, 22, 10, 7);
+  road(0, 0, 4, -50, 8); road(0, 0, 0, 52, 8); road(0, 0, -28 * VS, -4 * VS, 8); road(0, 0, 22 * VS, 10 * VS, 7); road(0, 0, -22 * VS, 26 * VS, 7);
+  g.beginPath(); g.arc(M2(MINE.x), M2(MINE.z), R2(MINE.r + 1.5), 0, 7); g.fillStyle = '#c8a878'; g.fill(); g.lineWidth = 4; g.strokeStyle = 'rgba(58,32,16,.55)'; g.stroke();
+  for (const A of VALLEY_ARENAS) { g.beginPath(); g.arc(M2(A.x), M2(A.z), R2(A.r), 0, 7); g.lineWidth = 5; g.strokeStyle = 'rgba(58,32,16,.5)'; g.stroke(); }
   for (const [x, z, r] of [[0, 0, 9], ...TOWNS.map((T) => [T.x, T.z, 7.5]), [ZONES.meadow.x, ZONES.meadow.z, 6]]) { g.beginPath(); g.arc(M2(x), M2(z), R2(r), 0, 7); g.fillStyle = '#f5dfa6'; g.fill(); g.lineWidth = 3; g.strokeStyle = ink; g.stroke(); }
   // the photo, faintly, for buildings and rocks
   const ph = document.createElement('canvas'); ph.width = ph.height = MAP_PX; ph.getContext('2d').putImageData(img, 0, 0);
@@ -5698,15 +5710,17 @@ function bakeMap() {
   g.beginPath(); g.arc(M2(0), M2(0), R2(WORLD_R), 0, 7); g.lineWidth = 8; g.strokeStyle = ink; g.stroke();
 }
 // Each faraway land gets its own board-style map, painted once from its layout.
-const LAND_MAP_R = 88, landMaps = {};
+const landMapR = (L) => L.r + 18, landMaps = {};
 function landMap(L) {
   if (landMaps[L.id]) return landMaps[L.id];
   const cv = document.createElement('canvas'); cv.width = cv.height = MAP_PX; const g = cv.getContext('2d'), C = L.map;
-  const M2x = (v) => ((v - L.x + LAND_MAP_R) / (LAND_MAP_R * 2)) * MAP_PX, M2z = (v) => ((v - L.z + LAND_MAP_R) / (LAND_MAP_R * 2)) * MAP_PX, R2 = (r) => (r / (LAND_MAP_R * 2)) * MAP_PX, ink = '#3a2010';
+  const LR = landMapR(L), CO = coastOf(L);
+  const M2x = (v) => ((v - L.x + LR) / (LR * 2)) * MAP_PX, M2z = (v) => ((v - L.z + LR) / (LR * 2)) * MAP_PX, R2 = (r) => (r / (LR * 2)) * MAP_PX, ink = '#3a2010';
   g.fillStyle = C.bg; g.fillRect(0, 0, MAP_PX, MAP_PX);
-  g.fillStyle = C.sea; g.fillRect(M2x(L.x - 34), M2z(L.z + 56), R2(68), MAP_PX);
+  g.fillStyle = C.sea; g.fillRect(M2x(L.x - 34), M2z(L.z + CO + 12), R2(68), MAP_PX);
   g.beginPath(); g.arc(M2x(L.x), M2z(L.z), R2(L.r), 0, 7); g.fillStyle = C.ground; g.fill();
   for (const [k, Z] of Object.entries(L.zones)) { g.beginPath(); g.arc(M2x(Z.x), M2z(Z.z), R2(Z.r + 3), 0, 7); g.fillStyle = k === L.boss ? C.boss : C.zone; g.fill(); g.lineWidth = 4; g.strokeStyle = 'rgba(58,32,16,.4)'; g.setLineDash([10, 8]); g.stroke(); g.setLineDash([]); }
+  for (const A of Object.values(L.arenas || {})) { g.beginPath(); g.arc(M2x(A.x), M2z(A.z), R2(A.r + 2), 0, 7); g.fillStyle = C.boss; g.fill(); g.lineWidth = 4; g.strokeStyle = 'rgba(58,32,16,.4)'; g.setLineDash([10, 8]); g.stroke(); g.setLineDash([]); }
   g.beginPath(); g.arc(M2x(L.pond.x), M2z(L.pond.z), R2(L.pond.r), 0, 7); g.fillStyle = C.pond; g.fill(); g.lineWidth = 4; g.strokeStyle = '#fff'; g.stroke();
   const road = (x1, z1, x2, z2) => { g.lineCap = 'round'; g.beginPath(); g.moveTo(M2x(x1), M2z(z1)); g.lineTo(M2x(x2), M2z(z2)); g.lineWidth = 13; g.strokeStyle = ink; g.stroke(); g.lineWidth = 8; g.strokeStyle = '#f5dfa6'; g.stroke(); };
   const V = L.village, Z = L.zones;
@@ -5716,13 +5730,14 @@ function landMap(L) {
   for (const T of TOWNS) if (T.land === L.id) { g.beginPath(); g.arc(M2x(T.x), M2z(T.z), R2(7.5), 0, 7); g.fillStyle = '#f5dfa6'; g.fill(); g.lineWidth = 3; g.strokeStyle = ink; g.stroke(); }
   for (const c of colliders) {
     if (c.r < 0.9 || c.r > 1.9 || Math.hypot(c.x - L.x, c.z - L.z) > L.r + 6) continue;
+    if (Math.abs(Math.sin(c.x * 12.99 + c.z * 78.23) * 43758.5) % 1 < 0.35) continue; // thin them out so the board stays readable
     g.beginPath(); g.arc(M2x(c.x), M2z(c.z), R2(c.r * 1.7), 0, 7); g.fillStyle = C.tree; g.fill(); g.lineWidth = 1.5; g.strokeStyle = 'rgba(20,40,40,.8)'; g.stroke();
     g.beginPath(); g.arc(M2x(c.x) - 2, M2z(c.z) - 3, R2(c.r * 0.7), 0, 7); g.fillStyle = C.treeHi; g.fill();
   }
   g.beginPath(); g.arc(M2x(L.x), M2z(L.z), R2(L.r), 0, 7); g.lineWidth = 8; g.strokeStyle = ink; g.stroke();
   // the ship in the harbour
-  g.fillStyle = '#8a5230'; g.beginPath(); g.ellipse(M2x(L.x), M2z(L.z + 66), R2(2), R2(4), 0, 0, 7); g.fill(); g.strokeStyle = ink; g.lineWidth = 2; g.stroke();
-  L.places = [...TOWNS.filter((T) => T.land === L.id).map((T) => [T.name, T.x, T.z - 9]), [L.villageName, V.x, V.z - 9], ['Harbour', L.x, L.z + 58], ...Object.values(Z).map((z2) => [z2.name, z2.x, z2.z - z2.r * 0.6]), [L.pond.name, L.pond.x, L.pond.z - L.pond.r - 2]];
+  g.fillStyle = '#8a5230'; g.beginPath(); g.ellipse(M2x(L.x), M2z(L.z + CO + 22), R2(2), R2(4), 0, 0, 7); g.fill(); g.strokeStyle = ink; g.lineWidth = 2; g.stroke();
+  L.places = [...TOWNS.filter((T) => T.land === L.id).map((T) => [T.name, T.x, T.z - 9]), [L.villageName, V.x, V.z - 9], ['Harbour', L.x, L.z + CO + 14], ...Object.values(Z).map((z2) => [z2.name, z2.x, z2.z - z2.r * 0.6]), ...Object.values(L.arenas || {}).filter((A) => A.name).map((A) => [A.name, A.x, A.z - A.r * 0.6]), [L.pond.name, L.pond.x, L.pond.z - L.pond.r - 2]];
   return (landMaps[L.id] = cv);
 }
 const mini = $('minimap'), bigMap = $('bigmap');
@@ -5750,7 +5765,7 @@ function drawMap(cv, full) {
   const dpr = Math.min(devicePixelRatio || 1, 2), css = cv._css || 150;
   if (cv.width !== Math.round(css * dpr)) { cv.width = cv.height = Math.round(css * dpr); }
   const W = cv.width, g = cv.getContext('2d');
-  const Lm = LANDS[where], MR = Lm ? LAND_MAP_R : MAP_R, ox = Lm ? Lm.x : 0, oz = Lm ? Lm.z : 0, bg = Lm ? landMap(Lm) : mapBg;
+  const Lm = LANDS[where], MR = Lm ? landMapR(Lm) : MAP_R, ox = Lm ? Lm.x : 0, oz = Lm ? Lm.z : 0, bg = Lm ? landMap(Lm) : mapBg;
   const p = player.pos, half = full ? MR : 34;
   const cx = full ? ox : p.x, cz = full ? oz : p.z;
   const k = W / (half * 2);
@@ -6033,7 +6048,7 @@ function tick() {
   const dt = Math.min(clock.getDelta(), 0.05) * (now < hitStopUntil ? 0.08 : 1);
   for (let i = timers.length - 1; i >= 0; i--) { timers[i].t -= dt; if (timers[i].t <= 0) { const f = timers[i].f; timers.splice(i, 1); f(); } }
   regionTick(); lightTick();
-  if (player) { spotTick(); goldenTick(); tinyTick(dt); pompTick(dt); }
+  if (player) { goldenTick(); tinyTick(dt); pompTick(dt); }
 
   if (player) { gulpTick(); lanternTick(dt); wingTick(); stormTick(dt); castleTick(dt); colossusTick(dt); cosTick(); wbTick(); bossSyncTick(); weaponSparkle(); flairTick(player, dt, player.name === 'Running_A' || player.name === 'Walking_A' || (player.name || '').startsWith('Running')); }
   if (player && !player.dead && !uiLock() && !gulped) {
@@ -6966,13 +6981,13 @@ function syncTowns() {
 //   Neutral - lives their own life near home and only fights monsters that come too close
 //   Rival   - hunts you down for a duel whenever you wander near. Beat them for coins and XP!
 const CREW_DEFS = [
-  { id: 'bramble', name: 'Sir Bramble', title: 'Knight of the Hedgerow', model: 'knight', hide: ['Knight_Helmet'], style: 'melee', anim: '1H_Melee_Attack_Slice_Diagonal', hp: 60, hit: [3, 6], cd: 1.0, reach: 2.4, tint: '#a8d8ff', home: [9, 36],
+  { id: 'bramble', name: 'Sir Bramble', title: 'Knight of the Hedgerow', model: 'knight', hide: ['Knight_Helmet'], style: 'melee', anim: '1H_Melee_Attack_Slice_Diagonal', hp: 60, hit: [3, 6], cd: 1.0, reach: 2.4, tint: '#a8d8ff', home: [20, 41],
     look: { skin: 'peach', eyes: 'blue', eyeStyle: 'round', mouth: 'grin', hair: 'hero', hairCol: 'blonde' },
     say: { hi: 'Ho there, friend! Sir Bramble, knight of the hedgerow, at your service. Shall we ride together?', ally: ['Onward!', 'I have your back!', 'For glory!'], hit: ['Have at thee!', 'Hah!', 'Take that, rascal!'], hurt: ['Oof!', 'A mere scratch!'], ko: 'I shall... rest my eyes... briefly...', rival: ['En garde!', 'A duel! At last!'], lose: 'You fight well! I yield... for now.', win: 'Victory! Better luck next time, friend.', idle: ['Polishing my sword. Again.', 'Lovely day for a quest, is it not?', 'I once fought a goose. It won.'], talkAlly: 'Where to next, partner? Point me at a monster!', talkRival: 'Ha! Come to settle our duel, have you?' } },
-  { id: 'saffy', name: 'Saffy Quickshot', title: 'Wandering Crossbow', model: 'heroine', weapon: 'crossbow_1handed', style: 'ranged', anim: '1H_Ranged_Shoot', hp: 45, hit: [2, 6], cd: 1.0, reach: 9, tint: '#c8f0a0', home: [11, 27],
+  { id: 'saffy', name: 'Saffy Quickshot', title: 'Wandering Crossbow', model: 'heroine', weapon: 'crossbow_1handed', style: 'ranged', anim: '1H_Ranged_Shoot', hp: 45, hit: [2, 6], cd: 1.0, reach: 9, tint: '#c8f0a0', home: [5, 42],
     look: { sex: 'f', skin: 'tan', eyes: 'green', eyeStyle: 'sharp', mouth: 'fang', hair: 'long', hairLen: 'long', hairCol: 'ginger', mark: 'freckles' },
     say: { hi: 'Name is Saffy. Fastest crossbow in the valley. Need a sharp eye on your team?', ally: ['Got it in my sights!', 'Right behind you!', 'Let us go!'], hit: ['Bullseye!', 'Too easy!', 'Got one!'], hurt: ['Hey!', 'Ow, rude!'], ko: 'Ugh... somebody... bring snacks...', rival: ['Try and keep up!', 'Bet you cannot dodge this!'], lose: 'Fine, fine. You win this round!', win: 'Ha! Too slow!', idle: ['Just counting my bolts. Forty two. Again.', 'Saw a squirrel earlier. Very suspicious.'], talkAlly: 'I will cover you from back here. Lead the way!', talkRival: 'Back for another lesson?' } },
-  { id: 'gus', name: 'Big Gus', title: 'Gentle Giant', model: 'barbarian', hide: ['Mug'], weapon: 'axe_2handed', style: 'melee', label: 'Big axe', heavy: true, anim: '2H_Melee_Attack_Chop', hp: 85, hit: [4, 9], cd: 1.6, reach: 2.8, tint: '#ffcf9a', home: [-6, 31],
+  { id: 'gus', name: 'Big Gus', title: 'Gentle Giant', model: 'barbarian', hide: ['Mug'], weapon: 'axe_2handed', style: 'melee', label: 'Big axe', heavy: true, anim: '2H_Melee_Attack_Chop', hp: 85, hit: [4, 9], cd: 1.6, reach: 2.8, tint: '#ffcf9a', home: [-9, 41],
     look: { skin: 'bronze', eyes: 'brown', eyeStyle: 'happy', mouth: 'grin', hair: 'mohawk', hairCol: 'black', beard: 'full', head: 'chibi' },
     say: { hi: 'Gus big. Gus strong. Gus also likes flowers. You want Gus to come smash things?', ally: ['Gus coming!', 'Smash time!', 'Gus help friend!'], hit: ['SMASH!', 'Bonk!', 'Gus hit good!'], hurt: ['Gus not like that.', 'Ouchie.'], ko: 'Gus... take... little nap...', rival: ['Gus fight you now. Sorry.', 'No hard feelings. SMASH!'], lose: 'You strong! Gus proud of you!', win: 'Gus win! You want hug?', idle: ['This flower called Daisy. Gus named her.', 'Gus hungry. Gus always hungry.'], talkAlly: 'Gus stay close. Gus protect friend!', talkRival: 'Gus ready for rematch!' } },
   { id: 'nyx', name: 'Nyx', title: 'Mischief Mage', model: 'mage', style: 'magic', anim: 'Spellcast_Shoot', hp: 40, hit: [3, 7], cd: 1.3, reach: 9, tint: '#e0b0ff', home: [-30, 3],
@@ -7335,91 +7350,6 @@ function renderCrew(el) {
 }
 
 // ===================== v28: luck and mischief =====================
-// ---------- Surprise Spots: bright board-game tiles along the roads ----------
-// Step on one and something happens. Each spot rests for a while afterwards, then rolls a new colour.
-const SPOT_KINDS = {
-  gold: { col: '#ffd23f', glyph: '$', w: 30 },
-  blue: { col: '#4aa8ff', glyph: '+', w: 22 },
-  red: { col: '#ff5a5a', glyph: '!', w: 16 },
-  purple: { col: '#b47cff', glyph: '?', w: 18 },
-  rainbow: { col: '#ffffff', glyph: '★', w: 10 },
-};
-const spotTex = {};
-function spotTexture(k) {
-  if (spotTex[k]) return spotTex[k];
-  const c = document.createElement('canvas'); c.width = c.height = 128; const g = c.getContext('2d');
-  g.beginPath(); g.arc(64, 64, 60, 0, 7); g.fillStyle = '#4a2a17'; g.fill();
-  g.beginPath(); g.arc(64, 64, 54, 0, 7); g.fillStyle = '#fff3c4'; g.fill();
-  g.beginPath(); g.arc(64, 64, 45, 0, 7);
-  if (k === 'rainbow') { const gr = g.createConicGradient(0, 64, 64); ['#ff6b6b', '#ffd23f', '#5ad06a', '#4aa8ff', '#b47cff', '#ff6b6b'].forEach((s, i) => gr.addColorStop(i / 5, s)); g.fillStyle = gr; }
-  else g.fillStyle = k === 'used' ? '#c9bfa8' : SPOT_KINDS[k].col;
-  g.fill();
-  if (k !== 'used') {
-    g.font = '900 54px system-ui, sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle';
-    g.lineWidth = 7; g.strokeStyle = '#4a2a17'; g.strokeText(SPOT_KINDS[k].glyph, 64, 68); g.fillStyle = '#fff'; g.fillText(SPOT_KINDS[k].glyph, 64, 68);
-  }
-  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 4;
-  return (spotTex[k] = t);
-}
-const spots = [];
-const spotGeo = new THREE.CircleGeometry(1.15, 32);
-function rollSpot() { let r = rng() * 96, k = 'gold'; for (const [n, s] of Object.entries(SPOT_KINDS)) { if ((r -= s.w) < 0) { k = n; break; } } return k; }
-function buildSpots() {
-  for (const [x1, z1, x2, z2] of ROADS) {
-    const L = Math.hypot(x2 - x1, z2 - z1);
-    for (let t = 9; t < L - 5; t += 17) {
-      const x = x1 + ((x2 - x1) * t) / L, z = z1 + ((z2 - z1) * t) / L;
-      if (Math.hypot(x, z) < 16 || TOWNS.some((T) => Math.hypot(x - T.x, z - T.z) < T.r + 3) || spots.some((s) => Math.hypot(s.x - x, s.z - z) < 12)) continue;
-      const kind = rollSpot();
-      const m = new THREE.Mesh(spotGeo, new THREE.MeshBasicMaterial({ map: spotTexture(kind), transparent: true, depthWrite: false }));
-      m.rotation.x = -Math.PI / 2; m.position.set(x, 0.07, z); m.renderOrder = 2; m.layers.set(1); scene.add(m);
-      spots.push({ x, z, m, kind, until: 0 });
-    }
-  }
-}
-function setSpot(s, kind) { s.kind = kind; s.m.material.map = spotTexture(kind); s.m.material.needsUpdate = true; }
-function spotTick() {
-  if (!player || player.dead || where !== 'out' || uiLock()) return;
-  for (const s of spots) {
-    if (s.kind === 'used') { if (now > s.until) { setSpot(s, rollSpot()); burst(new THREE.Vector3(s.x, 0.4, s.z), '#fff3a0', 14, 3); } continue; }
-    const k = 1 + Math.sin(now * 3 + s.x) * 0.04; s.m.scale.set(k, k, 1);
-    if (player.air || Math.hypot(player.pos.x - s.x, player.pos.z - s.z) > 1.2) continue;
-    const kind = s.kind; setSpot(s, 'used'); s.until = now + 150;
-    spotEffect(kind, s);
-  }
-}
-function spotEffect(kind, s) {
-  const at = new THREE.Vector3(s.x, 0.6, s.z);
-  if (kind === 'gold') {
-    const c = 10 + Math.floor(rng() * 20) + heroLvl() * 2; S.coins += c;
-    for (let i = 0; i < 4; i++) later(i * 0.12, () => { burst(at.clone().setY(0.3), '#ffe07a', 22, 6, 2.4); sfx('coin'); });
-    floatText(at.clone().setY(2.6), `+${c} coins`, 'gain'); toast(`Gold Spot! A little coin fountain: ${c} coins.`, ICONS.coins);
-  } else if (kind === 'blue') {
-    const f = rng() < 0.6 ? 'bread' : rng() < 0.7 ? 'pie' : 'stew'; addItem(f);
-    S.hp = Math.min(maxHp(), S.hp + Math.ceil(maxHp() * 0.15));
-    burst(at, '#8fd0ff', 30, 4); sfx('win'); toast(`Snack Spot! A free ${ITEMS[f].toLowerCase()} and a little heal.`, ICONS[f]);
-  } else if (kind === 'red') {
-    toast('Ambush! Skeletons burst out of the road!', null, true); sfx('slam');
-    const n = heroLvl() >= 8 ? 3 : 2;
-    for (let i = 0; i < n; i++) {
-      const a = (i / n) * Math.PI * 2 + rng(), x = s.x + Math.cos(a) * 3.2, z = s.z + Math.sin(a) * 3.2;
-      const e = spawnEnemy(heroLvl() >= 12 && i === 0 ? 'skel_warrior' : 'skel_minion', x, z);
-      e.temp = true; e.state = 'rising'; e.face(player.pos.x, player.pos.z);
-      burst(new THREE.Vector3(x, 0.4, z), '#b9ff8a', 24, 4);
-      const ok = e.play('Spawn_Ground_Skeletons', { once: true, clamp: true, onFinish: () => { e.state = 'chase'; e.play('Idle_Combat'); } });
-      if (!ok) e.state = 'chase';
-    }
-  } else if (kind === 'purple') {
-    const p = Math.floor(rng() * 3);
-    if (p === 0) { setTiny(20); toast('Prank Spot! Poof, you are tiny for 20 seconds!', null, true); }
-    else if (p === 1) { player.air = true; player.vy = 17; toast('Prank Spot! A hidden spring sends you flying!', null, true); }
-    else { setTiny(0); player.vy = 0; player.spinUntil = now + 1.2; toast('Prank Spot! A banana peel! Wheee!', null, true); }
-    sfx('boing'); burst(at, '#ff9af0', 40, 5);
-  } else if (kind === 'rainbow') {
-    burst(at, '#fff3a0', 50, 6, 1.6); spinWheel('Lucky Spot!');
-  }
-  refreshUI(); save();
-}
 var tinyUntil = 0;
 function setTiny(sec) {
   if (!sec) return;
@@ -8492,7 +8422,7 @@ function makeGagronFriend() {
   npcs.push(gagronFriend);
 }
 
-window.__jq = { toast, setSlotBox, showSlots, get slotBox() { return slotBox; }, get guide() { return guide; }, bossNet, safeSpot, get PVP_LVL() { return PVP_LVL; }, goldNode, wbInfo, wbTick, get wb() { return wb; }, WB_SPOTS, tradeOpen, tradeNet, offerKey, get trade() { return trade; }, adv(s) { for (let t = 0; t < s; t += 0.05) { for (let i = timers.length - 1; i >= 0; i--) { timers[i].t -= 0.05; if (timers[i].t <= 0) { const f = timers[i].f; timers.splice(i, 1); f(); } } bossFxTick(0.05); } }, get party() { return party; }, BOSS_AI, PHASE_SETUP, get gulped() { return gulped; }, wriggle, toggleBigMap, spawnEnemy, openPathChoice, choosePath, startLanternNight, get lanterns() { return lanterns; }, duelOffer, duelPrize, onNet, chatCommand, canFight, openUpgrade, openBoard, boardToday, queueLetter, makeGagronFriend, net, peerActors, runeTick, bossFx, renderer, scene, openMayor, darkOmen, netWorth, liberateTown, spots, spotEffect, setGolden, goldenCaught, pompArrive, get goldenE() { return goldenE; }, spinWheel, dayTick, get bossIntro() { return bossIntro; }, bossSkip, startBossScene, sailTo, regions, closeSheet, renderHotbar, crew, setCrewMode, TOWNS, liberateTown, chests, openChest, stopRoulette, enemies, startBossIntro, closeDialog, advanceDialog, dash, attackPress, craft, CRAFTS, openCreator, closeCreator, creator, rebuildHero, setZoom: (z) => { zoom = zoomGoal = z; }, hurtEnemy, goThrough, get where() { return where; }, INTERIORS, equipGear, spendPoint, giveHeroXp, heroLvl, stat, maxHp, defDiv, openWeaponShop, openKing, jump, eat, eatBest, openShop, swing, swingTarget, hitNode, projectiles, timers, get S() { return S; }, get player() { return player; }, enemies, nodes, npcs, startTask, doAction, giveXp, save, openSheet, openDialog };
+window.__jq = { toast, setSlotBox, showSlots, get slotBox() { return slotBox; }, get guide() { return guide; }, bossNet, safeSpot, get PVP_LVL() { return PVP_LVL; }, goldNode, wbInfo, wbTick, get wb() { return wb; }, WB_SPOTS, tradeOpen, tradeNet, offerKey, get trade() { return trade; }, adv(s) { for (let t = 0; t < s; t += 0.05) { for (let i = timers.length - 1; i >= 0; i--) { timers[i].t -= 0.05; if (timers[i].t <= 0) { const f = timers[i].f; timers.splice(i, 1); f(); } } bossFxTick(0.05); } }, get party() { return party; }, BOSS_AI, PHASE_SETUP, get gulped() { return gulped; }, wriggle, toggleBigMap, spawnEnemy, openPathChoice, choosePath, startLanternNight, get lanterns() { return lanterns; }, duelOffer, duelPrize, onNet, chatCommand, canFight, openUpgrade, openBoard, boardToday, queueLetter, makeGagronFriend, net, peerActors, runeTick, bossFx, renderer, scene, openMayor, darkOmen, netWorth, liberateTown, setGolden, goldenCaught, pompArrive, get goldenE() { return goldenE; }, spinWheel, dayTick, get bossIntro() { return bossIntro; }, bossSkip, startBossScene, sailTo, regions, closeSheet, renderHotbar, crew, setCrewMode, TOWNS, liberateTown, chests, openChest, stopRoulette, enemies, startBossIntro, closeDialog, advanceDialog, dash, attackPress, craft, CRAFTS, openCreator, closeCreator, creator, rebuildHero, setZoom: (z) => { zoom = zoomGoal = z; }, hurtEnemy, goThrough, get where() { return where; }, INTERIORS, equipGear, spendPoint, giveHeroXp, heroLvl, stat, maxHp, defDiv, openWeaponShop, openKing, jump, eat, eatBest, openShop, swing, swingTarget, hitNode, projectiles, timers, get S() { return S; }, get player() { return player; }, enemies, nodes, npcs, startTask, doAction, giveXp, save, openSheet, openDialog };
 window.addEventListener('error', (e) => { const m = $('loadmsg'); if (m) m.textContent = `Something went wrong: ${e.message}`; });
 main().catch((err) => {
   console.error(err);

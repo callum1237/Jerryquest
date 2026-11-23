@@ -4,28 +4,38 @@ import { THREE, scene, registerMesh, toon, rng } from './engine.js';
 import { M, instanced, place, colliders, tinted, lib, S_BUILD, S_PROP, LAKE, TOWNS } from './world.js';
 
 const FX = 1000, FZ = 0, MX = 2000, MZ = 0, DX = 3000, DZ = 0;
+// Every land is a round board: the harbour bay in the south (from z + coast), the village just above it,
+// a main road north to a crossroads, and side roads out to towns, hunting grounds and big boss stages.
 export const LANDS = {
+  // Chapter 2. Towns sit either side of the village; Icicle Woods (west) and Snowman Hills (east) are hunting
+  // grounds; the Ogre's Pass (north-west), the Twins' Ridge (north-east) and the Ice Palace (north) are boss stages.
   frost: {
-    id: 'frost', name: 'Frostwhisker Peaks', x: FX, z: FZ, r: 70,
-    arrive: { x: FX, z: FZ + 49 }, captain: { x: FX + 4, z: FZ + 51 },
-    village: { x: FX, z: FZ + 32 }, elder: { x: FX - 4, z: FZ + 30 },
-    pond: { x: FX - 30, z: FZ + 10, r: 9 },
+    id: 'frost', name: 'Frostwhisker Peaks', x: FX, z: FZ, r: 92, coast: 66,
+    arrive: { x: FX, z: FZ + 71 }, captain: { x: FX + 4, z: FZ + 73 },
+    village: { x: FX, z: FZ + 50 }, elder: { x: FX - 4, z: FZ + 48 },
+    pond: { x: FX - 26, z: FZ - 14, r: 8 },
+    cross: { x: FX, z: FZ + 8 },
     zones: {
-      woods: { name: 'Icicle Woods', x: FX - 36, z: FZ - 20, r: 17 },
-      hills: { name: 'Snowman Hills', x: FX + 36, z: FZ + 4, r: 16 },
-      palace: { name: 'Ice Palace', x: FX, z: FZ - 44, r: 13 },
+      woods: { name: 'Icicle Woods', x: FX - 60, z: FZ + 4, r: 18 },
+      hills: { name: 'Snowman Hills', x: FX + 64, z: FZ + 6, r: 17 },
+      palace: { name: 'Ice Palace', x: FX, z: FZ - 70, r: 17 },
     },
   },
+  // Chapter 3. Mire Hollow (west), the Sunken Ruins (east) and Gobbler's Pool (north) are each a boss's own
+  // big stage, far apart; the bog's monsters roam the ground between them, off the boardwalks.
   marsh: {
-    id: 'marsh', name: 'Gobbler Marsh', x: MX, z: MZ, r: 70, villageName: 'Lilypad Landing',
-    arrive: { x: MX, z: MZ + 49 }, captain: { x: MX + 4, z: MZ + 51 },
-    village: { x: MX, z: MZ + 30 }, elder: { x: MX - 4, z: MZ + 27 },
-    pond: { x: MX + 26, z: MZ + 8, r: 8, name: 'Deep Pool' },
+    id: 'marsh', name: 'Gobbler Marsh', x: MX, z: MZ, r: 92, coast: 66, villageName: 'Lilypad Landing',
+    arrive: { x: MX, z: MZ + 71 }, captain: { x: MX + 4, z: MZ + 73 },
+    village: { x: MX, z: MZ + 50 }, elder: { x: MX - 4, z: MZ + 47 },
+    pond: { x: MX + 24, z: MZ + 16, r: 8, name: 'Deep Pool' },
+    cross: { x: MX, z: MZ + 10 },
     zones: {
-      mire: { name: 'Mire Hollow', x: MX - 36, z: MZ - 16, r: 16 },
-      ruins: { name: 'Sunken Ruins', x: MX + 38, z: MZ - 14, r: 15 },
-      gobbler: { name: "Gobbler's Pool", x: MX, z: MZ - 44, r: 14 },
+      mire: { name: 'Mire Hollow', x: MX - 56, z: MZ - 18, r: 19 },
+      ruins: { name: 'Sunken Ruins', x: MX + 56, z: MZ - 16, r: 18 },
+      gobbler: { name: "Gobbler's Pool", x: MX, z: MZ - 66, r: 18 },
     },
+    // where the bog's monsters live: out in the open between the stages, never on a road or in a town
+    camps: [{ x: MX - 30, z: MZ - 20, r: 6 }, { x: MX + 32, z: MZ - 24, r: 6 }, { x: MX - 16, z: MZ - 40, r: 5 }, { x: MX - 22, z: MZ + 22, r: 5 }],
     map: { bg: '#5e8a5a', sea: '#3f8a80', ground: '#8fb86a', zone: '#7aa65a', boss: '#4f8a78', pond: '#3f7a6a', tree: '#3f6a3a', treeHi: '#9fd07a', town: '#a8c880' },
   },
 };
@@ -36,8 +46,8 @@ LANDS.sands = {
   pond: { x: DX + 9, z: DZ + 22, r: 5, name: 'The Oasis' },
   zones: {
     sphinx: { name: 'Sphinx Engine', x: DX - 38, z: DZ - 14, r: 15 },
-    workshop: { name: 'Rustwind Yard', x: DX + 38, z: DZ - 12, r: 15 },
-    colossus: { name: 'Colossus Plaza', x: DX, z: DZ - 44, r: 15 },
+    workshop: { name: 'Rustwind Yard', x: DX + 41, z: DZ - 11, r: 17 },
+    colossus: { name: 'Colossus Plaza', x: DX, z: DZ - 46, r: 18 },
   },
   map: { bg: '#d8b878', sea: '#4fa8c8', ground: '#f0d8a0', zone: '#e6c888', boss: '#d8b070', pond: '#5fc0d0', tree: '#5a8a3a', treeHi: '#a8d860', town: '#f5e2b0' },
   boss: 'colossus',
@@ -50,13 +60,27 @@ LANDS.frost.pond.name = 'Frozen Pond';
 LANDS.frost.boss = 'palace';
 // boss stages: open, cleared rings far apart, so fighting one boss never wakes another
 LANDS.frost.arenas = {
-  grumble: { x: FX - 10, z: FZ - 6, r: 14 },
-  twins: { x: FX + 57, z: FZ + 1, r: 12 },
+  grumble: { name: "Ogre's Pass", x: FX - 46, z: FZ - 48, r: 18 },
+  twins: { name: "Twins' Ridge", x: FX + 46, z: FZ - 48, r: 18 },
 };
 LANDS.marsh.boss = 'gobbler';
-// roads from each village out to its zones, shared by the land builder and the map
+const coastOf = (L) => L.coast ?? 44;
+export { coastOf };
+// roads, shared by the land builder and the map. The two big lands have a hand-laid network;
+// the others run straight from the village out to each zone and town.
 export function landRoads(L) {
+  if (L.roadNet) return L.roadNet;
   const V = L.village, out = [[L.arrive.x, L.arrive.z + 5, V.x, V.z]];
+  if (L.cross) {
+    const C = L.cross, edge = (P, r, from) => { const dx = P.x - from.x, dz = P.z - from.z, d = Math.hypot(dx, dz); return [P.x - (dx / d) * (r - 1), P.z - (dz / d) * (r - 1)]; };
+    out.push([V.x, V.z, C.x, C.z]);
+    for (const T of TOWNS) if (T.land === L.id) out.push(T.home && T.home[1] === C.z ? [C.x, C.z, T.x, T.z] : [V.x, V.z, T.x, T.z]);
+    const B = L.zones[L.boss], mid = { x: C.x, z: (C.z + B.z) / 2 };
+    out.push([C.x, C.z, ...edge(B, B.r, C)]);
+    for (const [k, Z] of Object.entries(L.zones)) if (k !== L.boss) out.push([C.x, C.z, ...edge(Z, Z.r, C)]);
+    for (const A of Object.values(L.arenas || {})) out.push([mid.x, mid.z, ...edge(A, A.r, mid)]);
+    return (L.roadNet = out);
+  }
   for (const [k, Z] of Object.entries(L.zones)) out.push(k === L.boss ? [V.x, V.z, Z.x, Z.z + Z.r] : [V.x, V.z, Z.x + Math.sign(V.x - Z.x) * 8, Z.z + Math.sign(V.z - Z.z) * 8]);
   for (const T of TOWNS) if (T.land === L.id) out.push([V.x, V.z, T.x, T.z]);
   return out;
@@ -101,6 +125,13 @@ function pier(x, z, len, ry) {
   return g;
 }
 
+// A crossroads signpost with three painted arrows.
+function signpost(x, z, wood, paint) {
+  const g = new THREE.Group(); g.position.set(x, 0, z);
+  const post = new THREE.Mesh(new THREE.CylinderGeometry(0.13, 0.16, 3, 7)); post.position.y = 1.5; g.add(add(post, wood));
+  for (const [y, ry] of [[2.6, 0.2], [2.15, 1.9], [1.7, -1.3]]) { const b = new THREE.Mesh(new THREE.BoxGeometry(1.5, 0.34, 0.1)); b.position.set(0.55, 0, 0); const h = new THREE.Group(); h.position.y = y; h.rotation.y = ry; h.add(b); add(b, paint); g.add(h); }
+  scene.add(g); colliders.push({ x, z, r: 0.3 });
+}
 // ---------- Frostwhisker Peaks props ----------
 function snowPine() {
   const g = new THREE.Group();
@@ -137,115 +168,133 @@ function crystal(col = '#9fe6ff') {
   return g;
 }
 
-export function buildLands() {
-  const L = LANDS.frost, R = L.r;
-  const rel = (dx, dz) => [FX + dx, FZ + dz];
-  // snowy ground that rises into hills at the edge, with a sunken bay to the south for the harbour
-  const gGeo = new THREE.PlaneGeometry(250, 250, 110, 110); gGeo.rotateX(-Math.PI / 2);
-  const pos = gGeo.attributes.position, cols = [], cA = new THREE.Color('#eef5ff'), cB = new THREE.Color('#dbe8f7'), cC = new THREE.Color('#ffffff'), t = new THREE.Color();
+// Shared bits for the big lands: rolling ground with a harbour bay, the sea, flat paths and discs.
+function landGround(L, cols3, rise, colourAt) {
+  const R = L.r, C = coastOf(L), size = (R + 70) * 2;
+  const gGeo = new THREE.PlaneGeometry(size, size, 140, 140); gGeo.rotateX(-Math.PI / 2);
+  const pos = gGeo.attributes.position, cols = [], [cA, cB, cC] = cols3.map((c) => new THREE.Color(c)), t = new THREE.Color();
   for (let i = 0; i < pos.count; i++) {
     const x = pos.getX(i), z = pos.getZ(i), d = Math.hypot(x, z);
     const n = Math.sin(x * 0.08) * Math.cos(z * 0.07) + 0.5 * Math.sin(x * 0.21 + z * 0.15);
     t.copy(cA).lerp(n > 0 ? cC : cB, Math.min(1, Math.abs(n) * 0.6));
-    const bay = z > 44 && Math.abs(x) < 34;
-    let y = d > R + 4 ? (d - R - 4) * 0.28 * (1 + 0.5 * Math.sin(x * 0.13 + z * 0.09)) : 0;
-    if (bay) y = z > 56 ? -0.7 : 0;
-    if (bay && z > 54) t.set('#e9dcc0');
+    if (colourAt) colourAt(x, z, t);
+    const bay = z > C && Math.abs(x) < 34;
+    let y = d > R + 4 ? (d - R - 4) * rise * (1 + 0.5 * Math.sin(x * 0.13 + z * 0.09)) : 0;
+    if (bay) y = z > C + 12 ? -0.7 : 0;
     pos.setY(i, y); cols.push(t.r, t.g, t.b);
   }
   gGeo.setAttribute('color', new THREE.Float32BufferAttribute(cols, 3)); gGeo.computeVertexNormals();
-  const ground = new THREE.Mesh(gGeo); ground.position.set(FX, 0, FZ); ground.receiveShadow = true;
+  const ground = new THREE.Mesh(gGeo); ground.position.set(L.x, 0, L.z); ground.receiveShadow = true;
   registerMesh(ground, toon('#ffffff', { vertexColors: true })); scene.add(ground);
-  // the sea in the bay
-  const sea = new THREE.Mesh(new THREE.PlaneGeometry(68, 70)); sea.rotation.x = -Math.PI / 2; sea.position.set(FX, -0.05, FZ + 92);
-  registerMesh(sea, toon('#4fb0e8')); scene.add(sea);
-  for (let i = 0; i < 14; i++) { const w = new THREE.Mesh(new THREE.PlaneGeometry(1.6 + rng(), 0.18)); w.rotation.x = -Math.PI / 2; w.position.set(FX - 28 + rng() * 56, 0.0, FZ + 60 + rng() * 40); registerMesh(w, toon('#d6f2ff')); scene.add(w); }
-
-  // trampled snow paths
-  const pathM = toon('#c9d8ea', { polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
-  const path = (x1, z1, x2, z2, w = 3) => { const dx = x2 - x1, dz = z2 - z1, len = Math.hypot(dx, dz); const m = new THREE.Mesh(new THREE.PlaneGeometry(w, len)); m.rotation.set(-Math.PI / 2, 0, Math.atan2(dx, dz)); m.position.set((x1 + x2) / 2, 0.03, (z1 + z2) / 2); registerMesh(m, pathM); m.receiveShadow = true; scene.add(m); };
-  const disc = (x, z, r, col = '#c9d8ea') => { const m = new THREE.Mesh(new THREE.CircleGeometry(r, 32)); m.rotation.x = -Math.PI / 2; m.position.set(x, 0.035, z); registerMesh(m, toon(col, { polygonOffset: true, polygonOffsetFactor: -3, polygonOffsetUnits: -3 })); m.receiveShadow = true; scene.add(m); };
-  const V = L.village, Z = L.zones;
-  const roads = landRoads(L);
-  for (const r of roads) path(...r);
-  const landTowns = TOWNS.filter((T) => T.land === L.id);
-  disc(V.x, V.z, 7);
-
-  // Snowdrop village
-  const homes = [['building_home_A_blue', -10, -3], ['building_home_B_blue', 10, -4], ['building_home_A_red', -11, 8], ['building_market_yellow', 11, 7]];
-  for (const [n, dx, dz] of homes) { const x = V.x + dx, z = V.z + dz; const o = place(n, x, z, S_BUILD, Math.atan2(V.x - x, V.z - z)); if (o) o.traverse((m) => { if (m.isMesh && m.userData.mats) { for (const k of ['std', 'toon']) { m.userData.mats[k] = m.userData.mats[k].clone(); m.userData.mats[k].color.set('#eef4ff'); } m.material = m.userData.mats.toon; } }); }
-  place('building_well_blue', V.x, V.z - 1, S_BUILD);
-  for (const [n, dx, dz] of [['barrel', 6, 3], ['crate_A_big', -6, 4], ['sack', 7, 4]]) place(n, V.x + dx, V.z + dz, S_PROP, rng() * 6, { shrink: 0.6 });
-  // harbour: pier and the ship
-  pier(FX, FZ + 52, 10, 0);
-  makeShip(FX, FZ + 66, 0, '#fff1d6', '#4a7ac8');
-  colliders.push({ x: FX, z: FZ + 66, r: 3 });
-
-  // frozen pond
-  const P = L.pond;
-  const ice = new THREE.Mesh(new THREE.CircleGeometry(P.r, 36)); ice.rotation.x = -Math.PI / 2; ice.position.set(P.x, 0.05, P.z); registerMesh(ice, toon('#a8dcf6', { polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -4 })); scene.add(ice);
-  for (let i = 0; i < 6; i++) { const s = new THREE.Mesh(new THREE.PlaneGeometry(0.15, 1.5 + rng() * 2)); s.rotation.set(-Math.PI / 2, 0, rng() * 3); s.position.set(P.x - 5 + rng() * 10, 0.07, P.z - 5 + rng() * 10); registerMesh(s, toon('#e8f8ff')); scene.add(s); }
-
-  // trees: a belt of snowy pines, thicker in Icicle Woods
-  const nearPath = (x, z) => {
+}
+function landSea(L, col, sand) {
+  const C = coastOf(L);
+  const beach = new THREE.Mesh(new THREE.PlaneGeometry(68, 12)); beach.rotation.x = -Math.PI / 2; beach.position.set(L.x, 0.01, L.z + C + 6);
+  registerMesh(beach, toon(sand, { polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1 })); scene.add(beach);
+  const sea = new THREE.Mesh(new THREE.PlaneGeometry(68, 90)); sea.rotation.x = -Math.PI / 2; sea.position.set(L.x, -0.05, L.z + C + 57);
+  registerMesh(sea, toon(col)); scene.add(sea);
+  pier(L.x, L.z + C + 8, 10, 0);
+  colliders.push({ x: L.x, z: L.z + C + 22, r: 3 });
+}
+function landKit(L, pathCol) {
+  const pathM = toon(pathCol, { polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
+  const path = (x1, z1, x2, z2, w = 3.2) => { const dx = x2 - x1, dz = z2 - z1, len = Math.hypot(dx, dz); const m = new THREE.Mesh(new THREE.PlaneGeometry(w, len)); m.rotation.set(-Math.PI / 2, 0, Math.atan2(dx, dz)); m.position.set((x1 + x2) / 2, 0.03, (z1 + z2) / 2); registerMesh(m, pathM); m.receiveShadow = true; scene.add(m);
+    const cap = new THREE.Mesh(new THREE.CircleGeometry(w / 2, 16)); cap.rotation.x = -Math.PI / 2; cap.position.set(x2, 0.03, z2); registerMesh(cap, pathM); scene.add(cap); };
+  const disc = (x, z, r, col = pathCol, y = 0.035) => { const m = new THREE.Mesh(new THREE.CircleGeometry(r, 40)); m.rotation.x = -Math.PI / 2; m.position.set(x, y, z); registerMesh(m, toon(col, { polygonOffset: true, polygonOffsetFactor: -3, polygonOffsetUnits: -3 })); m.receiveShadow = true; scene.add(m); return m; };
+  const roads = landRoads(L), landTowns = TOWNS.filter((T) => T.land === L.id);
+  const nearPath = (x, z, pad = 4.5) => {
     if (landTowns.some((T) => Math.hypot(x - T.x, z - T.z) < T.r + 2)) return true;
-    for (const [x1, z1, x2, z2] of roads) { const dx = x2 - x1, dz = z2 - z1, l2 = dx * dx + dz * dz, k = Math.max(0, Math.min(1, ((x - x1) * dx + (z - z1) * dz) / l2)); if (Math.hypot(x - x1 - k * dx, z - z1 - k * dz) < 4) return true; }
+    for (const [x1, z1, x2, z2] of roads) { const dx = x2 - x1, dz = z2 - z1, l2 = dx * dx + dz * dz, k = Math.max(0, Math.min(1, ((x - x1) * dx + (z - z1) * dz) / l2)); if (Math.hypot(x - x1 - k * dx, z - z1 - k * dz) < pad) return true; }
     return false;
   };
+  const stages = [...Object.values(L.zones), ...Object.values(L.arenas || {}), ...(L.camps || [])];
+  const free = (x, z, pad) => colliders.every((c) => Math.hypot(c.x - x, c.z - z) > c.r + pad);
+  // open ground: not on a road, a town, the village, the pond, a stage or the beach
+  const open = (x, z, pad, zonePad = 2) => !nearPath(x, z) && Math.hypot(x - L.village.x, z - L.village.z) > 17 && Math.hypot(x - L.pond.x, z - L.pond.z) > L.pond.r + 3
+    && stages.every((q) => Math.hypot(x - q.x, z - q.z) > q.r + zonePad) && z - L.z < coastOf(L) - 4 && free(x, z, pad);
+  const rnd = (rMin, rMax) => { const a = rng() * Math.PI * 2, rr = rMin + rng() * (rMax - rMin); return [L.x + Math.cos(a) * rr, L.z + Math.sin(a) * rr]; };
+  for (const r of roads) path(...r);
+  disc(L.village.x, L.village.z, 8);
+  if (L.cross) disc(L.cross.x, L.cross.z, 4.5);
+  return { path, disc, roads, nearPath, free, open, rnd, landTowns };
+}
+// The forest belt round a land's edge, leaving the bay and every road open.
+function edgeBelt(L, tries, place2, nearPath, free, dens = 0.55) {
+  const R = L.r, C = coastOf(L);
+  for (let i = 0; i < tries; i++) {
+    const a = rng() * Math.PI * 2, rr = R - 14 + rng() * 34, x = L.x + Math.cos(a) * rr, z = L.z + Math.sin(a) * rr;
+    if (z - L.z > C - 6 && Math.abs(x - L.x) < 40) continue;
+    if (rng() > dens || nearPath(x, z) || !free(x, z, 1.4)) continue;
+    place2(x, z);
+  }
+}
+
+export function buildLands() {
+  const L = LANDS.frost, R = L.r;
+  landGround(L, ['#eef5ff', '#dbe8f7', '#ffffff'], 0.28);
+  landSea(L, '#4fb0e8', '#e9dcc0');
+  makeShip(FX, FZ + coastOf(L) + 22, 0, '#fff1d6', '#4a7ac8');
+  for (let i = 0; i < 10; i++) { const w = new THREE.Mesh(new THREE.PlaneGeometry(1.6 + rng(), 0.18)); w.rotation.x = -Math.PI / 2; w.position.set(FX - 28 + rng() * 56, 0.0, FZ + coastOf(L) + 16 + rng() * 40); registerMesh(w, toon('#d6f2ff')); scene.add(w); }
+  const V = L.village, Z = L.zones, P = L.pond;
+  const { disc, nearPath, free, open, rnd } = landKit(L, '#c9d8ea');
+
+  // Snowdrop village: four snowy houses round a well
+  const homes = [['building_home_A_blue', -12, -4], ['building_home_B_blue', 12, -5], ['building_home_A_red', -13, 8], ['building_market_yellow', 13, 7]];
+  for (const [n, dx, dz] of homes) { const x = V.x + dx, z = V.z + dz; const o = place(n, x, z, S_BUILD, Math.atan2(V.x - x, V.z - z)); if (o) o.traverse((m) => { if (m.isMesh && m.userData.mats) { for (const k of ['std', 'toon']) { m.userData.mats[k] = m.userData.mats[k].clone(); m.userData.mats[k].color.set('#eef4ff'); } m.material = m.userData.mats.toon; } }); }
+  place('building_well_blue', V.x, V.z - 1, S_BUILD);
+  place('barrel', V.x + 7, V.z + 4, S_PROP, 0.4, { shrink: 0.6 });
+
+  // frozen pond, a little skating spot by the woods road
+  const ice = new THREE.Mesh(new THREE.CircleGeometry(P.r, 36)); ice.rotation.x = -Math.PI / 2; ice.position.set(P.x, 0.05, P.z); registerMesh(ice, toon('#a8dcf6', { polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -4 })); scene.add(ice);
+  for (let i = 0; i < 5; i++) { const s = new THREE.Mesh(new THREE.PlaneGeometry(0.15, 1.5 + rng() * 2)); s.rotation.set(-Math.PI / 2, 0, rng() * 3); s.position.set(P.x - 4 + rng() * 8, 0.07, P.z - 4 + rng() * 8); registerMesh(s, toon('#e8f8ff')); scene.add(s); }
+
+  // boss stages: a trampled snow floor with a ring of ice shards round the edge (gaps to walk in)
   const arenas = Object.values(L.arenas || {});
-  const free = (x, z, pad) => arenas.every((A) => Math.hypot(A.x - x, A.z - z) > A.r + pad) && colliders.every((c) => Math.hypot(c.x - x, c.z - z) > c.r + pad);
-  // each boss stage: a trampled snow floor with a ring of ice shards round the edge
   for (const A of arenas) {
     disc(A.x, A.z, A.r, '#dbe6f4');
-    for (let i = 0; i < 14; i++) { const a = (i / 14) * Math.PI * 2 + 0.2, x = A.x + Math.cos(a) * (A.r + 1), z = A.z + Math.sin(a) * (A.r + 1); const sp = new THREE.Mesh(new THREE.ConeGeometry(0.35, 1.4 + (i % 3) * 0.5, 5)); sp.position.set(x, 0.6, z); sp.rotation.z = (rng() - 0.5) * 0.3; registerMesh(sp, toon('#bfe8ff')); scene.add(sp); }
+    const n = 20;
+    for (let i = 0; i < n; i++) { if (i % 5 === 4) continue; const a = (i / n) * Math.PI * 2 + 0.2, x = A.x + Math.cos(a) * (A.r + 1), z = A.z + Math.sin(a) * (A.r + 1); const sp = new THREE.Mesh(new THREE.ConeGeometry(0.4, 1.6 + (i % 3) * 0.6, 5)); sp.position.set(x, 0.7, z); sp.rotation.z = (rng() - 0.5) * 0.3; registerMesh(sp, toon('#bfe8ff')); scene.add(sp); }
   }
   const pines = [];
   const pineAt = (x, z, s) => { pines.push(M(x, 0, z, s, rng() * 6)); colliders.push({ x, z, r: 0.25 * s }); };
-  for (let i = 0; i < 340; i++) {
-    const a = rng() * Math.PI * 2, rr = 50 + rng() * 26, x = FX + Math.cos(a) * rr, z = FZ + Math.sin(a) * rr;
-    if (z - FZ > 40 && Math.abs(x - FX) < 38) continue;
-    if (rng() > 0.55 || nearPath(x, z) || !free(x, z, 1.2)) continue;
-    pineAt(x, z, 4.2 + rng() * 1.6);
-  }
-  for (let i = 0; i < 60; i++) {
-    const a = rng() * Math.PI * 2, rr = 5 + rng() * (Z.woods.r + 6), x = Z.woods.x + Math.cos(a) * rr, z = Z.woods.z + Math.sin(a) * rr;
-    if (nearPath(x, z) || Math.hypot(x - Z.woods.x, z - Z.woods.z) < 7 || !free(x, z, 1.4)) continue;
-    pineAt(x, z, 3.8 + rng() * 1.8);
-  }
-  for (let i = 0; i < 16; i++) {
-    const a = rng() * Math.PI * 2, rr = 16 + rng() * 32, x = FX + Math.cos(a) * rr, z = FZ + Math.sin(a) * rr;
-    if (nearPath(x, z) || Math.hypot(x - V.x, z - V.z) < 16 || Math.hypot(x - P.x, z - P.z) < P.r + 2 || Math.hypot(x - Z.palace.x, z - Z.palace.z) < Z.palace.r + 4 || !free(x, z, 2)) continue;
-    pineAt(x, z, 4 + rng() * 1.2);
-  }
-  instanced(snowPine(), pines);
-
-  // Snowman Hills: lots of snowmen (they're friendly... probably) and igloos
-  const men = [], igl = [];
-  for (let i = 0; i < 9; i++) { const a = (i / 9) * Math.PI * 2 + rng() * 0.4, rr = 6 + rng() * (Z.hills.r - 4), x = Z.hills.x + Math.cos(a) * rr, z = Z.hills.z + Math.sin(a) * rr; if (!free(x, z, 1)) continue; men.push(M(x, 0, z, 1.5 + rng() * 0.5, Math.atan2(FX - x, FZ + 30 - z))); colliders.push({ x, z, r: 0.5 }); }
-  for (const [dx, dz, ry] of [[-6, -10, 0.4], [7, -8, -0.6], [12, 6, -1.6]]) { const x = Z.hills.x + dx, z = Z.hills.z + dz; if (!free(x, z, 1)) continue; igl.push(M(x, 0, z, 2.2, ry)); colliders.push({ x, z, r: 2 }); }
-  for (const [dx, dz] of [[-14, 6], [13, -6], [-9, 14]]) { const x = V.x + dx, z = V.z + dz; if (free(x, z, 1)) { men.push(M(x, 0, z, 1.5, Math.atan2(V.x - x, V.z - z))); colliders.push({ x, z, r: 0.5 }); } }
-  instanced(snowman(), men); instanced(igloo(), igl);
-  // snow-capped rocks
-  const rocks = [];
-  for (let i = 0; i < 16; i++) { const a = rng() * Math.PI * 2, rr = 14 + rng() * 40, x = FX + Math.cos(a) * rr, z = FZ + Math.sin(a) * rr; if (nearPath(x, z) || Math.hypot(x - V.x, z - V.z) < 14 || !free(x, z, 1.5)) continue; rocks.push(M(x, 0, z, 3.5 + rng() * 2, rng() * 6)); colliders.push({ x, z, r: 0.7 }); }
-  if (lib.rock_single_B) instanced(tinted(lib.rock_single_B, '#dfe9f6'), rocks);
-
-  // the Ice Palace: a ring of crystal spires around a glassy floor
+  // the Ice Palace first, so nothing grows on it
   const IP = Z.palace;
   disc(IP.x, IP.z, IP.r + 1, '#bfe6fb');
   const spires = [];
-  for (let i = 0; i < 12; i++) { const a = (i / 12) * Math.PI * 2; if (Math.abs(a - Math.PI / 2) < 0.3) continue; const x = IP.x + Math.cos(a) * IP.r, z = IP.z + Math.sin(a) * IP.r; spires.push(M(x, 0, z, 2.6 + (i % 3) * 0.6, a)); colliders.push({ x, z, r: 1 }); }
+  for (let i = 0; i < 14; i++) { const a = (i / 14) * Math.PI * 2; if (Math.abs(a - Math.PI / 2) < 0.35) continue; const x = IP.x + Math.cos(a) * (IP.r + 0.5), z = IP.z + Math.sin(a) * (IP.r + 0.5); spires.push(M(x, 0, z, 2.6 + (i % 3) * 0.6, a)); colliders.push({ x, z, r: 1 }); }
   instanced(crystal('#9fe6ff'), spires);
-  const loose = [];
-  for (let i = 0; i < 14; i++) { const a = rng() * Math.PI * 2, rr = 8 + rng() * 40, x = FX + Math.cos(a) * rr, z = FZ + Math.sin(a) * rr; if (nearPath(x, z) || Math.hypot(x - V.x, z - V.z) < 14 || !free(x, z, 1)) continue; loose.push(M(x, 0, z, 1.2 + rng() * 0.8, rng() * 6)); colliders.push({ x, z, r: 0.5 }); }
+  const throne = new THREE.Mesh(new THREE.BoxGeometry(2.4, 3.2, 1)); throne.position.set(IP.x, 1.6, IP.z - 10); add(throne, '#bfe6ff'); scene.add(throne);
+  const seat = new THREE.Mesh(new THREE.BoxGeometry(2.4, 1, 1.6)); seat.position.set(IP.x, 0.5, IP.z - 9.2); add(seat, '#9fd8f8'); scene.add(seat);
+  colliders.push({ x: IP.x, z: IP.z - 9.6, r: 1.4 });
+  // Snowman Hills: a ring of snowmen and three igloos (frostsilver rocks fill the gaps)
+  const men = [], igl = [], H = Z.hills;
+  for (let i = 0; i < 6; i++) { const a = (i / 6) * Math.PI * 2 + 0.5, x = H.x + Math.cos(a) * 9.5, z = H.z + Math.sin(a) * 9.5; if (!free(x, z, 1)) continue; men.push(M(x, 0, z, 1.6, Math.atan2(V.x - x, V.z - z))); colliders.push({ x, z, r: 0.5 }); }
+  for (const [dx, dz, ry] of [[-6, -10, 0.4], [7, -8, -0.6], [12, 6, -1.6]]) { const x = H.x + dx, z = H.z + dz; igl.push(M(x, 0, z, 2.2, ry)); colliders.push({ x, z, r: 2 }); }
+  for (const [dx, dz] of [[-15, 7], [14, 6]]) { const x = V.x + dx, z = V.z + dz; if (free(x, z, 1)) { men.push(M(x, 0, z, 1.5, Math.atan2(V.x - x, V.z - z))); colliders.push({ x, z, r: 0.5 }); } }
+  instanced(snowman(), men); instanced(igloo(), igl);
+
+  // trees: a belt of snowy pines round the edge, thick in Icicle Woods, a few lone ones in between
+  edgeBelt(L, 420, (x, z) => pineAt(x, z, 4.2 + rng() * 1.6), nearPath, (x, z, p) => free(x, z, p) && arenas.every((A) => Math.hypot(A.x - x, A.z - z) > A.r + 3));
+  const W = Z.woods;
+  for (let i = 0; i < 70; i++) {
+    const a = rng() * Math.PI * 2, rr = 7 + rng() * (W.r + 4), x = W.x + Math.cos(a) * rr, z = W.z + Math.sin(a) * rr;
+    if (nearPath(x, z) || !free(x, z, 1.6)) continue;
+    pineAt(x, z, 3.8 + rng() * 1.8);
+  }
+  for (let i = 0; i < 26; i++) { const [x, z] = rnd(20, R - 16); if (!open(x, z, 3, 5)) continue; pineAt(x, z, 4 + rng() * 1.2); }
+  instanced(snowPine(), pines);
+  // a few snow-capped rocks and lilac crystals, well apart
+  const rocks = [], loose = [];
+  for (let i = 0; i < 12 && rocks.length < 6; i++) { const [x, z] = rnd(20, R - 14); if (!open(x, z, 5)) continue; rocks.push(M(x, 0, z, 3.5 + rng() * 2, rng() * 6)); colliders.push({ x, z, r: 0.7 }); }
+  if (lib.rock_single_B) instanced(tinted(lib.rock_single_B, '#dfe9f6'), rocks);
+  for (let i = 0; i < 12 && loose.length < 5; i++) { const [x, z] = rnd(16, R - 14); if (!open(x, z, 5)) continue; loose.push(M(x, 0, z, 1.3 + rng() * 0.7, rng() * 6)); colliders.push({ x, z, r: 0.5 }); }
   instanced(crystal('#c8b8ff'), loose);
-  const throne = new THREE.Mesh(new THREE.BoxGeometry(2.4, 3.2, 1)); throne.position.set(IP.x, 1.6, IP.z - 6); add(throne, '#bfe6ff'); scene.add(throne);
-  const seat = new THREE.Mesh(new THREE.BoxGeometry(2.4, 1, 1.6)); seat.position.set(IP.x, 0.5, IP.z - 5.2); add(seat, '#9fd8f8'); scene.add(seat);
-  colliders.push({ x: IP.x, z: IP.z - 5.6, r: 1.4 });
+  // a signpost at the crossroads
+  signpost(L.cross.x + 3.2, L.cross.z - 3.2, '#6a4a3a', '#f2f7ff');
 
   // white mountains all round
   const far = [];
-  for (let i = 0; i < 26; i++) { const a = (i / 26) * Math.PI * 2 + rng() * 0.1; if (Math.abs(a - Math.PI / 2) < 0.55) continue; const rr = R + 30 + rng() * 8; far.push(M(FX + Math.cos(a) * rr, -1, FZ + Math.sin(a) * rr, 12 + rng() * 5, rng() * 6)); }
+  for (let i = 0; i < 30; i++) { const a = (i / 30) * Math.PI * 2 + rng() * 0.1; if (Math.abs(a - Math.PI / 2) < 0.45) continue; const rr = R + 30 + rng() * 8; far.push(M(FX + Math.cos(a) * rr, -1, FZ + Math.sin(a) * rr, 13 + rng() * 5, rng() * 6)); }
   if (lib.mountain_C_grass) instanced(tinted(lib.mountain_C_grass, '#f2f7ff'), far, { cast: false });
 
   // ---------- Jerry Valley harbour on the lake ----------
@@ -307,112 +356,80 @@ function stiltHut(x, z, ry, wall = '#c89a5a', roof = '#6a8a3a') {
 }
 export function buildMarsh() {
   const L = LANDS.marsh, R = L.r;
-  // mossy, lumpy ground with dark puddles; muddy at the edge, rising into reedy banks
-  const gGeo = new THREE.PlaneGeometry(250, 250, 110, 110); gGeo.rotateX(-Math.PI / 2);
-  const pos = gGeo.attributes.position, cols = [], cA = new THREE.Color('#8fb86a'), cB = new THREE.Color('#7aa35a'), cC = new THREE.Color('#a3c476'), mud = new THREE.Color('#8a7a52'), t = new THREE.Color();
-  for (let i = 0; i < pos.count; i++) {
-    const x = pos.getX(i), z = pos.getZ(i), d = Math.hypot(x, z);
-    const n = Math.sin(x * 0.09) * Math.cos(z * 0.08) + 0.5 * Math.sin(x * 0.23 + z * 0.17);
-    t.copy(cA).lerp(n > 0 ? cC : cB, Math.min(1, Math.abs(n) * 0.6));
-    if (Math.sin(x * 0.31 + 1) * Math.cos(z * 0.27) > 0.75) t.lerp(mud, 0.55);
-    const bay = z > 44 && Math.abs(x) < 34;
-    let y = d > R + 4 ? (d - R - 4) * 0.22 * (1 + 0.5 * Math.sin(x * 0.13 + z * 0.09)) : 0;
-    if (bay) y = z > 56 ? -0.7 : 0;
-    if (bay && z > 54) t.set('#a89a6a');
-    pos.setY(i, y); cols.push(t.r, t.g, t.b);
-  }
-  gGeo.setAttribute('color', new THREE.Float32BufferAttribute(cols, 3)); gGeo.computeVertexNormals();
-  const ground = new THREE.Mesh(gGeo); ground.position.set(MX, 0, MZ); ground.receiveShadow = true;
-  registerMesh(ground, toon('#ffffff', { vertexColors: true })); scene.add(ground);
-  const sea = new THREE.Mesh(new THREE.PlaneGeometry(68, 70)); sea.rotation.x = -Math.PI / 2; sea.position.set(MX, -0.05, MZ + 92);
-  registerMesh(sea, toon('#3f8a80')); scene.add(sea);
-
-  const pathM = toon('#b8a070', { polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
-  const path = (x1, z1, x2, z2, w = 3) => { const dx = x2 - x1, dz = z2 - z1, len = Math.hypot(dx, dz); const m = new THREE.Mesh(new THREE.PlaneGeometry(w, len)); m.rotation.set(-Math.PI / 2, 0, Math.atan2(dx, dz)); m.position.set((x1 + x2) / 2, 0.03, (z1 + z2) / 2); registerMesh(m, pathM); m.receiveShadow = true; scene.add(m); };
-  const disc = (x, z, r, col = '#b8a070', y = 0.035) => { const m = new THREE.Mesh(new THREE.CircleGeometry(r, 32)); m.rotation.x = -Math.PI / 2; m.position.set(x, y, z); registerMesh(m, toon(col, { polygonOffset: true, polygonOffsetFactor: -3, polygonOffsetUnits: -3 })); m.receiveShadow = true; scene.add(m); return m; };
-  const V = L.village, Z = L.zones, roads = landRoads(L);
-  // boardwalk planks instead of plain paths
-  for (const [x1, z1, x2, z2] of roads) path(x1, z1, x2, z2);
-  disc(V.x, V.z, 7);
-  const landTowns = TOWNS.filter((T) => T.land === L.id);
-  const nearPath = (x, z) => {
-    if (landTowns.some((T) => Math.hypot(x - T.x, z - T.z) < T.r + 2)) return true;
-    for (const [x1, z1, x2, z2] of roads) { const dx = x2 - x1, dz = z2 - z1, l2 = dx * dx + dz * dz, k = Math.max(0, Math.min(1, ((x - x1) * dx + (z - z1) * dz) / l2)); if (Math.hypot(x - x1 - k * dx, z - z1 - k * dz) < 4) return true; }
-    return false;
-  };
-  const free = (x, z, pad) => colliders.every((c) => Math.hypot(c.x - x, c.z - z) > c.r + pad);
-  const away = (x, z, pad) => !nearPath(x, z) && Math.hypot(x - V.x, z - V.z) > 15 && Object.values(Z).every((q) => Math.hypot(x - q.x, z - q.z) > q.r * 0.55) && Math.hypot(x - L.pond.x, z - L.pond.z) > L.pond.r + 2 && free(x, z, pad);
+  // mossy, lumpy ground with a few muddy patches; rising into reedy banks at the edge
+  const mud = new THREE.Color('#8a7a52');
+  landGround(L, ['#8fb86a', '#7aa35a', '#a3c476'], 0.22, (x, z, t) => { if (Math.sin(x * 0.31 + 1) * Math.cos(z * 0.27) > 0.82) t.lerp(mud, 0.4); });
+  landSea(L, '#3f8a80', '#a89a6a');
+  makeShip(MX, MZ + coastOf(L) + 22, 0, '#f0f8e0', '#4a8a4a');
+  const V = L.village, Z = L.zones, P = L.pond;
+  const { disc, nearPath, free, open, rnd } = landKit(L, '#b8a070');
 
   // Lilypad Landing: huts on stilts round the square
-  for (const [dx, dz, w, r] of [[-11, -3, '#c89a5a', '#6a8a3a'], [11, -4, '#b8c88a', '#8a5a3a'], [-11, 9, '#d8b070', '#5a7a4a'], [12, 8, '#a8c0a0', '#7a5a8a']]) stiltHut(V.x + dx, V.z + dz, Math.atan2(-dx, -dz), w, r);
+  for (const [dx, dz, w, r] of [[-12, -4, '#c89a5a', '#6a8a3a'], [12, -5, '#b8c88a', '#8a5a3a'], [-12, 9, '#d8b070', '#5a7a4a'], [13, 8, '#a8c0a0', '#7a5a8a']]) stiltHut(V.x + dx, V.z + dz, Math.atan2(-dx, -dz), w, r);
   place('building_well_blue', V.x, V.z - 1, S_BUILD);
-  for (const [n, dx, dz] of [['barrel', 6, 3], ['crate_A_big', -6, 4], ['sack', 7, 4]]) place(n, V.x + dx, V.z + dz, S_PROP, rng() * 6, { shrink: 0.6 });
-  pier(MX, MZ + 52, 10, 0);
-  makeShip(MX, MZ + 66, 0, '#f0f8e0', '#4a8a4a');
-  colliders.push({ x: MX, z: MZ + 66, r: 3 });
+  place('barrel', V.x + 7, V.z + 4, S_PROP, 0.4, { shrink: 0.6 });
 
-  // murky pools: the Deep Pool (where Mireiron is fished up), plus little puddles everywhere
-  const P = L.pond;
+  // the Deep Pool (where Mireiron is fished up) and a handful of puddles out in the open
   disc(P.x, P.z, P.r + 0.6, '#5a6a3a', 0.04); disc(P.x, P.z, P.r, '#3f7a6a', 0.05);
   const pads = [], flowers = [];
-  for (let i = 0; i < 10; i++) { const a = rng() * 6.28, rr = rng() * (P.r - 1), x = P.x + Math.cos(a) * rr, z = P.z + Math.sin(a) * rr; pads.push(M(x, 0.07, z, 1 + rng() * 0.6, rng() * 6)); if (i % 3 === 0) flowers.push(M(x, 0.07, z, 1.6, 0)); }
+  for (let i = 0; i < 8; i++) { const a = rng() * 6.28, rr = rng() * (P.r - 1.5), x = P.x + Math.cos(a) * rr, z = P.z + Math.sin(a) * rr; pads.push(M(x, 0.07, z, 1 + rng() * 0.6, rng() * 6)); if (i % 3 === 0) flowers.push(M(x, 0.07, z, 1.6, 0)); }
   const puddles = [];
-  for (let i = 0; i < 26; i++) {
-    const a = rng() * 6.28, rr = 12 + rng() * 52, x = MX + Math.cos(a) * rr, z = MZ + Math.sin(a) * rr;
-    if (!away(x, z, 1) || z - MZ > 40) continue;
-    const r = 1.5 + rng() * 2.5; disc(x, z, r, '#4f7f6a', 0.045); puddles.push([x, z, r]);
-    for (let j = 0; j < 2; j++) pads.push(M(x + (rng() - 0.5) * r, 0.06, z + (rng() - 0.5) * r, 0.9 + rng() * 0.5, rng() * 6));
+  for (let i = 0; i < 30 && puddles.length < 9; i++) {
+    const [x, z] = rnd(16, R - 12); if (!open(x, z, 2, 4)) continue;
+    const r = 2 + rng() * 2; disc(x, z, r, '#4f7f6a', 0.045); puddles.push([x, z, r]);
+    pads.push(M(x + (rng() - 0.5) * r, 0.06, z + (rng() - 0.5) * r, 0.9 + rng() * 0.5, rng() * 6));
   }
-  // Gobbler's Pool: a big round pond covered in lily pads, with a rim of mud to fight on
+  // Gobbler's Pool: a big round pond covered in lily pads, with a wide rim of mud to fight on
   const GP = Z.gobbler;
-  disc(GP.x, GP.z, GP.r + 1.5, '#6a5a3a', 0.035); disc(GP.x, GP.z, GP.r * 0.62, '#3a6a5a', 0.05);
-  for (let i = 0; i < 9; i++) { const a = (i / 9) * Math.PI * 2, x = GP.x + Math.cos(a) * GP.r * 0.75, z = GP.z + Math.sin(a) * GP.r * 0.75; pads.push(M(x, 0.06, z, 3.2, rng() * 6)); }
+  disc(GP.x, GP.z, GP.r + 1.5, '#6a5a3a', 0.035); disc(GP.x, GP.z, GP.r * 0.55, '#3a6a5a', 0.05);
+  for (let i = 0; i < 10; i++) { const a = (i / 10) * Math.PI * 2, x = GP.x + Math.cos(a) * GP.r * 0.72, z = GP.z + Math.sin(a) * GP.r * 0.72; pads.push(M(x, 0.06, z, 3.2, rng() * 6)); }
   instanced(lilyPad(), pads, { cast: false }); instanced(lilyFlower(), flowers);
+  // a ring of reed clumps marks each boss's stage
+  const rd = [], ring = (Q, n, rr) => { for (let i = 0; i < n; i++) { if (i % 4 === 3) continue; const a = (i / n) * Math.PI * 2 + 0.2; rd.push(M(Q.x + Math.cos(a) * rr, 0, Q.z + Math.sin(a) * rr, 1.8, rng() * 6)); } };
+  ring(GP, 22, GP.r + 2.2);
 
-  // willows: a ring round the edge and a thick clump in Mire Hollow
-  const wil = [], willowAt = (x, z, sc) => { wil.push(M(x, 0, z, sc, rng() * 6)); colliders.push({ x, z, r: 0.35 * sc }); };
-  for (let i = 0; i < 320; i++) {
-    const a = rng() * Math.PI * 2, rr = 50 + rng() * 26, x = MX + Math.cos(a) * rr, z = MZ + Math.sin(a) * rr;
-    if (z - MZ > 40 && Math.abs(x - MX) < 38) continue;
-    if (rng() > 0.5 || nearPath(x, z) || !free(x, z, 1.4)) continue;
-    willowAt(x, z, 3.6 + rng() * 1.4);
-  }
-  for (let i = 0; i < 50; i++) {
-    const a = rng() * Math.PI * 2, rr = 6 + rng() * (Z.mire.r + 4), x = Z.mire.x + Math.cos(a) * rr, z = Z.mire.z + Math.sin(a) * rr;
-    if (nearPath(x, z) || Math.hypot(x - Z.mire.x, z - Z.mire.z) < 8 || !free(x, z, 1.6)) continue;
-    willowAt(x, z, 3.2 + rng() * 1.4);
-  }
-  for (let i = 0; i < 14; i++) { const a = rng() * 6.28, rr = 16 + rng() * 32, x = MX + Math.cos(a) * rr, z = MZ + Math.sin(a) * rr; if (!away(x, z, 2.2)) continue; willowAt(x, z, 3.4 + rng()); }
-  instanced(willow(), wil);
-  // reeds, toadstools and a few mossy rocks
-  const rd = [], ts = [], tsB = [], rocks = [];
-  for (let i = 0; i < 150; i++) { const a = rng() * 6.28, rr = 8 + rng() * 60, x = MX + Math.cos(a) * rr, z = MZ + Math.sin(a) * rr; if (nearPath(x, z) || Math.hypot(x - V.x, z - V.z) < 9) continue; rd.push(M(x, 0, z, 1.4 + rng() * 0.8, rng() * 6)); }
-  for (const [x, z, r] of puddles) for (let j = 0; j < 3; j++) { const a = rng() * 6.28; rd.push(M(x + Math.cos(a) * r, 0, z + Math.sin(a) * r, 1.6, rng() * 6)); }
-  for (let i = 0; i < 40; i++) { const a = rng() * 6.28, rr = 6 + rng() * (Z.mire.r + 6), x = Z.mire.x + Math.cos(a) * rr, z = Z.mire.z + Math.sin(a) * rr; if (nearPath(x, z) || !free(x, z, 0.4)) continue; (i % 3 ? ts : tsB).push(M(x, 0, z, 1.6 + rng() * 1.6, rng() * 6)); }
-  for (let i = 0; i < 24; i++) { const a = rng() * 6.28, rr = 10 + rng() * 55, x = MX + Math.cos(a) * rr, z = MZ + Math.sin(a) * rr; if (!away(x, z, 0.5)) continue; ts.push(M(x, 0, z, 1.4 + rng(), rng() * 6)); }
-  for (let i = 0; i < 14; i++) { const a = rng() * 6.28, rr = 14 + rng() * 40, x = MX + Math.cos(a) * rr, z = MZ + Math.sin(a) * rr; if (!away(x, z, 1.5)) continue; rocks.push(M(x, 0, z, 3 + rng() * 2, rng() * 6)); colliders.push({ x, z, r: 0.7 }); }
-  instanced(reeds(), rd, { cast: false }); instanced(toadstool('#e0444f'), ts); instanced(toadstool('#a86ad8'), tsB);
-  if (lib.rock_single_B) instanced(tinted(lib.rock_single_B, '#8a9a6a'), rocks);
-
-  // Mother Mire's crooked hut in the hollow, with a bubbling cauldron
+  // Mother Mire's crooked hut at the back of her hollow, with a bubbling cauldron
   const MH = Z.mire;
-  disc(MH.x, MH.z, 8, '#6a5a3a');
-  const hut = stiltHut(MH.x, MH.z - 6, 0.3, '#6a5a7a', '#3a4a2a'); hut.rotation.z = 0.06;
-  const caul = new THREE.Mesh(new THREE.SphereGeometry(1, 14, 10, 0, Math.PI * 2, Math.PI * 0.35, Math.PI * 0.65)); caul.position.set(MH.x + 3, 0.9, MH.z); scene.add(add(caul, '#2a2a32'));
-  const brew = new THREE.Mesh(new THREE.CircleGeometry(0.85, 20)); brew.rotation.x = -Math.PI / 2; brew.position.set(MH.x + 3, 1.42, MH.z); registerMesh(brew, toon('#8aff6a', { emissive: '#2a6a1a' })); scene.add(brew);
-  colliders.push({ x: MH.x + 3, z: MH.z, r: 1.1 });
-  // the Sunken Ruins: tilted broken pillars standing in shallow water
+  disc(MH.x, MH.z, MH.r, '#7a6a4a', 0.033);
+  const hut = stiltHut(MH.x - 4, MH.z - MH.r + 5, 0.3, '#6a5a7a', '#3a4a2a'); hut.rotation.z = 0.06;
+  const cx = MH.x + 6, cz = MH.z - MH.r + 6;
+  const caul = new THREE.Mesh(new THREE.SphereGeometry(1, 14, 10, 0, Math.PI * 2, Math.PI * 0.35, Math.PI * 0.65)); caul.position.set(cx, 0.9, cz); scene.add(add(caul, '#2a2a32'));
+  const brew = new THREE.Mesh(new THREE.CircleGeometry(0.85, 20)); brew.rotation.x = -Math.PI / 2; brew.position.set(cx, 1.42, cz); registerMesh(brew, toon('#8aff6a', { emissive: '#2a6a1a' })); scene.add(brew);
+  colliders.push({ x: cx, z: cz, r: 1.1 });
+  ring(MH, 24, MH.r + 1.5);
+  // the Sunken Ruins: a shallow flooded court ringed by tilted broken pillars
   const SR = Z.ruins;
-  disc(SR.x, SR.z, SR.r - 2, '#4f7f6a', 0.045);
-  for (let i = 0; i < 8; i++) {
-    const a = (i / 8) * Math.PI * 2, x = SR.x + Math.cos(a) * (SR.r - 3), z = SR.z + Math.sin(a) * (SR.r - 3), h = 2 + (i * 1.7) % 3;
+  disc(SR.x, SR.z, SR.r, '#5f8a70', 0.033); disc(SR.x, SR.z, SR.r - 5, '#4f7f6a', 0.045);
+  for (let i = 0; i < 10; i++) {
+    const a = (i / 10) * Math.PI * 2 + 0.3; if (i % 5 === 2) continue;
+    const x = SR.x + Math.cos(a) * (SR.r + 0.8), z = SR.z + Math.sin(a) * (SR.r + 0.8), h = 2 + (i * 1.7) % 3;
     const col = new THREE.Mesh(new THREE.CylinderGeometry(0.6, 0.7, h, 10)); col.position.set(x, h / 2 - 0.2, z); col.rotation.set(rng() * 0.2 - 0.1, 0, rng() * 0.2 - 0.1); scene.add(add(col, '#a8b0a0'));
     const moss = new THREE.Mesh(new THREE.CylinderGeometry(0.66, 0.66, 0.4, 10)); moss.position.set(x, h - 0.3, z); scene.add(add(moss, '#6a9a4a'));
     colliders.push({ x, z, r: 0.8 });
   }
+
+  // willows: a belt round the edge, a dark grove behind Mire Hollow, a few lone ones in the open
+  const wil = [], willowAt = (x, z, sc) => { wil.push(M(x, 0, z, sc, rng() * 6)); colliders.push({ x, z, r: 0.35 * sc }); };
+  edgeBelt(L, 380, (x, z) => willowAt(x, z, 3.6 + rng() * 1.4), nearPath, (x, z, p) => free(x, z, p) && Object.values(Z).every((q) => Math.hypot(q.x - x, q.z - z) > q.r + 3), 0.5);
+  for (let i = 0; i < 40; i++) {
+    const a = Math.PI + (rng() - 0.5) * 2.4, rr = MH.r + 3 + rng() * 10, x = MH.x + Math.cos(a) * rr, z = MH.z + Math.sin(a) * rr;
+    if (nearPath(x, z) || !free(x, z, 1.8)) continue;
+    willowAt(x, z, 3.2 + rng() * 1.4);
+  }
+  for (let i = 0; i < 24; i++) { const [x, z] = rnd(18, R - 16); if (!open(x, z, 3, 5)) continue; willowAt(x, z, 3.4 + rng()); }
+  instanced(willow(), wil);
+  // reeds round the puddles and pools, a few toadstools in Mire Hollow, a couple of mossy rocks
+  const ts = [], tsB = [], rocks = [];
+  for (const [x, z, r] of puddles) for (let j = 0; j < 3; j++) { const a = rng() * 6.28; rd.push(M(x + Math.cos(a) * (r + 0.3), 0, z + Math.sin(a) * (r + 0.3), 1.6, rng() * 6)); }
+  for (let i = 0; i < 6; i++) { const a = (i / 6) * Math.PI * 2 + 0.4; rd.push(M(P.x + Math.cos(a) * (P.r + 0.8), 0, P.z + Math.sin(a) * (P.r + 0.8), 1.7, rng() * 6)); }
+  for (let i = 0; i < 14; i++) { const a = rng() * 6.28, rr = MH.r + 1 + rng() * 5, x = MH.x + Math.cos(a) * rr, z = MH.z + Math.sin(a) * rr; if (nearPath(x, z) || !free(x, z, 0.5)) continue; (i % 3 ? ts : tsB).push(M(x, 0, z, 1.8 + rng() * 1.4, rng() * 6)); }
+  for (let i = 0; i < 12 && rocks.length < 5; i++) { const [x, z] = rnd(18, R - 14); if (!open(x, z, 5)) continue; rocks.push(M(x, 0, z, 3 + rng() * 2, rng() * 6)); colliders.push({ x, z, r: 0.7 }); }
+  instanced(reeds(), rd, { cast: false }); instanced(toadstool('#e0444f'), ts); instanced(toadstool('#a86ad8'), tsB);
+  if (lib.rock_single_B) instanced(tinted(lib.rock_single_B, '#8a9a6a'), rocks);
+  signpost(L.cross.x + 3.2, L.cross.z - 3.2, '#5a3a22', '#e8d8a0');
   // far hills
   const far = [];
-  for (let i = 0; i < 26; i++) { const a = (i / 26) * Math.PI * 2 + rng() * 0.1; if (Math.abs(a - Math.PI / 2) < 0.55) continue; const rr = R + 30 + rng() * 8; far.push(M(MX + Math.cos(a) * rr, -1, MZ + Math.sin(a) * rr, 10 + rng() * 4, rng() * 6)); }
+  for (let i = 0; i < 30; i++) { const a = (i / 30) * Math.PI * 2 + rng() * 0.1; if (Math.abs(a - Math.PI / 2) < 0.45) continue; const rr = R + 30 + rng() * 8; far.push(M(MX + Math.cos(a) * rr, -1, MZ + Math.sin(a) * rr, 11 + rng() * 4, rng() * 6)); }
   if (lib.mountain_C_grass) instanced(tinted(lib.mountain_C_grass, '#6a8a5a'), far, { cast: false });
 }
 
@@ -511,7 +528,9 @@ export function buildSands() {
     t.copy(cA).lerp(n > 0 ? cC : cB, Math.min(1, Math.abs(n) * 0.7));
     const bay = z > 44 && Math.abs(x) < 34;
     let y = d > R + 4 ? (d - R - 4) * 0.25 * (1 + 0.6 * Math.sin(x * 0.11 + z * 0.07)) : 0;
-    if (!bay && d > 20 && d < R) y += Math.max(0, Math.sin(x * 0.09 + Math.cos(z * 0.05) * 2)) * 0.35;
+    const wx = x + DX, wz = z + DZ, flat = Object.values(L.zones).some((q) => Math.hypot(wx - q.x, wz - q.z) < q.r + 5) || Math.hypot(wx - L.pond.x, wz - L.pond.z) < L.pond.r + 4 || Math.hypot(wx - L.village.x, wz - L.village.z) < 14 || TOWNS.some((T) => T.land === 'sands' && Math.hypot(wx - T.x, wz - T.z) < T.r + 2)
+      || landRoads(L).some(([x1, z1, x2, z2]) => { const dx = x2 - x1, dz = z2 - z1, k = Math.max(0, Math.min(1, ((wx - x1) * dx + (wz - z1) * dz) / (dx * dx + dz * dz))); return Math.hypot(wx - x1 - k * dx, wz - z1 - k * dz) < 4; });
+    if (!bay && !flat && d > 20 && d < R) y += Math.max(0, Math.sin(x * 0.09 + Math.cos(z * 0.05) * 2)) * 0.35 * Math.min(1, (d - 20) / 8);
     if (bay) y = z > 56 ? -0.7 : 0;
     pos.setY(i, y); cols.push(t.r, t.g, t.b);
   }
@@ -534,12 +553,12 @@ export function buildSands() {
     return false;
   };
   const free = (x, z, pad) => colliders.every((c) => Math.hypot(c.x - x, c.z - z) > c.r + pad);
-  const away = (x, z, pad) => !nearPath(x, z) && Math.hypot(x - V.x, z - V.z) > 15 && Object.values(Z).every((q) => Math.hypot(x - q.x, z - q.z) > q.r * 0.8) && Math.hypot(x - L.pond.x, z - L.pond.z) > L.pond.r + 2 && free(x, z, pad);
+  const away = (x, z, pad) => !nearPath(x, z) && Math.hypot(x - V.x, z - V.z) > 15 && Object.values(Z).every((q) => Math.hypot(x - q.x, z - q.z) > q.r + 3) && Math.hypot(x - L.pond.x, z - L.pond.z) > L.pond.r + 2 && free(x, z, pad);
 
   // Oasis Rest: striped tents round a well, and a little palm-ringed pool
   for (const [dx, dz, c, tr] of [[-11, -3, '#e86a4a', '#f5e2b0'], [11, -4, '#4a8ad8', '#f5e2b0'], [-11, 9, '#e8b03a', '#fff1d6'], [-2, 13, '#a85ad8', '#f5e2b0']]) tent(V.x + dx, V.z + dz, Math.atan2(-dx, -dz), c, tr);
   place('building_well_blue', V.x, V.z - 1, S_BUILD);
-  for (const [n, dx, dz] of [['barrel', 6, 3], ['crate_A_big', -6, 4], ['sack', 7, 4], ['crate_B_small', -7, 5]]) place(n, V.x + dx, V.z + dz, S_PROP, rng() * 6, { shrink: 0.6 });
+  for (const [n, dx, dz] of [['barrel', 6, 3], ['sack', -6, 4]]) place(n, V.x + dx, V.z + dz, S_PROP, rng() * 6, { shrink: 0.6 });
   pier(DX, DZ + 52, 10, 0);
   makeShip(DX, DZ + 66, 0, '#fff1d6', '#d89a3a');
   colliders.push({ x: DX, z: DZ + 66, r: 3 });
@@ -555,13 +574,13 @@ export function buildSands() {
   }
   instanced(palm(), palms);
   const cacti = [], rocks = [], bones = [];
-  for (let i = 0; i < 40; i++) { const a = rng() * 6.28, rr = 12 + rng() * 55, x = DX + Math.cos(a) * rr, z = DZ + Math.sin(a) * rr; if (!away(x, z, 1)) continue; cacti.push(M(x, 0, z, 1 + rng() * 0.6, rng() * 6)); colliders.push({ x, z, r: 0.5 }); }
-  for (let i = 0; i < 22; i++) { const a = rng() * 6.28, rr = 14 + rng() * 48, x = DX + Math.cos(a) * rr, z = DZ + Math.sin(a) * rr; if (!away(x, z, 1.5)) continue; rocks.push(M(x, 0, z, 3 + rng() * 2.5, rng() * 6)); colliders.push({ x, z, r: 0.8 }); }
+  for (let i = 0; i < 30 && cacti.length < 14; i++) { const a = rng() * 6.28, rr = 16 + rng() * 50, x = DX + Math.cos(a) * rr, z = DZ + Math.sin(a) * rr; if (!away(x, z, 3)) continue; cacti.push(M(x, 0, z, 1 + rng() * 0.6, rng() * 6)); colliders.push({ x, z, r: 0.5 }); }
+  for (let i = 0; i < 16 && rocks.length < 7; i++) { const a = rng() * 6.28, rr = 14 + rng() * 48, x = DX + Math.cos(a) * rr, z = DZ + Math.sin(a) * rr; if (!away(x, z, 4)) continue; rocks.push(M(x, 0, z, 3 + rng() * 2.5, rng() * 6)); colliders.push({ x, z, r: 0.8 }); }
   instanced(cactus(), cacti);
   if (lib.rock_single_B) instanced(tinted(lib.rock_single_B, '#d8a868'), rocks);
   // half-buried brass gears: the old Brassbolt kingdom is under the sand
-  for (let i = 0; i < 16; i++) {
-    const a = rng() * 6.28, rr = 14 + rng() * 50, x = DX + Math.cos(a) * rr, z = DZ + Math.sin(a) * rr; if (!away(x, z, 2)) continue;
+  for (let i = 0, n = 0; i < 16 && n < 6; i++) {
+    const a = rng() * 6.28, rr = 14 + rng() * 50, x = DX + Math.cos(a) * rr, z = DZ + Math.sin(a) * rr; if (!away(x, z, 4)) continue; n++;
     const r = 1 + rng() * 1.8, g = gear(r, 8 + Math.floor(rng() * 6), rng() > 0.5 ? '#c8984a' : '#b87a4a');
     g.position.set(x, r * 0.45, z); g.rotation.set(0.15 - rng() * 0.3, rng() * 6, 0); scene.add(g); colliders.push({ x, z, r: r * 0.5 });
   }
@@ -583,16 +602,16 @@ export function buildSands() {
 
   // Rustwind Yard: a junk heap of pipes and gears where Pompington tinkers with his battle suit
   const WY = Z.workshop;
-  disc(WY.x, WY.z, WY.r - 3, '#b89a68');
+  disc(WY.x, WY.z, WY.r, '#b89a68');
   for (let i = 0; i < 7; i++) {
-    const a = (i / 7) * Math.PI * 2, x = WY.x + Math.cos(a) * (WY.r - 2.5), z = WY.z + Math.sin(a) * (WY.r - 2.5);
+    const a = (i / 7) * Math.PI * 2, x = WY.x + Math.cos(a) * (WY.r + 1), z = WY.z + Math.sin(a) * (WY.r + 1);
     if (Math.abs(a - Math.PI) < 0.5) continue;
     const g = gear(1.4 + (i % 3) * 0.5, 10, i % 2 ? '#c8984a' : '#a86a3a'); g.position.set(x, 1.2 + (i % 3) * 0.4, z); g.rotation.y = a + Math.PI / 2; scene.add(g); colliders.push({ x, z, r: 1.2 });
   }
-  const pipe = new THREE.Mesh(new THREE.CylinderGeometry(0.5, 0.5, 8, 12)); pipe.rotation.z = Math.PI / 2; pipe.position.set(WY.x + 4, 0.5, WY.z - WY.r + 3); scene.add(add(pipe, '#b87a4a'));
-  colliders.push({ x: WY.x + 4, z: WY.z - WY.r + 3, r: 1.5 });
-  const chimney = new THREE.Mesh(new THREE.CylinderGeometry(0.7, 0.9, 6, 10)); chimney.position.set(WY.x - 6, 3, WY.z - WY.r + 4); scene.add(add(chimney, '#8a5a3a'));
-  colliders.push({ x: WY.x - 6, z: WY.z - WY.r + 4, r: 1.1 });
+  const pipe = new THREE.Mesh(new THREE.CylinderGeometry(0.5, 0.5, 8, 12)); pipe.rotation.z = Math.PI / 2; pipe.position.set(WY.x + 4, 0.5, WY.z - WY.r - 2); scene.add(add(pipe, '#b87a4a'));
+  colliders.push({ x: WY.x + 4, z: WY.z - WY.r - 2, r: 1.5 });
+  const chimney = new THREE.Mesh(new THREE.CylinderGeometry(0.7, 0.9, 6, 10)); chimney.position.set(WY.x - 6, 3, WY.z - WY.r - 1.5); scene.add(add(chimney, '#8a5a3a'));
+  colliders.push({ x: WY.x - 6, z: WY.z - WY.r - 1.5, r: 1.1 });
 
   // Colossus Plaza: a round brass-tiled arena where the giant sleeps
   const CP = Z.colossus;

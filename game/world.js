@@ -4,7 +4,8 @@ import { THREE, scene, gradient, stylize, registerMesh, toon, rng } from './engi
 export const S_BUILD = 5, S_NATURE = 4.5, S_PROP = 2.6;
 export const LAKE = { x: 37, z: -7, r: 12 };
 export const CAMP = { x: -22, z: 31 };
-export const MINE = { x: -36, z: -24 };
+// the Old Quarry: a big open pit out east past the dragon's cave, with copper, iron, silver and gold
+export const MINE = { x: 96, z: -48, r: 19 };
 export const WORLD_R = 150;
 // Little towns out in the woods that monsters have taken over. Free them to fly your flag there.
 // stars = how tough the monsters are (they range from a bit tougher than the camp to really nasty).
@@ -12,12 +13,12 @@ export const TOWNS = [
   { id: 'thornbury', name: 'Thornbury', x: 64, z: 62, r: 15, stars: 1 },
   { id: 'mossbrook', name: 'Mossbrook', x: -66, z: 62, r: 15, stars: 2 },
   { id: 'cinderholt', name: 'Cinderholt', x: -62, z: -70, r: 15, stars: 3 },
-  // Chapter 2: Frostwhisker Peaks (the land sits at x = 1000). Each faces Snowdrop village.
-  { id: 'iciclehollow', name: 'Icicle Hollow', x: 1040, z: 36, r: 14, stars: 1, land: 'frost', home: [1000, 32] },
-  { id: 'pinecrest', name: 'Pinecrest', x: 954, z: 30, r: 14, stars: 2, land: 'frost', home: [1000, 32] },
-  { id: 'glaciergate', name: 'Glacier Gate', x: 1036, z: -34, r: 14, stars: 3, land: 'frost', home: [1000, 32] },
-  { id: 'bogbottom', name: 'Bogbottom', x: 1956, z: 32, r: 14, stars: 2, land: 'marsh', home: [2000, 30] },
-  { id: 'reedwhistle', name: 'Reedwhistle', x: 2046, z: 34, r: 14, stars: 3, land: 'marsh', home: [2000, 30] },
+  // Chapter 2: Frostwhisker Peaks (the land sits at x = 1000). Each faces the road it's reached by.
+  { id: 'iciclehollow', name: 'Icicle Hollow', x: 1050, z: 46, r: 14, stars: 1, land: 'frost', home: [1000, 50] },
+  { id: 'pinecrest', name: 'Pinecrest', x: 950, z: 46, r: 14, stars: 2, land: 'frost', home: [1000, 50] },
+  { id: 'glaciergate', name: 'Glacier Gate', x: 1036, z: -14, r: 14, stars: 3, land: 'frost', home: [1000, 8] },
+  { id: 'bogbottom', name: 'Bogbottom', x: 1950, z: 44, r: 14, stars: 2, land: 'marsh', home: [2000, 50] },
+  { id: 'reedwhistle', name: 'Reedwhistle', x: 2052, z: 40, r: 14, stars: 3, land: 'marsh', home: [2000, 50] },
   { id: 'dunecrest', name: 'Dunecrest', x: 2954, z: 30, r: 14, stars: 2, land: 'sands', home: [3000, 30] },
   { id: 'copperspring', name: 'Copperspring', x: 3046, z: 32, r: 14, stars: 3, land: 'sands', home: [3000, 30] },
 ];
@@ -25,15 +26,21 @@ export const TOWNS = [
 export const townFacing = (T) => Math.atan2((T.home ? T.home[1] : 0) - T.z, (T.home ? T.home[0] : 0) - T.x);
 // The four lands beyond the valley forest. Each has its own colour, mood, monsters and a miniboss.
 // The village is spread out a little: every village building and prop sits VS times further from the well.
-export const VS = 1.38;
+export const VS = 1.6;
 export const ZONES = {
   glimmer: { name: 'Glimmerwood', x: 108, z: 6, r: 34, grass: '#5aa6a0', grass2: '#7d7fd6' },
   crags: { name: 'Grumble Crags', x: -106, z: -4, r: 34, grass: '#9a9a78', grass2: '#b5a27e' },
   meadow: { name: 'Honeymeadow', x: 4, z: 108, r: 34, grass: '#8fc24e', grass2: '#c6c25c' },
   hollow: { name: 'Haunted Hollow', x: -10, z: -112, r: 30, grass: '#4f6b58', grass2: '#6a5f78' },
 };
+// Boss stages: a big cleared ring in the middle of each land, kept free of trees, rocks and props.
+export const VALLEY_ARENAS = [
+  { boss: 'boss_crusher', x: ZONES.crags.x, z: ZONES.crags.z, r: 20, col: '#c8b48a', rim: '#8a7a5a' },
+  { boss: 'boss_gloom', x: ZONES.glimmer.x + 4, z: ZONES.glimmer.z, r: 20, col: '#8ac8c0', rim: '#bfa8ff' },
+  { boss: 'boss_rattle', x: ZONES.hollow.x, z: ZONES.hollow.z + 2, r: 18, col: '#6a7a6a', rim: '#a7a3ad' },
+];
 // Roads out of the valley: [toX, toZ, fromX, fromZ]
-export const ROADS = [[58, 58, 2, 46], [-60, 58, 1, 40], [-56, -66, -16, -58], [62, -55, 25, -21], [ZONES.glimmer.x - 20, 6, 22, 10], [-86, -4, -28, -4], [4, 86, 0, 30], [-16, -58, 0, -40], [-10, -92, -16, -58]];
+export const ROADS = [[MINE.x - MINE.r + 1, MINE.z + 3, 44, -38], [58, 58, 2, 46], [-60, 58, 1, 40], [-56, -66, -16, -58], [62, -55, 25, -21], [ZONES.glimmer.x - 20, 6, 22, 10], [-86, -4, -28, -4], [4, 86, 0, 30], [-16, -58, 0, -40], [-10, -92, -16, -58]];
 const nearRoad = (x, z, pad) => ROADS.some(([tx, tz, fx, fz]) => {
   const dx = tx - fx, dz = tz - fz, L2 = dx * dx + dz * dz;
   const t = Math.max(0, Math.min(1, ((x - fx) * dx + (z - fz) * dz) / L2));
@@ -90,7 +97,8 @@ export function place(name, x, z, s, ry = 0, { collide = true, y = 0, shrink = 0
 }
 const faceCenter = (x, z) => Math.atan2(-x, -z);
 export const blocked = (x, z) => Math.hypot(x - LAKE.x, z - LAKE.z) < LAKE.r + 3 || Math.hypot(x - CAMP.x, z - CAMP.z) < 11
-  || TOWNS.some((T) => Math.hypot(x - T.x, z - T.z) < T.r + 3) || Math.hypot(x - 4, z + 66) < 18 || Math.hypot(x - 62, z + 63) < 11 || Math.hypot(x - MINE.x, z - MINE.z) < 9;
+  || TOWNS.some((T) => Math.hypot(x - T.x, z - T.z) < T.r + 3) || Math.hypot(x - 4, z + 66) < 18 || Math.hypot(x - 62, z + 63) < 11 || Math.hypot(x - MINE.x, z - MINE.z) < MINE.r + 4
+  || VALLEY_ARENAS.some((A) => Math.hypot(x - A.x, z - A.z) < A.r + 2);
 export const isFree = (x, z, pad = 0) => !colliders.some((c) => Math.hypot(c.x - x, c.z - z) < c.r + pad);
 
 export function buildWorld(library) {
@@ -164,27 +172,26 @@ export function buildWorld(library) {
     addPath(new THREE.PlaneGeometry(w, len), fx + dx / 2, fz + dz / 2, Math.atan2(dx, dz));
   };
   for (const [tx, tz, fx, fz] of ROADS) spoke(tx, tz, 2.8, fx, fz);
-  spoke(4, -50); spoke(-22 * VS, 26 * VS); spoke(-28 * VS, -4 * VS); spoke(22 * VS, 10 * VS, 2.2); spoke(10 * VS, 14 * VS, 2); spoke(MINE.x + 4, MINE.z + 4, 2.4, -28, -4);
+  spoke(4, -50); spoke(-22 * VS, 26 * VS); spoke(-28 * VS, -4 * VS); spoke(22 * VS, 10 * VS, 2.2); spoke(10 * VS, 14 * VS, 2);
   spoke(0, 52, 2.4, 0, 0);
 
   // village
   place('building_well_blue', 0, 0, S_BUILD);
   const ring = [
     ['building_tavern_blue', -4, -17, 6.5], ['building_home_A_blue', -15, -9, S_BUILD], ['building_home_B_blue', -16, 8, S_BUILD],
-    ['building_home_A_red', 13, -12, S_BUILD], ['building_home_B_yellow', 15, 2, S_BUILD], ['building_market_yellow', 7, 15, S_BUILD],
+    ['building_home_A_red', 11, -15, S_BUILD], ['building_home_B_yellow', 14, 6, S_BUILD], ['building_market_yellow', 7, 15.5, S_BUILD * 1.5],
     ['building_blacksmith_red', 9, -24, S_BUILD], ['building_church_yellow', -14, -28, 6], ['building_windmill_green', -30, -12, 6],
-    ['building_lumbermill_green', -27, 14, S_BUILD], ['building_tower_A_red', 22, -26, 6], ['building_mine_green', MINE.x - 6, MINE.z - 6, 6],
+    ['building_lumbermill_green', -27, 14, S_BUILD], ['building_tower_A_red', 22, -26, 6],
   ];
-  for (const [n, x0, z0, s] of ring) { const mine = /mine/.test(n), x = mine ? x0 : x0 * VS, z = mine ? z0 : z0 * VS; place(n, x, z, s, faceCenter(x, z)); }
+  for (const [n, x0, z0, s] of ring) { const x = x0 * VS, z = z0 * VS; place(n, x, z, s, faceCenter(x, z)); }
+  shopSign(7 * VS, 15.5 * VS);
+  buildQuarry();
   place('building_castle_blue', 4, -66, 14, 0); // big enough to feel like a king lives there
   wheatField(20 * VS, 14 * VS, 9, 7, 0.6);
   for (let i = 0; i < 5; i++) place(i === 2 ? 'fence_wood_straight_gate' : 'fence_wood_straight', 16 * VS + i * 3.4, 22 * VS, S_PROP + 1.4, 0, { collide: false });
-  const props = [
-    ['barrel', -7, -12], ['sack', 5, 11],
-    ['weaponrack', 13, -21], ['target', 15, -17], ['wheelbarrow', -23, 11], ['resource_lumber', -24, 18], ['resource_stone', MINE.x - 1, MINE.z - 3],
-    ['bucket_water', 2.6, 2.2],
-  ];
-  for (const [n, x, z] of props) { const v = n === 'resource_stone' ? 1 : VS; place(n, x * v, z * v, S_PROP, rng() * 6, { shrink: 0.6 }); }
+  // just a few props that say what each building is for
+  const props = [['weaponrack', 13, -21], ['resource_lumber', -24, 18], ['bucket_water', 2.6, 2.2]];
+  for (const [n, x, z] of props) place(n, x * VS, z * VS, S_PROP, rng() * 6, { shrink: 0.6 });
 
   // skeleton camp
   tentAt(CAMP.x - 5, CAMP.z + 1, 0.8);
@@ -193,7 +200,8 @@ export function buildWorld(library) {
   for (const T of TOWNS) buildTown(T);
   // bubbling lava pools in the Crags and round Cinderholt
   const Cr = ZONES.crags;
-  for (const [dx, dz, r] of [[12, -10, 3.2], [-13, 8, 2.6], [8, 15, 2.2], [-6, -16, 2.8]]) lavaPool(Cr.x + dx, Cr.z + dz, r);
+  for (const [dx, dz, r] of [[20, -14, 3.2], [-22, 12, 2.6], [10, 24, 2.4]]) lavaPool(Cr.x + dx, Cr.z + dz, r);
+  for (const A of VALLEY_ARENAS) bossStage(A);
   const Ci = TOWNS.find((T) => T.id === 'cinderholt');
   const ash = new THREE.Mesh(new THREE.CircleGeometry(Ci.r + 2, 40)); ash.rotation.x = -Math.PI / 2; ash.position.set(Ci.x, 0.025, Ci.z);
   registerMesh(ash, toon('#9a6a58', { polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1 })); ash.receiveShadow = true; scene.add(ash);
@@ -210,22 +218,22 @@ export function buildWorld(library) {
     rounds['ABC'[Math.floor(rng() * 3)]].push(M(x, 0, z, S_NATURE * (big ? 1.15 : 0.95) * (0.85 + rng() * 0.35), rng() * 6));
     colliders.push({ x, z, r: big ? 1.35 : 1.0 });
   };
-  for (let i = 0; i < 1400; i++) {
-    const a = rng() * Math.PI * 2, rr = 48 + rng() * (WORLD_R - 36);
+  for (let i = 0; i < 1250; i++) {
+    const a = rng() * Math.PI * 2, rr = 56 + rng() * (WORLD_R - 44);
     const x = Math.cos(a) * rr, z = Math.sin(a) * rr;
     if (blocked(x, z) || (Math.abs(x) < 4 && z > 0 && z < 40) || Math.hypot(x - 4, z + 48) < 14 || Math.hypot(x - 4, z + 66) < 22 || Math.hypot(x - 62, z + 63) < 13 || (Math.abs(x - 2) < 5 && z < 0 && z > -50)) continue;
-    if (nearRoad(x, z, 6) || inZone(x, z, 2)) continue;
-    // a dense belt near the valley, thinner woods further out, open glades between
-    const belt = rr < 70 ? 1 : 0.38 + 0.3 * Math.sin(x * 0.05) * Math.cos(z * 0.04);
+    if (nearRoad(x, z, 6) || inZone(x, z, 2) || !isFree(x, z, 2)) continue;
+    // a belt round the valley, thinner woods further out, open glades between
+    const belt = rr < 72 ? 0.75 : 0.3 + 0.3 * Math.sin(x * 0.05) * Math.cos(z * 0.04);
     if (rng() > belt) continue;
     treeAt(x, z, rr > 52);
   }
   // zones get their own trees
   const glimmerTrees = [], glimmerBig = [];
-  for (let i = 0; i < 70; i++) {
-    const Z = ZONES.glimmer, a = rng() * Math.PI * 2, rr = 8 + rng() * (Z.r + 6);
+  for (let i = 0; i < 50; i++) {
+    const Z = ZONES.glimmer, a = rng() * Math.PI * 2, rr = 23 + rng() * (Z.r - 12);
     const x = Z.x + Math.cos(a) * rr, z = Z.z + Math.sin(a) * rr;
-    if (nearRoad(x, z, 4) || Math.hypot(x - Z.x, z - Z.z) < 10 || !isFree(x, z, 1.5)) continue;
+    if (nearRoad(x, z, 4) || blocked(x, z) || !isFree(x, z, 2)) continue;
     (rng() > 0.5 ? glimmerBig : glimmerTrees).push(M(x, 0, z, S_NATURE * (0.9 + rng() * 0.5), rng() * 6));
     colliders.push({ x, z, r: 1.0 });
   }
@@ -260,16 +268,16 @@ export function buildWorld(library) {
   // scenery rocks, more of them in the Crags
   const rocks = { rock_single_A: [], rock_single_B: [], rock_single_C: [] };
   const addRockAt = (x, z, s) => { rocks[Object.keys(rocks)[Math.floor(rng() * 3)]].push(M(x, 0, z, s, rng() * 6)); colliders.push({ x, z, r: s * 0.18 }); };
-  for (let i = 0; i < 18; i++) {
-    const a = rng() * Math.PI * 2, rr = 20 + rng() * 32;
+  for (let i = 0; i < 8; i++) {
+    const a = rng() * Math.PI * 2, rr = 34 + rng() * 22;
     const x = Math.cos(a) * rr, z = Math.sin(a) * rr;
     if (blocked(x, z) || !isFree(x, z, 1)) continue;
     rocks[Object.keys(rocks)[Math.floor(rng() * 3)]].push(M(x, 0, z, S_NATURE * (0.8 + rng() * 0.8), rng() * 6));
   }
-  for (let i = 0; i < 70; i++) {
-    const Z = ZONES.crags, a = rng() * Math.PI * 2, rr = 6 + rng() * (Z.r + 8);
+  for (let i = 0; i < 34; i++) {
+    const Z = ZONES.crags, a = rng() * Math.PI * 2, rr = 22 + rng() * (Z.r - 14);
     const x = Z.x + Math.cos(a) * rr, z = Z.z + Math.sin(a) * rr;
-    if (nearRoad(x, z, 3.5) || Math.hypot(x - Z.x, z - Z.z) < 9 || !isFree(x, z, 1)) continue;
+    if (nearRoad(x, z, 3.5) || blocked(x, z) || !isFree(x, z, 1.5)) continue;
     addRockAt(x, z, S_NATURE * (1 + rng() * 1.6));
   }
   const cragHills = [];
@@ -285,27 +293,27 @@ export function buildWorld(library) {
   for (const [n, dx, dz] of hamlet) place(n, H.x + dx, H.z + dz, n === 'building_windmill_green' ? 6 : S_BUILD, Math.atan2(-dx, -dz));
   wheatField(H.x + 26.5, H.z - 7.5, 13, 9, 0);
   for (let i = 0; i < 6; i++) place('fence_wood_straight', H.x + 18.5 + i * 3.4, H.z - 15, S_PROP + 1.4, 0, { collide: false });
-  for (const [n, dx, dz] of [['sack', 4, 6], ['crate_A_big', 6, 6], ['wheelbarrow', -5, 5], ['barrel', 7, -1], ['resource_lumber', -14, 2]]) place(n, H.x + dx, H.z + dz, S_PROP, rng() * 6, { shrink: 0.6 });
+  for (const [n, dx, dz] of [['wheelbarrow', -5, 5], ['sack', 5, 6]]) place(n, H.x + dx, H.z + dz, S_PROP, rng() * 6, { shrink: 0.6 });
   addPath(new THREE.CircleGeometry(6, 32), H.x, H.z);
   // Honeymeadow is the land of honey: giant flowers, beehives, haystacks and a pumpkin patch
   const spots = (n, rMin, rMax, pad) => { const out = []; for (let i = 0; i < n * 4 && out.length < n; i++) { const a = rng() * Math.PI * 2, rr = rMin + rng() * (rMax - rMin); const x = H.x + Math.cos(a) * rr, z = H.z + Math.sin(a) * rr; if (nearRoad(x, z, 3) || !isFree(x, z, pad)) continue; out.push([x, z]); } return out; };
   const flowerKinds = { pink: [], yellow: [], blue: [] };
-  for (const [x, z] of spots(26, 9, H.r + 2, 1.2)) flowerKinds[['pink', 'yellow', 'blue'][Math.floor(rng() * 3)]].push(M(x, 0, z, 2.2 + rng() * 1.4, rng() * 6));
+  for (const [x, z] of spots(14, 12, H.r + 2, 1.6)) flowerKinds[['pink', 'yellow', 'blue'][Math.floor(rng() * 3)]].push(M(x, 0, z, 2.2 + rng() * 1.4, rng() * 6));
   for (const [k, list] of Object.entries(flowerKinds)) instanced(giantFlower(k), list);
-  const hives = spots(6, 10, H.r - 4, 2).map(([x, z]) => { colliders.push({ x, z, r: 0.9 }); return M(x, 0, z, 1.7, rng() * 6); });
+  const hives = spots(4, 12, H.r - 4, 2.5).map(([x, z]) => { colliders.push({ x, z, r: 0.9 }); return M(x, 0, z, 1.7, rng() * 6); });
   instanced(beehive(), hives);
-  const hay = spots(7, 12, H.r, 2).map(([x, z]) => { colliders.push({ x, z, r: 1.3 }); return M(x, 0, z, 1.6 + rng() * 0.5, rng() * 6); });
+  const hay = spots(4, 14, H.r, 2.5).map(([x, z]) => { colliders.push({ x, z, r: 1.3 }); return M(x, 0, z, 1.6 + rng() * 0.5, rng() * 6); });
   instanced(haystack(), hay);
   const pumpkins = [];
-  for (let i = 0; i < 18; i++) { const x = H.x - 22 + (i % 6) * 2.2 + rng() * 0.6, z = H.z - 8 + Math.floor(i / 6) * 2.4 + rng() * 0.6; if (isFree(x, z, 0.8)) pumpkins.push(M(x, 0, z, 0.9 + rng() * 0.5, rng() * 6)); }
+  for (let i = 0; i < 12; i++) { const x = H.x - 22 + (i % 6) * 2.2 + rng() * 0.6, z = H.z - 8 + Math.floor(i / 6) * 2.4 + rng() * 0.6; if (isFree(x, z, 0.8)) pumpkins.push(M(x, 0, z, 0.9 + rng() * 0.5, rng() * 6)); }
   instanced(pumpkin(), pumpkins);
 
   // Haunted Hollow: dead-grey trees, gravestones, tents
   const W = ZONES.hollow, dead = [];
-  for (let i = 0; i < 40; i++) {
-    const a = rng() * Math.PI * 2, rr = 10 + rng() * (W.r + 4);
+  for (let i = 0; i < 30; i++) {
+    const a = rng() * Math.PI * 2, rr = 21 + rng() * (W.r - 12);
     const x = W.x + Math.cos(a) * rr, z = W.z + Math.sin(a) * rr;
-    if (nearRoad(x, z, 4) || !isFree(x, z, 1.5)) continue;
+    if (nearRoad(x, z, 4) || blocked(x, z) || !isFree(x, z, 2)) continue;
     dead.push(M(x, 0, z, S_NATURE * (0.9 + rng() * 0.4), rng() * 6)); colliders.push({ x, z, r: 1.0 });
   }
   instanced(deadTree(), dead);
@@ -313,11 +321,11 @@ export function buildWorld(library) {
   const mist = new THREE.Mesh(new THREE.CircleGeometry(W.r + 6, 48), new THREE.MeshBasicMaterial({ color: '#8a6ad8', transparent: true, opacity: 0.18, depthWrite: false, fog: false }));
   mist.rotation.x = -Math.PI / 2; mist.position.set(W.x, 0.06, W.z); mist.layers.set(1); scene.add(mist);
   const lanterns = [];
-  for (let i = 0; i < 10; i++) { const a = rng() * Math.PI * 2, rr = 6 + rng() * (W.r - 4), x = W.x + Math.cos(a) * rr, z = W.z + Math.sin(a) * rr; if (isFree(x, z, 1)) lanterns.push(M(x, 0, z, 1.4, rng() * 6)); }
+  for (let i = 0; i < 8; i++) { const a = (i / 8) * Math.PI * 2 + 0.3, rr = 19.5, x = W.x + Math.cos(a) * rr, z = W.z + 2 + Math.sin(a) * rr; if (isFree(x, z, 1) && !nearRoad(x, z, 2.5)) lanterns.push(M(x, 0, z, 1.4, rng() * 6)); }
   instanced(pumpkin(true), lanterns);
   const stoneM = toon('#a7a3ad'), dirtM = toon('#6a4a3a'), carveM = toon('#4a4552');
-  for (let i = 0; i < 18; i++) {
-    const x = W.x - 9 + (i % 6) * 3.6, z = W.z - 4 + Math.floor(i / 6) * 4.5;
+  for (let i = 0; i < 12; i++) {
+    const x = W.x - 34 + (i % 4) * 3.8, z = W.z - 6 + Math.floor(i / 4) * 4.6;
     const g = new THREE.Mesh(new THREE.BoxGeometry(1.2, 1.5, 0.35)); g.position.set(x + (rng() - 0.5), 0.7, z); g.rotation.set((rng() - 0.5) * 0.2, (rng() - 0.5) * 0.4, (rng() - 0.5) * 0.25);
     g.castShadow = true; registerMesh(g, stoneM); scene.add(g);
     const top = new THREE.Mesh(new THREE.CylinderGeometry(0.6, 0.6, 0.35, 12, 1, false, 0, Math.PI)); top.rotation.set(Math.PI / 2, 0, Math.PI / 2); top.position.set(0, 0.75, 0); registerMesh(top, stoneM); g.add(top);
@@ -326,15 +334,15 @@ export function buildWorld(library) {
     const bar = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.12, 0.06)); bar.position.set(0, 0.25, 0.19); registerMesh(bar, carveM); g.add(bar);
     colliders.push({ x, z, r: 0.7 });
   }
-  tentAt(W.x + 12, W.z + 8, 2.2, '#6a5a8a');
+  tentAt(W.x + 24, W.z + 12, 2.2, '#6a5a8a');
 
   // Glimmerwood: glowing mushrooms and floating crystals
   const G = ZONES.glimmer;
   const capCols = ['#ff7eb6', '#7fe3f0', '#c58bff', '#ffd23f'];
-  for (let i = 0; i < 26; i++) {
-    const a = rng() * Math.PI * 2, rr = 4 + rng() * G.r;
+  for (let i = 0; i < 16; i++) {
+    const a = rng() * Math.PI * 2, rr = 23 + rng() * (G.r - 12);
     const x = G.x + Math.cos(a) * rr, z = G.z + Math.sin(a) * rr;
-    if (nearRoad(x, z, 3) || !isFree(x, z, 0.8)) continue;
+    if (nearRoad(x, z, 3) || blocked(x, z) || !isFree(x, z, 1.2)) continue;
     const s2 = 0.8 + rng() * 1.6, col = capCols[i % 4];
     const stem = new THREE.Mesh(new THREE.CylinderGeometry(0.18 * s2, 0.26 * s2, 0.9 * s2, 8)); stem.position.set(x, 0.45 * s2, z); stem.castShadow = true; registerMesh(stem, toon('#fff1d6'));
     const cap = new THREE.Mesh(new THREE.SphereGeometry(0.62 * s2, 14, 8, 0, Math.PI * 2, 0, Math.PI / 2)); cap.position.set(x, 0.85 * s2, z); cap.castShadow = true;
@@ -343,11 +351,11 @@ export function buildWorld(library) {
     if (s2 > 1.6) colliders.push({ x, z, r: 0.6 * s2 });
   }
   for (let i = 0; i < 10; i++) {
-    const a = (i / 10) * Math.PI * 2, x = G.x + Math.cos(a) * 9, z = G.z + Math.sin(a) * 9;
+    const a = (i / 10) * Math.PI * 2, x = G.x + 4 + Math.cos(a) * 21.5, z = G.z + Math.sin(a) * 21.5;
     const c = new THREE.Mesh(new THREE.OctahedronGeometry(0.7, 0)); c.scale.set(0.7, 1.4, 0.7); c.position.set(x, 2.4, z);
     registerMesh(c, toon('#bfa8ff', { emissive: '#7a5cff', emissiveIntensity: 0.6 })); scene.add(c); dynamic.crystals.push(c);
   }
-  const gl = new THREE.PointLight('#b48cff', 40, 30, 1.4); gl.position.set(G.x, 5, G.z); scene.add(gl);
+  const gl = new THREE.PointLight('#b48cff', 40, 30, 1.4); gl.position.set(G.x + 4, 5, G.z); scene.add(gl);
 
   // signposts at each road's end
   for (const Z of Object.values(ZONES)) dynamic.signs.push({ name: Z.name, x: Z.x, z: Z.z, r: Z.r });
@@ -371,7 +379,7 @@ export function buildWorld(library) {
 export function buildFlowers() {
   const tuft = new THREE.IcosahedronGeometry(0.55, 1);
   tuft.scale(1, 0.75, 1); tuft.translate(0, 0.3, 0);
-  const N = 80, FN = 120;
+  const N = 45, FN = 70;
   const tufts = new THREE.InstancedMesh(tuft, undefined, N);
   const flowerGeo = new THREE.IcosahedronGeometry(0.22, 0);
   flowerGeo.scale(1, 0.55, 1); flowerGeo.translate(0, 0.55, 0);
@@ -552,4 +560,55 @@ function wheatField(x, z, cols, rows, ry = 0) {
     mats.push(M(x + lx * c + lz * sn, 0, z - lx * sn + lz * c, 1.5 + rng() * 0.3, rng() * 6));
   }
   instanced(tpl, mats);
+}
+
+// A boss stage: a big flat ring of trampled ground with a painted border and a few standing stones.
+export function bossStage(A) {
+  const floor = new THREE.Mesh(new THREE.CircleGeometry(A.r, 56));
+  floor.rotation.x = -Math.PI / 2; floor.position.set(A.x, 0.028, A.z); floor.receiveShadow = true;
+  registerMesh(floor, toon(A.col, { polygonOffset: true, polygonOffsetFactor: -1.5, polygonOffsetUnits: -1.5 })); scene.add(floor);
+  const edge = new THREE.Mesh(new THREE.RingGeometry(A.r - 0.7, A.r, 64));
+  edge.rotation.x = -Math.PI / 2; edge.position.set(A.x, 0.032, A.z);
+  registerMesh(edge, toon(A.rim, { polygonOffset: true, polygonOffsetFactor: -2.5, polygonOffsetUnits: -2.5 })); scene.add(edge);
+  const n = Math.round(A.r * 0.6), stoneM = toon(A.rim);
+  for (let i = 0; i < n; i++) {
+    if (i % 4 === 3) continue; // gaps to walk in through
+    const a = (i / n) * Math.PI * 2, x = A.x + Math.cos(a) * (A.r + 0.9), z = A.z + Math.sin(a) * (A.r + 0.9);
+    const st = new THREE.Mesh(new THREE.CylinderGeometry(0.32, 0.42, 1.1 + (i % 3) * 0.35, 6)); st.position.set(x, 0.5, z); st.castShadow = true;
+    registerMesh(st, stoneM); scene.add(st);
+  }
+}
+// A big tall signpost in front of Marta's market, so the shop is easy to spot from across the village.
+function shopSign(mx, mz) {
+  const d = Math.hypot(mx, mz), x = mx - (mx / d) * 7.2 - 3.2, z = mz - (mz / d) * 7.2;
+  const g = new THREE.Group(); g.position.set(x, 0, z); g.rotation.y = Math.atan2(-x, -z);
+  const wood = toon('#7a4a2a');
+  const post = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.2, 4.6, 8)); post.position.y = 2.3; post.castShadow = true; registerMesh(post, wood); g.add(post);
+  const arm = new THREE.Mesh(new THREE.BoxGeometry(2.4, 0.18, 0.18)); arm.position.set(1, 4.3, 0); registerMesh(arm, wood); g.add(arm);
+  const cv = document.createElement('canvas'); cv.width = 256; cv.height = 160; const c = cv.getContext('2d');
+  c.fillStyle = '#4a2a17'; c.beginPath(); c.roundRect(0, 0, 256, 160, 26); c.fill();
+  c.fillStyle = '#ffd23f'; c.beginPath(); c.roundRect(10, 10, 236, 140, 20); c.fill();
+  c.fillStyle = '#e8a417'; c.beginPath(); c.arc(64, 80, 34, 0, 7); c.fill(); c.lineWidth = 6; c.strokeStyle = '#4a2a17'; c.stroke();
+  c.font = '900 40px system-ui, sans-serif'; c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillStyle = '#4a2a17'; c.fillText('$', 64, 82);
+  c.font = '900 50px system-ui, sans-serif'; c.lineWidth = 8; c.strokeStyle = '#4a2a17'; c.strokeText('SHOP', 166, 82); c.fillStyle = '#fff'; c.fillText('SHOP', 166, 82);
+  const tex = new THREE.CanvasTexture(cv); tex.colorSpace = THREE.SRGBColorSpace; tex.anisotropy = 4;
+  for (const side of [0, Math.PI]) { const board = new THREE.Mesh(new THREE.PlaneGeometry(2.4, 1.5), new THREE.MeshBasicMaterial({ map: tex })); board.position.set(1.4, 3.4, side ? -0.02 : 0.02); board.rotation.y = side; g.add(board); }
+  scene.add(g); colliders.push({ x, z, r: 0.35 });
+  dynamic.shop = { x, z };
+}
+// The Old Quarry: a dusty pit ringed by boulders, open towards the road, with the old mine shaft at the back.
+function buildQuarry() {
+  const Q = MINE;
+  const disc = (r, col, y, f) => { const m = new THREE.Mesh(new THREE.CircleGeometry(r, 48)); m.rotation.x = -Math.PI / 2; m.position.set(Q.x, y, Q.z); m.receiveShadow = true; registerMesh(m, toon(col, { polygonOffset: true, polygonOffsetFactor: f, polygonOffsetUnits: f })); scene.add(m); };
+  disc(Q.r + 1.5, '#b89a72', 0.026, -1); disc(Q.r - 5, '#a8865e', 0.03, -2);
+  const rocks = { rock_single_A: [], rock_single_B: [], rock_single_C: [] }, keys = Object.keys(rocks);
+  for (let i = 0; i < 22; i++) {
+    const a = (i / 22) * Math.PI * 2; if (Math.abs(Math.atan2(Math.sin(a - Math.PI), Math.cos(a - Math.PI))) < 0.5) continue; // the way in, facing the road
+    const rr = Q.r + 2 + (i % 2) * 1.2, x = Q.x + Math.cos(a) * rr, z = Q.z + Math.sin(a) * rr, s = S_NATURE * (1.8 + (i % 3) * 0.4);
+    rocks[keys[i % 3]].push(M(x, 0, z, s, i * 1.7)); colliders.push({ x, z, r: s * 0.17 });
+  }
+  for (const [k, list] of Object.entries(rocks)) instanced(tinted(lib[k], '#d8c0a0'), list);
+  place('building_mine_green', Q.x + Q.r - 3, Q.z - 2, 7, -Math.PI / 2);
+  for (const [n, dx, dz, ry] of [['wheelbarrow', -13, -6, 0.6], ['resource_stone', -12, 7, 0], ['crate_A_big', 11, 9, 0.3]]) place(n, Q.x + dx, Q.z + dz, S_PROP, ry, { shrink: 0.6 });
+  dynamic.signs.push({ name: 'Old Quarry', x: Q.x, z: Q.z, r: Q.r });
 }
