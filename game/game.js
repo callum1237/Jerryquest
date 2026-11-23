@@ -2546,24 +2546,28 @@ function buildGuide() {
   const star = new THREE.Mesh(new THREE.ExtrudeGeometry(starShape, { depth: 0.2, bevelEnabled: true, bevelSize: 0.05, bevelThickness: 0.05 })); registerMesh(star, gold);
   addInk(star); scene.add(star);
   scene.add(g);
-  guide = { g, pivot, arrow, star };
+  // a little sign by the arrow says where it's taking you, so it's clear what it's for
+  const label = document.createElement('div'); label.className = 'guidelabel'; label.hidden = true; document.body.appendChild(label);
+  guide = { g, pivot, arrow, star, label };
 }
 function guideTick() {
   if (!player) return;
   if (!guide) buildGuide();
   const id = trackedQuest(), show = S.guideOn !== false && id && !uiLock() && !talking;
-  let t = show && questTarget(id);
+  let t = show && questTarget(id), via = '';
   if (t && t.inside !== where) {
     // the goal is in another place: lead to the door first
-    if (LANDS[where]) { const C = LANDS[where].captain; t = { x: C.x, z: C.z, inside: where }; }
-    else if (LANDS[t.inside] && where === 'out') t = { x: VALLEY_DOCK.x, z: VALLEY_DOCK.z, inside: 'out' };
-    else if (where !== 'out') { const d = INTERIORS[where].room.door; t = { x: d.x, z: d.z, inside: where }; }
+    if (LANDS[where]) { const C = LANDS[where].captain; t = { x: C.x, z: C.z, inside: where }; via = 'the ship'; }
+    else if (LANDS[t.inside] && where === 'out') { t = { x: VALLEY_DOCK.x, z: VALLEY_DOCK.z, inside: 'out' }; via = 'the ship'; }
+    else if (where !== 'out') { const d = INTERIORS[where].room.door; t = { x: d.x, z: d.z, inside: where }; via = 'the door'; }
     else { const I = INTERIORS[t.inside]; t = I && I.outside ? { x: I.outside.x, z: I.outside.z, inside: 'out' } : null; }
   }
   const P = player.pos;
   const d = t ? Math.hypot(t.x - P.x, t.z - P.z) : 0;
   guide.g.visible = !!t && d > 4.5;
   guide.star.visible = !!t && d < 45;
+  const L = guide.label;
+  if (!t || d <= 4.5 || creator.open) L.hidden = true;
   if (!t) return;
   guide.g.position.set(P.x, 0.25 + P.y, P.z);
   const want = Math.atan2(t.x - P.x, t.z - P.z) + Math.PI;
@@ -2572,6 +2576,15 @@ function guideTick() {
   guide.arrow.position.z = -2.5 - Math.sin(now * 5) * 0.25;
   guide.star.position.set(t.x, 5.2 + Math.sin(now * 3) * 0.3, t.z);
   guide.star.rotation.y = now * 2;
+  if (d > 4.5 && !creator.open) {
+    const q = QUESTS[id], st = S.quests[id];
+    const goal = st.state !== 'active' || questReady(id) ? `Talk to ${npcName(q.giver)}` : q.name;
+    const txt = `➤ ${via ? `To ${via} · ` : ''}${goal} · ${Math.round(d)}m`;
+    if (L.textContent !== txt) L.textContent = txt;
+    const v = tmpV.copy(player.pos).setY(0).project(camera);
+    L.hidden = v.z > 1;
+    L.style.left = `${(v.x * 0.5 + 0.5) * innerWidth}px`; L.style.top = `${(-v.y * 0.5 + 0.5) * innerHeight}px`;
+  }
 }
 function questProgress(id) {
   const q = QUESTS[id], st = S.quests[id];
