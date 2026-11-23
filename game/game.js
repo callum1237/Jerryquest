@@ -874,14 +874,6 @@ function onNet(ev, m) {
   if (['ti', 'ta', 'to', 'tx'].includes(ev)) { tradeNet(ev, from, m); return; }
   if (ev === 'wb') { wbNet(m); return; }
   if (ev === 'bh' || ev === 'bs') { bossNet(ev, m); return; }
-  if (ev === 'qb') {
-    // a party friend beat a story boss right next to you: you get the quest credit too
-    if (!inParty(from) || m.w !== where || !player || Math.hypot(player.pos.x - m.x, player.pos.z - m.z) > 45 || !ENEMY_TYPES[m.t]) return;
-    let got = false;
-    for (const k of Object.keys(QUESTS)) if (S.quests[k].state === 'active' && QUESTS[k].bossType === m.t && !S.quests[k].boss) { S.quests[k].boss = 1; got = true; }
-    if (got) { S.beat = { ...(S.beat || {}), [m.t]: ((S.beat || {})[m.t] || 0) + 1 }; queueLetter(m.t); toast(`Your party beat ${ENEMY_TYPES[m.t].name}! It counts for your quest too.`, ICONS.star, true); refreshUI(); save(); }
-    return;
-  }
   if (ev === 'pi') { if (peer) invitePrompt(from, (peer && peer.name) || m.name || 'Someone'); return; }
   if (ev === 'pa') {
     if (!invites.has(from) || now - invites.get(from) > 60) return;
@@ -3944,6 +3936,7 @@ function hurtEnemy(e, dmg, src = null, power = 1) {
   else if (now < (e.dizzyUntil || 0)) dmg = Math.round(dmg * 1.5);
   if (e.coreOpen) { dmg = Math.round(dmg * 1.3); if (rng() < 0.15) floatText(head.clone().setY(5), 'Core hit!', 'gain'); }
   e.hp = Math.max(0, e.hp - dmg);
+  if (!bossRemote && !wbRemote) e.myDmg = (e.myDmg || 0) + dmg;
   wbShare(e, dmg); bossShare(e, dmg);
   // the Avalanche Twins share one strength: hurt one and the other feels it (and gets angry)
   if (e.T.twin) {
@@ -3963,6 +3956,12 @@ function hurtEnemy(e, dmg, src = null, power = 1) {
     e.play('Death_A', { once: true, clamp: true, fade: 0.1 });
     if (!e.T.noBones) later(0.75, () => { if (e.state === 'dead') collapse(e); });
     if (e.T.poof) later(0.8, () => { if (e.state === 'dead') { burst(e.pos.clone().setY(0.8), e.T.tintAll || '#9fe07a', 24, 4); e.root.visible = false; } });
+    // a shared boss beaten by other heroes: only those who hit it get loot and quest credit
+    const unpaid = e.T.boss && (bossRemote || wbRemote) && !e.myDmg;
+    if (unpaid) {
+      bossCleanup(e); if (e.type === 'boss_colossus') sandsCleanup(e); $('bossbar').hidden = true;
+      toast(`Other heroes beat ${e.T.name}. Hit it next time to share the loot!`, ICONS.star);
+    } else {
     giveHeroXp(e.T.xp, e.pos.clone().setY(4)); partyShareXp(e.T.xp, e.pos);
     const coins = e.T.coins ? e.T.coins[0] + Math.floor(rng() * (e.T.coins[1] - e.T.coins[0])) : 3 + Math.floor(rng() * 9);
     S.coins += coins; addItem('bones'); later(0.25, () => sfx('coin'));
@@ -3977,7 +3976,6 @@ function hurtEnemy(e, dmg, src = null, power = 1) {
       toast(`You defeated ${e.T.name}! It dropped ${ITEMS[e.T.drop].toLowerCase()}!`, ICONS[e.T.drop], true);
       burst(e.pos.clone().setY(2), '#ffe07a', 80, 8, 1.6);
       for (const k of Object.keys(QUESTS)) if (S.quests[k].state === 'active' && QUESTS[k].bossType === e.type) S.quests[k].boss = 1;
-      if (!wbRemote && !bossRemote && party && party.members.length > 1) sendNet('qb', { t: e.type, x: e.pos.x, z: e.pos.z, w: where });
       $('bossbar').hidden = true;
       if ((BOSS_LINES[e.type] || {}).defeat) { const be = e; later(0.5, () => { if (!bossIntro && !player.dead) startBossScene(be, 'defeat'); }); }
       if (e.T.town) { const T = TOWNS.find((t) => t.id === e.T.town); later(1.5, () => liberateTown(T)); }
@@ -3986,12 +3984,13 @@ function hurtEnemy(e, dmg, src = null, power = 1) {
     if (e.golden) goldenCaught(e);
     for (const k of Object.keys(QUESTS)) if (S.quests[k].state === 'active' && QUESTS[k].need.kills !== undefined && (!QUESTS[k].land || QUESTS[k].land === e.inside)) S.quests[k].kills++;
     if (!e.temp || e.boss) boardToday().kills++;
+    }
     refreshUI();
     later(e.temp ? 5 : e.T.boss ? 90 : 16, () => {
       if (e.temp) { removeEnemy(e); return; } // ambush skeletons don't come back
       if (!enemies.includes(e)) return;
       if (e.T.town && townFree(e.T.town)) return; // freed towns stay free
-      e.hp = e.T.hp; e.state = 'rising';
+      e.hp = e.T.hp; e.state = 'rising'; e.myDmg = 0;
       reassemble(e);
       const ok = e.play('Spawn_Ground_Skeletons', { once: true, clamp: true, onFinish: () => { e.state = 'idle'; e.play('Idle'); } });
       if (!ok) { e.state = 'idle'; e.play('Idle'); }
