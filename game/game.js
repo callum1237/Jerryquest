@@ -8897,7 +8897,7 @@ function crewNeutral(c, dt) {
 // name tags with a health bar and speech bubbles, drawn over each crew member
 // ---------- your name tag ----------
 // Grey up to level 30, green past 30, blue from 50 and red from 100. When accounts go live it shows the account name.
-const tagColour = (l) => (l >= 100 ? '#d8324a' : l >= 50 ? '#3a7ae8' : l > 30 ? '#3aa860' : '#8a8a94');
+const tagColour = (l) => (l >= 100 ? '#ff5a68' : l >= 50 ? '#6aaeff' : l > 30 ? '#6ee08a' : '#f2ece0'); // text colours (bright, read on a dark outline)
 let heroTagEl = null;
 function setTagTitle(tag, text, col) {
   let em = tag.querySelector('em');

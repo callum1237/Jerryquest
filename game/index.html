@@ -907,7 +907,7 @@
   .herotag .tagbar u { display: block; height: 100%; width: 100%; transition: width .25s, background .25s; }
   .herotag .tagbar[hidden] { display: none; }
   .herotag .tagbar var { position: absolute; inset: 0; font: 800 8.5px/11px system-ui, sans-serif; font-style: normal; color: #fff; text-align: center; letter-spacing: .02em; text-shadow: 0 0 2px #000, 0 1px 1px #000; white-space: nowrap; }
-  .herotag b { display: block; font: 800 12px/1 var(--display, sans-serif); color: #fff; background: var(--tc); border: 2px solid var(--ink, #2b160c); border-radius: 8px; padding: 2px 7px; white-space: nowrap; box-shadow: 0 2px 0 var(--ink, #2b160c); }
+  .herotag b { display: block; text-align: center; font: 800 13px/1 var(--display, sans-serif); color: var(--tc); padding: 1px 2px; white-space: nowrap; -webkit-text-stroke: 3px var(--ink, #2b160c); paint-order: stroke fill; text-shadow: 0 1px 0 var(--ink, #2b160c), 0 0 6px rgb(0 0 0 / .35); }
   body.creating .herotag, body:has(#bossintro:not([hidden])) .herotag, body:has(#bigmap:not([hidden])) .herotag, body:has(#roulette:not([hidden])) .herotag { display: none; }
   @media (max-width: 700px) { body.sheet-open .herotag, body.sheet-open .crewtag { display: none; } }
   #emotewheel { position: fixed; inset: 0; z-index: 30; background: rgb(30 18 10 / .25); }
