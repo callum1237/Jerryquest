@@ -1,0 +1,15 @@
+<html><body><script type="importmap">{"imports":{"three":"./node_modules/three/build/three.module.js","three/addons/":"./node_modules/three/examples/jsm/"}}</script>
+<script type="module">
+import * as THREE from 'three'; import {GLTFLoader} from 'three/addons/loaders/GLTFLoader.js';
+const Q=new URLSearchParams(location.search); const ang=+(Q.get('ang')||55)*Math.PI/180, el=+(Q.get('el')||10)*Math.PI/180;
+new GLTFLoader().load('assets/variations/psx-10.glb',g=>{const s=g.scene; s.updateMatrixWorld(true);
+ const rotW=(name,axis,a)=>{const b=s.getObjectByName(name); s.updateMatrixWorld(true); const pq=new THREE.Quaternion(); b.parent.getWorldQuaternion(pq); const bq=new THREE.Quaternion(); b.getWorldQuaternion(bq); const qw=new THREE.Quaternion().setFromAxisAngle(axis,a); b.quaternion.copy(pq.clone().invert().multiply(qw).multiply(bq)); s.updateMatrixWorld(true);};
+ const Z=new THREE.Vector3(0,0,1);
+ rotW('upperarm_l',Z,-ang); rotW('upperarm_r',Z,ang); rotW('lowerarm_l',Z,-el); rotW('lowerarm_r',Z,el);
+ const m=s.getObjectByProperty('isSkinnedMesh',true); const P=m.geometry.attributes.position, v=new THREE.Vector3(); const pos=[];
+ for(let i=0;i<P.count;i++){ m.getVertexPosition(i,v); v.applyMatrix4(m.matrixWorld); pos.push(+v.x.toFixed(5),+v.y.toFixed(5),+v.z.toFixed(5)); }
+ const J={}; s.traverse(o=>{if(o.isBone){const w=new THREE.Vector3(); o.getWorldPosition(w); J[o.name]=w.toArray();}});
+ const SI=m.geometry.attributes.skinIndex, SW=m.geometry.attributes.skinWeight, bones=m.skeleton.bones.map(b=>b.name), sk=[];
+ for(let i=0;i<SI.count;i++){ for(let k=0;k<4;k++) sk.push(SI.getComponent?SI.getComponent(i,k):[SI.getX(i),SI.getY(i),SI.getZ(i),SI.getW(i)][k], SW.getComponent?SW.getComponent(i,k):[SW.getX(i),SW.getY(i),SW.getZ(i),SW.getW(i)][k]); }
+ window.out={J,bones,sk,pos, uv:(()=>{const U=m.geometry.attributes.uv,a=[];for(let i=0;i<U.count;i++)a.push(U.getX(i),U.getY(i));return a;})(), idx:Array.from(m.geometry.index.array)}; window.done=1;});
+</script></body></html>

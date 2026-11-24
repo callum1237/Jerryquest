@@ -1209,7 +1209,7 @@ function wolfTick(a, dt, anim) {
 // Admin-only: /human swaps the hero for Callum's realistic human (see human.js) until /unhuman. The model only
 // downloads the first time someone needs it, and everyone online sees it, animated to match what the hero is doing.
 let humanOn = false, humanG = null, humanLoad = null;
-const HUMAN_SCALE = 1.65;
+const HUMAN_SCALE = 2.05; // a head taller than everyone else
 function loadHuman() {
   if (!humanLoad) humanLoad = loadModel('human').then((g) => { humanG = g; }).catch((e) => { console.warn(e); humanLoad = null; });
   return humanLoad;
