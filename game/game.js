@@ -3711,7 +3711,8 @@ function setLevel(T, L, sh = T.shape || [1, 1]) {
   T.lv = L; T.shape = sh;
   const [rD, rE, o] = heroRatio(L);
   T.hp = Math.round(lvHp(o, T.boss) * sh[0] * rD * LV_HARD);
-  T.maxHit = Math.max(1, Math.round(lvHit(o, T.boss) * sh[1] * rE * LV_HARD));
+  // v80.1 (playtest): monsters hit at least as hard as before the rework, and bosses 30% harder than that
+  T.maxHit = Math.max(1, Math.round(lvHit(o, T.boss) * sh[1] * (T.boss ? Math.max(rE, 1) * 1.3 : Math.max(rE, 0.85)) * LV_HARD));
   T.xp = Math.round(lvXp(o, T.boss) * (sh[2] || 1));
   T.def = lvDef(o);
 }
@@ -3722,10 +3723,12 @@ function farMult(w, x, z) {
   return 1 + Math.min(0.8, Math.max(0, (d - 35) / 110));
 }
 // Boss hits always matter: at least a share of your max health (after your defence), however strong you are.
+// v80.1: the least a boss hit can do is 5% of your max health (before your Defense or Magic), so armour still matters
+const BOSS_FLOOR = 0.05;
 function bossDmg(e, k = 1) {
   const g = gapIn(e);
   if (!e.T.boss) return Math.max(1, Math.round(e.T.maxHit * k * g));
-  return Math.max(Math.round(e.T.maxHit * k * g), Math.round(maxHp() * 0.075 * k * g * defDiv()));
+  return Math.max(Math.round(e.T.maxHit * k * g), Math.round(maxHp() * BOSS_FLOOR * k * g * (isMagicFoe(e) ? magDiv() : defDiv())));
 }
 function toughen(T, k) {
   if (T.world || T.toughened) return; T.toughened = true;
@@ -4659,7 +4662,7 @@ function refreshUI() {
   hudGate();
   $('status').classList.toggle('compact', !S.hudOpen); $('status').classList.toggle('pts', freePoints() > 0 || perksDue().length > 0);
   $('hudmore').setAttribute('aria-expanded', String(!!S.hudOpen)); $('hudmore').textContent = S.hudOpen ? '▴' : '▾';
-  const mh = maxHp();
+  const mh = maxHp(); if (S.hp > mh) S.hp = mh;
   $('hpfill').style.width = `${Math.max(0, (S.hp / mh) * 100)}%`;
   $('hptext').textContent = `${Math.max(0, Math.ceil(S.hp))} / ${mh}`;
   { const L = heroLvl(), lo = HXT[L] || 0, hi = HXT[L + 1], max = L >= HERO_MAX || hi == null;
@@ -7877,7 +7880,7 @@ function enemyTick(e, dt) {
       const sp = 4.2 * (e.T.fast || 1); ep.x += (dx / toP) * sp * dt; ep.z += (dz / toP) * sp * dt;
       if (e.name !== '1H_Melee_Attack_Chop' && e.name !== 'Spellcast_Shoot' && e.name !== 'Hit_A') e.play('Running_A', { fade: 0.15 });
     } else if (now > e.nextHit) {
-      e.nextHit = now + (big ? 1.5 / (e.T.fast || 1) : 1.9) + rng() * (big && e.T.fast ? 0.4 : 0.6);
+      e.nextHit = now + (big ? 1.2 / (e.T.fast || 1) : 1.9) + rng() * (big && e.T.fast ? 0.4 : 0.6);
       const dmg = big ? bossDmg(e, 0.65 + rng() * 0.45) : rng() < 0.3 ? 0 : Math.round((1 + Math.floor(rng() * e.T.maxHit)) * gapIn(e));
       if (BOSS_AI[e.type] && aim(() => BOSS_AI[e.type](e, toP))) return;
       if (e.T.dragon) { aim(() => dragonAttack(e, toP)); return; }
@@ -10694,7 +10697,7 @@ function renderCard(el) {
     <div class="herocard" style="--rank:${R.col}">
       <div class="dfig"><div class="dprev" title="Drag to turn your hero"></div><span class="drank">${R.name}</span>${t && t.name !== R.name ? `<em>${esc(t.name)}</em>` : ''}</div>
       <div class="hcstats">
-        <div class="hclvl"><b>Level ${L}</b><div class="hcbar"><i style="width:${pct.toFixed(1)}%"></i></div><small>${L >= 99 ? 'Max level' : `${fmt(S.hero.xp - cur)} / ${fmt(next - cur)} XP`}</small></div>
+        <div class="hclvl"><b>Level ${L}</b><div class="hcbar"><i style="width:${pct.toFixed(1)}%"></i></div><small>${L >= HERO_MAX ? 'Max level' : `${fmt(S.hero.xp - cur)} / ${fmt(next - cur)} XP`}</small></div>
         <div class="hcrow"><img src="${ICONS.coins}" alt=""><span>Gold</span><b>${fmt(nw.coins)}</b></div>
         ${nw.bank ? `<div class="hcrow"><img src="${ICONS.coins}" alt=""><span>In the bank</span><b>${fmt(nw.bank)}</b></div>` : ''}
         <div class="hcrow"><img src="${ICONS.star}" alt=""><span>Items</span><b>${fmt(nw.items)}</b></div>
