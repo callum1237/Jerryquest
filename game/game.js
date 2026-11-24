@@ -1368,7 +1368,7 @@ function onNet(ev, m) {
     return;
   }
   if (ev === 'spell') { if (m.w === where && SPELL_FX[m.k]) SPELL_FX[m.k](+m.x || 0, +m.z || 0, +m.ry || 0, false); return; }
-  if (ev === 'push') { if (player && !player.dead) { const vx = Math.max(-12, Math.min(12, +m.x || 0)), vz = Math.max(-12, Math.min(12, +m.z || 0)); tween(0.45, (k) => { player.pos.x += vx * 0.016 * (1 - k) * 2.2; player.pos.z += vz * 0.016 * (1 - k) * 2.2; collide(player.pos); }); toast('Whoosh! A gust blew you away!', ICONS.star); } return; }
+  if (ev === 'push') { if (player && !player.dead) { const vx = Math.max(-60, Math.min(60, +m.x || 0)), vz = Math.max(-60, Math.min(60, +m.z || 0)); moveTarget = null; player.vy = Math.max(player.vy || 0, 7); player.air = true; tween(0.7, (k, dt) => { player.pos.x += vx * dt * (1 - k) * 2; player.pos.z += vz * dt * (1 - k) * 2; collide(player.pos); }); toast('Whoosh! A gust blew you away!', ICONS.star); } return; }
   if (ev === 'hit') { if (canFight(from, true)) hurtPlayer(Math.max(1, Math.min(9999, +m.dmg || 0)), from); return; }
   if (ev === 'ko') { if (peer && m.offer) duelPrize(from, peer.name || 'a hero', m.offer); return; }
   if (ev === 'loot') { takeDuelLoss(from, m.pick, m.wait); return; }
@@ -4309,13 +4309,14 @@ const SPELL_FX = {
       fade(arc, 0.55, (k) => { const s = 1.2 + k * (o.R ? o.R - 1 : 9); arc.scale.set(s, s, s); });
     });
     for (let i = 0; i < (o.big ? 26 : 10); i++) { const a = ry + (rng() - 0.5) * 1.1, r = 1 + rng() * (o.big ? 13 : 6); burst(new THREE.Vector3(x + Math.sin(a) * r, 0.6 + rng(), z + Math.cos(a) * r), '#ffffff', 3, 4, 0.6); }
-    if (!mine) return;
-    const fx = Math.sin(ry), fz = Math.cos(ry), test = inCone(x, z, ry, o.R || 10, o.half || 0.75), F = o.force || 26;
-    for (const e of foesIn(test)) { const m = e.mass || 1; e.kb.set(fx * F / Math.sqrt(m), fz * F / Math.sqrt(m)); if (m < 3 || o.big) { e.vy = (o.big ? 12 : 7) / Math.min(m, 3); e.lift = Math.max(e.lift, 0.01); } e.staggerUntil = now + 0.6; }
-    if (net.on) for (const [id, p] of net.peers) if (p.where === where && test(p.x, p.z)) sendNet('push', { to: id, x: +(fx * (o.big ? 12 : 9)).toFixed(2), z: +(fz * (o.big ? 12 : 9)).toFixed(2) });
+    // monsters: the caster blows away everything on their screen; a friend's screen also blows away the
+    // monsters it runs, so they land in the same place for everyone
+    const fx = Math.sin(ry), fz = Math.cos(ry), test = inCone(x, z, ry, o.R || 10, o.half || 0.75), F = o.force || 90;
+    for (const e of foesIn(test)) { if (!mine && netDriven(e)) continue; const m = e.mass || 1; e.kb.set(fx * F / Math.sqrt(m), fz * F / Math.sqrt(m)); if (m < 3 || o.big) { e.vy = (o.big ? 12 : 7) / Math.min(m, 3); e.lift = Math.max(e.lift, 0.01); } e.staggerUntil = now + 0.6; }
+    if (mine && net.on) for (const [id, p] of net.peers) if (p.where === where && test(p.x, p.z)) sendNet('push', { to: id, x: +(fx * (o.big ? 55 : 30)).toFixed(2), z: +(fz * (o.big ? 55 : 30)).toFixed(2) });
   },
   // the admin-only gust: no cooldown, twice the reach, a far stronger blast and spinning wind funnels
-  agust(x, z, ry, mine) { SPELL_FX.gust(x, z, ry, mine, { R: 18, half: 1.0, force: 52, arcs: 7, big: true }); },
+  agust(x, z, ry, mine) { SPELL_FX.gust(x, z, ry, mine, { R: 18, half: 1.0, force: 150, arcs: 7, big: true }); },
   bigheal(x, z, ry, mine) {
     sfx('levelup');
     const col = fxMesh(new THREE.CylinderGeometry(1.2, 1.6, 8, 28, 1, true), '#ffe9a0'); col.userData.op = 0.55; col.position.set(x, 4, z);
@@ -5210,7 +5211,7 @@ function chargedAttack(k) {
     if (net.on) hitPeers((x, z) => inArc(x, z, 0.7, reach + 0.3, arc) >= 0, dmg());
     // ...and a crescent slash flies on ahead, cutting through everything in a short line
     const struck = new Set(enemies.filter((e) => e.hp > 0 && e.inside === where && inArc(e.pos.x, e.pos.z, 0.8, reach + 0.3, arc) >= 0));
-    if (net.on) for (const [id, p] of net.peers) if (p.where === where && p.x !== undefined && inArc(p.x, p.z, 0.7, reach + 0.3, arc) >= 0) struck.add(id);
+    if (mine && net.on) for (const [id, p] of net.peers) if (p.where === where && p.x !== undefined && inArc(p.x, p.z, 0.7, reach + 0.3, arc) >= 0) struck.add(id);
     const wave = Math.max(1, Math.round(dmg() * 0.75));
     shoot(player.pos.clone().setY(1.1).addScaledVector(fwd, 0.6), fwd, 'slash', 6 + 5 * k + w.reach, 'player',
       (e) => (e.isCrew ? hurtCrew(e, wave, player) : hurtEnemy(e, wave, null, 1.8)), { pierce: struck, size: (1 + 0.5 * k) * (w.beam ? 1.25 : 1), pdmg: wave, beam: w.beam });
