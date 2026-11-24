@@ -1222,6 +1222,7 @@ function onNet(ev, m) {
   if (['ti', 'ta', 'to', 'tx'].includes(ev)) { tradeNet(ev, from, m); return; }
   if (ev === 'wb') { wbNet(m); return; }
   if (ev === 'bh' || ev === 'bs') { bossNet(ev, m); return; }
+  if (ev === 'mh') { mobNet(m); return; }
   if (ev === 'pi') { if (peer) invitePrompt(from, (peer && peer.name) || m.name || 'Someone'); return; }
   if (ev === 'pa') {
     if (!invites.has(from) || now - invites.get(from) > 60) return;
@@ -1457,7 +1458,34 @@ function wbTick() {
 // Story bosses are shared too: everyone fighting the same boss nearby hits one health bar.
 // Each hit goes out as a share of its health; every couple of seconds fighters also send where the bar is,
 // so a friend who joins late sees the same health.
-let bossRemote = false, bossSyncAt = 0;
+let bossRemote = false, bossSyncAt = 0, mobRemote = false;
+// Monsters are shared with other heroes nearby too: every monster has the same id on every screen, so each hit
+// is sent as a share of its health (a few times a second, bundled), and a kill is sent as a kill. Whoever lands
+// a hit gets the XP, loot and quest credit when it falls, wherever the final blow came from.
+const mobOut = new Map(); let mobFlushAt = 0;
+const peersHere = () => { for (const p of net.peers.values()) if (p.where === where) return true; return false; };
+function mobShare(e, dmg) {
+  if (!net.on || e.T.world || !e.nid || e.temp || dmg <= 0 || !peersHere()) return;
+  const o = mobOut.get(e.nid) || { f: 0, k: 0 }; o.f += dmg / e.T.hp; if (e.hp <= 0) o.k = 1; mobOut.set(e.nid, o);
+}
+function mobFlush() {
+  if (!mobOut.size || now < mobFlushAt) return; mobFlushAt = now + 0.2;
+  sendNet('mh', { w: where, h: [...mobOut].slice(0, 40).map(([n, o]) => [n, +o.f.toFixed(4), o.k]) }); mobOut.clear();
+}
+function mobNet(m) {
+  if (!player || m.w !== where || !Array.isArray(m.h)) return;
+  for (const [n, f, k] of m.h) {
+    const e = enemies.find((x) => x.nid === n && x.inside === where && x.hp > 0 && x.state !== 'dead' && x.state !== 'rising'); if (!e) continue;
+    if (e.T.boss && !k) continue; // boss health already travels on its own channel
+    const d = Math.max(0, Math.min(1, +f || 0)) * e.T.hp;
+    if (!k && e.hp - d > 0) { e.hp -= d; e.lastHit = now; continue; }
+    // the killing blow: it falls here too, but you only get rewards if you hit it yourself
+    const quiet = !e.myDmg && ['idle', 'walk', 'return'].includes(e.state);
+    if (e.T.boss) bossRemote = true; else mobRemote = true;
+    fxMute.on = quiet;
+    try { hurtEnemy(e, Math.ceil(e.hp) + 1); } finally { bossRemote = false; mobRemote = false; fxMute.on = false; }
+  }
+}
 function bossShare(e, dmg) {
   if (!e.T.boss || e.T.world || bossRemote || dmg <= 0 || !net.on) return;
   sendNet('bh', { t: e.type, f: dmg / e.T.hp, w: where, x: e.pos.x, z: e.pos.z });
@@ -1477,7 +1505,7 @@ function bossNet(ev, m) {
   } else if (ev === 'bs') {
     // only ever bring the bar down, and only once this boss is in a fight here
     const f = Math.max(0.01, Math.min(1, +m.f || 1));
-    if (e.state !== 'idle' && f * e.T.hp < e.hp - 1) { e.hp = f * e.T.hp; phaseCheck(e); }
+    if (f * e.T.hp < e.hp - 1) { e.hp = f * e.T.hp; if (e.state !== 'idle') phaseCheck(e); }
   }
 }
 function bossSyncTick() {
@@ -2958,6 +2986,7 @@ function spawnEnemy(k, x, z) {
   if (T.dragon) e.alias = { Idle: 'Flying_Idle', Idle_Combat: 'Flying_Idle', Running_A: 'Fast_Flying', Walking_A: 'Flying_Idle', Hit_A: 'HitReact', Death_A: 'Death', '1H_Melee_Attack_Chop': 'Headbutt', Spellcast_Shoot: 'Punch', Spellcasting: 'Yes', '2H_Melee_Attack_Chop': 'Punch' };
   e.inside = T.inside || 'out';
   e.type = k; e.T = T; e.home = new THREE.Vector2(x, z);
+  e.nid = `${k}@${x.toFixed(1)},${z.toFixed(1)}`; // the same on every player's screen, so hits can be shared
   // monsters far from the land's village are naturally fiercer (up to +80% health and damage, and better rewards)
   const far = farMult(e.inside, x, z);
   if (!T.boss && !T.town && !T.world && far > 1.05) {
@@ -5088,7 +5117,7 @@ function hurtEnemy(e, dmg, src = null, power = 1) {
   if (e.state === 'idle' || e.state === 'walk') e.state = 'chase';
   if (e.under) { if (rng() < 0.5) floatText(head, 'It\'s underwater! Watch the bubbles', 'miss'); return; }
   if (dmg === 0) { floatText(head, 'Miss', 'miss'); return; }
-  if (!crewHitting && !poisonHit) {
+  if (!crewHitting && !poisonHit && !bossRemote && !mobRemote && !wbRemote) {
     const w = W();
     // marsh poison keeps hurting for a few seconds; the Fangblade drinks a little health back
     if (w.poison) e.poison = { left: 3, at: now + 1, dmg: Math.max(1, Math.round(dmg * 0.15)) };
@@ -5098,7 +5127,7 @@ function hurtEnemy(e, dmg, src = null, power = 1) {
   else if (now < (e.dizzyUntil || 0)) dmg = Math.round(dmg * 1.5);
   if (e.coreOpen) { dmg = Math.round(dmg * 1.3); if (rng() < 0.15) floatText(head.clone().setY(5), 'Core hit!', 'gain'); }
   e.hp = Math.max(0, e.hp - dmg);
-  if (!bossRemote && !wbRemote) e.myDmg = (e.myDmg || 0) + dmg;
+  if (!bossRemote && !wbRemote && !mobRemote) { e.myDmg = (e.myDmg || 0) + dmg; mobShare(e, dmg); }
   wbShare(e, dmg); bossShare(e, dmg);
   // the Avalanche Twins share one strength: hurt one and the other feels it (and gets angry)
   if (e.T.twin) {
@@ -5112,7 +5141,7 @@ function hurtEnemy(e, dmg, src = null, power = 1) {
   if (e.T.boss && !PHASE_LINES[e.type] && !e.lowSaid && e.hp > 0 && e.hp <= e.T.hp * 0.4) { e.lowSaid = true; bossShout(e); }
   floatText(head, String(dmg), e.hp <= 0 ? 'kill' : dmg >= Math.max(8, W().dmg * 1.6) ? 'big' : '');
   impact(e, dmg, src, power, e.hp <= 0);
-  if (!crewHitting) giveHeroXp(dmg * HIT_HERO_XP);
+  if (!crewHitting && !bossRemote && !mobRemote && !wbRemote) giveHeroXp(dmg * HIT_HERO_XP); // only your own hits earn hit XP
   if (e.hp <= 0) {
     e.state = 'dead'; e.bar.hidden = true;
     const life = e.life = (e.life || 0) + 1; // each death gets its own id, so old timers can't touch a respawned monster
@@ -5120,10 +5149,12 @@ function hurtEnemy(e, dmg, src = null, power = 1) {
     if (!e.T.noBones) later(0.75, () => { if (e.state === 'dead' && e.life === life) collapse(e); });
     if (e.T.poof) later(0.8, () => { if (e.state === 'dead') { burst(e.pos.clone().setY(0.8), e.T.tintAll || '#9fe07a', 24, 4); e.root.visible = false; } });
     // a shared boss beaten by other heroes: only those who hit it get loot and quest credit
-    const unpaid = e.T.boss && (bossRemote || wbRemote) && !e.myDmg;
+    const unpaid = ((e.T.boss && (bossRemote || wbRemote)) || mobRemote) && !e.myDmg;
     if (unpaid) {
-      bossCleanup(e); if (e.type === 'boss_colossus') sandsCleanup(e); $('bossbar').hidden = true;
-      toast(`Other heroes beat ${e.T.name}. Hit it next time to share the loot!`, ICONS.star);
+      if (e.T.boss) {
+        bossCleanup(e); if (e.type === 'boss_colossus') sandsCleanup(e); $('bossbar').hidden = true;
+        toast(`Other heroes beat ${e.T.name}. Hit it next time to share the loot!`, ICONS.star);
+      }
     } else {
     giveHeroXp(e.T.xp, e.pos.clone().setY(4)); partyShareXp(e.T.xp, e.pos);
     const coins = e.T.coins ? e.T.coins[0] + Math.floor(rng() * (e.T.coins[1] - e.T.coins[0])) : 3 + Math.floor(rng() * 9);
@@ -6832,7 +6863,7 @@ function tick() {
   regionTick(); lightTick();
   if (player) { goldenTick(); tinyTick(dt); pompTick(dt); }
 
-  if (player) { gulpTick(); lanternTick(dt); wingTick(); stormTick(dt); castleTick(dt); colossusTick(dt); cosTick(); wbTick(); bossSyncTick(); weaponSparkle(); flairTick(player, dt, player.name === 'Running_A' || player.name === 'Walking_A' || (player.name || '').startsWith('Running')); }
+  if (player) { gulpTick(); lanternTick(dt); wingTick(); stormTick(dt); castleTick(dt); colossusTick(dt); cosTick(); wbTick(); bossSyncTick(); if (net.on) mobFlush(); weaponSparkle(); flairTick(player, dt, player.name === 'Running_A' || player.name === 'Walking_A' || (player.name || '').startsWith('Running')); }
   if (player && !player.dead && !uiLock() && !gulped) {
     const busy = now < player.busyUntil;
     let mx = 0, mz = 0;
@@ -7121,7 +7152,9 @@ const BOSS_GATES = {
   boss_gobbler: { quest: 'st_lantern', who: 'the Lantern Night' },
   boss_goon: { quest: 'st_sogg', beat: 'boss_sogg', who: 'Sir Soggington', r: 19 },
 };
-const bossLocked = (e) => { const g = e && BOSS_GATES[e.type]; if (!g) return false; const B = S.beat || {}, Q = (q) => S.quests[q] && S.quests[q].state === 'done'; if (g.all) return !(B[e.type] || g.all.every(([q, b]) => Q(q) || B[b])); if ((S.beat || {})[e.type] || (S.quests[g.quest] && S.quests[g.quest].state === 'done') || (g.beat && (S.beat || {})[g.beat])) return false; return true; };
+// a friend already inside the seal (so they've unlocked it) lets you in to help them
+const friendInside = (e, g) => { if (!net.on) return false; const R = (g.r || SEAL_R) + 2; for (const p of net.peers.values()) if (p.where === e.inside && p.x !== undefined && Math.hypot(p.x - e.home.x, p.z - e.home.y) < R) return true; return false; };
+const bossLocked = (e) => { const g = e && BOSS_GATES[e.type]; if (!g) return false; if (friendInside(e, g)) return false; const B = S.beat || {}, Q = (q) => S.quests[q] && S.quests[q].state === 'done'; if (g.all) return !(B[e.type] || g.all.every(([q, b]) => Q(q) || B[b])); if ((S.beat || {})[e.type] || (S.quests[g.quest] && S.quests[g.quest].state === 'done') || (g.beat && (S.beat || {})[g.beat])) return false; return true; };
 const SEAL_R = 21;
 let sealSaid = 0;
 function bossGateTick() {
@@ -9322,7 +9355,7 @@ function makeGagronFriend() {
   npcs.push(gagronFriend);
 }
 
-window.__jq = { toast, shrinkMe, showStoryIntro, hurtPlayer, koSitOut, wakeUp, showLook, removeThing, giveThing, COS, ITEMS, GEAR, parseGive, chargedAttack, parseAmount, hitPeers, shotHitsPeer, showKeysNote, castSpell, learnSpell, spellCd, SPELLS, goonSneeze, goonDrips, goonFlop, setSlotBox, showSlots, get slotBox() { return slotBox; }, get guide() { return guide; }, bossNet, safeSpot, get PVP_LVL() { return PVP_LVL; }, goldNode, wbInfo, wbTick, get wb() { return wb; }, WB_SPOTS, tradeOpen, tradeNet, offerKey, get trade() { return trade; }, adv(s) { for (let t = 0; t < s; t += 0.05) { for (let i = timers.length - 1; i >= 0; i--) { timers[i].t -= 0.05; if (timers[i].t <= 0) { const f = timers[i].f; timers.splice(i, 1); f(); } } bossFxTick(0.05); } }, get party() { return party; }, BOSS_AI, PHASE_SETUP, get gulped() { return gulped; }, wriggle, toggleBigMap, spawnEnemy, openPathChoice, choosePath, startLanternNight, get lanterns() { return lanterns; }, duelOffer, duelPrize, onNet, chatCommand, canFight, openUpgrade, openBoard, boardToday, queueLetter, makeGagronFriend, net, peerActors, runeTick, bossFx, renderer, scene, openMayor, darkOmen, netWorth, liberateTown, setGolden, goldenCaught, pompArrive, get goldenE() { return goldenE; }, spinWheel, dayTick, get bossIntro() { return bossIntro; }, bossSkip, startBossScene, sailTo, regions, closeSheet, renderHotbar, crew, setCrewMode, TOWNS, liberateTown, chests, openChest, stopRoulette, enemies, startBossIntro, closeDialog, advanceDialog, dash, attackPress, craft, CRAFTS, openCreator, closeCreator, creator, rebuildHero, setZoom: (z) => { zoom = zoomGoal = z; }, hurtEnemy, goThrough, get where() { return where; }, INTERIORS, equipGear, spendPoint, giveHeroXp, heroLvl, stat, maxHp, defDiv, openWeaponShop, openKing, jump, eat, eatBest, openShop, swing, swingTarget, hitNode, projectiles, timers, get S() { return S; }, get player() { return player; }, enemies, nodes, npcs, startTask, doAction, giveXp, save, openSheet, openDialog };
+window.__jq = { toast, mobNet, shrinkMe, showStoryIntro, hurtPlayer, koSitOut, wakeUp, showLook, removeThing, giveThing, COS, ITEMS, GEAR, parseGive, chargedAttack, parseAmount, hitPeers, shotHitsPeer, showKeysNote, castSpell, learnSpell, spellCd, SPELLS, goonSneeze, goonDrips, goonFlop, setSlotBox, showSlots, get slotBox() { return slotBox; }, get guide() { return guide; }, bossNet, safeSpot, get PVP_LVL() { return PVP_LVL; }, goldNode, wbInfo, wbTick, get wb() { return wb; }, WB_SPOTS, tradeOpen, tradeNet, offerKey, get trade() { return trade; }, adv(s) { for (let t = 0; t < s; t += 0.05) { for (let i = timers.length - 1; i >= 0; i--) { timers[i].t -= 0.05; if (timers[i].t <= 0) { const f = timers[i].f; timers.splice(i, 1); f(); } } bossFxTick(0.05); } }, get party() { return party; }, BOSS_AI, PHASE_SETUP, get gulped() { return gulped; }, wriggle, toggleBigMap, spawnEnemy, openPathChoice, choosePath, startLanternNight, get lanterns() { return lanterns; }, duelOffer, duelPrize, onNet, chatCommand, canFight, openUpgrade, openBoard, boardToday, queueLetter, makeGagronFriend, net, peerActors, runeTick, bossFx, renderer, scene, openMayor, darkOmen, netWorth, liberateTown, setGolden, goldenCaught, pompArrive, get goldenE() { return goldenE; }, spinWheel, dayTick, get bossIntro() { return bossIntro; }, bossSkip, startBossScene, sailTo, regions, closeSheet, renderHotbar, crew, setCrewMode, TOWNS, liberateTown, chests, openChest, stopRoulette, enemies, startBossIntro, closeDialog, advanceDialog, dash, attackPress, craft, CRAFTS, openCreator, closeCreator, creator, rebuildHero, setZoom: (z) => { zoom = zoomGoal = z; }, hurtEnemy, goThrough, get where() { return where; }, INTERIORS, equipGear, spendPoint, giveHeroXp, heroLvl, stat, maxHp, defDiv, openWeaponShop, openKing, jump, eat, eatBest, openShop, swing, swingTarget, hitNode, projectiles, timers, get S() { return S; }, get player() { return player; }, enemies, nodes, npcs, startTask, doAction, giveXp, save, openSheet, openDialog };
 window.addEventListener('error', (e) => { const m = $('loadmsg'); if (m) m.textContent = `Something went wrong: ${e.message}`; });
 main().catch((err) => {
   console.error(err);
