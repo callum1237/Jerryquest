@@ -1248,6 +1248,19 @@
   @keyframes siBlink { 50% { opacity: .35; } }
   .si-skip { position: absolute; right: max(18px, env(safe-area-inset-right, 0px)); bottom: max(18px, env(safe-area-inset-bottom, 0px)); padding: 8px 16px; font: 700 14px var(--body, sans-serif); color: #f6ead2; background: rgb(255 255 255 / .08); border: 1.5px solid rgb(246 234 210 / .4); border-radius: 99px; cursor: pointer; }
   @media (prefers-reduced-motion: reduce) { .si-card.in { animation: none; opacity: 1; } .si-go { animation: none; } }
+
+  /* v82 polish: fine paper grain on the parchment, and a brighter two-tone gold trim like a storybook page */
+  .panel {
+    background:
+      radial-gradient(circle at 9px 9px, #ff7eb6 0 3.5px, #4a2a17 3.6px 5px, transparent 5.2px),
+      radial-gradient(circle at calc(100% - 9px) 9px, #7fe3f0 0 3.5px, #4a2a17 3.6px 5px, transparent 5.2px),
+      radial-gradient(circle at 9px calc(100% - 9px), #7fe3f0 0 3.5px, #4a2a17 3.6px 5px, transparent 5.2px),
+      radial-gradient(circle at calc(100% - 9px) calc(100% - 9px), #ff7eb6 0 3.5px, #4a2a17 3.6px 5px, transparent 5.2px),
+      url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 .35 0 0 0 0 .22 0 0 0 0 .08 0 0 0 .09 0'/%3E%3C/filter%3E%3Crect width='160' height='160' filter='url(%23n)'/%3E%3C/svg%3E"),
+      radial-gradient(ellipse at 50% 0%, rgb(255 248 225 / .55), transparent 60%),
+      linear-gradient(180deg, #f1dfb4, #e4c891 50%, #d0ad70);
+    box-shadow: inset 0 0 0 2px #f6d77a, inset 0 0 0 3.5px #b98a3a, inset 0 0 0 5px rgb(74 42 23 / .4), inset 0 0 30px rgb(110 70 30 / .24), 0 4px 0 var(--ink), 0 14px 30px rgb(30 22 54 / .45);
+  }
 </style>
 
 <div id="stage"></div>

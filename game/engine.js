@@ -24,7 +24,7 @@ camera.layers.enableAll();
 export const PRESETS = {
   day: {
     top: '#3f8fe6', horizon: '#e2f1ff', fog: '#eceaee',
-    sun: '#fff0d2', sunI: 2.5, sunDir: [26, 48, 18],
+    sun: '#ffe9c8', sunI: 2.5, sunDir: [26, 48, 18],
     hemiSky: '#cfe6ff', hemiGround: '#7a9a50', hemiI: 1.25,
     rim: '#fff3c4', rimI: 0.45, motes: 0.55, fire: 0.6,
   },
@@ -346,19 +346,22 @@ function makeTargets() {
   const color = new THREE.WebGLRenderTarget(w, h, { samples: renderer.capabilities.isWebGL2 ? samples : 0, stencilBuffer: true });
   const normal = new THREE.WebGLRenderTarget(w, h);
   normal.depthTexture = new THREE.DepthTexture(w, h);
-  return { color, normal };
+  // v82 glow: two small quarter-size targets for a soft bloom on bright things (magic, fire, sparkles, sun on leaves)
+  const bw = Math.max(1, Math.floor(w / 4)), bh = Math.max(1, Math.floor(h / 4));
+  const glowA = new THREE.WebGLRenderTarget(bw, bh, { type: THREE.HalfFloatType }), glowB = new THREE.WebGLRenderTarget(bw, bh, { type: THREE.HalfFloatType });
+  return { color, normal, glowA, glowB };
 }
 let RT = makeTargets();
 const normalMat = new THREE.MeshNormalMaterial();
 const postMat = new THREE.ShaderMaterial({
   uniforms: {
-    tColor: { value: null }, tNormal: { value: null }, tNDepth: { value: null },
+    tColor: { value: null }, tNormal: { value: null }, tNDepth: { value: null }, tGlow: { value: null }, glow: { value: 0.55 },
     res: { value: new THREE.Vector2() }, near: { value: camera.near }, far: { value: camera.far },
     thick: { value: 1.25 * pr }, ink: { value: new THREE.Color('#5a3626') },
   },
   vertexShader: `varying vec2 vUv; void main(){ vUv = uv; gl_Position = vec4(position.xy, 0., 1.); }`,
   fragmentShader: `
-    uniform sampler2D tColor, tNormal, tNDepth; uniform vec2 res; uniform float near, far, thick; uniform vec3 ink;
+    uniform sampler2D tColor, tNormal, tNDepth, tGlow; uniform vec2 res; uniform float near, far, thick, glow; uniform vec3 ink;
     varying vec2 vUv;
     float lin(float d){ float z = d*2.-1.; return 2.*near*far/(far+near-z*(far-near)); }
     vec3 N(vec2 uv){ return texture2D(tNormal, uv).rgb*2.-1.; }
@@ -380,8 +383,12 @@ const postMat = new THREE.ShaderMaterial({
       float edge = max(smoothstep(0.045, 0.1, de), smoothstep(0.5, 0.85, ne) * 0.7);
       edge *= 1. - smoothstep(90., 200., d0);
       float l = dot(col, vec3(.299,.587,.114));
-      col = mix(vec3(l), col, 1.3); // bright, toy-box colours
+      col = mix(vec3(l), col, 1.2); // bright, toy-box colours (v82: a little softer, more painterly)
       col = col * vec3(1.03, 1.0, 0.95) + vec3(0.012, 0.006, 0.0);
+      // v82 storybook grade: sunny highlights glow warm, shadows lean a soft cool violet
+      col += smoothstep(0.55, 1.0, l) * 0.07 * vec3(1.0, 0.9, 0.62);
+      col = mix(col, col * vec3(0.9, 0.93, 1.1), (1. - smoothstep(0.12, 0.5, l)) * 0.55);
+      col += texture2D(tGlow, vUv).rgb * glow; // soft storybook glow
       col = clamp(col, 0., 1.);
       col = mix(col, ink, edge * 0.62);
       vec2 q = vUv - .5;
@@ -391,6 +398,38 @@ const postMat = new THREE.ShaderMaterial({
     }`,
   depthTest: false, depthWrite: false,
 });
+// bright-pass + blur for the glow (each pass is one full-screen triangle pair into a quarter-size target)
+const glowMat = new THREE.ShaderMaterial({
+  uniforms: { tSrc: { value: null }, dir: { value: new THREE.Vector2() }, bright: { value: 0 } },
+  vertexShader: `varying vec2 vUv; void main(){ vUv = uv; gl_Position = vec4(position.xy, 0., 1.); }`,
+  fragmentShader: `uniform sampler2D tSrc; uniform vec2 dir; uniform float bright; varying vec2 vUv;
+    void main(){
+      if (bright > 0.5) {
+        vec3 c = vec3(0.); // 4 taps so the small target isn't sparkly
+        c += texture2D(tSrc, vUv + dir * vec2(-1., -1.)).rgb; c += texture2D(tSrc, vUv + dir * vec2(1., -1.)).rgb;
+        c += texture2D(tSrc, vUv + dir * vec2(-1., 1.)).rgb; c += texture2D(tSrc, vUv + dir * vec2(1., 1.)).rgb; c *= 0.25;
+        float l = max(c.r, max(c.g, c.b));
+        gl_FragColor = vec4(c * smoothstep(0.8, 1.0, l), 1.); return;
+      }
+      vec3 s = texture2D(tSrc, vUv).rgb * 0.227;
+      s += (texture2D(tSrc, vUv + dir * 1.385).rgb + texture2D(tSrc, vUv - dir * 1.385).rgb) * 0.316;
+      s += (texture2D(tSrc, vUv + dir * 3.23).rgb + texture2D(tSrc, vUv - dir * 3.23).rgb) * 0.07;
+      gl_FragColor = vec4(s, 1.);
+    }`,
+  depthTest: false, depthWrite: false,
+});
+const glowScene = new THREE.Scene();
+glowScene.add(new THREE.Mesh(new THREE.PlaneGeometry(2, 2), glowMat));
+function glowPass(cam) {
+  const g = glowMat.uniforms, w = RT.glowA.width, h = RT.glowA.height;
+  g.tSrc.value = RT.color.texture; g.bright.value = 1; g.dir.value.set(1 / RT.color.width, 1 / RT.color.height);
+  renderer.setRenderTarget(RT.glowA); renderer.render(glowScene, cam);
+  g.bright.value = 0;
+  for (let i = 0; i < 2; i++) {
+    g.tSrc.value = RT.glowA.texture; g.dir.value.set((1 + i) / w, 0); renderer.setRenderTarget(RT.glowB); renderer.render(glowScene, cam);
+    g.tSrc.value = RT.glowB.texture; g.dir.value.set(0, (1 + i) / h); renderer.setRenderTarget(RT.glowA); renderer.render(glowScene, cam);
+  }
+}
 const postScene = new THREE.Scene();
 const postCam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
 postScene.add(new THREE.Mesh(new THREE.PlaneGeometry(2, 2), postMat));
@@ -398,7 +437,7 @@ postScene.add(new THREE.Mesh(new THREE.PlaneGeometry(2, 2), postMat));
 addEventListener('resize', () => {
   camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix();
   renderer.setSize(innerWidth, innerHeight);
-  RT.color.dispose(); RT.normal.dispose(); RT = makeTargets();
+  RT.color.dispose(); RT.normal.dispose(); RT.glowA.dispose(); RT.glowB.dispose(); RT = makeTargets();
 });
 
 // ---------- graphics quality ----------
@@ -420,7 +459,7 @@ export function setQuality(name) {
   if (renderer.shadowMap.type !== type) { renderer.shadowMap.type = type; renderer.shadowMap.needsUpdate = true; }
   if (sun.shadow.mapSize.x !== q.shadow) { sun.shadow.mapSize.set(q.shadow, q.shadow); if (sun.shadow.map) { sun.shadow.map.dispose(); sun.shadow.map = null; } }
   postMat.uniforms.thick.value = 1.25 * Math.max(pr, 0.9);
-  RT.color.dispose(); RT.normal.dispose(); RT = makeTargets();
+  RT.color.dispose(); RT.normal.dispose(); RT.glowA.dispose(); RT.glowB.dispose(); RT = makeTargets();
 }
 export function render() {
   FOLIAGE.time.value = performance.now() / 1000; skyUniforms.time.value = FOLIAGE.time.value;
@@ -448,7 +487,9 @@ export function render() {
   scene.overrideMaterial = null; scene.fog = fog; sky.visible = true;
   showLayers();
   const u = postMat.uniforms;
-  u.tColor.value = RT.color.texture; u.tNormal.value = RT.normal.texture; u.tNDepth.value = RT.normal.depthTexture;
+  if (!noPlants) glowPass(postCam); // (Low graphics skips the glow)
+  postMat.uniforms.glow.value = noPlants ? 0 : 0.55;
+  u.tColor.value = RT.color.texture; u.tNormal.value = RT.normal.texture; u.tNDepth.value = RT.normal.depthTexture; u.tGlow.value = RT.glowA.texture;
   u.res.value.set(RT.color.width, RT.color.height);
   renderer.setRenderTarget(null);
   renderer.render(postScene, postCam);

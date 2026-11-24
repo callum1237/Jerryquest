@@ -2371,8 +2371,9 @@ const HEAD_SIZES = { normal: ['Normal', 1.02], big: ['Big', 1.17], chibi: ['Chib
 const heroScale = (L) => 1.3 * 1.05 * (1 + Math.max(-1, Math.min(1, +(L && L.height) || 0)) * 0.1);
 // heroes stand a little taller than the chunky models: still chibi, a bit closer to regular people.
 // The head is scaled back so it stays round.
-const TALL = 1.1;
-function setHeroScale(a, s) { a.tall = TALL; a.s0 = s; a.root.scale.set(s * (a.shrinkK || 1), s * TALL * (a.shrinkK || 1), s * (a.shrinkK || 1)); }
+// v82 (Callum: "a bit taller and less chunky"): taller and slimmer bodies, the big round head is kept as it was.
+const TALL = 1.22, SLIM = 0.9;
+function setHeroScale(a, s) { a.tall = TALL; a.slim = SLIM; a.s0 = s; const k = s * (a.shrinkK || 1) * SLIM; a.root.scale.set(k, s * TALL * (a.shrinkK || 1), k); }
 // /shrink: an admin can make a hero tiny for a while. The size eases down and back up again.
 let shrinkUntil = 0;
 function shrinkEase(a, small, dt) { const goal = small ? 0.35 : 1, k = a.shrinkK || 1; if (Math.abs(goal - k) < 0.002 && k === goal) return; a.shrinkK = Math.abs(goal - k) < 0.01 ? goal : k + (goal - k) * Math.min(1, dt * 5); if (a.s0) setHeroScale(a, a.s0); }
@@ -2559,7 +2560,7 @@ function headParts(a = player) {
 const NECK_DROP = 0.2;
 function headPose(a) {
   if (!a || !a.headInfo || !a.headScale) return;
-  const b = a.headInfo.bone; b.scale.setScalar(a.headScale); if (a.tall) b.scale.y /= a.tall;
+  const b = a.headInfo.bone; b.scale.setScalar(a.headScale); if (a.tall) b.scale.y /= a.tall; if (a.slim) { b.scale.x /= a.slim; b.scale.z /= a.slim; }
   if (b.position.y !== a.headY) a.headBase = b.position.y;
   b.position.y = a.headBase - NECK_DROP * a.headScale; a.headY = b.position.y;
 }
