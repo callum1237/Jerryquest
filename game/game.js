@@ -900,7 +900,7 @@ function partySet(p, why) {
 // picks the action up from there, so nobody can fake one by sending a message.
 // typed amounts: "90k" = 90,000, "2.5m" = 2,500,000, "1b" = a billion; commas and spaces are ignored. NaN if it isn't a number.
 const parseAmount = (t) => { const m = String(t ?? '').replace(/[,\s_]/g, '').toLowerCase().match(/^(\d+(?:\.\d+)?|\.\d+)([kmb])?$/); return m ? Math.floor(parseFloat(m[1]) * ({ k: 1e3, m: 1e6, b: 1e9 }[m[2]] || 1)) : NaN; };
-const ADMIN_HELP = 'Admin: /give [player] thing [amount]. Things: coins, xp (or exp), an item or gear id, outfit:id, aura:id, hat:id, cape:id, trail:id, spell:id, or "all-looks". /give find word searches ids. /kick player (30 seconds).';
+const ADMIN_HELP = 'Admin: /give [player] thing [amount]. Things: coins, xp (or exp), any item, gear, look or spell by name (like /give prism aura or /give Bob dark blade), or an id like outfit:id, aura:id, hat:id, cape:id, trail:id, spell:id, or "all-looks". /give find word searches ids. /kick player (30 seconds).';
 function giveThing(what, n) {
   if (what === 'coins' || what === 'gold') { S.coins += n; refreshUI(); return `${fmt(n)} coins`; }
   if (what === 'xp' || what === 'exp') { giveHeroXp(n); return `${fmt(n)} hero XP`; }
@@ -916,6 +916,38 @@ function giveThing(what, n) {
   return null;
 }
 const knownThing = (w) => ['coins', 'gold', 'xp', 'exp', 'all-looks', 'all-skins'].includes(w) || !!GEAR[w] || !!ITEMS[w] || !!FOOD[w] || (w.includes(':') && (() => { const [a0, k] = w.split(':'), sl = { skin: 'outfit', skins: 'outfit', outfits: 'outfit', auras: 'aura', hats: 'hat' }[a0] || a0; return sl === 'spell' ? !!SPELLS[k] : !!(COS[sl] && COS[sl][k]); })());
+// /give understands names as well as ids: "/give prism aura", "/give dark blade", "/give Bob apple pie 5".
+const normName = (t) => String(t || '').toLowerCase().replace(/['’]/g, '').replace(/[^a-z0-9]+/g, ' ').trim();
+let thingIndex = null;
+function thingNames() {
+  if (thingIndex) return thingIndex;
+  const out = []; const add = (id, ...names) => { for (const n of names) if (n) out.push([normName(n), id]); };
+  add('coins', 'coins', 'coin', 'gold'); add('xp', 'xp', 'exp', 'experience'); add('all-looks', 'all looks', 'all skins', 'all cosmetics');
+  for (const [k, v] of Object.entries(ITEMS)) add(k, k, v);
+  for (const [k, g] of Object.entries(GEAR)) add(k, k, g.name);
+  for (const [slot, list] of Object.entries(COS)) for (const [k, c] of Object.entries(list)) {
+    const nm = c.name || k, sl = slot === 'outfit' ? 'skin' : slot;
+    add(`${slot}:${k}`, `${slot}:${k}`, `${sl}:${k}`, `${k} ${slot}`, `${k} ${sl}`, normName(nm).includes(slot) || normName(nm).includes(sl) ? nm : `${nm} ${slot}`, nm);
+  }
+  for (const [k, sp] of Object.entries(SPELLS)) add(`spell:${k}`, `spell:${k}`, `${sp.name} spell`, sp.name);
+  return (thingIndex = out);
+}
+// returns { id } for one clear match, { many: [names] } when several fit, or {} for nothing
+function findThing(text) {
+  const q = normName(text); if (!q) return {};
+  const all = thingNames(), ids = (f) => [...new Set(all.filter(f).map(([, id]) => id))];
+  for (const f of [([n]) => n === q, ([n]) => n.startsWith(q), ([n]) => n.split(' ').some((w, i, a) => a.slice(i).join(' ').startsWith(q)), ([n]) => n.includes(q)]) {
+    const hit = ids(f); if (hit.length === 1) return { id: hit[0] }; if (hit.length > 1) return { many: hit };
+  }
+  return {};
+}
+const thingLabel = (id) => { if (GEAR[id]) return GEAR[id].name; if (ITEMS[id]) return ITEMS[id]; if (id.includes(':')) { const [a, k] = id.split(':'); return a === 'spell' ? `${SPELLS[k].name} spell` : (COS[a] && COS[a][k] && COS[a][k].name) || id; } return id; };
+// "/give [player] thing words [amount]": a trailing number (90k works) is the amount
+function parseGive(words) {
+  let n = 1; const last = words[words.length - 1];
+  if (words.length > 1 && parseAmount(last) > 0) { n = Math.min(1e9, parseAmount(last)); words = words.slice(0, -1); }
+  return { ...findThing(words.join(' ')), n, text: words.join(' ') };
+}
 async function adminGive(rest) {
   if (!(await isAdmin())) { sys('Unknown command. Type /p for party commands or /who to see who is online.'); return; }
   let args = rest.filter(Boolean);
@@ -929,15 +961,19 @@ async function adminGive(rest) {
     sys(hits.length ? `Found: ${hits.slice(0, 40).join(', ')}${hits.length > 40 ? '...' : ''}` : 'Nothing found.'); return;
   }
   // "/give Bob coins 500" gives to Bob; "/give coins 500" (or "/give me ...") gives to you
-  let target = null;
+  let target = null, g = null;
   const first = args[0].toLowerCase();
-  if (first === 'me' || first === heroName().toLowerCase()) args = args.slice(1);
-  else if (!knownThing(first)) { target = peerByName(args[0]); if (!target) { sys(`Nobody called "${args[0]}" is online (and "${args[0]}" isn't something I can give). Try /who or /give find word.`); return; } args = args.slice(1); }
-  const what = (args[0] || '').toLowerCase(), n = Math.max(1, Math.min(1e9, parseAmount(args[1]) || 1));
-  if (!knownThing(what)) { sys(`I don't know "${args[0] || ''}". Try /give find word.`); return; }
+  if (first === 'me' || first === heroName().toLowerCase()) g = parseGive(args.slice(1));
+  else {
+    const peer = args.length > 1 ? peerByName(args[0]) : null, forPeer = peer ? parseGive(args.slice(1)) : null;
+    if (forPeer && (forPeer.id || forPeer.many)) { target = peer; g = forPeer; } else g = parseGive(args);
+  }
+  if (g.many) { sys(`"${g.text}" could be: ${g.many.slice(0, 8).map(thingLabel).join(', ')}${g.many.length > 8 ? '...' : ''}. Type more of the name.`); return; }
+  if (!g.id) { sys(`I don't know "${g.text}". Try /give find word${!target && args.length > 1 ? `, or check ${args[0]} is online with /who` : ''}.`); return; }
+  const what = g.id, n = g.n;
   if (!target) { const got = giveThing(what, n); save(); sys(`Gave yourself ${got}.`); return; }
   const r = await adminSend(target[0], 'give', { what, n });
-  sys(r.error ? `Couldn't send that: ${r.error}` : `Sent ${what === 'coins' ? `${fmt(n)} coins` : what === 'xp' || what === 'exp' ? `${fmt(n)} XP` : `${n > 1 ? `${n} × ` : ''}${what}`} to ${target[1].name}. It arrives within a few seconds.`);
+  sys(r.error ? `Couldn't send that: ${r.error}` : `Sent ${what === 'coins' ? `${fmt(n)} coins` : what === 'xp' ? `${fmt(n)} XP` : `${n > 1 ? `${fmt(n)} × ` : ''}${thingLabel(what)}`} to ${target[1].name}. It arrives within a few seconds.`);
 }
 async function adminKick(rest) {
   if (!(await isAdmin())) { sys('Unknown command. Type /p for party commands or /who to see who is online.'); return; }
@@ -8958,7 +8994,7 @@ function makeGagronFriend() {
   npcs.push(gagronFriend);
 }
 
-window.__jq = { toast, chargedAttack, parseAmount, hitPeers, shotHitsPeer, showKeysNote, castSpell, learnSpell, spellCd, SPELLS, goonSneeze, goonDrips, goonFlop, setSlotBox, showSlots, get slotBox() { return slotBox; }, get guide() { return guide; }, bossNet, safeSpot, get PVP_LVL() { return PVP_LVL; }, goldNode, wbInfo, wbTick, get wb() { return wb; }, WB_SPOTS, tradeOpen, tradeNet, offerKey, get trade() { return trade; }, adv(s) { for (let t = 0; t < s; t += 0.05) { for (let i = timers.length - 1; i >= 0; i--) { timers[i].t -= 0.05; if (timers[i].t <= 0) { const f = timers[i].f; timers.splice(i, 1); f(); } } bossFxTick(0.05); } }, get party() { return party; }, BOSS_AI, PHASE_SETUP, get gulped() { return gulped; }, wriggle, toggleBigMap, spawnEnemy, openPathChoice, choosePath, startLanternNight, get lanterns() { return lanterns; }, duelOffer, duelPrize, onNet, chatCommand, canFight, openUpgrade, openBoard, boardToday, queueLetter, makeGagronFriend, net, peerActors, runeTick, bossFx, renderer, scene, openMayor, darkOmen, netWorth, liberateTown, setGolden, goldenCaught, pompArrive, get goldenE() { return goldenE; }, spinWheel, dayTick, get bossIntro() { return bossIntro; }, bossSkip, startBossScene, sailTo, regions, closeSheet, renderHotbar, crew, setCrewMode, TOWNS, liberateTown, chests, openChest, stopRoulette, enemies, startBossIntro, closeDialog, advanceDialog, dash, attackPress, craft, CRAFTS, openCreator, closeCreator, creator, rebuildHero, setZoom: (z) => { zoom = zoomGoal = z; }, hurtEnemy, goThrough, get where() { return where; }, INTERIORS, equipGear, spendPoint, giveHeroXp, heroLvl, stat, maxHp, defDiv, openWeaponShop, openKing, jump, eat, eatBest, openShop, swing, swingTarget, hitNode, projectiles, timers, get S() { return S; }, get player() { return player; }, enemies, nodes, npcs, startTask, doAction, giveXp, save, openSheet, openDialog };
+window.__jq = { toast, parseGive, chargedAttack, parseAmount, hitPeers, shotHitsPeer, showKeysNote, castSpell, learnSpell, spellCd, SPELLS, goonSneeze, goonDrips, goonFlop, setSlotBox, showSlots, get slotBox() { return slotBox; }, get guide() { return guide; }, bossNet, safeSpot, get PVP_LVL() { return PVP_LVL; }, goldNode, wbInfo, wbTick, get wb() { return wb; }, WB_SPOTS, tradeOpen, tradeNet, offerKey, get trade() { return trade; }, adv(s) { for (let t = 0; t < s; t += 0.05) { for (let i = timers.length - 1; i >= 0; i--) { timers[i].t -= 0.05; if (timers[i].t <= 0) { const f = timers[i].f; timers.splice(i, 1); f(); } } bossFxTick(0.05); } }, get party() { return party; }, BOSS_AI, PHASE_SETUP, get gulped() { return gulped; }, wriggle, toggleBigMap, spawnEnemy, openPathChoice, choosePath, startLanternNight, get lanterns() { return lanterns; }, duelOffer, duelPrize, onNet, chatCommand, canFight, openUpgrade, openBoard, boardToday, queueLetter, makeGagronFriend, net, peerActors, runeTick, bossFx, renderer, scene, openMayor, darkOmen, netWorth, liberateTown, setGolden, goldenCaught, pompArrive, get goldenE() { return goldenE; }, spinWheel, dayTick, get bossIntro() { return bossIntro; }, bossSkip, startBossScene, sailTo, regions, closeSheet, renderHotbar, crew, setCrewMode, TOWNS, liberateTown, chests, openChest, stopRoulette, enemies, startBossIntro, closeDialog, advanceDialog, dash, attackPress, craft, CRAFTS, openCreator, closeCreator, creator, rebuildHero, setZoom: (z) => { zoom = zoomGoal = z; }, hurtEnemy, goThrough, get where() { return where; }, INTERIORS, equipGear, spendPoint, giveHeroXp, heroLvl, stat, maxHp, defDiv, openWeaponShop, openKing, jump, eat, eatBest, openShop, swing, swingTarget, hitNode, projectiles, timers, get S() { return S; }, get player() { return player; }, enemies, nodes, npcs, startTask, doAction, giveXp, save, openSheet, openDialog };
 window.addEventListener('error', (e) => { const m = $('loadmsg'); if (m) m.textContent = `Something went wrong: ${e.message}`; });
 main().catch((err) => {
   console.error(err);
