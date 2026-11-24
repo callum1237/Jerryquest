@@ -10141,11 +10141,6 @@ function rankFlourish(x, z, ringFn) {
   later(0.35, () => {
     ringFn(x, z, 3 + rk * 0.8, col);
     burst(new THREE.Vector3(x, 1, z), col, 16 * rk, 5 + rk, 1.3);
-    if (rk >= 4) {
-      const p = new THREE.Mesh(new THREE.CylinderGeometry(0.9, 0.9, 14, 16, 1, true), new THREE.MeshBasicMaterial({ color: col, transparent: true, opacity: 0.5, depthWrite: false, fog: false, side: THREE.DoubleSide }));
-      p.position.set(x, 7, z); p.layers.set(1); scene.add(p);
-      tween(0.6, (k) => { p.material.opacity = 0.5 * (1 - k); p.scale.set(1 + k, 1, 1 + k); }, () => { scene.remove(p); p.geometry.dispose(); p.material.dispose(); });
-    }
   });
 }
 
