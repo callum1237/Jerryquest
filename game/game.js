@@ -800,7 +800,7 @@ function titleCam() {
   camera.lookAt(0, 3, -4);
 }
 let profileKey = '';
-function profile() { const C = cosState(), t = heroTitle(); return { name: heroName(), lvl: heroLvl(), look: { ...S.look, path: S.path || '', cos: { ...C.eq }, ti: t ? t.name : '', tc: t ? t.col : '' }, w: where, x: player ? player.pos.x : 0, z: player ? player.pos.z : 0 }; }
+function profile() { const C = cosState(), t = heroTitle(); return { sm: shrinkUntil > Date.now() ? 1 : 0, name: heroName(), lvl: heroLvl(), look: { ...S.look, path: S.path || '', cos: { ...C.eq }, ti: t ? t.name : '', tc: t ? t.col : '' }, w: where, x: player ? player.pos.x : 0, z: player ? player.pos.z : 0 }; }
 function goOnline() {
   net.onTowns = syncTowns;
   net.onPeerGone = (id) => { dropPeer(id); partyPeerGone(id); if (trade && trade.with === id) tradeClose('Your trade partner left.'); };
@@ -839,7 +839,8 @@ const ONE_SHOT = /Attack|Hit_|Death|Jump|Dodge|Use_Item|Interact|Cheer|Spellcast
 function peersTick(dt) {
   if (!net.on || !player) return;
   sendPos(player.pos.x, player.pos.z, player.root.rotation.y, player.name || 'Idle', where, `${Math.max(0, Math.round(S.hp))}/${maxHp()}`);
-  const key = `${heroName()}|${heroLvl()}|${JSON.stringify(S.look)}|${S.path || ''}|${JSON.stringify(cosState().eq)}|${S.title || ''}`;
+  shrinkEase(player, shrinkUntil > Date.now(), dt);
+  const key = `${shrinkUntil > Date.now() ? 's' : ''}|${heroName()}|${heroLvl()}|${JSON.stringify(S.look)}|${S.path || ''}|${JSON.stringify(cosState().eq)}|${S.title || ''}`;
   if (key !== profileKey) { profileKey = key; updateProfile(profile()); }
   for (const [id, p] of net.peers) {
     let pa = peerActors.get(id);
@@ -856,10 +857,11 @@ function peersTick(dt) {
     let dr = (p.ry || 0) - pa.a.root.rotation.y; dr = Math.atan2(Math.sin(dr), Math.cos(dr));
     pa.a.root.rotation.y += dr * k;
     if (p.a && p.a !== pa.anim) { if (/Death/.test(p.a) && !/Death/.test(pa.anim || '')) deathFx(p.x, p.z); pa.anim = p.a; pa.a.play(p.a, { once: ONE_SHOT.test(p.a), clamp: /Death/.test(p.a) }); }
+    shrinkEase(pa.a, !!p.sm, dt);
     pa.a.mixer.update(dt); headPose(pa.a);
     flairTick(pa.a, dt, /Running|Walking/.test(pa.anim));
     if (pa.shimAt === undefined || now > pa.shimAt) { pa.shimAt = now + 0.1; shimmerTick(pa.a, p.look && p.look.cos); }
-    const v = tmpV.set(p.x, 4.4, p.z).project(camera);
+    const v = tmpV.set(p.x, 0.6 + 3.8 * (pa.a.shrinkK || 1), p.z).project(camera);
     if (v.z > 1 || bossIntro) { setShown(pa.tag, false); continue; }
     setShown(pa.tag, true);
     pin(pa.tag, v);
@@ -900,7 +902,7 @@ function partySet(p, why) {
 // picks the action up from there, so nobody can fake one by sending a message.
 // typed amounts: "90k" = 90,000, "2.5m" = 2,500,000, "1b" = a billion; commas and spaces are ignored. NaN if it isn't a number.
 const parseAmount = (t) => { const m = String(t ?? '').replace(/[,\s_]/g, '').toLowerCase().match(/^(\d+(?:\.\d+)?|\.\d+)([kmb])?$/); return m ? Math.floor(parseFloat(m[1]) * ({ k: 1e3, m: 1e6, b: 1e9 }[m[2]] || 1)) : NaN; };
-const ADMIN_HELP = 'Admin: /give [player] thing [amount]. Things: coins, xp (or exp), any item, gear, look or spell by name (like /give prism aura or /give Bob dark blade), or an id like outfit:id, aura:id, hat:id, cape:id, trail:id, spell:id, or "all-looks". /give find skins (or auras, hats, capes, trails, spells, gear, items) lists names; /give find word searches. /kick player (30 seconds). /remove player thing [amount]. /look player shows their hero and bag.';
+const ADMIN_HELP = 'Admin: /give [player] thing [amount]. Things: coins, xp (or exp), any item, gear, look or spell by name (like /give prism aura or /give Bob dark blade), or an id like outfit:id, aura:id, hat:id, cape:id, trail:id, spell:id, or "all-looks". /give find skins (or auras, hats, capes, trails, spells, gear, items) lists names; /give find word searches. /kick player (30 seconds). /remove player thing [amount]. /look player shows their hero and bag. /shrink player makes them tiny for 30 seconds.';
 function giveThing(what, n) {
   if (what === 'coins' || what === 'gold') { S.coins += n; refreshUI(); return `${fmt(n)} coins`; }
   if (what === 'xp' || what === 'exp') { giveHeroXp(n); return `${fmt(n)} hero XP`; }
@@ -1071,6 +1073,22 @@ function showLook(row, online) {
   el.querySelector('.sh-x').onclick = close; el.onclick = (e) => { if (e.target === el) close(); };
   addEventListener('keydown', function esc2(e) { if (e.key === 'Escape') { close(); removeEventListener('keydown', esc2); } });
 }
+async function adminShrink(rest) {
+  if (!(await isAdmin())) { sys(net.on ? 'Only admins can use that command.' : 'Admin commands need you to be signed in and online.'); return; }
+  const nm = rest.filter(Boolean).join(' ');
+  if (!nm) { sys('Shrink: /shrink player'); return; }
+  if (nm.toLowerCase() === 'me' || nm.toLowerCase() === heroName().toLowerCase()) { shrinkMe(30); sys('You shrank yourself for 30 seconds.'); return; }
+  const t = peerByName(nm);
+  if (!t) { sys(`Nobody called "${nm}" is online. Try /who.`); return; }
+  const r = await adminSend(t[0], 'shrink', { secs: 30 });
+  sys(r.error ? `Couldn't shrink them: ${r.error}` : `${t[1].name} shrinks for 30 seconds!`);
+}
+function shrinkMe(secs) {
+  shrinkUntil = Date.now() + secs * 1000; profileKey = '';
+  burst(player.pos.clone().setY(1.5), '#c8a0ff', 30, 4, 1.2); sfx('special');
+  toast(`Poof! You've been shrunk for ${secs} seconds!`, ICONS.star, true);
+  setTimeout(() => { profileKey = ''; if (player) burst(player.pos.clone().setY(1), '#c8a0ff', 20, 3); }, secs * 1000 + 50);
+}
 async function adminKick(rest) {
   if (!(await isAdmin())) { sys(net.on ? 'Only admins can use that command.' : 'Admin commands need you to be signed in and online.'); return; }
   const t = peerByName(rest[0]);
@@ -1083,6 +1101,7 @@ async function adminInboxTick() {
   const rows = await adminInbox(); if (!rows || !rows.length) return;
   for (const r of rows) {
     if (r.action === 'give') { const got = giveThing(String(r.data.what || '').toLowerCase(), Math.max(1, Math.min(1e9, +r.data.n || 1))); if (got) { toast(`An admin gave you ${got}!`, ICONS.star, true); burst(player.pos.clone().setY(2), '#ffe07a', 40, 6, 1.2); } save(); }
+    if (r.action === 'shrink') shrinkMe(Math.max(5, Math.min(300, +r.data.secs || 30)));
     if (r.action === 'kick') kickedOut(Math.max(5, Math.min(600, +r.data.secs || 30)));
     if (r.action === 'remove') { const gone = removeThing(String(r.data.what || '').toLowerCase(), Math.max(1, Math.min(1e9, +r.data.n || 1))); if (gone) toast(`An admin took back ${gone}.`, ICONS.star); save(); }
   }
@@ -1107,6 +1126,7 @@ function chatCommand(line) {
   const [cmd, ...rest] = line.slice(1).split(/\s+/), arg = rest.join(' ');
   if (/^give$/i.test(cmd)) { adminGive(rest); return; }
   if (/^kick$/i.test(cmd)) { adminKick(rest); return; }
+  if (/^shrink$/i.test(cmd)) { adminShrink(rest); return; }
   if (/^remove$/i.test(cmd)) { adminRemove(rest); return; }
   if (/^look$/i.test(cmd)) { adminLook(rest); return; }
   if (/^(who|online)$/i.test(cmd)) {
@@ -1699,7 +1719,10 @@ const heroScale = (L) => 1.3 * 1.05 * (1 + Math.max(-1, Math.min(1, +(L && L.hei
 // heroes stand a little taller than the chunky models: still chibi, a bit closer to regular people.
 // The head is scaled back so it stays round.
 const TALL = 1.1;
-function setHeroScale(a, s) { a.tall = TALL; a.root.scale.set(s, s * TALL, s); }
+function setHeroScale(a, s) { a.tall = TALL; a.s0 = s; a.root.scale.set(s * (a.shrinkK || 1), s * TALL * (a.shrinkK || 1), s * (a.shrinkK || 1)); }
+// /shrink: an admin can make a hero tiny for a while. The size eases down and back up again.
+let shrinkUntil = 0;
+function shrinkEase(a, small, dt) { const goal = small ? 0.35 : 1, k = a.shrinkK || 1; if (Math.abs(goal - k) < 0.002 && k === goal) return; a.shrinkK = Math.abs(goal - k) < 0.01 ? goal : k + (goal - k) * Math.min(1, dt * 5); if (a.s0) setHeroScale(a, a.s0); }
 // a lower, closer camera than a straight top-down view, so you can see everyone's faces
 const CAM_OFF = new THREE.Vector3(0, 15, 26);
 const BEARDS = { none: 'None', stache: 'Moustache', curly: 'Curly moustache', goatee: 'Goatee', full: 'Big beard', wizard: 'Wizard beard' };
@@ -8070,7 +8093,7 @@ function heroTag() {
   if (!heroTagEl) { heroTagEl = document.createElement('div'); heroTagEl.className = 'herotag'; heroTagEl.innerHTML = '<b></b><s class="tagbar"><u></u></s>'; document.body.appendChild(heroTagEl); }
   const show = player && S.started && !player.dead && !creator.open && !bossIntro && S.nameTag !== false;
   if (!show) { setShown(heroTagEl, false); return; }
-  const v = tmpV.set(player.pos.x, player.pos.y + 4.4, player.pos.z).project(camera);
+  const v = tmpV.set(player.pos.x, player.pos.y + 0.6 + 3.8 * (player.shrinkK || 1), player.pos.z).project(camera);
   if (v.z > 1) { setShown(heroTagEl, false); return; }
   setShown(heroTagEl, true);
   pin(heroTagEl, v);
@@ -9251,7 +9274,7 @@ function makeGagronFriend() {
   npcs.push(gagronFriend);
 }
 
-window.__jq = { toast, showStoryIntro, hurtPlayer, koSitOut, wakeUp, showLook, removeThing, giveThing, COS, ITEMS, GEAR, parseGive, chargedAttack, parseAmount, hitPeers, shotHitsPeer, showKeysNote, castSpell, learnSpell, spellCd, SPELLS, goonSneeze, goonDrips, goonFlop, setSlotBox, showSlots, get slotBox() { return slotBox; }, get guide() { return guide; }, bossNet, safeSpot, get PVP_LVL() { return PVP_LVL; }, goldNode, wbInfo, wbTick, get wb() { return wb; }, WB_SPOTS, tradeOpen, tradeNet, offerKey, get trade() { return trade; }, adv(s) { for (let t = 0; t < s; t += 0.05) { for (let i = timers.length - 1; i >= 0; i--) { timers[i].t -= 0.05; if (timers[i].t <= 0) { const f = timers[i].f; timers.splice(i, 1); f(); } } bossFxTick(0.05); } }, get party() { return party; }, BOSS_AI, PHASE_SETUP, get gulped() { return gulped; }, wriggle, toggleBigMap, spawnEnemy, openPathChoice, choosePath, startLanternNight, get lanterns() { return lanterns; }, duelOffer, duelPrize, onNet, chatCommand, canFight, openUpgrade, openBoard, boardToday, queueLetter, makeGagronFriend, net, peerActors, runeTick, bossFx, renderer, scene, openMayor, darkOmen, netWorth, liberateTown, setGolden, goldenCaught, pompArrive, get goldenE() { return goldenE; }, spinWheel, dayTick, get bossIntro() { return bossIntro; }, bossSkip, startBossScene, sailTo, regions, closeSheet, renderHotbar, crew, setCrewMode, TOWNS, liberateTown, chests, openChest, stopRoulette, enemies, startBossIntro, closeDialog, advanceDialog, dash, attackPress, craft, CRAFTS, openCreator, closeCreator, creator, rebuildHero, setZoom: (z) => { zoom = zoomGoal = z; }, hurtEnemy, goThrough, get where() { return where; }, INTERIORS, equipGear, spendPoint, giveHeroXp, heroLvl, stat, maxHp, defDiv, openWeaponShop, openKing, jump, eat, eatBest, openShop, swing, swingTarget, hitNode, projectiles, timers, get S() { return S; }, get player() { return player; }, enemies, nodes, npcs, startTask, doAction, giveXp, save, openSheet, openDialog };
+window.__jq = { toast, shrinkMe, showStoryIntro, hurtPlayer, koSitOut, wakeUp, showLook, removeThing, giveThing, COS, ITEMS, GEAR, parseGive, chargedAttack, parseAmount, hitPeers, shotHitsPeer, showKeysNote, castSpell, learnSpell, spellCd, SPELLS, goonSneeze, goonDrips, goonFlop, setSlotBox, showSlots, get slotBox() { return slotBox; }, get guide() { return guide; }, bossNet, safeSpot, get PVP_LVL() { return PVP_LVL; }, goldNode, wbInfo, wbTick, get wb() { return wb; }, WB_SPOTS, tradeOpen, tradeNet, offerKey, get trade() { return trade; }, adv(s) { for (let t = 0; t < s; t += 0.05) { for (let i = timers.length - 1; i >= 0; i--) { timers[i].t -= 0.05; if (timers[i].t <= 0) { const f = timers[i].f; timers.splice(i, 1); f(); } } bossFxTick(0.05); } }, get party() { return party; }, BOSS_AI, PHASE_SETUP, get gulped() { return gulped; }, wriggle, toggleBigMap, spawnEnemy, openPathChoice, choosePath, startLanternNight, get lanterns() { return lanterns; }, duelOffer, duelPrize, onNet, chatCommand, canFight, openUpgrade, openBoard, boardToday, queueLetter, makeGagronFriend, net, peerActors, runeTick, bossFx, renderer, scene, openMayor, darkOmen, netWorth, liberateTown, setGolden, goldenCaught, pompArrive, get goldenE() { return goldenE; }, spinWheel, dayTick, get bossIntro() { return bossIntro; }, bossSkip, startBossScene, sailTo, regions, closeSheet, renderHotbar, crew, setCrewMode, TOWNS, liberateTown, chests, openChest, stopRoulette, enemies, startBossIntro, closeDialog, advanceDialog, dash, attackPress, craft, CRAFTS, openCreator, closeCreator, creator, rebuildHero, setZoom: (z) => { zoom = zoomGoal = z; }, hurtEnemy, goThrough, get where() { return where; }, INTERIORS, equipGear, spendPoint, giveHeroXp, heroLvl, stat, maxHp, defDiv, openWeaponShop, openKing, jump, eat, eatBest, openShop, swing, swingTarget, hitNode, projectiles, timers, get S() { return S; }, get player() { return player; }, enemies, nodes, npcs, startTask, doAction, giveXp, save, openSheet, openDialog };
 window.addEventListener('error', (e) => { const m = $('loadmsg'); if (m) m.textContent = `Something went wrong: ${e.message}`; });
 main().catch((err) => {
   console.error(err);
