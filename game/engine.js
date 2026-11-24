@@ -6,8 +6,9 @@ export { THREE };
 
 // ---------- renderer / scene ----------
 export const PR = Math.min(window.devicePixelRatio || 1, 1.5);
+let pr = PR, samples = 4; // change with setQuality
 export const renderer = new THREE.WebGLRenderer({ antialias: true, stencil: true, powerPreference: 'high-performance' });
-renderer.setPixelRatio(PR);
+renderer.setPixelRatio(pr);
 renderer.setSize(innerWidth, innerHeight);
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
@@ -261,8 +262,8 @@ export function updateParticles(dt, t, center) {
 
 // ---------- post-processing: ink outlines + storybook grade ----------
 function makeTargets() {
-  const w = Math.floor(innerWidth * PR), h = Math.floor(innerHeight * PR);
-  const color = new THREE.WebGLRenderTarget(w, h, { samples: renderer.capabilities.isWebGL2 ? 4 : 0, stencilBuffer: true });
+  const w = Math.floor(innerWidth * pr), h = Math.floor(innerHeight * pr);
+  const color = new THREE.WebGLRenderTarget(w, h, { samples: renderer.capabilities.isWebGL2 ? samples : 0, stencilBuffer: true });
   const normal = new THREE.WebGLRenderTarget(w, h);
   normal.depthTexture = new THREE.DepthTexture(w, h);
   return { color, normal };
@@ -273,7 +274,7 @@ const postMat = new THREE.ShaderMaterial({
   uniforms: {
     tColor: { value: null }, tNormal: { value: null }, tNDepth: { value: null },
     res: { value: new THREE.Vector2() }, near: { value: camera.near }, far: { value: camera.far },
-    thick: { value: 1.25 * PR }, ink: { value: new THREE.Color('#5a3626') },
+    thick: { value: 1.25 * pr }, ink: { value: new THREE.Color('#5a3626') },
   },
   vertexShader: `varying vec2 vUv; void main(){ vUv = uv; gl_Position = vec4(position.xy, 0., 1.); }`,
   fragmentShader: `
@@ -320,8 +321,29 @@ addEventListener('resize', () => {
   RT.color.dispose(); RT.normal.dispose(); RT = makeTargets();
 });
 
+// ---------- graphics quality ----------
+// high: sharp, smooth edges, big soft shadows. medium: normal sharpness, lighter edge smoothing, smaller shadows.
+// low: renders at a lower resolution, no edge smoothing, simple shadows that update every other frame.
+export const QUALITY = {
+  high: { pr: Math.min(window.devicePixelRatio || 1, 1.5), samples: 4, shadow: 2048, soft: true, shadowEvery: 1 },
+  medium: { pr: Math.min(window.devicePixelRatio || 1, 1), samples: 2, shadow: 1024, soft: true, shadowEvery: 1 },
+  low: { pr: Math.min(window.devicePixelRatio || 1, 1) * 0.75, samples: 0, shadow: 1024, soft: false, shadowEvery: 2 },
+};
+let shadowEvery = 1, frameN = 0;
+export function setQuality(name) {
+  const q = QUALITY[name] || QUALITY.high;
+  pr = q.pr; samples = q.samples; shadowEvery = q.shadowEvery;
+  renderer.setPixelRatio(pr); renderer.setSize(innerWidth, innerHeight);
+  const type = q.soft ? THREE.PCFSoftShadowMap : THREE.PCFShadowMap;
+  if (renderer.shadowMap.type !== type) { renderer.shadowMap.type = type; renderer.shadowMap.needsUpdate = true; }
+  if (sun.shadow.mapSize.x !== q.shadow) { sun.shadow.mapSize.set(q.shadow, q.shadow); if (sun.shadow.map) { sun.shadow.map.dispose(); sun.shadow.map = null; } }
+  postMat.uniforms.thick.value = 1.25 * Math.max(pr, 0.9);
+  RT.color.dispose(); RT.normal.dispose(); RT = makeTargets();
+}
 export function render() {
-  if (!styled.on) { renderer.setRenderTarget(null); renderer.render(scene, camera); return; }
+  // on low quality the shadows are redrawn every other frame
+  frameN++; renderer.shadowMap.autoUpdate = shadowEvery === 1 || frameN % shadowEvery === 0;
+  if (!styled.on) { renderer.setRenderTarget(null); renderer.render(scene, camera); renderer.shadowMap.autoUpdate = true; return; }
   renderer.setRenderTarget(RT.color);
   renderer.render(scene, camera);
   sky.visible = false;

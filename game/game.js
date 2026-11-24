@@ -1,6 +1,6 @@
 // JerryQuest: playable single-player slice. One hero shaped by gear and stat points, skills that level by use, gathering, combat and quests.
 import { THREE, scene, camera, renderer, sun, sky, PRESETS, env, applyPreset, blendPresets, styled, setStyled, stylize, toon, registerMesh,
-  loadModel, burst, updateParticles, render, rng } from './engine.js';
+  loadModel, burst, updateParticles, render, rng, setQuality } from './engine.js';
 import * as SkeletonUtils from 'three/addons/utils/SkeletonUtils.js';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { buildWorld, buildFlowers, place, tentAt, S_PROP, S_BUILD, colliders, clouds, dynamic, LAKE, CAMP, MINE, S_NATURE, blocked, isFree, ZONES, WORLD_R, VS, TOWNS, ROADS, townFacing, VALLEY_ARENAS } from './world.js';
@@ -537,7 +537,11 @@ const stat = (k) => heroLvl() * AUTO_PER_LEVEL + S.hero.alloc[k];
 const freePoints = () => (heroLvl() - 1) * FREE_PER_LEVEL - Object.values(S.hero.alloc).reduce((a, b) => a + b, 0);
 // the equipped weapon, with any smith upgrades applied
 const wCache = { k: '', p: -1, w: null };
+// v67.3: picking an empty hotbar slot puts your weapon away; then you fight with your fists (very weak)
+let unarmed = false;
+const FISTS = { type: 'melee', fist: true, name: 'Bare hands', dmg: 1, reach: 2.3, cd: 0.4, price: 0 };
 const W = () => {
+  if (unarmed) return FISTS;
   const k = WEAPONS[S.equip.weapon] ? S.equip.weapon : 'k_sword', p = plusOf(k);
   if (!p) return WEAPONS[k];
   if (wCache.k !== k || wCache.p !== p) { const w = WEAPONS[k]; wCache.k = k; wCache.p = p; wCache.w = { ...w, dmg: Math.round(w.dmg * plusMult(k) * 10) / 10, name: plusName(k) }; }
@@ -666,6 +670,7 @@ async function main() {
   setTimeout(() => $('loading').remove(), 700);
   { let ku = 0; try { ku = +localStorage.getItem('jq_kick') || 0; } catch (e) { /* ignore */ } if (ku > Date.now()) { kickScreen(ku); return; } }
   showTitle(had, begin);
+  gfxSet(gfxMode);
   renderer.setAnimationLoop(tick);
 }
 
@@ -907,7 +912,7 @@ function partySet(p, why) {
 // picks the action up from there, so nobody can fake one by sending a message.
 // typed amounts: "90k" = 90,000, "2.5m" = 2,500,000, "1b" = a billion; commas and spaces are ignored. NaN if it isn't a number.
 const parseAmount = (t) => { const m = String(t ?? '').replace(/[,\s_]/g, '').toLowerCase().match(/^(\d+(?:\.\d+)?|\.\d+)([kmb])?$/); return m ? Math.floor(parseFloat(m[1]) * ({ k: 1e3, m: 1e6, b: 1e9 }[m[2]] || 1)) : NaN; };
-const ADMIN_HELP = 'Admin: /give [player] thing [amount]. Things: coins, xp (or exp), any item, gear, look or spell by name (like /give prism aura or /give Bob dark blade), or an id like outfit:id, aura:id, hat:id, cape:id, trail:id, spell:id, or "all-looks". /give find skins (or auras, hats, capes, trails, spells, gear, items) lists names; /give find word searches. /kick player (30 seconds). /remove player thing [amount]. /look player shows their hero and bag. /shrink player makes them tiny for 30 seconds.';
+const ADMIN_HELP = 'Admin: /give [player] thing [amount]. Things: coins, xp (or exp), any item, gear, look or spell by name (like /give prism aura or /give Bob dark blade), or an id like outfit:id, aura:id, hat:id, cape:id, trail:id, spell:id, or "all-looks". /give find skins (or auras, hats, capes, trails, spells, gear, items) lists names; /give find word searches. /kick player (30 seconds). /remove player thing [amount]. /look player shows their hero and bag. /shrink player makes them tiny for 30 seconds. /wolf and /unwolf turn you into a giant wolf and back. /azap gives you Admin Zap (admin only, no cooldown).';
 function giveThing(what, n) {
   if (what === 'coins' || what === 'gold') { S.coins += n; refreshUI(); return `${fmt(n)} coins`; }
   if (what === 'xp' || what === 'exp') { giveHeroXp(n); return `${fmt(n)} hero XP`; }
@@ -923,6 +928,12 @@ function giveThing(what, n) {
   return null;
 }
 // the opposite of giveThing, for /remove: takes away up to n of something. Equipped gear goes back to the starter kit.
+// Bag: delete things you don't want. The first press asks to make sure, so nothing goes by accident.
+let delArm = null;
+function delBtns(k, n) {
+  if (delArm !== k) return `<button class="danger" data-del="${k}" data-n="arm">Delete</button>`;
+  return `<button class="danger" data-del="${k}" data-n="1">Delete 1</button>${n > 1 ? `<button class="danger" data-del="${k}" data-n="all">Delete all ${n}</button>` : ''}<button data-del="${k}" data-n="no">Keep</button>`;
+}
 function removeThing(what, n) {
   if (what === 'coins') { const a = Math.min(n, S.coins); S.coins -= a; refreshUI(); return a ? `${fmt(a)} coins` : null; }
   if (what === 'xp' || what === 'all-looks') return null;
@@ -1019,6 +1030,7 @@ async function adminGive(rest) {
   if (!g.id) { sys(`I don't know "${g.text}".${g.near ? ` Did you mean: ${g.near.map(thingLabel).join(', ')}?` : ' Try /give find word.'}`); return; }
   if (g.guess) sys(`Giving ${thingLabel(g.id)} (closest match to "${g.text}").`);
   const what = g.id, n = g.n;
+  if (target && /^spell:/.test(what) && SPELLS[what.slice(6)] && SPELLS[what.slice(6)].admin) { sys(`${thingLabel(what)} is an admin-only item, so it can only go to you.`); return; }
   if (!target) { const got = giveThing(what, n); save(); sys(`Gave yourself ${got}.`); return; }
   const r = await adminSend(target[0], 'give', { what, n });
   sys(r.error ? `Couldn't send that: ${r.error}` : `Sent ${what === 'coins' ? `${fmt(n)} coins` : what === 'xp' ? `${fmt(n)} XP` : `${n > 1 ? `${fmt(n)} × ` : ''}${thingLabel(what)}`} to ${target[1].name}. It arrives within a few seconds.`);
@@ -1217,6 +1229,7 @@ function chatCommand(line) {
   if (/^kick$/i.test(cmd)) { adminKick(rest); return; }
   if (/^shrink$/i.test(cmd)) { adminShrink(rest); return; }
   if (/^wolf$/i.test(cmd)) { adminWolf(true); return; }
+  if (/^azap$/i.test(cmd)) { (async () => { if (!(await isAdmin())) { sys(net.on ? 'Only admins can use that command.' : 'Admin commands need you to be signed in and online.'); return; } learnSpell('azap'); sys('Admin Zap is on your hotbar. No cooldown: go wild.'); toast('You learned Admin Zap!', spellIcon('azap'), true); })(); return; }
   if (/^unwolf$/i.test(cmd)) { adminWolf(false); return; }
   if (/^remove$/i.test(cmd)) { adminRemove(rest); return; }
   if (/^look$/i.test(cmd)) { adminLook(rest); return; }
@@ -1315,6 +1328,7 @@ function onNet(ev, m) {
   if (ev === 'bh' || ev === 'bs') { bossNet(ev, m); return; }
   if (ev === 'mh') { mobNet(m); return; }
   if (ev === 'es') { esNet(m); return; }
+  if (ev === 'ann') { const p = net.peers.get(from); annLine((p && p.name) || 'A hero', String(m.t || 'a boss').slice(0, 40), Array.isArray(m.h) ? m.h.map((x) => String(x).slice(0, 16)).slice(0, 5) : []); return; }
   if (ev === 'ea') { enemyAttackNet(m); return; }
   if (ev === 'hz') { hzNet(m); return; }
   if (ev === 'bfx') { bfxNet(m); return; }
@@ -1570,6 +1584,7 @@ function mobFlush() {
 function mobNet(m) {
   if (!player || m.w !== where || !Array.isArray(m.h)) return;
   mobAggro(m);
+  for (const [n] of m.h) { const e = enemies.find((x) => x.nid === n && x.T.boss); if (e) helpedBy(e, m.id); }
   for (const [n, f, k] of m.h) {
     const e = enemies.find((x) => x.nid === n && x.inside === where && x.hp > 0 && x.state !== 'dead' && x.state !== 'rising'); if (!e) continue;
     if (e.T.boss && !k) continue; // boss health already travels on its own channel
@@ -1583,7 +1598,8 @@ function mobNet(m) {
   }
 }
 // ---------- shared monsters: one hero runs each fight (v67) ----------
-// Every monster is run by one hero's game: the hero with the lowest id among the heroes near it (within 55).
+// Every monster is run by one hero's game: the hero with the lowest id among the heroes near it (within 90,
+// which is further than the screen shows, so two heroes apart in the same land still see the same monsters).
 // That game moves it, picks who it chases (any hero nearby, not just its own) and decides its attacks.
 // Four times a second it sends where its monsters are, which way they face, what they're doing and their health.
 // Everyone else's copy glides there instead of thinking for itself. If those updates stop (the hero walked away
@@ -1594,7 +1610,8 @@ const heroesNear = []; // other living heroes in this area: { id, pos, dead }
 let netDrive = false, esAt = 0, netFxIn = false, aimPeer = null;
 const r2 = (v) => Math.round((+v || 0) * 100) / 100;
 const hitUnit = () => maxHp() * 0.075 * defDiv(); // boss hits are measured against each hero's own health and defense
-const netDriven = (e) => now - (e.netAt || -9) < 1.2;
+const netDriven = (e) => now - (e.netAt || -9) < 2;
+const NET_R = 90; // further than anyone can see, so every monster on your screen is run by one game
 function netHeroesTick() {
   heroesNear.length = 0; netDrive = false;
   if (!net.on || !player) return;
@@ -1606,7 +1623,6 @@ function netHeroesTick() {
   netDrive = heroesNear.length > 0;
 }
 // is a hero with a lower id than mine close enough to this monster to be running it?
-function lowerHeroNear(e) { const me = myId(); return heroesNear.some((h) => h.id < me && Math.hypot(h.pos.x - e.pos.x, h.pos.z - e.pos.z) < 55); }
 // who should this monster go after? null means me
 function pickTarget(e) {
   if (!netDrive) return null;
@@ -1713,12 +1729,14 @@ function esTick() {
   const out = [];
   for (const e of enemies) {
     if (!e.nid || e.T.world || (e.temp && !e.boss) || e.inside !== where || e.hp <= 0 || ['dead', 'gone', 'rising'].includes(e.state) || netDriven(e)) continue;
-    if (!heroesNear.some((h) => Math.hypot(h.pos.x - e.pos.x, h.pos.z - e.pos.z) < 55)) continue;
+    let nearest = 1e9; for (const h of heroesNear) nearest = Math.min(nearest, Math.hypot(h.pos.x - e.pos.x, h.pos.z - e.pos.z));
+    if (nearest > NET_R) continue;
+    if (nearest > 55 && now - (e.esSent || 0) < 1) continue; // far from everyone else: once a second is plenty
     const row = [e.nid, Math.round(e.pos.x * 10), Math.round(e.pos.z * 10), Math.round(e.root.rotation.y * 100), e.name || '', e.state, Math.max(1, Math.round((e.hp / e.T.hp) * 1000))];
     const key = row.join();
     if (key === e.esKey && now - (e.esSent || 0) < 0.9) continue;
     e.esKey = key; e.esSent = now; out.push(row);
-    if (out.length >= 40) break;
+    if (out.length >= 60) break;
   }
   if (out.length) sendNet('es', { w: where, e: out });
 }
@@ -1729,7 +1747,7 @@ function esNet(m) {
     if (!Array.isArray(r) || r.length < 7) continue;
     const e = enemies.find((x) => x.nid === r[0] && x.inside === where); if (!e || e.hp <= 0 || ['dead', 'gone', 'rising'].includes(e.state)) continue;
     // two heroes both think they run it: the lower id wins
-    if (!lower && !netDriven(e) && Math.hypot(player.pos.x - e.pos.x, player.pos.z - e.pos.z) < 55) continue;
+    if (!lower && !netDriven(e) && Math.hypot(player.pos.x - e.pos.x, player.pos.z - e.pos.z) < NET_R) continue;
     const x = r[1] / 10, z = r[2] / 10, n = e.net, t = now;
     let vx = 0, vz = 0;
     if (n && t - n.t > 0.05 && t - n.t < 0.8) { vx = (x - n.x) / (t - n.t); vz = (z - n.z) / (t - n.t); if (Math.hypot(vx, vz) > 25) vx = vz = 0; }
@@ -1768,6 +1786,20 @@ function mobAggro(m) {
     if (e.state === 'idle' || e.state === 'walk') { e.state = 'chase'; e.tgtId = h.id; e.tgtAt = now + 3; }
   }
 }
+// Everyone online hears who beat a boss: whoever landed the final blow, plus everyone who helped.
+// (Helpers still get their loot and quest credit, as before.)
+function helpedBy(e, id) { const p = net.peers.get(id); if (p && p.name) (e.helpers ||= new Set()).add(p.name); }
+function bossAnnounce(e) {
+  const helpers = [...(e.helpers || [])].filter((n) => n !== heroName()).slice(0, 5);
+  const t = e.T.name || 'a boss';
+  annLine(heroName(), t, helpers);
+  if (net.on) sendNet('ann', { t, h: helpers });
+  e.helpers = null;
+}
+function annLine(who, t, helpers) {
+  const h = helpers && helpers.length ? ` with help from ${helpers.length > 1 ? helpers.slice(0, -1).join(', ') + ' and ' + helpers[helpers.length - 1] : helpers[0]}` : '';
+  chatLine('', `⚔ ${who} has slain ${t}${h}!`, 'sys ann');
+}
 function bossShare(e, dmg) {
   if (!e.T.boss || e.T.world || bossRemote || dmg <= 0 || !net.on) return;
   sendNet('bh', { t: e.type, f: dmg / e.T.hp, w: where, x: e.pos.x, z: e.pos.z });
@@ -1779,6 +1811,7 @@ function sharedBoss(m) {
 function bossNet(ev, m) {
   const e = sharedBoss(m); if (!e) return;
   if (ev === 'bh') {
+    helpedBy(e, m.id);
     const d = Math.max(0, Math.min(0.25, +m.f || 0)) * e.T.hp; if (d <= 0) return;
     // someone else's fight only moves the health bar: it never pulls the boss onto you
     const mine = !!e.myDmg || !['idle', 'walk', 'return'].includes(e.state);
@@ -1799,6 +1832,7 @@ function bossSyncTick() {
 function wbShare(e, dmg) { if (e.T.world && !wbRemote && dmg > 0) { wbDmg += dmg; sendNet('wb', { slot: wbSlot, f: dmg / e.T.hp }); } }
 function wbNet(m) {
   if (!wb || wb.state === 'dead' || m.slot !== wbSlot) return;
+  helpedBy(wb, m.id);
   const d = Math.max(0, Math.min(0.2, +m.f || 0)) * wb.T.hp;
   if (d <= 0) return;
   if (wb.hp - d > 0) { wb.hp -= d; return; }
@@ -2839,6 +2873,7 @@ function equipGear() {
   for (const m of player.customs || []) m.removeFromParent();
   player.customs = []; player.weapons = [];
   const hold = (item, base, side) => {
+    if (item.fist) { if (base) base.visible = false; return; } // bare hands: nothing in your hand
     if (side === 'l' && outfitOn()) { if (base) base.visible = false; return; }
     if (base) base.visible = !item.model;
     // shields are held a bit smaller so they don't hide the hero's outfit
@@ -2887,12 +2922,14 @@ function useHotbar(i) {
   const k = hotbar()[i];
   const slotEl = $('hotbar').children[i];
   if (slotEl) { slotEl.classList.remove('used'); void slotEl.offsetWidth; slotEl.classList.add('used'); }
+  if (!k && !unarmed) { unarmed = true; cancelTask(); equipGear(); buildGearBar(); toast('Bare hands! Punch with J, hold K for a charged punch. Press this slot again to put something in it.', ICONS.star); renderHotbar(); return; }
   if (!k) { hotPick = i; bagTab = 'items'; if (sheetMode !== 'bag') openSheet('bag'); else renderSheet(); toast(`Pick something in your bag for slot ${i + 1} (press +).`); renderHotbar(); return; }
   if (k.startsWith('spell:')) { castSpell(k.slice(6)); return; }
   if (FOOD[k]) { if (!S.inv[k]) { toast(`You're out of ${ITEMS[k]}.`, ICONS[k]); return; } eat(k); renderHotbar(); return; }
   const g = GEAR[k];
   if (!g && ITEMS[k]) { toast(`${ITEMS[k]}: ${S.inv[k] || 0} in your bag.`, ICONS[k]); return; }
   if (g && S.owned.includes(k)) {
+    if (unarmed && g.slot === 'weapon') { unarmed = false; S.equip.weapon = k; cancelTask(); equipGear(); buildGearBar(); save(); toast(`Drew your ${g.name}.`, gearIcon(g)); renderHotbar(); return; }
     if (S.equip[g.slot] === k) { toast(`${g.name} is already equipped.`, gearIcon(g)); return; }
     S.equip[g.slot] = k; cancelTask(); equipGear(); buildGearBar(); updateTitle(); save();
     burst(player.pos.clone().setY(1.6), '#ffe07a', 20, 4); toast(`Equipped ${g.name}.`, gearIcon(g));
@@ -3164,6 +3201,7 @@ function makeNpc(d) {
     });
     const m = markerSprite(); m.position.set(d.x, 4.6, d.z); scene.add(m);
     colliders.push({ x: d.x, z: d.z, r: 0.9 });
+    if (d.shop && !d.inside && d.id !== 'trader_out') shopBoard(d);
     const n = { ...d, look, actor: a, marker: m, reach: 3.2, accent: d.king ? '#e0a21c' : d.shop ? '#e8743a' : d.bank ? '#d9a21c' : d.lines ? '#3a9ad9' : '#8f62d8' };
     npcs.push(n);
     return n;
@@ -4046,6 +4084,9 @@ function renderSheet() {
     el.innerHTML = `<h3>Options</h3><div class="opts">
       <button id="o-style" aria-pressed="${styled.on}">Storybook look: ${styled.on ? 'On' : 'Off'}</button>
       <button id="o-guide" aria-pressed="${S.guideOn !== false}">Quest arrow: ${S.guideOn !== false ? 'On' : 'Off'}</button>
+      <h4>Graphics</h4>
+      <div class="seg" id="o-gfx">${[['auto', 'Auto'], ['high', 'High'], ['medium', 'Medium'], ['low', 'Low']].map(([k, nm]) => `<button data-gfx="${k}" aria-pressed="${gfxMode === k}">${nm}</button>`).join('')}</div>
+      <p class="hint">${gfxMode === 'auto' ? `Auto picks for your computer (now ${gfxLevel === 'high' ? 'High' : gfxLevel === 'medium' ? 'Medium' : 'Low'}).` : 'Low is smoothest on older computers and laptops.'}</p>
       <h4>Time of day</h4>
       <div class="seg" id="o-tod">${[['cycle', 'Day and night'], ['day', 'Day'], ['golden', 'Golden hour'], ['night', 'Night']].map(([k, nm]) => `<button data-tod="${k}" aria-pressed="${(S.tod || 'cycle') === k}">${nm}</button>`).join('')}</div>
       <h4>Sound</h4>
@@ -4060,6 +4101,7 @@ function renderSheet() {
       <p class="hint">${net.on ? 'Your progress saves online, so it follows you to any computer.' : 'Progress saves in this browser.'}</p></div>`;
     $('o-style').onclick = () => { setStyled(!styled.on); renderSheet(); };
     $('o-guide').onclick = () => { S.guideOn = S.guideOn === false; save(); renderSheet(); };
+    el.querySelectorAll('[data-gfx]').forEach((b) => { b.onclick = () => { gfxSet(b.dataset.gfx); renderSheet(); }; });
     el.querySelectorAll('[data-bind]').forEach((b) => { b.onclick = () => { bindCapture = { act: b.dataset.bind, slot: +b.dataset.slot }; renderSheet(); }; });
     const vols = () => { S.vol = { music: +$('o-music').value, sfx: +$('o-sfx').value }; setVolumes(S.vol.music, S.vol.sfx); save(); };
     $('o-music').oninput = vols; $('o-sfx').oninput = () => { vols(); sfx('coin'); };
@@ -4112,7 +4154,8 @@ $('status').addEventListener('click', (e) => { if (e.target.closest('#classes bu
 // They live on the hotbar: press the slot's number to cast toward where you're facing.
 // Damage spells scale with your Attack, like your weapon does.
 const SPELLS = {
-  zap: { name: 'Zap', r: 0, cd: 4, price: 350, sold: 'magic', col: '#ffe14a', desc: 'A bolt of lightning strikes the ground ahead of you. Long range.', dmg: 10 },
+  azap: { name: 'Admin Zap', icon: 'zap', r: 5, cd: 0.12, price: 0, admin: true, col: '#b98aff', desc: 'Admin only. Huge violet lightning that chains to three foes, with no cooldown.', dmg: 60 },
+  zap: { name: 'Zap', r: 0, cd: 2.5, price: 350, sold: 'magic', col: '#ffe14a', desc: 'A bolt of lightning strikes the ground ahead of you. Long range.', dmg: 10 },
   heal: { name: 'Heal', r: 0, cd: 22, price: 300, sold: 'magic', col: '#7dff8a', desc: 'Heals a quarter of your health.' },
   scorch: { name: 'Scorch', r: 1, cd: 8, price: 900, sold: 'magic', col: '#ff7a2a', desc: 'A short burst of fire in front of you. Burns foes for a few seconds.', dmg: 7 },
   gust: { name: 'Gust', r: 2, cd: 10, price: 4000, sold: 'frost', col: '#e8f6ff', desc: 'No damage, but blows monsters and other players away in the direction you face.' },
@@ -4123,7 +4166,7 @@ const SPELLS = {
 const SPELL_LAND = { out: ['zap', 'heal', 'scorch'], frost: ['gust', 'bigheal'], marsh: ['tidal'], sands: ['shadow'] };
 const spellCd = {};
 const spellsOwned = () => (S.spells = S.spells || {});
-const spellIcon = (k) => ICONS[`spell_${k}`] || ICONS.star;
+const spellIcon = (k) => ICONS[`spell_${k}`] || (SPELLS[k] && ICONS[`spell_${SPELLS[k].icon}`]) || ICONS.star;
 function learnSpell(k) {
   if (!SPELLS[k]) return;
   spellsOwned()[k] = 1;
@@ -4161,30 +4204,38 @@ function fxMesh(geo, col, opts = {}) {
 function fade(m, dur, f, done) { tween(dur, (k) => { if (f) f(k); m.material.opacity = (m.userData.op ?? 0.9) * (1 - k); }, () => { scene.remove(m); m.geometry.dispose(); m.material.dispose(); if (done) done(); }); }
 const SPELL_FX = {
   // common spells: simple, quick and readable
-  zap(x, z, ry, mine) {
+  zap(x, z, ry, mine, o = {}) {
     // real lightning from your hand: a jagged, forking bolt that crackles a few times, then fades
-    const R = 13, fx = Math.sin(ry), fz = Math.cos(ry), from = new THREE.Vector3(x + fx * 0.7 + fz * 0.35, 1.55, z + fz * 0.7 - fx * 0.35);
-    const near = foesIn(inCone(x, z, ry, R + 1, 0.3)).sort((a, b) => Math.hypot(a.pos.x - x, a.pos.z - z) - Math.hypot(b.pos.x - x, b.pos.z - z))[0];
+    const R = o.R || 13, fx = Math.sin(ry), fz = Math.cos(ry), from = new THREE.Vector3(x + fx * 0.7 + fz * 0.35, 1.55, z + fz * 0.7 - fx * 0.35);
+    const near = o.tgt || foesIn(inCone(x, z, ry, R + 1, 0.3)).sort((a, b) => Math.hypot(a.pos.x - x, a.pos.z - z) - Math.hypot(b.pos.x - x, b.pos.z - z))[0];
     const to = near ? new THREE.Vector3(near.pos.x, 1.2, near.pos.z) : new THREE.Vector3(x + fx * R, 1.0, z + fz * R);
     const jag = (a, b, rough, depth, out) => { if (depth === 0) { out.push(b); return; } const m = a.clone().add(b).multiplyScalar(0.5); const len = a.distanceTo(b); m.x += (rng() - 0.5) * len * rough; m.y += (rng() - 0.5) * len * rough * 0.6; m.z += (rng() - 0.5) * len * rough; jag(a, m, rough, depth - 1, out); jag(m, b, rough, depth - 1, out); };
     const core = new THREE.MeshBasicMaterial({ color: '#ffffff', transparent: true, opacity: 1, fog: false, depthWrite: false });
-    const glow = new THREE.MeshBasicMaterial({ color: '#5ab0ff', transparent: true, opacity: 0.6, fog: false, depthWrite: false, blending: THREE.AdditiveBlending });
+    const glow = new THREE.MeshBasicMaterial({ color: o.glow || '#5ab0ff', transparent: true, opacity: 0.6, fog: false, depthWrite: false, blending: THREE.AdditiveBlending });
     const bolt = new THREE.Group(); bolt.layers.set(1); scene.add(bolt);
     const line = (pts, w) => { for (let i = 0; i < pts.length - 1; i++) { const a = pts[i], b = pts[i + 1], len = a.distanceTo(b); if (len < 0.01) continue; for (const [m, ww] of [[core, w], [glow, w * 3.2]]) { const seg = new THREE.Mesh(new THREE.BoxGeometry(ww, len, ww), m); seg.position.copy(a).add(b).multiplyScalar(0.5); seg.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), b.clone().sub(a).normalize()); seg.layers.set(1); bolt.add(seg); } } };
     const draw = () => {
       for (const c of [...bolt.children]) { bolt.remove(c); c.geometry.dispose(); }
-      const main = [from.clone()]; jag(from, to, 0.42, 4, main); line(main, 0.07);
+      const main = [from.clone()]; jag(from, to, 0.42, 4, main); line(main, o.w || 0.07);
       // two or three thin forks splitting off the main bolt
       for (let f = 0; f < 2 + (rng() < 0.5 ? 1 : 0); f++) { const at = main[2 + Math.floor(rng() * (main.length - 5))], end = at.clone().add(new THREE.Vector3((rng() - 0.5) * 3, (rng() - 0.6) * 1.5, (rng() - 0.5) * 3)); const br = [at.clone()]; jag(at, end, 0.5, 2, br); line(br, 0.04); }
     };
     draw(); later(0.07, draw); later(0.15, draw);
     tween(0.4, (k) => { const fl = k < 0.5 ? (rng() < 0.25 ? 0.35 : 1) : 1 - (k - 0.5) / 0.5; core.opacity = fl; glow.opacity = 0.55 * fl; }, () => { scene.remove(bolt); bolt.traverse((o) => o.geometry && o.geometry.dispose()); core.dispose(); glow.dispose(); });
     burst(from.clone(), '#dff4ff', 8, 3, 0.7); burst(to.clone(), '#bfe8ff', 18, 5); burst(to.clone().setY(0.3), '#ffffff', 8, 3); sfx('hit');
+    if (o.big) { burst(to.clone(), '#c9a8ff', 30, 8, 1.4); const ring = fxMesh(new THREE.RingGeometry(0.8, 1, 40), '#bfe8ff'); ring.rotation.x = -Math.PI / 2; ring.position.set(to.x, 0.12, to.z); ring.userData.op = 0.9; fade(ring, 0.5, (k) => ring.scale.setScalar(0.5 + k * 3.5)); }
     if (mine) {
       // strikes the foe it reaches, or the first thing along its path
       const dx = to.x - from.x, dz = to.z - from.z, L2 = dx * dx + dz * dz || 1;
-      spellHit((px, pz) => { const t = Math.max(0, Math.min(1, ((px - from.x) * dx + (pz - from.z) * dz) / L2)); return Math.hypot(px - (from.x + dx * t), pz - (from.z + dz * t)) < (t > 0.95 ? 1.8 : 1.0); }, SPELLS.zap.dmg, 0.8);
+      spellHit((px, pz) => { const t = Math.max(0, Math.min(1, ((px - from.x) * dx + (pz - from.z) * dz) / L2)); return Math.hypot(px - (from.x + dx * t), pz - (from.z + dz * t)) < (t > 0.95 ? 1.8 : 1.0); }, o.dmg || SPELLS.zap.dmg, o.power || 0.8);
     }
+  },
+  // the admin-only zap: no cooldown, much longer reach, thick violet-white bolts that chain to up to three foes
+  azap(x, z, ry, mine) {
+    const o = { R: 22, w: 0.17, glow: '#9a6bff', dmg: 60, power: 1.4, big: true };
+    const foes = foesIn(inCone(x, z, ry, 23, 0.55)).sort((a, b) => Math.hypot(a.pos.x - x, a.pos.z - z) - Math.hypot(b.pos.x - x, b.pos.z - z)).slice(0, 3);
+    if (!foes.length) { SPELL_FX.zap(x, z, ry, mine, o); return; }
+    for (const e of foes) SPELL_FX.zap(x, z, ry, mine, { ...o, tgt: e });
   },
   heal(x, z, ry, mine) {
     // a soft green ring at your feet and little glowing crosses floating up
@@ -5127,6 +5178,10 @@ function chargedAttack(k) {
 }
 // three moves per weapon style: anim, when it lands, damage, knockback, reach and arc
 function comboOf(w) {
+  if (w.fist) return [
+    { anim: '1H_Melee_Attack_Stab', hitAt: 0.4, mult: 1, power: 0.6, speed: 1.5, reach: 1, arc: 0.8 },
+    { anim: '1H_Melee_Attack_Stab', hitAt: 0.4, mult: 1, power: 0.6, speed: 1.7, reach: 1, arc: 0.8 },
+    { anim: 'Unarmed_Melee_Attack_Kick', hitAt: 0.35, mult: 1.4, power: 1.2, speed: 1.3, reach: 1.15, arc: 0.8 }];
   if (w.type === 'magic') return [
     { anim: 'Spellcast_Shoot', hitAt: 0.35, mult: 1, power: 1, speed: 1 },
     { anim: 'Spellcast_Shoot', hitAt: 0.3, mult: 1, power: 1, speed: 1.15 },
@@ -5427,6 +5482,7 @@ function hurtEnemy(e, dmg, src = null, power = 1) {
   if (!crewHitting && !bossRemote && !mobRemote && !wbRemote) giveHeroXp(dmg * HIT_HERO_XP); // only your own hits earn hit XP
   if (e.hp <= 0) {
     e.state = 'dead'; e.bar.hidden = true;
+    if (e.T.boss && (!e.temp || e.T.world) && !bossRemote && !mobRemote && !wbRemote) bossAnnounce(e);
     const life = e.life = (e.life || 0) + 1; // each death gets its own id, so old timers can't touch a respawned monster
     e.play('Death_A', { once: true, clamp: true, fade: 0.1 });
     if (!e.T.noBones) later(0.75, () => { if (e.state === 'dead' && e.life === life) collapse(e); });
@@ -6770,6 +6826,32 @@ function enemyTick(e, dt) {
   }
 }
 
+// Big hanging signs beside every shopkeeper and smith, easy to read from above (v67.3)
+const SIGN_FOR = { food: ['SHOP', '$', '#ffd23f'], melee: ['BLACKSMITH', '⚒', '#ff9a5a'], frost: ['BLACKSMITH', '⚒', '#9fdcff'], marsh: ['BLACKSMITH', '⚒', '#a8e07a'], sands: ['BLACKSMITH', '⚒', '#ffcf7a'], magic: ['MAGIC SHOP', '✦', '#e0a8ff'], ranged: ['BOWS', '🏹', '#c8f08a'] };
+function shopBoard(d) {
+  const [label, icon, col] = SIGN_FOR[d.shop] || SIGN_FOR.food;
+  if (dynamic.shop && Math.hypot(dynamic.shop.x - d.x, dynamic.shop.z - d.z) < 12) return; // the village shop already has one
+  // stand it just beside them, on the camera's side, out of their way
+  let x = d.x + 2.6, z = d.z + 1.6;
+  for (const [ox, oz] of [[2.6, 1.6], [-2.6, 1.6], [2.6, -1.2], [-2.6, -1.2]]) { if (isFree(d.x + ox, d.z + oz, 0.6)) { x = d.x + ox; z = d.z + oz; break; } }
+  const g = new THREE.Group(); g.position.set(x, 0, z);
+  const wood = toon('#7a4a2a');
+  const post = new THREE.Mesh(new THREE.CylinderGeometry(0.17, 0.22, 6.2, 8)); post.position.y = 3.1; post.castShadow = true; registerMesh(post, wood); g.add(post);
+  const arm = new THREE.Mesh(new THREE.BoxGeometry(4.8, 0.2, 0.2)); arm.position.set(2.2, 6.0, 0); registerMesh(arm, wood); g.add(arm);
+  const cv = document.createElement('canvas'); cv.width = 512; cv.height = 176; const c = cv.getContext('2d');
+  c.fillStyle = '#4a2a17'; c.beginPath(); c.roundRect(0, 0, 512, 176, 28); c.fill();
+  c.fillStyle = col; c.beginPath(); c.roundRect(10, 10, 492, 156, 22); c.fill();
+  c.fillStyle = 'rgba(255,255,255,.35)'; c.beginPath(); c.arc(78, 88, 46, 0, 7); c.fill(); c.lineWidth = 6; c.strokeStyle = '#4a2a17'; c.stroke();
+  c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillStyle = '#4a2a17';
+  c.font = '900 58px system-ui, sans-serif'; c.fillText(icon, 78, 92);
+  const fs = label.length > 8 ? 54 : 66;
+  c.font = `900 ${fs}px system-ui, sans-serif`; c.lineWidth = 10; c.strokeStyle = '#4a2a17'; c.strokeText(label, 312, 90, 360); c.fillStyle = '#fff'; c.fillText(label, 312, 90, 360);
+  const tex = new THREE.CanvasTexture(cv); tex.colorSpace = THREE.SRGBColorSpace; tex.anisotropy = 4;
+  const board = new THREE.Mesh(new THREE.PlaneGeometry(4.6, 1.58), new THREE.MeshBasicMaterial({ map: tex, side: THREE.DoubleSide }));
+  board.position.set(2.3, 5.0, 0); board.rotation.x = -0.35; g.add(board); // tipped back a little to face the camera
+  for (const sx of [0.4, 4.2]) { const ch = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.03, 0.3, 4), new THREE.MeshBasicMaterial({ color: '#3a2010' })); ch.position.set(sx, 5.88, 0); g.add(ch); }
+  scene.add(g); colliders.push({ x, z, r: 0.35 });
+}
 // ---------- minimap ----------
 const MAP_R = 165, MAP_PX = 1024;
 const mapBg = document.createElement('canvas'); mapBg.width = mapBg.height = MAP_PX;
@@ -6912,6 +6994,13 @@ function drawMap(cv, full) {
     const st = qid && S.quests[qid].state;
     const col = n.king ? '#c58bff' : n.shop ? '#ffe9a0' : st === 'todo' ? '#ffd23f' : qid && questReady(qid) ? '#ff6ad5' : '#f6efdc';
     if (full && col === '#f6efdc') continue; // v65: the big map only marks people you need (king, shops, quests)
+    if (n.shop && SIGN_FOR[n.shop]) {
+      // shops and smiths get a gold badge with their sign's symbol, on both maps
+      const [u, v] = toPx(n.x, n.z), r = (full ? 8 : 6.5) * dpr; if (u < -12 || v < -12 || u > W + 12 || v > W + 12) continue;
+      g.beginPath(); g.arc(u, v, r, 0, 7); g.fillStyle = SIGN_FOR[n.shop][2]; g.fill(); g.lineWidth = 1.8 * dpr; g.strokeStyle = '#3a2010'; g.stroke();
+      g.fillStyle = '#3a2010'; g.font = `900 ${r * 1.25}px system-ui, sans-serif`; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(SIGN_FOR[n.shop][1], u, v + 0.5 * dpr); g.textBaseline = 'alphabetic';
+      continue;
+    }
     dot(n.x, n.z, full ? 4 : 4.5, col);
   }
   // event pickups: unlit lanterns and lost crates
@@ -7158,9 +7247,54 @@ function lightTick() {
   }
 }
 
+// ---------- graphics quality and smoothness (v67.3) ----------
+// Options has Graphics: Auto, High, Medium or Low (saved on this computer). On Auto the game starts on High and
+// watches the frame rate while you play: if it stays low, it steps down to Medium, then Low, and says so.
+const GFX_KEY = 'jq-gfx';
+const gfxGet = () => { try { return localStorage.getItem(GFX_KEY) || 'auto'; } catch (e) { return 'auto'; } };
+let gfxMode = gfxGet(), gfxLevel = 'high', fpsT = 0, fpsN = 0, fpsSlow = 0;
+function gfxApply(level) { gfxLevel = level; setQuality(level); }
+function gfxSet(mode) {
+  gfxMode = mode; try { localStorage.setItem(GFX_KEY, mode); } catch (e) { /* private window */ }
+  if (mode !== 'auto') gfxApply(mode); else { try { gfxApply(localStorage.getItem(GFX_KEY + '-auto') || 'high'); } catch (e) { gfxApply('high'); } }
+}
+function gfxTick(rawDt) {
+  if (gfxMode !== 'auto' || !player || creator.open || document.hidden || gfxLevel === 'low') return;
+  fpsT += rawDt; fpsN++;
+  if (fpsT < 4) return;
+  const fps = fpsN / fpsT; fpsT = 0; fpsN = 0;
+  // two slow checks in a row (8 seconds under 40 frames a second) steps the graphics down one level
+  if (fps < 40) fpsSlow++; else fpsSlow = 0;
+  if (fpsSlow >= 2) {
+    fpsSlow = 0; const next = gfxLevel === 'high' ? 'medium' : 'low'; gfxApply(next);
+    try { localStorage.setItem(GFX_KEY + '-auto', next); } catch (e) { /* ignore */ }
+    toast(`Graphics set to ${next === 'medium' ? 'Medium' : 'Low'} so the game runs smoother. Change it in Options.`, ICONS.star);
+  }
+}
+// Characters far off screen (monsters, villagers, the crew, other heroes) are skipped entirely: not drawn,
+// no shadows, and their bones aren't worked out. The game's own show/hide still works underneath.
+function cullable(root) {
+  if ('_vis' in root) return;
+  root._vis = root.visible; root._culled = false;
+  Object.defineProperty(root, 'visible', { get() { return this._vis && !this._culled; }, set(v) { this._vis = v; }, configurable: true });
+}
+let cullAt = 0;
+function cullTick() {
+  if (!player || now < cullAt) return; cullAt = now + 0.2;
+  const R = 78 * Math.max(1, zoom), px = player.pos.x, pz = player.pos.z;
+  const one = (root) => {
+    if (!root) return; cullable(root);
+    const far = Math.hypot(root.position.x - px, root.position.z - pz) > R;
+    if (far !== root._culled) { root._culled = far; root.matrixWorldAutoUpdate = !far; }
+  };
+  for (const e of enemies) one(e.root);
+  for (const n of npcs) one(n.actor && n.actor.root);
+  for (const c of crew) one(c.actor && c.actor.root);
+}
 function tick() {
   now = clock.elapsedTime;
-  const dt = Math.min(clock.getDelta(), 0.05) * (now < hitStopUntil ? 0.3 : 1);
+  const rawDt = clock.getDelta(), dt = Math.min(rawDt, 0.05) * (now < hitStopUntil ? 0.3 : 1);
+  gfxTick(rawDt); cullTick();
   for (let i = timers.length - 1; i >= 0; i--) { timers[i].t -= dt; if (timers[i].t <= 0) { const f = timers[i].f; timers.splice(i, 1); f(); } }
   regionTick(); lightTick();
   if (player) { goldenTick(); tinyTick(dt); pompTick(dt); }
@@ -7245,7 +7379,7 @@ function tick() {
   for (const e of enemies) {
     const near = !player || Math.hypot(e.pos.x - player.pos.x, e.pos.z - player.pos.z) < 55;
     if (player && !bossIntro && netDriven(e) && e.hp > 0 && !['dead', 'gone', 'rising'].includes(e.state)) { knockTick(e, dt); netMobTick(e, dt); }
-    else if (player && (near || e.state !== 'idle') && !bossIntro) enemyTick(e, dt);
+    else if (player && (near || e.state !== 'idle' || (netDrive && Math.hypot(e.pos.x - player.pos.x, e.pos.z - player.pos.z) < NET_R)) && !bossIntro) enemyTick(e, dt);
     if (near) e.mixer.update(dt);
   }
   slamTick(dt);
@@ -9164,10 +9298,10 @@ function renderBag(el) {
     let info = '<p class="hint">Drag items to move them or onto the hotbar. Tap one to see its worth.</p>';
     if (bagPick && GEAR[bagPick] && S.owned.includes(bagPick)) {
       const k = bagPick, g = GEAR[k], [rc, rn] = gearRarity(g);
-      info = `<div class="iteminfo ${rc}"><img src="${gearIcon(g)}" alt=""><div><b>${g.name}${plusOf(k) ? ` +${plusOf(k)}` : ''}</b><small><i class="rar">${rn}</i> · ${SLOT_NAMES[g.slot]} · spare, not equipped</small></div><div class="row"><button class="primary" data-equip="${k}">Equip</button><button data-pin="${k}" aria-pressed="${(S.hotbar || []).includes(k)}">Hotbar</button></div></div>`;
+      info = `<div class="iteminfo ${rc}"><img src="${gearIcon(g)}" alt=""><div><b>${g.name}${plusOf(k) ? ` +${plusOf(k)}` : ''}</b><small><i class="rar">${rn}</i> · ${SLOT_NAMES[g.slot]} · spare, not equipped</small></div><div class="row"><button class="primary" data-equip="${k}">Equip</button><button data-pin="${k}" aria-pressed="${(S.hotbar || []).includes(k)}">Hotbar</button>${Object.values(STARTER).includes(k) || k === 'sh_badge' ? '' : delBtns(k, 1)}</div></div>`;
     } else if (bagPick && S.inv[bagPick]) {
       const k = bagPick, [rc, rn] = itemRarity(k), f = FOOD[k];
-      info = `<div class="iteminfo ${rc}"><img src="${ICONS[k]}" alt=""><div><b>${ITEMS[k]}</b><small><i class="rar">${rn}</i> · ${S.inv[k]} in your bag${SELL[k] ? ` · sells for ${fmt(SELL[k])} each` : ''}${f ? ` · heals ${f.heal}` : ''}</small></div><div class="row">${f ? `<button class="primary" data-eat="${k}">Eat</button>` : ''}<button data-pin="${k}" aria-pressed="${(S.hotbar || []).includes(k)}">Hotbar</button></div></div>`;
+      info = `<div class="iteminfo ${rc}"><img src="${ICONS[k]}" alt=""><div><b>${ITEMS[k]}</b><small><i class="rar">${rn}</i> · ${S.inv[k]} in your bag${SELL[k] ? ` · sells for ${fmt(SELL[k])} each` : ''}${f ? ` · heals ${f.heal}` : ''}</small></div><div class="row">${f ? `<button class="primary" data-eat="${k}">Eat</button>` : ''}<button data-pin="${k}" aria-pressed="${(S.hotbar || []).includes(k)}">Hotbar</button>${delBtns(k, S.inv[k])}</div></div>`;
     }
     body = `<div class="bagbar"><span>${keys.length} things</span>${keys.length >= 8 ? '<button data-bagsort="kind">Sort by type</button><button data-bagsort="rar">Sort by rarity</button>' : ''}</div><div class="bag five">${slots.join('')}</div>${info}`;
   } else {
@@ -9184,6 +9318,14 @@ function renderBag(el) {
   el.querySelectorAll('[data-item]').forEach((b) => { b.onclick = () => { bagPick = bagPick === b.dataset.item ? null : b.dataset.item; renderSheet(); }; });
   el.querySelectorAll('[data-eat]').forEach((b) => { b.onclick = () => { eat(b.dataset.eat); renderSheet(); }; });
   el.querySelectorAll('[data-equip]').forEach((b) => { b.onclick = () => { const k = b.dataset.equip, g = GEAR[k]; if (!g || !S.owned.includes(k)) return; S.equip[g.slot] = k; bagPick = null; cancelTask(); equipGear(); buildGearBar(); updateTitle(); save(); renderSheet(); renderHotbar(); sfx('equip'); toast(`Equipped ${g.name}.`, gearIcon(g)); }; });
+  el.querySelectorAll('[data-del]').forEach((b) => { b.onclick = () => {
+    const k = b.dataset.del, n = b.dataset.n;
+    if (n === 'arm') { delArm = k; renderSheet(); return; }
+    if (n === 'no') { delArm = null; renderSheet(); return; }
+    const got = removeThing(k, n === 'all' ? 1e9 : 1); delArm = null;
+    if (got) { toast(`Deleted ${got}.`, ICONS.star); if (!S.inv[k] && !S.owned.includes(k)) bagPick = null; renderHotbar(); save(); }
+    renderSheet();
+  }; });
   el.querySelectorAll('[data-bagsort]').forEach((b) => { b.onclick = () => { bagSort(b.dataset.bagsort); renderSheet(); }; });
   el.querySelectorAll('[data-pin]').forEach((b) => { b.onclick = () => { pinToHotbar(b.dataset.pin); renderSheet(); }; });
   el.querySelectorAll('[data-gear]').forEach((b) => { b.onclick = () => { const g = GEAR[b.dataset.gear]; S.equip[g.slot] = g.slot === 'gadget' && S.equip.gadget === b.dataset.gear ? null : b.dataset.gear; cancelTask(); equipGear(); buildGearBar(); updateTitle(); save(); renderSheet(); burst(player.pos.clone().setY(1.6), '#ffe07a', 20, 4); sfx('equip'); }; });
