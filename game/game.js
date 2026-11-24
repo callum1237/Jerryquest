@@ -661,7 +661,12 @@ function perkChoices(i) {
 }
 const dmgPerk = () => 1 + perkSum({ warpath: 0.12, warlord: 0.18 }) + (perkOn('berserker') && S.hp < maxHp() * 0.5 ? 0.2 : 0);
 // your power with a kind of attack: Attack for swords, axes and bows, Magic for staffs and spells
-const powMult = (k) => (1 + ATK_MULT * stat(k)) * renown() * (together ? 1.1 : 1) * (1 + petBonus('dmg')) * dmgPerk() * (k === 'mag' ? 1 + perkSum({ manasurge: 0.2 }) : 1);
+// v83.2 (Callum: rework how damage points add damage): your level gives your base power (+10% a level),
+// and every point you put in Attack (or Magic) adds a clear +1% damage on top of that.
+const ATK_PER_POINT = 0.01;
+const lvPow = (L = heroLvl()) => 1 + ATK_MULT * L;
+const ptPow = (k) => 1 + ATK_PER_POINT * (S.hero.alloc[k] || 0);
+const powMult = (k) => lvPow() * ptPow(k) * renown() * (together ? 1.1 : 1) * (1 + petBonus('dmg')) * dmgPerk() * (k === 'mag' ? 1 + perkSum({ manasurge: 0.2 }) : 1);
 const dmgMult = () => powMult(W().type === 'magic' ? 'mag' : 'atk') * (1 + 0.015 * masteryLv(mKey(W())));
 const spellMult = () => powMult('mag') * (1 + perkSum({ archmage: 0.25 }));
 // Defense: armour and your Defense stat add up; Angel path, gadgets, pets and perks multiply it.
@@ -3704,7 +3709,7 @@ const LV_HARD = 1.1;
 const gearAt = (o) => (o < 10 ? 4 : o < 18 ? 8 : o < 30 ? 21 : o < 44 ? 34 : o < 60 ? 51 : 75);
 function heroRatio(N) {
   const o = invMap(N), oS = o + (2 * (o - 1)) / 3, nS = N + (N - 1), g = gearAt(o);
-  const dmg = (1 + 0.1 * nS) / (1 + 0.1 * oS);
+  const dmg = ((1 + 0.1 * N) * (1 + 0.01 * (N - 1))) / (1 + 0.1 * oS); // typical hero: a third of its points in Attack
   const ehpOld = (50 + 6 * oS) * (1 + 0.1 * (oS + g)), ehpNew = (50 + 6 * nS) / (1 - blockPct(nS + g, N));
   return [dmg, ehpNew / ehpOld, o];
 }
@@ -4054,10 +4059,16 @@ function v80Note() {
   if (S.v80Refund) { delete S.v80Refund; toast('Big update: levels and stats are reworked, with a new Magic stat and 3 points a level. All your stat points are refunded, so spend them again on your Hero card (Tab).', ICONS.star, true); save(); }
   if (perksDue().length) later(4, () => toast(`You can choose a perk! Open your Hero card (Tab).`, ICONS.star, true));
 }
-function spendPoint(k) {
-  if (freePoints() <= 0) return;
+// v83.2: + buttons for 1, 5, 10 or all your points at once
+function plusBtns(k, nm, free) {
+  const opts = [1, 5, 10].filter((n) => n < free);
+  return `<span class="plusset">${opts.map((n) => `<button class="${n === 1 ? 'plus' : 'plusn'}" data-stat="${k}" data-n="${n}" aria-label="Add ${n} point${n > 1 ? 's' : ''} to ${nm}">+${n === 1 ? '' : n}</button>`).join('')}<button class="plusn" data-stat="${k}" data-n="${free}" aria-label="Add all ${free} points to ${nm}">All</button></span>`;
+}
+function spendPoint(k, n = 1) {
+  n = Math.min(Math.max(1, Math.floor(n)), freePoints());
+  if (n <= 0) return;
   const before = maxHp();
-  S.hero.alloc[k] = (S.hero.alloc[k] || 0) + 1;
+  S.hero.alloc[k] = (S.hero.alloc[k] || 0) + n;
   if (k === 'hp') S.hp += maxHp() - before;
   burst(player.pos.clone().setY(1.6), k === 'hp' ? '#ff7a8a' : k === 'def' ? '#8fc2ff' : k === 'mag' ? '#c8a0ff' : '#ffd84a', 16, 4);
   updateTitle(); buildGearBar(); refreshUI(); save(); renderSheet();
@@ -4068,10 +4079,10 @@ function statEffect() {
   const capNote = (pts) => (pts >= full ? ' <b>Maxed!</b>' : `. Max at ${fmt(full)} (you have ${fmt(pts)})`);
   const capDef = (pts) => (pts >= full ? capNote(pts) : `. Max at ${fmt(full)} (you have ${fmt(pts)}${gearDef() ? `, ${fmt(gearDef())} from armour` : ""})`);
   return {
-    atk: `Sword, axe and bow damage × ${powMult('atk').toFixed(1)}`,
+    atk: `Sword, axe and bow damage × ${powMult('atk').toFixed(1)}. Each point adds +1% (now +${S.hero.alloc.atk || 0}%)`,
     def: `Blocks ${pc(defBlock())}% of hits, max 75%${capDef(dp)}`,
     hp: `${maxHp()} max health`,
-    mag: `Staff and spell damage × ${powMult('mag').toFixed(1)}. Blocks ${pc(magBlock())}% of magic, max 75%${capNote(mp)}`,
+    mag: `Staff and spell damage × ${powMult('mag').toFixed(1)}, +1% a point (now +${S.hero.alloc.mag || 0}%). Blocks ${pc(magBlock())}% of magic, max 75%${capNote(mp)}`,
   };
 }
 // the Perks part of the Hero card: what you have, and a big button when one is waiting
@@ -4735,7 +4746,7 @@ function renderSheet() {
     const w = W();
     el.innerHTML = `<h3>Hero <small>Level ${L}</small></h3>
       <div class="herolvl"><div class="xp"><i style="width:${pct}%"></i></div><small>${Math.floor(S.hero.xp - cur)} / ${next - cur} XP to level ${L + 1}</small></div>
-      <div class="stats">${Object.entries(STATS).map(([k, [nm, ic]]) => `<div class="stat"><img src="${ICONS[ic]}" alt=""><span class="nm">${nm}</span><span class="lv">${stat(k)}</span><small>${effect[k]}</small>${free > 0 ? `<button class="plus" data-stat="${k}" aria-label="Add a point to ${nm}">+</button>` : ''}</div>`).join('')}</div>
+      <div class="stats">${Object.entries(STATS).map(([k, [nm, ic]]) => `<div class="stat"><img src="${ICONS[ic]}" alt=""><span class="nm">${nm}</span><span class="lv">${stat(k)}</span><small>${effect[k]}</small>${free > 0 ? plusBtns(k, nm, free) : ''}</div>`).join('')}</div>
       <p class="hint">${free > 0 ? `<b>${free} point${free > 1 ? 's' : ''} to spend.</b> ` : ''}You get ${FREE_PER_LEVEL} more points each level. Master Orrin in Jerry Village resets them for coins.</p>${perksHtml()}
       <h4 class="sub">Weapon</h4><div class="gearbtn now"><b><img src="${ICONS[w.type]}" alt="">${w.name}</b><span>${gearStats(w)}</span></div>
       <h4 class="sub">Gathering</h4><div class="skills">${SKILLS.filter(([k]) => k !== 'crafting').map(([k, nm]) => {
@@ -4743,7 +4754,7 @@ function renderSheet() {
       const pc = l >= 99 ? 100 : ((S.xp[k] - c0) / (n0 - c0)) * 100;
       return `<div class="skill" title="${Math.floor(S.xp[k])} XP"><img src="${ICONS[k]}" alt=""><span class="nm">${nm}</span><span class="lv">${l}</span><div class="xp"><i style="width:${pc}%"></i></div></div>`;
     }).join('')}</div><p class="hint">Skills level up as you use them.</p>${worthHtml()}`;
-    el.querySelectorAll('[data-stat]').forEach((b) => { b.onclick = () => spendPoint(b.dataset.stat); });
+    el.querySelectorAll('[data-stat]').forEach((b) => { b.onclick = () => spendPoint(b.dataset.stat, +b.dataset.n || 1); });
     el.querySelectorAll('[data-perkpick]').forEach((b) => { b.onclick = () => openPerkPick(); });
   } else if (sheetMode === 'bag') { renderBag(el); return;
   } else if (sheetMode === 'bagOld') {
@@ -10405,7 +10416,7 @@ function rankFlourish(x, z, ringFn) {
 const itemRarIx = (k) => { const v = SELL[k] || 0; return v >= 5000 ? 5 : v >= 800 ? 4 : v >= 250 ? 3 : v >= 40 ? 2 : v >= 10 ? 1 : 0; };
 const itemRarity = (k) => { const r = RARITY[itemRarIx(k)]; return [r.id, r.name]; };
 const gearRarity = (g) => { const r = RARITY[gearRarIx(g)]; return [r.id, r.name]; };
-let bagTab = 'gear', dollSlot = 'weapon', bagPick = null, dollJustPicked = false;
+let bagTab = 'gear', dollSlot = 'weapon', bagPick = null, dollJustPicked = false, hotSel = -1; // hotSel: a hotbar slot you tapped in the bag window (to move or take off)
 // ---------- live preview: your actual hero, drawn in the loadout window, wearing what you pick ----------
 const prev = { cv: null, r: null, scene: null, cam: null, yaw: 0.5, drag: null, at: 0 };
 function previewMount() {
@@ -10508,13 +10519,13 @@ function sheetHotbar() {
   const hb = hotbar(), kb = binds();
   const cells = hb.map((k, i) => {
     const key = keyLabel(kb[`hot${i + 1}`][0] || kb[`hot${i + 1}`][1]);
-    if (k && k.startsWith('spell:')) { const sp = SPELLS[k.slice(6)]; if (sp) return `<button class="shot spell" data-hot="${i}" data-drag="${k}" data-hclear="${i}" style="--sc:${sp.col}" title="${esc(sp.name)}: drag to move, tap to take off"><img src="${spellIcon(k.slice(6))}" alt=""><kbd>${key}</kbd><small>${esc(sp.name)}</small></button>`; }
+    if (k && k.startsWith('spell:')) { const sp = SPELLS[k.slice(6)]; if (sp) return `<button class="shot spell${hotSel === i ? " picked" : ""}" data-hot="${i}" data-drag="${k}" data-hclear="${i}" style="--sc:${sp.col}" title="${esc(sp.name)}: drag or tap to move"><img src="${spellIcon(k.slice(6))}" alt=""><kbd>${key}</kbd><small>${esc(sp.name)}</small></button>`; }
     const g = k && GEAR[k], it = k && !g && ITEMS[k];
     if (!g && !it) return `<button class="shot empty" data-hot="${i}" data-hset="${i}" title="${bagPick ? 'Tap to put it here' : 'Empty: drag something here'}"><kbd>${key}</kbd><small>${bagPick ? 'Put here' : 'Empty'}</small></button>`;
     const [rc] = g ? gearRarity(g) : itemRarity(k);
-    return `<button class="shot ${rc}" data-hot="${i}" data-drag="${k}" data-hclear="${i}" title="${esc(g ? g.name : it)}: drag to move, tap to take off"><img src="${g ? gearIcon(g) : ICONS[k]}" alt=""><kbd>${key}</kbd>${g ? '' : `<span>${S.inv[k] || 0}</span>`}<small>${esc(g ? g.name : it)}</small></button>`;
+    return `<button class="shot ${rc}${hotSel === i ? " picked" : ""}" data-hot="${i}" data-drag="${k}" data-hclear="${i}" title="${esc(g ? g.name : it)}: drag or tap to move"><img src="${g ? gearIcon(g) : ICONS[k]}" alt=""><kbd>${key}</kbd>${g ? '' : `<span>${S.inv[k] || 0}</span>`}<small>${esc(g ? g.name : it)}</small></button>`;
   }).join('');
-  return `<div class="sheethot"><div class="shhead"><b>Hotbar</b><small>Drag things here, or pick one in your bag and tap a slot. Tap a slot to empty it.</small><button data-hsort>Sort</button><button data-hfill>Auto-fill</button><button data-hclearall>Clear</button></div><div class="shrow">${cells}</div></div>`;
+  return `<div class="sheethot"><div class="shhead"><b>Hotbar</b><small>${hotSel >= 0 && hotbar()[hotSel] ? `Tap another slot to move it there, or <button data-hoff type="button">Take off</button> (it stays in your bag).` : 'Drag things here, or pick one in your bag and tap a slot. Tap a slot to move it.'}</small><button data-hsort>Sort</button><button data-hfill>Auto-fill</button><button data-hclearall>Clear</button></div><div class="shrow">${cells}</div></div>`;
 }
 // Pointer-based dragging, so it works with a mouse and on touch screens (hold, then drag).
 let drag = null;
@@ -10647,8 +10658,22 @@ function renderBag(el) {
   el.querySelectorAll('[data-bagsort]').forEach((b) => { b.onclick = () => { bagSort(b.dataset.bagsort); renderSheet(); }; });
   el.querySelectorAll('[data-bagsortsel]').forEach((b) => { b.onchange = () => { bagSort(b.value); renderSheet(); }; });
   el.querySelectorAll('[data-bcat]').forEach((b) => { b.onclick = () => { bagCatOn = b.dataset.bcat; bagPick = null; renderSheet(); }; });
-  el.querySelectorAll('[data-hset]').forEach((b) => { b.onclick = () => { if (!bagPick) return; const hb = hotbar(), i = +b.dataset.hset, was = hb.indexOf(bagPick); if (was >= 0) hb[was] = null; hb[i] = bagPick; sfx('equip'); save(); renderHotbar(); renderSheet(); }; });
-  el.querySelectorAll('[data-hclear]').forEach((b) => { b.onclick = () => { const hb = hotbar(), i = +b.dataset.hclear; if (bagPick && hb[i] !== bagPick) { const was = hb.indexOf(bagPick); if (was >= 0) hb[was] = null; hb[i] = bagPick; } else hb[i] = null; save(); renderHotbar(); renderSheet(); }; });
+  el.querySelectorAll('[data-hset]').forEach((b) => { b.onclick = () => {
+    const hb = hotbar(), i = +b.dataset.hset;
+    if (hotSel >= 0) { hb[i] = hb[hotSel]; hb[hotSel] = null; hotSel = -1; sfx('equip'); save(); renderHotbar(); renderSheet(); return; }
+    if (!bagPick) return; const was = hb.indexOf(bagPick); if (was >= 0) hb[was] = null; hb[i] = bagPick; sfx('equip'); save(); renderHotbar(); renderSheet();
+  }; });
+  // v83.2: tapping a filled slot never empties it straight away (Callum thought items were deleted). It picks the slot:
+  // tap another slot to swap, or press "Take off". Taking off only empties the slot; the item stays in your bag.
+  el.querySelectorAll('[data-hclear]').forEach((b) => { b.onclick = () => {
+    const hb = hotbar(), i = +b.dataset.hclear;
+    if (bagPick && hb[i] !== bagPick) { const was = hb.indexOf(bagPick); if (was >= 0) hb[was] = null; hb[i] = bagPick; hotSel = -1; sfx('equip'); }
+    else if (hotSel === i) hotSel = -1;
+    else if (hotSel >= 0) { [hb[hotSel], hb[i]] = [hb[i], hb[hotSel]]; hotSel = -1; sfx('equip'); }
+    else hotSel = i;
+    save(); renderHotbar(); renderSheet();
+  }; });
+  const ho = el.querySelector('[data-hoff]'); if (ho) ho.onclick = () => { const hb = hotbar(); if (hotSel >= 0) hb[hotSel] = null; hotSel = -1; save(); renderHotbar(); renderSheet(); };
   const hs = el.querySelector('[data-hsort]'); if (hs) hs.onclick = () => { hotSort(); renderSheet(); };
   const hf = el.querySelector('[data-hfill]'); if (hf) hf.onclick = () => { hotFill(); renderSheet(); };
   const hc = el.querySelector('[data-hclearall]'); if (hc) hc.onclick = () => { const hb = hotbar(); for (let i = 0; i < HOT_N; i++) hb[i] = null; save(); renderHotbar(); renderSheet(); };
@@ -10741,7 +10766,7 @@ function renderCard(el) {
       : ''}
     <div class="row"><button id="cardclose">Close (Tab)</button></div>`;
   previewMount();
-  el.querySelectorAll('[data-stat]').forEach((b) => { b.onclick = () => spendPoint(b.dataset.stat); });
+  el.querySelectorAll('[data-stat]').forEach((b) => { b.onclick = () => spendPoint(b.dataset.stat, +b.dataset.n || 1); });
     el.querySelectorAll('[data-perkpick]').forEach((b) => { b.onclick = () => openPerkPick(); });
   $('cardclose').onclick = closeSheet;
 }
@@ -10750,7 +10775,7 @@ function heroStatsHtml() {
   const free = freePoints();
   const effect = statEffect();
   return `<h4 class="sub">Stats ${free > 0 ? `<small><b>${free} point${free > 1 ? 's' : ''} to spend</b></small>` : ''}</h4>
-      <div class="stats">${Object.entries(STATS).map(([k, [nm, ic]]) => `<div class="stat"><img src="${ICONS[ic]}" alt=""><span class="nm">${nm}</span><span class="lv">${stat(k)}</span><small>${effect[k]}</small>${free > 0 ? `<button class="plus" data-stat="${k}" aria-label="Add a point to ${nm}">+</button>` : ''}</div>`).join('')}</div>
+      <div class="stats">${Object.entries(STATS).map(([k, [nm, ic]]) => `<div class="stat"><img src="${ICONS[ic]}" alt=""><span class="nm">${nm}</span><span class="lv">${stat(k)}</span><small>${effect[k]}</small>${free > 0 ? plusBtns(k, nm, free) : ''}</div>`).join('')}</div>
       <p class="hint">You get ${FREE_PER_LEVEL} more points each level. Master Orrin in Jerry Village resets them for coins.</p>
       ${perksHtml()}
       <h4 class="sub">Weapon mastery</h4><div class="stats">${Object.entries(MASTERY).map(([t, nm]) => { const l = masteryLv(t), k = (S.mastery || {})[t] || 0, next = l < 10 ? 8 * (l + 1) ** 2 : 0; return `<div class="stat"><img src="${mIcon(t)}" alt=""><span class="nm">${nm}</span><span class="lv">${l}</span><small>${l ? `+${(l * 1.5).toFixed(1).replace(/\.0$/, '')}% damage · ` : ''}${next ? `${fmt(k)} / ${fmt(next)} monsters` : 'Mastered!'}</small></div>`; }).join('')}</div>
