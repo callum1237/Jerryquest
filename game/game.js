@@ -133,8 +133,8 @@ const WEAPONS = {
   my_root: { type: 'magic', name: 'Worldroot Staff', dmg: 80, reach: 19, cd: 0.95, price: 0, unique: true, mythic: true, model: 'staff', tint: '#7affc8' },
   my_dawn: { type: 'ranged', name: 'Dawnbreaker', dmg: 46, reach: 20, cd: 0.55, price: 0, unique: true, mythic: true, model: 'crossbow_2handed', tint: '#fff6d0' },
   // the Dark Blade: sold by the Chapter 1 smith for 250,000 gold (Callum, Nov 24). The best and fastest sword in the game,
-  // extra long, with a wide reach and a clean violet slash beam.
-  my_dark: { type: 'melee', name: 'Dark Blade', dmg: 100, reach: 4.6, cd: 0.5, price: 250000, mythic: true, model: 'sword_2handed_color', tint: '#4a2a78', glow: '#a64dff', big: 1.3, beam: 'dark', custom: 'darkblade' },
+  // extra long, near-black with a thin dark red outline, and a clean black-and-red slash beam.
+  my_dark: { type: 'melee', name: 'Dark Blade', dmg: 100, reach: 4.6, cd: 0.5, price: 250000, mythic: true, model: 'sword_2handed_color', tint: '#2a2830', glow: '#8e1020', big: 1.3, beam: 'dark', custom: 'darkblade' },
   a_rattle: { type: 'ranged', name: "Rattlebones' Repeater", dmg: 12, reach: 14, cd: 0.55, price: 0, unique: true, model: 'crossbow_2handed', tint: '#9effa8' },
 };
 // Shields and armour add Defense on top of your Defense points.
@@ -166,7 +166,7 @@ const GEAR = { ...WEAPONS, ...ARMOUR };
 const RARITY = [
   { id: 'common', name: 'Common', col: '#a89c88', sell: 1 }, { id: 'fine', name: 'Uncommon', col: '#4cb35a', sell: 1.3 },
   { id: 'rare', name: 'Rare', col: '#3a86e0', sell: 1.8 }, { id: 'epic', name: 'Epic', col: '#a04ae0', sell: 2.6 },
-  { id: 'legendary', name: 'Legendary', col: '#ff9a1a', sell: 4 }, { id: 'mythic', name: 'Mythic', col: '#ff3a7a', sell: 8 },
+  { id: 'legendary', name: 'Legendary', col: '#ff9a1a', sell: 4 }, { id: 'mythic', name: 'Mythic', col: '#8e1020', sell: 8 },
 ];
 const RAR_IX = Object.fromEntries(RARITY.map((r, i) => [r.id, i]));
 function gearRarIx(g) {
@@ -2345,8 +2345,8 @@ function stretchBlade(m) {
   for (const k of ['x', 'y', 'z']) m.scale[k] *= k === ax ? 1.28 : 1.08;
 }
 // ---------- the Dark Blade's own model ----------
-// Built here rather than tinting a stock sword: a long jagged obsidian blade with a hooked spur, a glowing violet
-// core and runes that pulse up the blade, swept-back guard wings around a violet eye gem, a wrapped grip and a gem pommel.
+// Built here rather than tinting a stock sword: a long jagged obsidian blade with a hooked spur, a dark core
+// and dark red runes that pulse up the blade, swept-back guard wings around a red eye gem, a wrapped grip and a gem pommel.
 // Built along +Y from the pommel (0) to the tip (L).
 function darkBladeModel(L) {
   const g = new THREE.Group(), fx = [];
@@ -2361,30 +2361,30 @@ function darkBladeModel(L) {
   sh.lineTo(w * 1.55, b0 + 0.2 * L); sh.lineTo(w * 0.85, b0 + 0.21 * L); sh.lineTo(w * 0.95, b0 + 0.06 * L); sh.lineTo(w * 0.8, b0);
   const bg = new THREE.ExtrudeGeometry(sh, { depth: th, bevelEnabled: true, bevelThickness: th * 0.9, bevelSize: w * 0.22, bevelSegments: 1, curveSegments: 1 });
   bg.translate(0, 0, -th / 2);
-  mesh(bg, metal('#2e1a4a'));
-  // a violet edge glow: a slightly bigger copy of the blade's outline sitting inside it, so only its rim shows
+  mesh(bg, metal('#26242a'));
+  // a thin dark red outline: a slightly bigger copy of the blade's outline sitting inside it, so only its rim shows
   const eg = new THREE.ShapeGeometry(sh); eg.translate(0, -(b0 + 0.5 * (L - b0)), 0); eg.scale(1.32, 1.03, 1); eg.translate(0, b0 + 0.5 * (L - b0), 0);
-  const edge = mesh(eg, glowMat('#a64dff', 0.7, true), true); fx.push({ m: edge, base: 0.45, amp: 0.35, sp: 2.2, ph: 0.5 });
+  const edge = mesh(eg, glowMat('#7a0c18', 0.9), true); edge.renderOrder = -1; fx.push({ m: edge, base: 0.75, amp: 0.2, sp: 2.2, ph: 0.5 });
   // the glowing core down the middle of the blade, on both faces
   const core = new THREE.Shape(); core.moveTo(-w * 0.26, b0 + 0.03 * L); core.lineTo(0, b0 + 0.72 * L); core.lineTo(w * 0.26, b0 + 0.03 * L);
   const cg = new THREE.ShapeGeometry(core);
-  for (const z of [th * 1.45, -th * 1.45]) { const c = mesh(cg, glowMat('#c48bff', 0.9), true); c.position.z = z; fx.push({ m: c, base: 0.75, amp: 0.25, sp: 2.2, ph: 0 }); }
+  for (const z of [th * 1.45, -th * 1.45]) { const c = mesh(cg, glowMat('#3a3640', 0.9), true); c.position.z = z; fx.push({ m: c, base: 0.85, amp: 0.1, sp: 2.2, ph: 0 }); }
   // runes: small diamonds that light up one after another, climbing the blade
   const rg = new THREE.PlaneGeometry(w * 0.34, w * 0.34); rg.rotateZ(Math.PI / 4);
-  for (let i = 0; i < 6; i++) for (const z of [th * 1.6, -th * 1.6]) { const r = mesh(rg, glowMat('#f2dcff', 0.8), true); r.position.set(0, b0 + (0.08 + i * 0.1) * L, z); fx.push({ m: r, base: 0.15, amp: 0.85, sp: 3, ph: -i * 0.9, rune: true }); }
-  // guard: a heavy centre block with two swept-back wings and a violet eye gem
-  const gd = mesh(new THREE.BoxGeometry(w * 2.4, 0.035 * L, th * 4.5), metal('#1a0d28')); gd.position.y = b0 - 0.012 * L;
+  for (let i = 0; i < 6; i++) for (const z of [th * 1.6, -th * 1.6]) { const r = mesh(rg, glowMat('#b01828', 0.8), true); r.position.set(0, b0 + (0.08 + i * 0.1) * L, z); fx.push({ m: r, base: 0.15, amp: 0.85, sp: 3, ph: -i * 0.9, rune: true }); }
+  // guard: a heavy centre block with two swept-back wings and a dark red eye gem
+  const gd = mesh(new THREE.BoxGeometry(w * 2.4, 0.035 * L, th * 4.5), metal('#151418')); gd.position.y = b0 - 0.012 * L;
   for (const sd of [-1, 1]) {
-    const wg = new THREE.ConeGeometry(w * 0.32, w * 2.6, 4); const m = mesh(wg, metal('#2e1846'));
+    const wg = new THREE.ConeGeometry(w * 0.32, w * 2.6, 4); const m = mesh(wg, metal('#2c2a30'));
     m.position.set(sd * w * 2.1, b0 + 0.02 * L, 0); m.rotation.z = -sd * 1.05;
-    const tip = mesh(new THREE.OctahedronGeometry(w * 0.2), glowMat('#c78cff', 0.9), true); tip.position.set(sd * w * 3.05, b0 + 0.07 * L, 0); fx.push({ m: tip, base: 0.6, amp: 0.4, sp: 2.2, ph: sd });
+    const tip = mesh(new THREE.OctahedronGeometry(w * 0.2), glowMat('#a0141f', 0.95), true); tip.position.set(sd * w * 3.05, b0 + 0.07 * L, 0); fx.push({ m: tip, base: 0.6, amp: 0.4, sp: 2.2, ph: sd });
   }
-  const eye = mesh(new THREE.OctahedronGeometry(w * 0.42), glowMat('#d9a6ff', 1), true); eye.position.y = b0 - 0.01 * L; eye.scale.z = 1.5; fx.push({ m: eye, base: 0.75, amp: 0.25, sp: 3.4, ph: 0, spin: true });
+  const eye = mesh(new THREE.OctahedronGeometry(w * 0.42), glowMat('#c01c2c', 1), true); eye.position.y = b0 - 0.01 * L; eye.scale.z = 1.5; fx.push({ m: eye, base: 0.75, amp: 0.25, sp: 3.4, ph: 0, spin: true });
   // grip with wrap rings, and a gem pommel
-  const grip = mesh(new THREE.CylinderGeometry(w * 0.36, w * 0.42, 0.19 * L, 8), metal('#140a1e')); grip.position.y = 0.135 * L;
-  for (let i = 0; i < 4; i++) { const ring = mesh(new THREE.TorusGeometry(w * 0.42, w * 0.08, 4, 10), metal('#4a2a78')); ring.rotation.x = Math.PI / 2; ring.position.y = (0.06 + i * 0.05) * L; }
-  const cap = mesh(new THREE.CylinderGeometry(w * 0.55, w * 0.4, 0.025 * L, 8), metal('#2e1846')); cap.position.y = 0.035 * L;
-  const pom = mesh(new THREE.OctahedronGeometry(w * 0.5), glowMat('#b56cff', 0.95), true); pom.position.y = 0.005 * L; pom.scale.y = 1.4; fx.push({ m: pom, base: 0.7, amp: 0.3, sp: 2.2, ph: 1 });
+  const grip = mesh(new THREE.CylinderGeometry(w * 0.36, w * 0.42, 0.19 * L, 8), metal('#111013')); grip.position.y = 0.135 * L;
+  for (let i = 0; i < 4; i++) { const ring = mesh(new THREE.TorusGeometry(w * 0.42, w * 0.08, 4, 10), metal('#4a0e16')); ring.rotation.x = Math.PI / 2; ring.position.y = (0.06 + i * 0.05) * L; }
+  const cap = mesh(new THREE.CylinderGeometry(w * 0.55, w * 0.4, 0.025 * L, 8), metal('#2c2a30')); cap.position.y = 0.035 * L;
+  const pom = mesh(new THREE.OctahedronGeometry(w * 0.5), glowMat('#a0141f', 0.95), true); pom.position.y = 0.005 * L; pom.scale.y = 1.4; fx.push({ m: pom, base: 0.7, amp: 0.3, sp: 2.2, ph: 1 });
   // the light breathes and the runes climb; driven from the render itself, so it needs no game tick
   {
     const drive = fx[0].m;
@@ -3281,7 +3281,7 @@ function rollLoot(e) {
     // mythic: about one in a hundred Chapter 4 boss kills, one in two hundred world bosses
     const myth = Object.keys(WEAPONS).filter((k) => WEAPONS[k].mythic && !WEAPONS[k].price && !S.owned.includes(k)); // shop mythics (Dark Blade) never drop
     const mChance = e.T.world ? 0.005 : e.inside === 'sands' ? 0.01 : 0;
-    if (myth.length && rng() < mChance) { const mk = myth[Math.floor(rng() * myth.length)]; S.owned.push(mk); popLoot(at, 'chest', 0.8); toast(`MYTHIC DROP!!! ${WEAPONS[mk].name}! Almost nobody has one of these.`, gearIcon(WEAPONS[mk]), true); burst(at.clone().setY(2), '#ff3a7a', 80, 9, 1.8); if (net.on) sendChat(`I just found a MYTHIC ${WEAPONS[mk].name}!`); }
+    if (myth.length && rng() < mChance) { const mk = myth[Math.floor(rng() * myth.length)]; S.owned.push(mk); popLoot(at, 'chest', 0.8); toast(`MYTHIC DROP!!! ${WEAPONS[mk].name}! Almost nobody has one of these.`, gearIcon(WEAPONS[mk]), true); burst(at.clone().setY(2), '#b0182a', 80, 9, 1.8); if (net.on) sendChat(`I just found a MYTHIC ${WEAPONS[mk].name}!`); }
     cosDrop(e, at, true);
     const wk = BOSS_WEAPON[e.type];
     if (wk && !S.owned.includes(wk) && rng() < 0.35) { S.owned.push(wk); popLoot(at, 'chest', 0.6); toast(`${gearRarity(WEAPONS[wk])[1].toUpperCase()} DROP: ${WEAPONS[wk].name} (${gearStats(WEAPONS[wk])})! Equip it from your bag.`, ICONS[WEAPONS[wk].type], true); }
@@ -4620,10 +4620,10 @@ function chargedAttack(k) {
   later(0.08, () => {
     if (player.dead) return;
     // a golden shockwave fan in front of you shows how far the blow reached
-    const m = new THREE.Mesh(new THREE.CircleGeometry(1, 32, Math.PI / 2 - arc, arc * 2), new THREE.MeshBasicMaterial({ color: w.beam ? '#8a3aff' : '#ffd23f', transparent: true, opacity: 0.55, depthWrite: false, fog: false, side: THREE.DoubleSide }));
+    const m = new THREE.Mesh(new THREE.CircleGeometry(1, 32, Math.PI / 2 - arc, arc * 2), new THREE.MeshBasicMaterial({ color: w.beam ? '#5a0a12' : '#ffd23f', transparent: true, opacity: 0.55, depthWrite: false, fog: false, side: THREE.DoubleSide }));
     m.rotation.x = -Math.PI / 2; m.rotation.z = player.root.rotation.y + Math.PI; m.position.set(player.pos.x, 0.2, player.pos.z); m.layers.set(1); scene.add(m);
     fx.push({ m, t: 0, dur: 0.35, R: reach + 0.3 });
-    burst(player.pos.clone().setY(1.2).addScaledVector(fwd, reach * 0.6), w.beam ? '#c99aff' : '#ffd27a', 40, 8, 1.3);
+    burst(player.pos.clone().setY(1.2).addScaledVector(fwd, reach * 0.6), w.beam ? '#a01828' : '#ffd27a', 40, 8, 1.3);
     for (const e of enemies) if (e.hp > 0 && e.state !== 'rising' && e.state !== 'gone' && e.inside === where && inArc(e.pos.x, e.pos.z, 0.8, reach + 0.3, arc) >= 0) hurtEnemy(e, dmg(), null, 2.6);
     for (const c of crew) if (isRival(c) && crewUp(c) && c.inside === where && inArc(c.pos.x, c.pos.z, 0.7, reach + 0.3, arc) >= 0) hurtCrew(c, dmg(), player);
     if (net.on) hitPeers((x, z) => inArc(x, z, 0.7, reach + 0.3, arc) >= 0, dmg());
@@ -4833,8 +4833,8 @@ function shoot(from, dir, kind, range, owner, onHit, opt = {}) {
     // a crisp, thin sword-beam crescent: glowing edge, white-hot core and a few fading after-images behind it
     mesh = new THREE.Group();
     const mat = (col, op, add) => new THREE.MeshBasicMaterial({ color: col, transparent: true, opacity: op, depthWrite: false, fog: false, side: THREE.DoubleSide, blending: add ? THREE.AdditiveBlending : THREE.NormalBlending });
-    // the Dark Blade's beam is cleaner: a crisp violet edge round a white core, one soft shadow and no sparkle trail
-    const parts = opt.beam === 'dark' ? [[slashGeoA, '#9a3cff', 1, true, 0], [slashGeoA, '#2a0a4a', 0.55, false, -0.02, 0, 1.06], [slashGeoB, '#ffffff', 1, false, 0.01]]
+    // the Dark Blade's beam is cleaner: a black crescent with a thin dark red rim and no sparkle trail
+    const parts = opt.beam === 'dark' ? [[slashGeoA, '#9a1020', 0.95, false, -0.01, 0, 1.08], [slashGeoA, '#1c1a20', 1, false, 0], [slashGeoB, '#4a4650', 1, false, 0.01]]
       : [[slashGeoA, '#ffd86a', 0.95, true, 0], [slashGeoB, '#ffffff', 1, false, 0.01]];
     if (opt.beam !== 'dark') for (const [k, op] of [[1, 0.45], [2, 0.25], [3, 0.12]]) parts.push([slashGeoA, '#ffe9a8', op, true, -0.01 * k, -0.55 * k, 1 - 0.08 * k]);
     for (const [g, col, op, add, y, z = 0, sc = 1] of parts) { const m = new THREE.Mesh(g, mat(col, op, add)); m.position.set(0, y, z); m.scale.set(sc, 1, sc); m.userData.op = op; m.layers.set(1); m.renderOrder = 5; mesh.add(m); }
