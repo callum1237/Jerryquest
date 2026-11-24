@@ -3181,15 +3181,17 @@ addEventListener('pointerdown', () => { tipEl.hidden = true; });
 const HOT_N = 8;
 function hotbar() { if (!Array.isArray(S.hotbar) || S.hotbar.length !== HOT_N) S.hotbar = [...(S.hotbar || []), ...Array(HOT_N).fill(null)].slice(0, HOT_N); return S.hotbar; }
 let hotPick = -1; // a slot the player tapped to fill next
+const hotName = (k) => (k.startsWith('spell:') ? (SPELLS[k.slice(6)] || {}).name || 'Spell' : ITEMS[k] || (GEAR[k] && GEAR[k].name) || k);
+const hotIcon = (k) => (k.startsWith('spell:') ? spellIcon(k.slice(6)) : ICONS[k] || (GEAR[k] && gearIcon(GEAR[k])) || ICONS.star);
 function pinToHotbar(k) {
   const hb = hotbar(), at = hb.indexOf(k);
-  if (at >= 0 && hotPick < 0) { hb[at] = null; toast(`Took ${ITEMS[k] || GEAR[k].name} off the hotbar.`); }
+  if (at >= 0 && hotPick < 0) { hb[at] = null; toast(`Took ${hotName(k)} off the hotbar.`); }
   else {
     if (at >= 0) hb[at] = null;
     let i = hotPick >= 0 ? hotPick : hb.indexOf(null);
     if (i < 0) i = HOT_N - 1;
     hb[i] = k; hotPick = -1;
-    toast(`${ITEMS[k] || GEAR[k].name} is on hotbar slot ${i + 1}.`, ICONS[k] || gearIcon(GEAR[k]));
+    toast(`${hotName(k)} is on hotbar slot ${i + 1}.`, hotIcon(k));
   }
   save(); renderHotbar();
 }
@@ -3404,7 +3406,7 @@ function buildNpcs() {
     { id: 'marta', name: 'Marta the Baker', model: 'barbarian', x: 7.5 * VS, z: 10.2 * VS, hide: [], shop: 'food', tint: '#bfe3ff' },
     { id: 'pip', name: 'Pip of the Request Board', model: 'archer', x: -9.5 * VS, z: 11.5 * VS, hide: [], board: true, tint: '#ffd8a0' },
     { id: 'brom', name: 'Brom the Blacksmith', model: 'barbarian', x: 5.5 * VS, z: -19.8 * VS, hide: [], shop: 'melee', tint: '#ffb38a' },
-    { id: 'wisteria', name: 'Madame Wisteria', model: 'mage', x: 18.4 * VS, z: -21.6 * VS, hide: [], shop: 'magic', tint: '#f0b0ff' },
+    { id: 'wisteria', name: 'Madame Wisteria, spell seller', model: 'mage', x: 18.4 * VS, z: -21.6 * VS, hide: [], shop: 'magic', tint: '#f0b0ff' },
     { id: 'hazel', name: 'Hazel the Fletcher', model: 'heroine', x: -22 * VS, z: 10.5 * VS, hide: [], shop: 'ranged', tint: '#d8f0a0' },
     { id: 'king', name: 'King Jerrold', model: 'knight', x: INTERIORS.castle.king.x, z: INTERIORS.castle.king.z, hide: ['Knight_Helmet'], king: true, tint: '#b98cff', inside: 'castle' },
     ...INTERIORS.castle.guards.map(([x, z], i) => ({ id: `guard${i}`, name: 'Royal Guard', model: 'knight', x, z, hide: [], inside: 'castle', tint: '#8fb8ff',
@@ -5042,7 +5044,7 @@ function openShop(npc) {
 }
 function openWeaponShop(npc) {
   const type = npc.shop;
-  const lines = { melee: 'Finest steel this side of the mountains! A longer blade swings wider, a lighter one swings faster.', magic: 'Wands, staves and spell books, darling, humming with power.', ranged: 'Crossbows I made myself. Shoot from a safe distance. Lighter ones shoot faster.', frost: 'Frostsilver, forged cold and sharp! And a few spells from the north.', marsh: 'Bogwood and Mireiron! Everything I make drips with marsh poison. And one VERY wet spell.', sands: 'Sunsteel, hot from the forge! Gadgets, and the darkest spell I have ever sold.' };
+  const lines = { melee: 'Finest steel this side of the mountains! A longer blade swings wider, a lighter one swings faster.', magic: 'Spells, darling! Zap, Heal and Scorch, the basics every hero needs. Learn one and it goes straight onto your hotbar. Wands and staves too.', ranged: 'Crossbows I made myself. Shoot from a safe distance. Lighter ones shoot faster.', frost: 'Frostsilver, forged cold and sharp! And a few spells from the north.', marsh: 'Bogwood and Mireiron! Everything I make drips with marsh poison. And one VERY wet spell.', sands: 'Sunsteel, hot from the forge! Gadgets, and the darkest spell I have ever sold.' };
   const sells = (g) => (type === 'frost' ? g.tier === 2 : type === 'marsh' ? g.tier === 3 && (!g.path || g.path === S.path) : type === 'sands' ? g.tier === 4 && (!g.path || g.path === S.path) : !g.tier && (g.slot === 'weapon' ? g.type === type : type === 'melee'));
   const buy = { id: 'buy', label: 'Buy', icon: type === 'magic' || type === 'ranged' ? type : 'melee', say: lines[type],
     goods: () => Object.entries(GEAR).filter(([, g]) => !g.unique && g.price > 0 && sells(g)).map(([k, g]) => {
@@ -5055,7 +5057,8 @@ function openWeaponShop(npc) {
           S.equip[g.slot] = k; cancelTask(); equipGear(); burst(player.pos.clone().setY(1.6), '#ffe07a', 24, 4); buildGearBar(); updateTitle(); shopRefresh(); } }] };
     }) };
   const tabs = [buy];
-  const sp = spellTab(type); if (sp) tabs.push(sp);
+  // v79: the village magic shop is the spell seller, so her spell books come first
+  const sp = spellTab(type); if (sp) { if (type === 'magic') tabs.unshift(sp); else tabs.push(sp); }
   tabs.push(sellTab(npc));
   if (type !== 'magic' && type !== 'ranged') tabs.push({ id: 'up', label: 'Upgrade', icon: 'hammer', go: () => openUpgrade(npc) });
   openShopScreen(npc, { greet: lines[type], tabs });
@@ -7708,7 +7711,7 @@ function enemyTick(e, dt) {
 }
 
 // Big hanging signs beside every shopkeeper and smith, easy to read from above (v67.3)
-const SIGN_FOR = { food: ['SHOP', '$', '#ffd23f'], melee: ['BLACKSMITH', '⚒', '#ff9a5a'], frost: ['BLACKSMITH', '⚒', '#9fdcff'], marsh: ['BLACKSMITH', '⚒', '#a8e07a'], sands: ['BLACKSMITH', '⚒', '#ffcf7a'], magic: ['MAGIC SHOP', '✦', '#e0a8ff'], ranged: ['BOWS', '🏹', '#c8f08a'] };
+const SIGN_FOR = { food: ['SHOP', '$', '#ffd23f'], melee: ['BLACKSMITH', '⚒', '#ff9a5a'], frost: ['BLACKSMITH', '⚒', '#9fdcff'], marsh: ['BLACKSMITH', '⚒', '#a8e07a'], sands: ['BLACKSMITH', '⚒', '#ffcf7a'], magic: ['SPELLS', '✦', '#e0a8ff'], ranged: ['BOWS', '🏹', '#c8f08a'] };
 function shopBoard(d) {
   const [label, icon, col] = SIGN_FOR[d.shop] || SIGN_FOR.food;
   if (dynamic.shop && Math.hypot(dynamic.shop.x - d.x, dynamic.shop.z - d.z) < 12) return; // the village shop already has one
@@ -10150,7 +10153,7 @@ function rankFlourish(x, z, ringFn) {
 const itemRarIx = (k) => { const v = SELL[k] || 0; return v >= 5000 ? 5 : v >= 800 ? 4 : v >= 250 ? 3 : v >= 40 ? 2 : v >= 10 ? 1 : 0; };
 const itemRarity = (k) => { const r = RARITY[itemRarIx(k)]; return [r.id, r.name]; };
 const gearRarity = (g) => { const r = RARITY[gearRarIx(g)]; return [r.id, r.name]; };
-let bagTab = 'gear', dollSlot = 'weapon', bagPick = null;
+let bagTab = 'gear', dollSlot = 'weapon', bagPick = null, dollJustPicked = false;
 // ---------- live preview: your actual hero, drawn in the loadout window, wearing what you pick ----------
 const prev = { cv: null, r: null, scene: null, cam: null, yaw: 0.5, drag: null, at: 0 };
 function previewMount() {
@@ -10220,12 +10223,46 @@ function bagKeys() {
   S.bagOrder = order;
   return order;
 }
+// v79: what kind of thing each bag item is, for the filter chips
+const bagCat = (k) => (GEAR[k] ? 'gear' : FOOD[k] ? 'food' : (SELL[k] || 0) >= 50 ? 'treasure' : 'mat');
+const BAG_CATS = { all: 'All', gear: 'Gear', food: 'Food', mat: 'Materials', treasure: 'Treasures', spells: 'Spells' };
+const BAG_SORTS = { kind: 'Type', rar: 'Rarity', name: 'Name', value: 'Value', count: 'Amount' };
+let bagCatOn = 'all';
 function bagSort(how) {
   const keys = bagKeys(), rar = (k) => (GEAR[k] ? gearRarIx(GEAR[k]) : itemRarIx(k));
-  const kind = (k) => (GEAR[k] ? 0 : FOOD[k] ? 1 : SELL[k] && SELL[k] >= 50 ? 2 : 3);
+  const kind = (k) => ({ gear: 0, food: 1, treasure: 2, mat: 3 })[bagCat(k)];
   const name = (k) => (GEAR[k] ? GEAR[k].name : ITEMS[k] || k);
-  keys.sort(how === 'rar' ? (a, b) => rar(b) - rar(a) || kind(a) - kind(b) || name(a).localeCompare(name(b)) : (a, b) => kind(a) - kind(b) || rar(b) - rar(a) || name(a).localeCompare(name(b)));
-  S.bagOrder = keys; save();
+  const val = (k) => (GEAR[k] ? gearValue(GEAR[k]) : (SELL[k] || 0) * (S.inv[k] || 0)), cnt = (k) => (GEAR[k] ? 1 : S.inv[k] || 0);
+  const by = { rar: (a, b) => rar(b) - rar(a) || kind(a) - kind(b), name: (a, b) => name(a).localeCompare(name(b)), value: (a, b) => val(b) - val(a), count: (a, b) => cnt(b) - cnt(a), kind: (a, b) => kind(a) - kind(b) || rar(b) - rar(a) }[how] || ((a, b) => kind(a) - kind(b));
+  keys.sort((a, b) => by(a, b) || name(a).localeCompare(name(b)));
+  S.bagOrder = keys; S.bagSortBy = how; save();
+}
+// v79: tidy the hotbar: weapons first, then spells, then food, then anything else, with no gaps
+function hotSort() {
+  const hb = hotbar(), rank = (k) => (!k ? 9 : k.startsWith('spell:') ? 1 : GEAR[k] ? 0 : FOOD[k] ? 2 : 3);
+  const got = hb.filter(Boolean).sort((a, b) => rank(a) - rank(b));
+  for (let i = 0; i < HOT_N; i++) hb[i] = got[i] || null;
+  save(); renderHotbar();
+}
+function hotFill() {
+  const hb = hotbar(), add = (k) => { if (!k || hb.includes(k)) return; const at = hb.indexOf(null); if (at >= 0) hb[at] = k; };
+  add(S.equip.weapon); S.owned.filter((k) => GEAR[k] && GEAR[k].slot === 'weapon').sort((a, b) => GEAR[b].dmg - GEAR[a].dmg).slice(0, 2).forEach(add);
+  Object.keys(spellsOwned()).filter((k) => SPELLS[k] && !SPELLS[k].admin).forEach((k) => add(`spell:${k}`));
+  Object.keys(FOOD).filter((k) => S.inv[k]).sort((a, b) => FOOD[b].heal - FOOD[a].heal).slice(0, 2).forEach(add);
+  hotSort();
+}
+// the hotbar, drawn inside the inventory so you can arrange it there (drag, or pick an item then tap a slot)
+function sheetHotbar() {
+  const hb = hotbar(), kb = binds();
+  const cells = hb.map((k, i) => {
+    const key = keyLabel(kb[`hot${i + 1}`][0] || kb[`hot${i + 1}`][1]);
+    if (k && k.startsWith('spell:')) { const sp = SPELLS[k.slice(6)]; if (sp) return `<button class="shot spell" data-hot="${i}" data-drag="${k}" data-hclear="${i}" style="--sc:${sp.col}" title="${esc(sp.name)}: drag to move, tap to take off"><img src="${spellIcon(k.slice(6))}" alt=""><kbd>${key}</kbd><small>${esc(sp.name)}</small></button>`; }
+    const g = k && GEAR[k], it = k && !g && ITEMS[k];
+    if (!g && !it) return `<button class="shot empty" data-hot="${i}" data-hset="${i}" title="${bagPick ? 'Tap to put it here' : 'Empty: drag something here'}"><kbd>${key}</kbd><small>${bagPick ? 'Put here' : 'Empty'}</small></button>`;
+    const [rc] = g ? gearRarity(g) : itemRarity(k);
+    return `<button class="shot ${rc}" data-hot="${i}" data-drag="${k}" data-hclear="${i}" title="${esc(g ? g.name : it)}: drag to move, tap to take off"><img src="${g ? gearIcon(g) : ICONS[k]}" alt=""><kbd>${key}</kbd>${g ? '' : `<span>${S.inv[k] || 0}</span>`}<small>${esc(g ? g.name : it)}</small></button>`;
+  }).join('');
+  return `<div class="sheethot"><div class="shhead"><b>Hotbar</b><small>Drag things here, or pick one in your bag and tap a slot. Tap a slot to empty it.</small><button data-hsort>Sort</button><button data-hfill>Auto-fill</button><button data-hclearall>Clear</button></div><div class="shrow">${cells}</div></div>`;
 }
 // Pointer-based dragging, so it works with a mouse and on touch screens (hold, then drag).
 let drag = null;
@@ -10260,7 +10297,7 @@ function dragEnd(e) {
   d.ghost.remove(); d.src.classList.remove('dragging'); document.body.classList.remove('dragging-item');
   document.querySelectorAll('.dropover').forEach((x) => x.classList.remove('dropover'));
   dragJustEnded = performance.now();
-  const over = document.elementFromPoint(e.clientX, e.clientY), hot = over && over.closest('#hotbar [data-hot]'), bag = over && over.closest('[data-bagdrop]');
+  const over = document.elementFromPoint(e.clientX, e.clientY), hot = over && over.closest('#hotbar [data-hot], .sheethot [data-hot]'), bag = over && over.closest('[data-bagdrop]');
   const hb = hotbar();
   if (hot) {
     const to = +hot.dataset.hot;
@@ -10270,7 +10307,7 @@ function dragEnd(e) {
   } else if (bag && d.from < 0) {
     const keys = bagKeys(), a = keys.indexOf(d.k), b = +bag.dataset.bagdrop;
     if (a >= 0) { if (b < keys.length) [keys[a], keys[b]] = [keys[b], keys[a]]; else { keys.splice(a, 1); keys.push(d.k); } S.bagOrder = keys; }
-  } else if (d.from >= 0 && !(over && over.closest('#hotbar'))) {
+  } else if (d.from >= 0 && !(over && over.closest('#hotbar, .sheethot'))) {
     hb[d.from] = null; // dragged off the bar: clear the slot
   }
   save(); renderHotbar(); if (sheetMode === 'bag') renderSheet();
@@ -10284,7 +10321,7 @@ addEventListener('pointercancel', (e) => { if (drag && drag.on) dragEnd(e); else
 addEventListener('click', (e) => { if (performance.now() - dragJustEnded < 250) { e.stopPropagation(); e.preventDefault(); } }, true);
 
 function renderBag(el) {
-  const tabs = { gear: 'Gear', items: 'Bag', style: 'Style' };
+  const tabs = { gear: 'Gear', items: 'Bag', style: 'Looks & titles' };
   let body = '';
   if (bagTab === 'gear') {
     const rk = rankOf(heroLvl()), R = RANKS[rk], t = heroTitle(), C = cosState(), w = W();
@@ -10296,17 +10333,33 @@ function renderBag(el) {
       <div class="dcol">${cslot('hat')}${cslot('outfit')}${cslot('cape')}${cslot('aura')}${cslot('pet')}</div></div>
       <div class="dstats"><div><img src="${ICONS[w.type]}" alt=""><span>Hit</span><b>${Math.round(w.dmg * dmgMult() * pathDmg())}</b></div><div><img src="${ICONS.shield}" alt=""><span>Defense</span><b>${totalDef()}</b></div><div><img src="${ICONS.heart}" alt=""><span>Health</span><b>${maxHp()}</b></div><div><img src="${ICONS.star}" alt=""><span>Renown</span><b>+${Math.round((renown() - 1) * 100)}%</b></div></div>
       ${(() => { const oc = COS.outfit[C.eq.outfit || '']; return oc && oc.helm ? `<button id="helmtog" class="helmtog" aria-pressed="${!S.look.helmOff}">${S.look.helmOff ? 'Show helmet' : 'Hide helmet'}</button>` : ''; })()}
-      ${outfitOn() ? '<p class="hint">Your outfit is a full look: armour and shield stats still count, they just stay hidden under it.</p>' : ''}
-      ${dollList()}`;
+      ${outfitOn() ? '<p class="hint">Your outfit is a full look: armour and shield stats still count, they just stay hidden under it.</p>' : ''}`;
+    // v79: the list for the slot you picked sits beside the hero (not hidden below), so pets and looks show at once
+    body = `<div class="gearsplit"><div class="gl">${body}</div><div class="gr" id="dlist">${dollList()}</div></div>`;
   } else if (bagTab === 'items') {
-    const keys = bagKeys(), slots = [];
-    for (let i = 0; i < Math.max(20, Math.ceil((keys.length + 1) / 5) * 5); i++) {
-      const k = keys[i];
-      if (!k) { slots.push(`<div class="slot empty" data-bagdrop="${i}"></div>`); continue; }
-      const g = GEAR[k], [rc, rn] = g ? gearRarity(g) : itemRarity(k), nm = g ? g.name : ITEMS[k], tipT = `${nm}${g && plusOf(k) ? ` +${plusOf(k)}` : ''} · ${rn}${g ? ` · ${gearStats(g)}` : ` · ${S.inv[k]} in your bag`}${!g && SELL[k] ? ` · sells for ${fmt(SELL[k])}` : ''}${FOOD[k] ? ` · heals ${FOOD[k].heal}` : ''}`;
-      slots.push(`<button class="slot ${rc}${bagPick === k ? ' on' : ''}${(S.hotbar || []).includes(k) ? ' pinned' : ''}" data-item="${k}" data-drag="${k}" data-bagdrop="${i}" title="${esc(tipT)}"><img src="${g ? gearIcon(g) : ICONS[k]}" alt="${nm}">${g ? (plusOf(k) ? `<span>+${plusOf(k)}</span>` : '') : `<span>${S.inv[k]}</span>`}</button>`);
+    const keys = bagKeys(), slots = [], cat = bagCatOn;
+    const counts = { all: keys.length, spells: Object.keys(spellsOwned()).filter((k) => SPELLS[k] && !SPELLS[k].admin).length };
+    for (const k of keys) counts[bagCat(k)] = (counts[bagCat(k)] || 0) + 1;
+    if (cat === 'spells') {
+      for (const k of Object.keys(spellsOwned())) {
+        const sp = SPELLS[k]; if (!sp || sp.admin) continue; const hk = `spell:${k}`;
+        slots.push(`<button class="slot spellslot${bagPick === hk ? ' on' : ''}${(S.hotbar || []).includes(hk) ? ' pinned' : ''}" data-item="${hk}" data-drag="${hk}" style="--sc:${sp.col}" title="${esc(sp.name)}"><img src="${spellIcon(k)}" alt=""><small class="nm">${esc(sp.name)}</small></button>`);
+      }
+      if (!slots.length) slots.push('<p class="hint" style="grid-column:1/-1">No spells yet. Madame Wisteria, the spell seller in Jerry Village, sells the basic ones.</p>');
+    } else {
+      const shown = cat === 'all' ? keys : keys.filter((k) => bagCat(k) === cat);
+      for (const k of shown) {
+        const i = keys.indexOf(k), g = GEAR[k], [rc, rn] = g ? gearRarity(g) : itemRarity(k), nm = g ? g.name : ITEMS[k], tipT = `${nm}${g && plusOf(k) ? ` +${plusOf(k)}` : ''} · ${rn}${g ? ` · ${gearStats(g)}` : ` · ${S.inv[k]} in your bag`}${!g && SELL[k] ? ` · sells for ${fmt(SELL[k])}` : ''}${FOOD[k] ? ` · heals ${FOOD[k].heal}` : ''}`;
+        slots.push(`<button class="slot ${rc}${bagPick === k ? ' on' : ''}${(S.hotbar || []).includes(k) ? ' pinned' : ''}" data-item="${k}" data-drag="${k}" data-bagdrop="${i}" title="${esc(tipT)}"><img src="${g ? gearIcon(g) : ICONS[k]}" alt="">${g ? (plusOf(k) ? `<span>+${plusOf(k)}</span>` : '') : `<span>${fmt(S.inv[k])}</span>`}<small class="nm">${esc(nm)}${g && plusOf(k) ? ` +${plusOf(k)}` : ''}</small></button>`);
+      }
+      if (cat === 'all') for (let i = shown.length; i < Math.max(15, Math.ceil((shown.length + 1) / 5) * 5); i++) slots.push(`<div class="slot empty" data-bagdrop="${i}"></div>`);
+      if (!shown.length && cat !== 'all') slots.push(`<p class="hint" style="grid-column:1/-1">No ${BAG_CATS[cat].toLowerCase()} in your bag right now.</p>`);
     }
-    let info = '<p class="hint">Drag items to move them or onto the hotbar. Tap one to see its worth.</p>';
+    let info = '<p class="hint">Tap anything to see what it is, what it\'s worth and what you can do with it. Drag things to move them, or onto the hotbar below.</p>';
+    if (bagPick && bagPick.startsWith('spell:') && SPELLS[bagPick.slice(6)]) {
+      const sp = SPELLS[bagPick.slice(6)];
+      info = `<div class="iteminfo"><img src="${spellIcon(bagPick.slice(6))}" alt=""><div><b>${esc(sp.name)}</b><small>Spell · ${sp.cd}s cooldown</small></div><p class="idesc">${esc(sp.desc)}</p><div class="row"><button class="primary" data-pin="${bagPick}" aria-pressed="${(S.hotbar || []).includes(bagPick)}">${(S.hotbar || []).includes(bagPick) ? 'Take off hotbar' : 'Put on hotbar'}</button></div></div>`;
+    }
     if (bagPick && GEAR[bagPick] && S.owned.includes(bagPick)) {
       const k = bagPick, g = GEAR[k], [rc, rn] = gearRarity(g);
       info = `<div class="iteminfo ${rc}"><img src="${gearIcon(g)}" alt=""><div><b>${g.name}${plusOf(k) ? ` +${plusOf(k)}` : ''}</b><small><i class="rar">${rn}</i> · ${SLOT_NAMES[g.slot]} · spare, not equipped</small></div><div class="row"><button class="primary" data-equip="${k}">Equip</button><button data-pin="${k}" aria-pressed="${(S.hotbar || []).includes(k)}">Hotbar</button>${Object.values(STARTER).includes(k) || k === 'sh_badge' ? '' : delBtns(k, 1)}</div></div>`;
@@ -10314,7 +10367,9 @@ function renderBag(el) {
       const k = bagPick, [rc, rn] = itemRarity(k), f = FOOD[k];
       info = `<div class="iteminfo ${rc}"><img src="${ICONS[k]}" alt=""><div><b>${ITEMS[k]}</b><small><i class="rar">${rn}</i> · ${S.inv[k]} in your bag${SELL[k] ? ` · sells for ${fmt(SELL[k])} each` : ''}${f ? ` · heals ${f.heal}` : ''}</small></div><div class="row">${f ? `<button class="primary" data-eat="${k}">Eat</button>` : ''}<button data-pin="${k}" aria-pressed="${(S.hotbar || []).includes(k)}">Hotbar</button>${delBtns(k, S.inv[k])}</div></div>`;
     }
-    body = `<div class="bagbar"><span>${keys.length} things</span>${keys.length >= 8 ? '<button data-bagsort="kind">Sort by type</button><button data-bagsort="rar">Sort by rarity</button>' : ''}</div><div class="bag five">${slots.join('')}</div>${info}`;
+    const chips = Object.entries(BAG_CATS).map(([c, n]) => `<button class="bchip" data-bcat="${c}" aria-pressed="${cat === c}">${n} <i>${counts[c] || 0}</i></button>`).join('');
+    const sorts = cat === 'spells' ? '' : `<label class="bsort">Sort by <select data-bagsortsel>${Object.entries(BAG_SORTS).map(([k2, n]) => `<option value="${k2}"${(S.bagSortBy || 'kind') === k2 ? ' selected' : ''}>${n}</option>`).join('')}</select></label><button data-bagsort="${S.bagSortBy || 'kind'}">Sort now</button>`;
+    body = `<div class="bagsplit"><div class="bl"><div class="bchips">${chips}</div><div class="bagbar"><span>${keys.length} things in your bag</span>${sorts}</div><div class="bag big">${slots.join('')}</div></div><div class="br">${info}</div></div>`;
   } else {
     const C = cosState(), T = titleList(), cur = heroTitle();
     const total = Object.values(COS).reduce((a, s) => a + Object.keys(s).length, 0), have = Object.keys(C.got).length;
@@ -10322,10 +10377,10 @@ function renderBag(el) {
       <h4 class="sub">Looks <small>${have} of ${total} found</small></h4><div class="cosgrid">${Object.entries(COS_SLOTS).map(([sl, nm]) => { const c = C.eq[sl] && COS[sl][C.eq[sl]]; return `<button class="dslot cos ${c ? RARITY[c.r || 0].id : 'empty'}" data-dslot="cos:${sl}"><span class="swatch" style="--sw:${c ? c.col || c.body || '#e8a93a' : '#d8c8a8'}"></span><small>${nm}</small></button>`; }).join('')}</div>
       <p class="hint">Ranks: ${RANKS.map((r) => `<b style="color:${r.col}">${r.name}</b> (${r.min})`).join(' · ')}. Every rank gives +5% damage and health, a bigger aura and flashier charged attacks.</p>`;
   }
-  el.innerHTML = `<h3>Inventory <small>${fmt(S.coins)} coins${S.bank ? ` · ${fmt(S.bank)} banked` : ''}</small></h3><div class="bagtabs">${Object.entries(tabs).map(([k, n]) => `<button data-btab="${k}" aria-pressed="${bagTab === k}">${n}</button>`).join('')}</div>${body}`;
+  el.innerHTML = `<h3>Inventory <small>${fmt(S.coins)} coins${S.bank ? ` · ${fmt(S.bank)} banked` : ''}</small></h3><div class="bagtabs">${Object.entries(tabs).map(([k, n]) => `<button data-btab="${k}" aria-pressed="${bagTab === k}">${n}</button>`).join('')}</div><div class="bagbody">${body}</div>${sheetHotbar()}`;
   previewMount();
   el.querySelectorAll('[data-btab]').forEach((b) => { b.onclick = () => { bagTab = b.dataset.btab; renderSheet(); }; });
-  el.querySelectorAll('[data-dslot]').forEach((b) => { b.onclick = () => { dollSlot = b.dataset.dslot; bagTab = 'gear'; renderSheet(); }; });
+  el.querySelectorAll('[data-dslot]').forEach((b) => { b.onclick = () => { dollSlot = b.dataset.dslot; bagTab = 'gear'; dollJustPicked = true; renderSheet(); }; });
   el.querySelectorAll('[data-item]').forEach((b) => { b.onclick = () => { bagPick = bagPick === b.dataset.item ? null : b.dataset.item; renderSheet(); }; });
   el.querySelectorAll('[data-eat]').forEach((b) => { b.onclick = () => { eat(b.dataset.eat); renderSheet(); }; });
   el.querySelectorAll('[data-equip]').forEach((b) => { b.onclick = () => { const k = b.dataset.equip, g = GEAR[k]; if (!g || !S.owned.includes(k)) return; S.equip[g.slot] = k; bagPick = null; cancelTask(); equipGear(); buildGearBar(); updateTitle(); save(); renderSheet(); renderHotbar(); sfx('equip'); toast(`Equipped ${g.name}.`, gearIcon(g)); }; });
@@ -10338,6 +10393,15 @@ function renderBag(el) {
     renderSheet();
   }; });
   el.querySelectorAll('[data-bagsort]').forEach((b) => { b.onclick = () => { bagSort(b.dataset.bagsort); renderSheet(); }; });
+  el.querySelectorAll('[data-bagsortsel]').forEach((b) => { b.onchange = () => { bagSort(b.value); renderSheet(); }; });
+  el.querySelectorAll('[data-bcat]').forEach((b) => { b.onclick = () => { bagCatOn = b.dataset.bcat; bagPick = null; renderSheet(); }; });
+  el.querySelectorAll('[data-hset]').forEach((b) => { b.onclick = () => { if (!bagPick) return; const hb = hotbar(), i = +b.dataset.hset, was = hb.indexOf(bagPick); if (was >= 0) hb[was] = null; hb[i] = bagPick; sfx('equip'); save(); renderHotbar(); renderSheet(); }; });
+  el.querySelectorAll('[data-hclear]').forEach((b) => { b.onclick = () => { const hb = hotbar(), i = +b.dataset.hclear; if (bagPick && hb[i] !== bagPick) { const was = hb.indexOf(bagPick); if (was >= 0) hb[was] = null; hb[i] = bagPick; } else hb[i] = null; save(); renderHotbar(); renderSheet(); }; });
+  const hs = el.querySelector('[data-hsort]'); if (hs) hs.onclick = () => { hotSort(); renderSheet(); };
+  const hf = el.querySelector('[data-hfill]'); if (hf) hf.onclick = () => { hotFill(); renderSheet(); };
+  const hc = el.querySelector('[data-hclearall]'); if (hc) hc.onclick = () => { const hb = hotbar(); for (let i = 0; i < HOT_N; i++) hb[i] = null; save(); renderHotbar(); renderSheet(); };
+  // on a narrow screen the slot's list is below the hero: bring it into view when you pick a slot
+  if (dollJustPicked) { dollJustPicked = false; const dl = el.querySelector('#dlist'); if (dl && matchMedia('(max-width: 900px)').matches) dl.scrollIntoView({ block: 'start', behavior: 'smooth' }); }
   el.querySelectorAll('[data-pin]').forEach((b) => { b.onclick = () => { pinToHotbar(b.dataset.pin); renderSheet(); }; });
   el.querySelectorAll('[data-gear]').forEach((b) => { b.onclick = () => { const g = GEAR[b.dataset.gear]; S.equip[g.slot] = g.slot === 'gadget' && S.equip.gadget === b.dataset.gear ? null : b.dataset.gear; cancelTask(); equipGear(); buildGearBar(); updateTitle(); save(); renderSheet(); burst(player.pos.clone().setY(1.6), '#ffe07a', 20, 4); sfx('equip'); }; });
   el.querySelectorAll('[data-cos]').forEach((b) => { b.onclick = () => { const [sl, k] = b.dataset.cos.split(':'); const C = cosState(); const wasSkel = heroSkel(); C.eq[sl] = k && C.eq[sl] !== k ? k : null; if (sl === 'outfit' && wasSkel !== heroSkel()) { rebuildHero(); if (net.on) profileKey = ''; } else if (sl === 'cape' || sl === 'outfit') { applyLook(); if (sl === 'outfit') equipGear(); } heroFlair(); save(); renderSheet(); burst(player.pos.clone().setY(1.6), '#ffe07a', 24, 4); }; });

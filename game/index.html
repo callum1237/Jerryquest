@@ -868,6 +868,47 @@
 
   /* v36: inventory, paper doll, rarity, titles */
   body.sheet-bag #sheet { width: 400px; }
+  /* v79: a big, easy inventory. On a wide screen it fills the middle, with the chosen slot's list beside the hero,
+     the bag next to a details panel, and your hotbar along the bottom so you can arrange it right there. */
+  body.sheet-bag #hotbar, body.sheet-bag #chips, body.sheet-bag .herotag, body.sheet-bag .ebar, body.sheet-bag .lvtag { visibility: hidden; }
+  @media (min-width: 901px) {
+    body.sheet-bag #sheet { width: auto; max-width: none; left: max(16px, calc(50% - 560px)); right: max(16px, calc(50% - 560px)); top: calc(env(safe-area-inset-top, 0px) + 60px); bottom: calc(env(safe-area-inset-bottom, 0px) + 24px); max-height: none; display: flex; flex-direction: column; overflow: hidden; }
+    body.sheet-bag #sheet .bagbody { flex: 1; min-height: 0; overflow: auto; padding-right: 4px; }
+    .gearsplit { display: grid; grid-template-columns: minmax(360px, 440px) 1fr; gap: 16px; align-items: start; }
+    .gearsplit .gr { position: sticky; top: 0; }
+    .bagsplit { display: grid; grid-template-columns: 1fr 300px; gap: 16px; align-items: start; }
+    .bagsplit .br { position: sticky; top: 0; }
+    .doll .dprev { min-height: 260px; }
+  }
+  .gearsplit .gr .coslist, .gearsplit .gr .gearlist { max-height: none; }
+  .bchips { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
+  .bchip { padding: 5px 12px; font-size: 14px; border-radius: 999px; }
+  .bchip i { font-style: normal; font: 800 12px var(--display); color: var(--ink-soft); margin-left: 4px; }
+  .bchip[aria-pressed="true"] { background: linear-gradient(180deg, #ffe58a, var(--gold)); }
+  .bsort { display: flex; align-items: center; gap: 6px; font: 700 13px var(--display); }
+  .bsort select { font: 700 13px var(--body); padding: 3px 6px; border: 2px solid var(--ink); border-radius: 8px; background: #fbf3df; }
+  .bag.big { grid-template-columns: repeat(auto-fill, minmax(84px, 1fr)); gap: 8px; }
+  .bag.big .slot { aspect-ratio: auto; height: 96px; align-content: start; padding-top: 8px; gap: 2px; }
+  .bag.big .slot img { width: 46px; height: 46px; }
+  .bag.big .slot .nm { display: block; font: 700 11px/1.15 var(--body); text-align: center; padding: 0 4px; max-height: 26px; overflow: hidden; color: var(--ink); }
+  .bag.big .slot.spellslot { background: radial-gradient(circle at 50% 38%, color-mix(in srgb, var(--sc) 30%, #fbf3df) 30%, #f2e2bd); }
+  .iteminfo .idesc { grid-column: 1 / -1; margin: 2px 0; font-size: 13px; }
+  .sheethot { margin-top: 10px; padding: 8px 10px 10px; border: 2px solid var(--ink); border-radius: 14px; background: #efdcb2; }
+  .sheethot .shhead { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; flex-wrap: wrap; }
+  .sheethot .shhead b { font: 700 16px var(--display); }
+  .sheethot .shhead small { flex: 1; min-width: 160px; font-size: 12px; color: var(--ink-soft); font-weight: 700; }
+  .sheethot .shhead button { padding: 4px 10px; font-size: 13px; }
+  .sheethot .shrow { display: grid; grid-template-columns: repeat(8, minmax(0, 1fr)); gap: 6px; }
+  .shot { position: relative; height: 74px; padding: 6px 2px 2px; display: grid; justify-items: center; align-content: start; gap: 1px; border-radius: 12px; background: #f2e2bd; box-shadow: inset 0 0 0 2px var(--rc, transparent), 0 2px 0 var(--ink); touch-action: pan-y; cursor: grab; }
+  .shot img { width: 36px; height: 36px; -webkit-user-drag: none; }
+  .shot kbd { position: absolute; left: 4px; top: 2px; font: 800 11px var(--display); }
+  .shot span { position: absolute; right: 5px; top: 2px; font: 800 11px var(--display); }
+  .shot small { font: 700 10px/1.1 var(--body); max-width: 100%; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+  .shot.empty { background: rgb(242 226 189 / .5); border: 2px dashed var(--ink-soft); box-shadow: none; align-content: center; cursor: default; }
+  .shot.empty small { color: var(--ink-soft); }
+  .shot.spell { background: radial-gradient(circle at 50% 38%, color-mix(in srgb, var(--sc) 30%, #fbf3df) 30%, #f2e2bd); }
+  .shot.dropover, .slot.dropover { outline: 3px solid var(--gold); outline-offset: 1px; }
+  @media (max-width: 700px) { .sheethot .shrow { grid-template-columns: repeat(4, minmax(0, 1fr)); } .shot { height: 62px; } }
   .bagtabs { display: flex; gap: 6px; margin: -2px 0 10px; }
   .bagtabs button { flex: 1; padding: 5px 0; font-size: 14px; }
   .bagtabs button[aria-pressed="true"] { background: linear-gradient(180deg, #ffe58a, var(--gold)); }
