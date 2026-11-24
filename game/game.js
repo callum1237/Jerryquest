@@ -553,9 +553,14 @@ const W = () => {
 };
 const gearDef = () => ['shield', 'armour'].reduce((a, sl) => a + (ARMOUR[S.equip[sl]] ? upDef(S.equip[sl], plusOf(S.equip[sl])) : 0), 0);
 const totalDef = () => stat('def') + gearDef();
-const dmgMult = () => (1 + ATK_MULT * stat('atk')) * renown();
-const defDiv = () => (1 + DEF_DIV * totalDef()) * pathDef();
-const maxHp = () => Math.round((HP_BASE + HP_PER * stat('hp')) * pathHp() * renown());
+// v71: fighting near a party member gives +10% damage (and +10% XP from kills)
+let together = false;
+// v71: pets each give one small bonus (see COS.pet)
+let PETS = null;
+const petBonus = (k) => { const P = PETS && S.cos && S.cos.eq && PETS[S.cos.eq.pet]; return (P && P[k]) || 0; };
+const dmgMult = () => (1 + ATK_MULT * stat('atk')) * renown() * (together ? 1.1 : 1) * (1 + petBonus('dmg'));
+const defDiv = () => (1 + DEF_DIV * totalDef()) * pathDef() * (1 + petBonus('def'));
+const maxHp = () => Math.round((HP_BASE + HP_PER * stat('hp')) * pathHp() * renown() * (1 + petBonus('hp')));
 
 // ---------- see-through silhouettes ----------
 // When a tree or house hides the hero (or a boss), a soft glowing shape shows through it.
@@ -832,6 +837,7 @@ function makePeer(id, p) {
   setHeroScale(a, heroScale(look));
   if (cos.cape && COS.cape[cos.cape]) capeColour(a, COS.cape[cos.cape].col, COS.cape[cos.cape].glow);
   a.root.position.set(p.x || 0, 0, p.z || 0);
+  petSet(a, cos.pet || null);
   a.play('Idle');
   const tag = document.createElement('div'); tag.className = 'herotag peer'; tag.innerHTML = '<b title="Trade or invite"></b><s class="tagbar"><u></u></s>'; document.body.appendChild(tag);
   // click a friend's name to trade with them or invite them to your party
@@ -846,6 +852,7 @@ function dropPeer(id) {
   if (!pa) return;
   if (pa.a.flair) auraKit(pa.a, null);
   if (pa.a.wolf) wolfSet(pa.a, false);
+  petSet(pa.a, null);
   scene.remove(pa.a.root); pa.tag.remove(); peerActors.delete(id);
 }
 const ONE_SHOT = /Attack|Hit_|Death|Jump|Dodge|Use_Item|Interact|Cheer|Spellcast|Block/;
@@ -876,7 +883,7 @@ function peersTick(dt) {
     if (p.a && p.a !== pa.anim) { if (/Death/.test(p.a) && !/Death/.test(pa.anim || '')) deathFx(p.x, p.z); pa.anim = p.a; pa.a.play(p.a, { once: ONE_SHOT.test(p.a), clamp: /Death/.test(p.a) }); }
     shrinkEase(pa.a, !!p.sm, dt);
     wolfSet(pa.a, !!p.wf); wolfTick(pa.a, dt, pa.anim);
-    pa.a.mixer.update(dt); headPose(pa.a);
+    pa.a.mixer.update(dt); headPose(pa.a); petTick(pa.a, dt);
     flairTick(pa.a, dt, /Running|Walking/.test(pa.anim));
     if (pa.shimAt === undefined || now > pa.shimAt) { pa.shimAt = now + 0.1; shimmerTick(pa.a, p.look && p.look.cos); }
     const v = tmpV.set(p.x, pa.a.wolf ? 7.4 : 0.6 + 3.8 * (pa.a.shrinkK || 1), p.z).project(camera);
@@ -3502,9 +3509,12 @@ function spawnEnemy(k, x, z) {
   if (!T.boss && !T.town && !T.world && !T.dragon && e.T.lv && nidHash(e.nid) % 100 < 6) {
     const B = e.T; e.T = { ...B, elite: true, name: `Champion ${B.name.replace(/^Fierce /, '')}`, coins: B.coins ? B.coins.map((c) => c * 3) : [20, 60] };
     setLevel(e.T, B.lv + 3); e.T.hp = Math.round(e.T.hp * 1.5); e.T.xp *= 2;
+    // v71: every Champion has one trick of its own (the same one for every player)
+    const AF = CHAMP_AFFIX[Math.floor(nidHash(e.nid) / 100) % CHAMP_AFFIX.length];
+    e.T.affix = AF.k; e.T.affixName = AF.name; if (AF.k === 'swift') e.T.fast = 1.35;
   }
   e.root.position.set(x, 0, z); e.root.rotation.y = rng() * 6;
-  e.hp = T.hp; e.state = 'idle'; e.timer = rng() * 3; e.target = new THREE.Vector2(); e.nextHit = 0; e.swings = 0;
+  e.hp = e.T.hp; e.state = 'idle'; e.timer = rng() * 3; e.target = new THREE.Vector2(); e.nextHit = 0; e.swings = 0;
   e.play('Idle');
   if ((T.boss || T.tint) && !T.tintAll) e.root.traverse((o) => { if (o.isMesh && (T.town && !T.boss ? /Body/ : T.look ? (T.hide ? /Body|Arm|Leg|Cape/ : /Body/) : /Body|Head/).test(o.name)) tinted(o, T.tint || (k === 'boss_gloom' ? '#c8a8ff' : k === 'boss_crusher' ? '#ffd0a0' : '#c0ffc8')); });
   if (T.boss) addSilhouette(e.root, '#ff8a9a');
@@ -3513,6 +3523,7 @@ function spawnEnemy(k, x, z) {
     // a slowly turning golden ring at a Champion's feet, so you can spot one across a field
     const ring = new THREE.Mesh(new THREE.RingGeometry(0.75, 0.95, 32), new THREE.MeshBasicMaterial({ color: '#ffd23f', transparent: true, opacity: 0.7, depthWrite: false, fog: false, side: THREE.DoubleSide }));
     ring.rotation.x = -Math.PI / 2; ring.position.y = 0.06; ring.layers.set(1); e.root.add(ring);
+    affixFx(e);
   }
   if ((T.model || k).startsWith('skel')) skeletonize(e, T);
   if (T.flame) flameUp(e);
@@ -3899,7 +3910,7 @@ function floatText(p, text, cls = '') {
 const npcName = (id) => npcs.find((n) => n.id === id).name;
 // how a monster's level compares to yours: grey = easy, white = fair, orange = tough, red = deadly
 function lvClass(L) { const d = L - heroLvl(); return d <= -5 ? 'easy' : d <= 2 ? 'fair' : d <= 9 ? 'tough' : 'deadly'; }
-function lvTagSet(el, L, elite) { const c = lvClass(L); setText(el, elite ? `★ Champion · Lv ${L}` : `Lv ${L}`); if (!!elite !== !!el._e) { el._e = !!elite; el.classList.toggle('elite', !!elite); } if (el._c !== c) { if (el._c) el.classList.remove(el._c); el.classList.add(c); el._c = c; } }
+function lvTagSet(el, L, elite) { const c = lvClass(L); setText(el, elite ? `★ ${typeof elite === 'string' ? `${elite} ` : ''}Champion · Lv ${L}` : `Lv ${L}`); if (!!elite !== !!el._e) { el._e = !!elite; el.classList.toggle('elite', !!elite); } if (el._c !== c) { if (el._c) el.classList.remove(el._c); el.classList.add(c); el._c = c; } }
 function bossUi() {
   if (!player) return;
   const b = $('sheet').hidden ? enemies.find((e) => e.T.boss && e.inside === where && e.hp > 0 && (e.state === 'chase' || e.state === 'slam') && Math.hypot(e.pos.x - player.pos.x, e.pos.z - player.pos.z) < 32) : null;
@@ -5795,6 +5806,70 @@ function knockTick(e, dt) {
   if (gk !== e.flashLast || e.golden) { e.flashLast = gk; for (const m of e.flashMats) if (m.emissive) { m.emissive.setRGB(f + g * 0.75, f * 0.95 + g * 0.5, f * 0.85); } }
 }
 let poisonHit = false;
+// ---------- v71: Champion tricks, Rampage streaks and the party "Together" bonus ----------
+const CHAMP_AFFIX = [
+  { k: 'swift', name: 'Swift', how: 'Swift Champions run and strike much faster. Dodge, then punish.' },
+  { k: 'warded', name: 'Warded', how: 'Warded Champions hide in a bubble that soaks up hits. Break it with quick hits, and keep the pressure on before it grows back.' },
+  { k: 'thorned', name: 'Thorned', how: 'Thorned Champions prick you when you hit them up close. Fight them from range, or keep your health up.' },
+  { k: 'volatile', name: 'Volatile', how: 'Volatile Champions explode when they fall. Step out of the circle!' },
+  { k: 'mending', name: 'Mending', how: 'Mending Champions heal when you stop hitting them. Don\'t give them a breather.' },
+];
+const WARD_HITS = 4;
+function affixFx(e) {
+  if (e.T.affix === 'warded' && !e.bubble) {
+    // a soft blue bubble that soaks up the first few hits, then pops (and grows back if you back off)
+    const b = new THREE.Mesh(new THREE.SphereGeometry(1.25, 24, 16), new THREE.MeshBasicMaterial({ color: '#8fd0ff', transparent: true, opacity: 0.22, blending: THREE.AdditiveBlending, depthWrite: false, fog: false }));
+    b.position.y = 1.1; b.layers.set(1); e.root.add(b); e.bubble = b; e.ward = WARD_HITS;
+  }
+}
+function affixHit(e, dmg, head) {
+  const A = e.T.affix;
+  if (!(S.seenAffix || {})[A]) { S.seenAffix = { ...(S.seenAffix || {}), [A]: 1 }; const a = CHAMP_AFFIX.find((x) => x.k === A); if (a) toast(a.how, ICONS.star, true); }
+  if (A === 'warded' && e.ward > 0) {
+    e.ward--; e.wardAt = now; dmg = Math.max(1, Math.round(dmg * 0.2));
+    const b = e.bubble; if (b) { b.material.opacity = 0.6; tween(0.25, (k) => { b.material.opacity = 0.6 - k * 0.38; }); }
+    if (e.ward === 0) { if (b) b.visible = false; burst(e.pos.clone().setY(1.6), '#8fd0ff', 28, 5, 1.1); sfx('special'); floatText(head.clone().setY(head.y + 0.9), 'Ward broken!', 'crit'); }
+    else burst(e.pos.clone().setY(1.6), '#bfe6ff', 6, 2.5, 0.6);
+  }
+  if (A === 'thorned' && W().type === 'melee' && now > (e.thornAt || 0) && !player.dead) {
+    e.thornAt = now + 0.8; burst(player.pos.clone().setY(1.4), '#b8f06a', 8, 3, 0.6);
+    const raw = Math.max(1, Math.ceil((e.T.maxHit || 4) * 0.4)); later(0.08, () => hurtPlayer(raw));
+  }
+  return dmg;
+}
+function affixTick(e, dt) {
+  if (e.hp <= 0 || e.state === 'dead') return;
+  if (e.T.affix === 'warded' && e.ward === 0 && now - (e.wardAt || 0) > 9) { e.ward = WARD_HITS; if (e.bubble) e.bubble.visible = true; burst(e.pos.clone().setY(1.6), '#8fd0ff', 14, 3, 0.8); }
+  if (e.T.affix === 'mending' && e.hp < e.T.hp && now - (e.barAt || 0) > 3 && !netDriven(e)) {
+    e.hp = Math.min(e.T.hp, e.hp + e.T.hp * 0.06 * dt);
+    if (rng() < dt * 4) burst(e.pos.clone().setY(1 + rng() * 1.5), '#7dff9a', 2, 1.2, 0.7);
+  }
+}
+let streak = 0, streakAt = -99;
+const STREAK_T = 6;
+const streakBonus = () => (streak >= 3 ? Math.min(0.5, (streak - 2) * 0.1) : 0);
+function streakKill() {
+  streak = now - streakAt < STREAK_T ? streak + 1 : 1; streakAt = now;
+  const at = player.pos.clone().setY(4.4);
+  if (streak === 3) floatText(at, 'Rampage!', 'crit');
+  else if (streak === 6) { floatText(at, 'Unstoppable!', 'crit'); sfx('special'); }
+  else if (streak === 10) { floatText(at, 'LEGENDARY RAMPAGE!', 'crit'); sfx('win'); burst(player.pos.clone().setY(1.5), '#ffb347', 40, 6, 1.3); }
+  if (streak === 3 && !S.seenStreak) { S.seenStreak = true; toast('Rampage! Keep beating monsters quickly, one after another, for up to +50% XP and coins.', ICONS.star, true); }
+  return streakBonus();
+}
+let chipsEl = null, togetherWas = false;
+function chipsTick() {
+  if (!player) return;
+  together = !player.dead && !!party && party.members.length > 1 && heroesNear.some((h) => !h.dead && inParty(h.id) && Math.hypot(h.pos.x - player.pos.x, h.pos.z - player.pos.z) < 14);
+  if (together && !togetherWas && !S.seenTogether) { S.seenTogether = true; toast('Fighting beside your party: +10% damage and +10% XP from kills.', ICONS.star, true); }
+  togetherWas = together;
+  const left = STREAK_T - (now - streakAt), rampage = streak >= 3 && left > 0;
+  if (!chipsEl) { chipsEl = document.createElement('div'); chipsEl.id = 'chips'; chipsEl.innerHTML = '<span class="chip rampage" hidden><b></b><i></i></span><span class="chip together" hidden><b>Together +10%</b></span>'; document.body.appendChild(chipsEl); }
+  const [r, t] = chipsEl.children;
+  setShown(t, together);
+  setShown(r, rampage);
+  if (rampage) { setText(r.firstChild, `Rampage ×${streak} · +${Math.round(streakBonus() * 100)}%`); r.lastChild.style.transform = `scaleX(${Math.max(0, left / STREAK_T).toFixed(3)})`; }
+}
 function hurtEnemy(e, dmg, src = null, power = 1) {
   // never hurt something that is already down, fading out or still climbing out of the ground.
   // (Hitting a corpse used to run its death a second time, which queued a second respawn: that's
@@ -5819,6 +5894,7 @@ function hurtEnemy(e, dmg, src = null, power = 1) {
     if (w.poison) e.poison = { left: 3, at: now + 1, dmg: Math.max(1, Math.round(dmg * 0.15)) };
     if (w.drain && S.hp < maxHp()) { S.hp = Math.min(maxHp(), S.hp + Math.max(1, Math.round(dmg * w.drain))); refreshUI(); }
   }
+  if (e.T.affix && !crewHitting && !poisonHit && !bossRemote && !mobRemote && !wbRemote) dmg = affixHit(e, dmg, head);
   if (e.shield) { dmg = Math.max(1, Math.round(dmg * 0.25)); if (rng() < 0.4) floatText(head.clone().setY(4.6), 'Shielded! Break the glowing crystal', 'miss'); }
   else if (now < (e.dizzyUntil || 0)) dmg = Math.round(dmg * 1.5);
   if (e.coreOpen) { dmg = Math.round(dmg * 1.3); if (rng() < 0.15) floatText(head.clone().setY(5), 'Core hit!', 'gain'); }
@@ -5842,6 +5918,12 @@ function hurtEnemy(e, dmg, src = null, power = 1) {
   if (!crewHitting && !bossRemote && !mobRemote && !wbRemote) giveHeroXp(Math.min(dmg, hpWas) * HIT_HERO_XP); // only your own hits earn hit XP (overkill doesn't count)
   if (e.hp <= 0) {
     e.state = 'dead'; e.bar.hidden = true;
+    if (e.bubble) e.bubble.visible = false;
+    if (e.T.affix === 'volatile' && !bossRemote && !mobRemote && !wbRemote) {
+      // a Volatile Champion bursts a moment after it falls: get clear of the circle
+      hazard({ x: e.pos.x, z: e.pos.z, R: 3.8, dur: 1.2, dmg: bossDmg(e, 1.5), col: '#ff8a3a' });
+      floatText(e.pos.clone().setY(4.2), 'It\'s going to blow!', 'miss');
+    }
     if (e.T.boss && (!e.temp || e.T.world) && !bossRemote && !mobRemote && !wbRemote) bossAnnounce(e);
     const life = e.life = (e.life || 0) + 1; // each death gets its own id, so old timers can't touch a respawned monster
     e.play('Death_A', { once: true, clamp: true, fade: 0.1 });
@@ -5855,8 +5937,9 @@ function hurtEnemy(e, dmg, src = null, power = 1) {
         toast(`Other heroes beat ${e.T.name}. Hit it next time to share the loot!`, ICONS.star);
       }
     } else {
-    giveHeroXp(e.T.xp, e.pos.clone().setY(4)); partyShareXp(e.T.xp, e.pos);
-    const coins = e.T.coins ? e.T.coins[0] + Math.floor(rng() * (e.T.coins[1] - e.T.coins[0])) : 3 + Math.floor(rng() * 9);
+    const sb = e.T.boss || e.temp ? 0 : streakKill(); // v71: a Rampage (quick kills in a row) adds up to +50% XP and coins
+    giveHeroXp(Math.round(e.T.xp * (1 + sb + (together ? 0.1 : 0) + (e.T.boss ? 0 : petBonus('xp')))), e.pos.clone().setY(4)); partyShareXp(e.T.xp, e.pos);
+    const coins = Math.round((e.T.coins ? e.T.coins[0] + Math.floor(rng() * (e.T.coins[1] - e.T.coins[0])) : 3 + Math.floor(rng() * 9)) * (1 + sb + (e.T.boss ? 0 : petBonus('coins'))));
     S.coins += coins; if (e.T.boss || rng() < 0.6) addItem('bones'); later(0.25, () => sfx('coin')); // v65: bones 60% from ordinary monsters (was every kill)
     rollLoot(e);
     if (e.T.boss) {
@@ -5876,6 +5959,8 @@ function hurtEnemy(e, dmg, src = null, power = 1) {
     }
     floatText(e.pos.clone().setY(2.4), `+${coins} coins`, 'gain');
     if (e.golden) goldenCaught(e);
+    if (e.T.elite) S.champKills = (S.champKills || 0) + 1;
+    if (streak > (S.bestStreak || 0)) S.bestStreak = streak;
     for (const k of Object.keys(QUESTS)) if (S.quests[k].state === 'active' && QUESTS[k].need.kills !== undefined && (!QUESTS[k].land || QUESTS[k].land === e.inside)) S.quests[k].kills++;
     if (!e.temp || e.boss) boardToday().kills++;
     }
@@ -5885,6 +5970,7 @@ function hurtEnemy(e, dmg, src = null, power = 1) {
       if (!enemies.includes(e) || e.life !== life || e.state !== 'dead') return;
       if (e.T.town && townFree(e.T.town)) return; // freed towns stay free
       e.hp = e.T.hp; e.state = 'rising'; e.myDmg = 0;
+      if (e.bubble) { e.ward = WARD_HITS; e.bubble.visible = true; }
       reassemble(e);
       const ok = e.play('Spawn_Ground_Skeletons', { once: true, clamp: true, onFinish: () => { e.state = 'idle'; e.play('Idle'); } });
       if (!ok) { e.state = 'idle'; e.play('Idle'); }
@@ -7138,6 +7224,7 @@ function enemyTick(e, dt) {
     const P = e.poison; P.at = now + 1; poisonHit = true; hurtEnemy(e, P.dmg, e.pos, 0); poisonHit = false;
     burst(e.pos.clone().setY(1.6), '#8aff6a', 8, 2, 0.7); if (--P.left <= 0) e.poison = null;
   }
+  if (e.T.affix) affixTick(e, dt);
   if (now < e.staggerUntil && e.state !== 'slam') return;
   if (now < (e.dizzyUntil || 0)) { dizzyTick(e, dt); return; }
   if (goldenRun(e, dt)) return;
@@ -7698,7 +7785,7 @@ function tick() {
   gfxTick(rawDt); cullTick();
   // v68.2: one broken delayed effect can never stop the frame (that froze the game after charged attacks)
   for (let i = timers.length - 1; i >= 0; i--) { timers[i].t -= dt; if (timers[i].t <= 0) { const f = timers[i].f; timers.splice(i, 1); try { f(); } catch (err) { console.error(err); } } }
-  regionTick(); lightTick(); vigTick();
+  regionTick(); lightTick(); vigTick(); chipsTick();
   if (player) { goldenTick(); tinyTick(dt); pompTick(dt); }
 
   if (player) { breathTick(); if (wolfOn && !player.wolf) wolfSet(player, true); wolfTick(player, dt, player.name); gulpTick(); lanternTick(dt); wingTick(); stormTick(dt); castleTick(dt); colossusTick(dt); cosTick(); wbTick(); bossSyncTick(); if (net.on) mobFlush(); weaponSparkle(); flairTick(player, dt, player.name === 'Running_A' || player.name === 'Walking_A' || (player.name || '').startsWith('Running')); }
@@ -7794,7 +7881,7 @@ function tick() {
   bossUi();
   zoneBanner();
   for (const [i, c] of dynamic.crystals.entries()) { c.position.y = 2.4 + Math.sin(now * 1.6 + i) * 0.4; c.rotation.y = now * 0.8 + i; }
-  if (player) { player.mixer.update(dt); headPose(player); faceTick(player); }
+  if (player) { player.mixer.update(dt); headPose(player); faceTick(player); myPetTick(dt); }
   for (const n of npcs) npcLife(n, dt);
   crewTick(dt); crewTags(); heroTag(); peersTick(dt); partyTick(); emoteTick(); bossShoutTick(); townTick(); letterTick(); if (snowFx) { snowFx.visible = where === 'frost'; if (snowFx.visible && player) snowFx.userData.tick(dt, player.pos.x, player.pos.z); } if (emberFx) { emberFx.visible = where === 'magma'; if (emberFx.visible && player) { emberFx.userData.tick(dt, player.pos.x, player.pos.z); magmaTick(dt); } } if (now > 45 && !document.body.classList.contains('nohint')) document.body.classList.add('nohint'); occluderTick(dt);
   guideTick(); chargeTick(); musicTick();
@@ -7889,7 +7976,7 @@ function tick() {
       let tag = show;
       if (!tag && e.hp > 0 && e.state !== 'rising' && e.state !== 'dead' && e.inside === where && player && Math.hypot(e.pos.x - player.pos.x, e.pos.z - player.pos.z) < 13) { v = tmpV.copy(e.pos).setY(3.3).project(camera); tag = v.z <= 1; }
       setShown(e.lvTag, tag);
-      if (tag) { pin(e.lvTag, v); lvTagSet(e.lvTag, e.T.lv, e.T.elite); }
+      if (tag) { pin(e.lvTag, v); lvTagSet(e.lvTag, e.T.lv, e.T.elite && (e.T.affixName || true)); }
     }
   }
 
@@ -9268,6 +9355,60 @@ const COS = {
     shadow: { name: 'Shadow trail', r: 4, col: '#6a3aa8', how: 'Reach level 90 (Mythic)' }, rainbow: { name: 'Rainbow trail', r: 5, col: '#ff6ad5', shimmer: true, how: 'drop' },
   },
 };
+// v71: pets. A little monster friend follows you around and gives one small bonus. Friends online see it too.
+COS.pet = {
+  slimy: { name: 'Jelly', r: 1, how: 'Reach level 5', model: 'slime', s: 0.42, tint: '#ff8ac8', col: '#ff8ac8', hp: 0.05, bonus: '+5% health' },
+  honey: { name: 'Honeydrop', r: 1, how: 'drop', model: 'slime', s: 0.42, tint: '#ffc83a', col: '#ffc83a', coins: 0.06, bonus: '+6% coins from monsters' },
+  flit: { name: 'Flit', r: 2, how: 'drop', model: 'bat', s: 0.42, tint: '#8a6ac8', col: '#8a6ac8', fly: 1.3, xp: 0.05, bonus: '+5% XP from monsters' },
+  rattles: { name: 'Rattles', r: 2, how: 'Defeat 25 Champions', model: 'skel_minion', s: 0.65, col: '#e8e0d0', def: 0.05, bonus: '+5% defense' },
+  snowdrop: { name: 'Snowdrop', r: 3, how: 'drop', model: 'slime', s: 0.44, tint: '#bfefff', col: '#bfefff', def: 0.08, bonus: '+8% defense' },
+  gagjr: { name: 'Gagron Jr.', r: 3, how: 'Defeat Gagron', model: 'drake', drake: 'gagron', s: 0.58, col: '#6aa84a', dmg: 0.05, bonus: '+5% damage' },
+  ember: { name: 'Ember', r: 4, how: 'drop', model: 'drake', drake: 'magma', s: 0.6, col: '#ff7a2a', dmg: 0.08, bonus: '+8% damage' },
+  hatchling: { name: 'Little Pyrrhax', r: 5, how: 'drop', model: 'drake', drake: 'pyrrhax', s: 0.65, col: '#b0182a', dmg: 0.1, hp: 0.05, bonus: '+10% damage, +5% health' },
+};
+PETS = COS.pet;
+function petSet(a, id) {
+  if (!a || (a.pet && a.pet.id === id) || (!a.pet && !id)) return;
+  if (a.pet) { scene.remove(a.pet.actor.root); a.pet = null; }
+  const P = id && COS.pet[id]; if (!P || !G[P.model]) return;
+  const pa = new Actor(G[P.model], { scale: P.s, hide: P.model === 'skel_minion' ? SKEL_HIDE : [] });
+  if (P.model === 'drake') { pa.alias = DRAKE_ALIAS; drakeLook(pa, P.drake); }
+  else if (P.model === 'slime') pa.alias = ENEMY_TYPES.bog_slime.alias;
+  else if (P.model === 'bat') pa.alias = ENEMY_TYPES.mire_bat.alias;
+  if (P.tint) pa.root.traverse((o) => { if (o.isMesh && !/Eye/i.test((o.userData.mats && o.userData.mats.std.name) || (o.material && o.material.name) || '')) tinted(o, P.tint); });
+  const [ox, oz] = petSpot(a, 1);
+  pa.root.position.set(a.root.position.x + ox, 0, a.root.position.z + oz);
+  pa.play('Idle');
+  a.pet = { id, P, actor: pa, moving: false };
+}
+let petOwner = null;
+const petSpot = (a, side) => [side * 1.7, 0.5];
+function petTick(a, dt) {
+  const p = a.pet; if (!p) return;
+  // it trots beside you on the side the camera can see, and swaps sides to trail behind when you walk left or right
+  const fx = Math.sin(a.root.rotation.y);
+  if (fx > 0.5) p.side = -1; else if (fx < -0.5) p.side = 1; else p.side ||= 1;
+  const r = p.actor.root, home = a.root.position, [ox, oz] = petSpot(a, p.side);
+  const tx = home.x + ox, tz = home.z + oz, dx = tx - r.position.x, dz = tz - r.position.z, d = Math.hypot(dx, dz);
+  r.visible = a.root.visible;
+  if (d > 14) { r.position.x = tx; r.position.z = tz; }
+  else if (d > 0.35) {
+    const sp = Math.min(10, 1.5 + d * 3.2);
+    r.position.x += (dx / d) * sp * dt; r.position.z += (dz / d) * sp * dt;
+    r.rotation.y = Math.atan2(dx, dz);
+    if (!p.moving) { p.moving = true; p.actor.play('Running_A', { fade: 0.15 }); }
+  } else if (p.moving) { p.moving = false; p.actor.play('Idle', { fade: 0.25 }); }
+  else r.rotation.y += Math.atan2(Math.sin(a.root.rotation.y - r.rotation.y), Math.cos(a.root.rotation.y - r.rotation.y)) * Math.min(1, dt * 3);
+  r.position.y = p.P.fly ? p.P.fly + Math.sin(now * 3) * 0.2 : 0;
+  p.actor.mixer.update(dt);
+}
+function myPetTick(dt) {
+  if (petOwner && petOwner !== player) petSet(petOwner, null);
+  petOwner = player;
+  const want = (S.cos && S.cos.eq && S.cos.eq.pet) || null;
+  if (((player.pet && player.pet.id) || null) !== want) petSet(player, want);
+  petTick(player, dt);
+}
 for (const [id, c] of Object.entries(COS.outfit)) c.id = id;
 // how cosmetics drop: monsters rarely, bosses often. Better lands roll better rarities.
 const COS_ODDS = { magma: [8, 20, 30, 27, 12, 3], out: [70, 24, 5, 1, 0, 0], frost: [50, 32, 13, 4.5, 0.5, 0], marsh: [35, 33, 20, 10, 1.8, 0.2], sands: [22, 30, 25, 17, 5.2, 0.8] };
@@ -9290,13 +9431,16 @@ function cosDrop(e, at, boss) {
   }
 }
 const cosLabel = (c) => (c.how === 'drop' ? 'Drops from monsters (better lands, rarer looks)' : c.how);
-const COS_SLOTS = { hat: 'Hat', outfit: 'Outfit', cape: 'Cape', aura: 'Aura', trail: 'Trail' };
+const COS_SLOTS = { hat: 'Hat', outfit: 'Outfit', cape: 'Cape', aura: 'Aura', trail: 'Trail', pet: 'Pet' };
 const COS_BOSS = { boss_pyrrhax: ['outfit:molten', 'aura:inferno'], boss_gagron: ['cape:ember', 'trail:ember'], boss_crusher: ['hat:horns'], boss_gloom: ['hat:wizard'], boss_rattle: ['hat:tricorn'], boss_frost: ['hat:tiara', 'aura:frost'], boss_grumble: ['trail:frost'], boss_mire: ['trail:bubbles'], boss_sogg: ['cape:midnight'], boss_gobbler: ['hat:frog'], boss_pomp: ['hat:tophat'], boss_colossus: ['hat:goggles', 'aura:sun'] };
 const beaten = (t) => !!((S.beat || {})[t] || (S.letters || {})[t]);
 function cosEarned() {
   const out = new Set(), l = heroLvl();
   for (const [t, ids] of Object.entries(COS_BOSS)) if (beaten(t)) ids.forEach((i) => out.add(i));
+  if (l >= 5) out.add('pet:slimy');
   if (l >= 10) out.add('trail:sparkle');
+  if ((S.champKills || 0) >= 25) out.add('pet:rattles');
+  if (beaten('boss_gagron')) out.add('pet:gagjr');
   if (l >= 25) out.add('cape:royal');
   if (l >= 45) out.add('aura:royal');
   if (l >= 70) { out.add('hat:crown'); out.add('cape:gold'); }
@@ -9339,6 +9483,7 @@ function titleList() {
     ['night', 'Child of the Night', 'Choose the Vampire path', S.path === 'vampire'], ['halo', 'Halo Bearer', 'Choose the Angel path', S.path === 'angel'], ['stubborn', 'The Stubborn One', 'Choose the Human path', S.path === 'human'],
     ['mayor', 'The Mayor', 'Free a monster town', Object.keys(S.towns || {}).length > 0], ['tycoon', 'Tycoon', 'Be worth 100,000 coins', S.started && netWorth() >= 100000],
     ['worldbreaker', 'Worldbreaker', 'Helped beat King Wobblegut (retired)', (S.wbKills || 0) > 0],
+    ['slayer', 'Champion Slayer', 'Defeat 25 Champions', (S.champKills || 0) >= 25], ['rampage', 'Unstoppable', 'Reach a Rampage of 10 kills', (S.bestStreak || 0) >= 10],
     ['gatherer', 'Master Gatherer', 'Reach level 50 in any gathering skill', SKILLS.some(([k]) => lvl(k) >= 50)],
   ];
   for (const [id, name, how, ok] of extra) T.push({ id, name, how, ok: !!ok, col: '#e8a93a' });
@@ -9612,9 +9757,9 @@ function dollList() {
     const sl = dollSlot.slice(4), got = C.got;
     const rows = Object.entries(COS[sl]).sort((x, y) => (y[1].r || 0) - (x[1].r || 0)).map(([k, c]) => {
       const have = got[`${sl}:${k}`], on = C.eq[sl] === k, R = RARITY[c.r || 0];
-      return `<button class="cosrow ${R.id} ${have ? '' : 'locked'}" data-cos="${sl}:${k}" aria-pressed="${on}" ${have ? '' : 'disabled'}><span class="swatch" style="--sw:${c.col || c.body || '#e8a93a'}${c.trim ? `;--sw2:${c.trim}` : ''}"></span><b>${c.name}</b><i class="rar">${R.name}</i><small>${have ? (on ? 'Wearing' : 'Tap to wear') : `Locked: ${cosLabel(c)}`}</small></button>`;
+      return `<button class="cosrow ${R.id} ${have ? '' : 'locked'}" data-cos="${sl}:${k}" aria-pressed="${on}" ${have ? '' : 'disabled'}><span class="swatch" style="--sw:${c.col || c.body || '#e8a93a'}${c.trim ? `;--sw2:${c.trim}` : ''}"></span><b>${c.name}</b><i class="rar">${R.name}</i><small>${c.bonus ? `${c.bonus} · ` : ''}${have ? (on ? (sl === 'pet' ? 'With you' : 'Wearing') : (sl === 'pet' ? 'Tap to bring along' : 'Tap to wear')) : `Locked: ${cosLabel(c)}`}</small></button>`;
     }).join('');
-    return `<h4 class="sub">${COS_SLOTS[sl]}s <small>${Object.keys(COS[sl]).filter((k) => got[`${sl}:${k}`]).length} of ${Object.keys(COS[sl]).length} found</small></h4><div class="coslist">${C.eq[sl] ? `<button class="cosrow" data-cos="${sl}:">Take it off</button>` : ''}${rows}</div><p class="hint">Looks never change your stats. You earn them only by playing: beating bosses, reaching new ranks and freeing towns.</p>`;
+    return `<h4 class="sub">${COS_SLOTS[sl]}s <small>${Object.keys(COS[sl]).filter((k) => got[`${sl}:${k}`]).length} of ${Object.keys(COS[sl]).length} found</small></h4><div class="coslist">${C.eq[sl] ? `<button class="cosrow" data-cos="${sl}:">Take it off</button>` : ''}${rows}</div><p class="hint">${sl === 'pet' ? 'A pet follows you everywhere and gives one small bonus. Friends online can see it too. You find pets by playing: levelling up, beating bosses and Champions, and as rare drops.' : 'Looks never change your stats. You earn them only by playing: beating bosses, reaching new ranks and freeing towns.'}</p>`;
   }
   const cur = GEAR[S.equip[dollSlot]];
   const mine = S.owned.filter((k) => GEAR[k] && GEAR[k].slot === dollSlot);
@@ -9707,7 +9852,7 @@ function renderBag(el) {
     body = `<div class="doll" style="--rank:${R.col}">
       <div class="dcol">${slot('weapon')}${slot('shield')}${slot('armour')}${slot('gadget')}${cslot('trail')}</div>
       <div class="dfig"><div class="dprev" title="Drag to turn your hero"></div><b>${esc(heroName())}</b><span class="drank">${R.name} · Lv ${heroLvl()}</span>${t && !t.id.startsWith('rank') ? `<em>${esc(t.name)}</em>` : ''}</div>
-      <div class="dcol">${cslot('hat')}${cslot('outfit')}${cslot('cape')}${cslot('aura')}</div></div>
+      <div class="dcol">${cslot('hat')}${cslot('outfit')}${cslot('cape')}${cslot('aura')}${cslot('pet')}</div></div>
       <div class="dstats"><div><img src="${ICONS[w.type]}" alt=""><span>Hit</span><b>${Math.round(w.dmg * dmgMult() * pathDmg())}</b></div><div><img src="${ICONS.shield}" alt=""><span>Defense</span><b>${totalDef()}</b></div><div><img src="${ICONS.heart}" alt=""><span>Health</span><b>${maxHp()}</b></div><div><img src="${ICONS.star}" alt=""><span>Renown</span><b>+${Math.round((renown() - 1) * 100)}%</b></div></div>
       ${(() => { const oc = COS.outfit[C.eq.outfit || '']; return oc && oc.helm ? `<button id="helmtog" class="helmtog" aria-pressed="${!S.look.helmOff}">${S.look.helmOff ? 'Show helmet' : 'Hide helmet'}</button>` : ''; })()}
       ${outfitOn() ? '<p class="hint">Your outfit is a full look: armour and shield stats still count, they just stay hidden under it.</p>' : ''}
@@ -10235,7 +10380,7 @@ function makeGagronFriend() {
   npcs.push(gagronFriend);
 }
 
-window.__jq = { dragonAttack, dodgedFx, popLoot, toast, wolfSet, get wolfOn() { return wolfOn; }, set wolfOn(v) { wolfOn = v; }, mobNet, netHeroesTick, esNet, enemyAttackNet, hzNet, bfxNet, pickTarget, heroesNear, get hazards() { return hazards; }, get netDrive() { return netDrive; }, shrinkMe, showStoryIntro, hurtPlayer, koSitOut, wakeUp, showLook, removeThing, giveThing, COS, ITEMS, GEAR, parseGive, chargedAttack, parseAmount, hitPeers, shotHitsPeer, showKeysNote, castSpell, learnSpell, spellCd, SPELLS, goonSneeze, goonDrips, goonFlop, setSlotBox, showSlots, get slotBox() { return slotBox; }, get guide() { return guide; }, bossNet, safeSpot, get PVP_LVL() { return PVP_LVL; }, goldNode, wbInfo, wbTick, get wb() { return wb; }, WB_SPOTS, tradeOpen, tradeNet, offerKey, get trade() { return trade; }, adv(s) { for (let t = 0; t < s; t += 0.05) { for (let i = timers.length - 1; i >= 0; i--) { timers[i].t -= 0.05; if (timers[i].t <= 0) { const f = timers[i].f; timers.splice(i, 1); f(); } } bossFxTick(0.05); } }, get party() { return party; }, BOSS_AI, PHASE_SETUP, get gulped() { return gulped; }, wriggle, toggleBigMap, spawnEnemy, openPathChoice, choosePath, startLanternNight, get lanterns() { return lanterns; }, duelOffer, duelPrize, onNet, chatCommand, canFight, openUpgrade, openBoard, boardToday, queueLetter, makeGagronFriend, net, peerActors, runeTick, bossFx, renderer, scene, openMayor, darkOmen, netWorth, liberateTown, setGolden, goldenCaught, pompArrive, get goldenE() { return goldenE; }, spinWheel, dayTick, get bossIntro() { return bossIntro; }, bossSkip, startBossScene, sailTo, regions, closeSheet, renderHotbar, crew, setCrewMode, TOWNS, liberateTown, chests, openChest, stopRoulette, enemies, startBossIntro, closeDialog, advanceDialog, dash, attackPress, craft, CRAFTS, openCreator, closeCreator, creator, rebuildHero, setZoom: (z) => { zoom = zoomGoal = z; }, hurtEnemy, goThrough, get where() { return where; }, INTERIORS, equipGear, spendPoint, giveHeroXp, heroLvl, stat, maxHp, defDiv, openWeaponShop, openKing, jump, eat, eatBest, openShop, swing, swingTarget, hitNode, projectiles, timers, get S() { return S; }, get player() { return player; }, enemies, nodes, npcs, startTask, doAction, giveXp, save, openSheet, openDialog };
+window.__jq = { affixFx, partySet, get streak() { return streak; }, get together() { return together; }, dragonAttack, dodgedFx, popLoot, toast, wolfSet, get wolfOn() { return wolfOn; }, set wolfOn(v) { wolfOn = v; }, mobNet, netHeroesTick, esNet, enemyAttackNet, hzNet, bfxNet, pickTarget, heroesNear, get hazards() { return hazards; }, get netDrive() { return netDrive; }, shrinkMe, showStoryIntro, hurtPlayer, koSitOut, wakeUp, showLook, removeThing, giveThing, COS, ITEMS, GEAR, parseGive, chargedAttack, parseAmount, hitPeers, shotHitsPeer, showKeysNote, castSpell, learnSpell, spellCd, SPELLS, goonSneeze, goonDrips, goonFlop, setSlotBox, showSlots, get slotBox() { return slotBox; }, get guide() { return guide; }, bossNet, safeSpot, get PVP_LVL() { return PVP_LVL; }, goldNode, wbInfo, wbTick, get wb() { return wb; }, WB_SPOTS, tradeOpen, tradeNet, offerKey, get trade() { return trade; }, adv(s) { for (let t = 0; t < s; t += 0.05) { for (let i = timers.length - 1; i >= 0; i--) { timers[i].t -= 0.05; if (timers[i].t <= 0) { const f = timers[i].f; timers.splice(i, 1); f(); } } bossFxTick(0.05); } }, get party() { return party; }, BOSS_AI, PHASE_SETUP, get gulped() { return gulped; }, wriggle, toggleBigMap, spawnEnemy, openPathChoice, choosePath, startLanternNight, get lanterns() { return lanterns; }, duelOffer, duelPrize, onNet, chatCommand, canFight, openUpgrade, openBoard, boardToday, queueLetter, makeGagronFriend, net, peerActors, runeTick, bossFx, renderer, scene, openMayor, darkOmen, netWorth, liberateTown, setGolden, goldenCaught, pompArrive, get goldenE() { return goldenE; }, spinWheel, dayTick, get bossIntro() { return bossIntro; }, bossSkip, startBossScene, sailTo, regions, closeSheet, renderHotbar, crew, setCrewMode, TOWNS, liberateTown, chests, openChest, stopRoulette, enemies, startBossIntro, closeDialog, advanceDialog, dash, attackPress, craft, CRAFTS, openCreator, closeCreator, creator, rebuildHero, setZoom: (z) => { zoom = zoomGoal = z; }, hurtEnemy, goThrough, get where() { return where; }, INTERIORS, equipGear, spendPoint, giveHeroXp, heroLvl, stat, maxHp, defDiv, openWeaponShop, openKing, jump, eat, eatBest, openShop, swing, swingTarget, hitNode, projectiles, timers, get S() { return S; }, get player() { return player; }, enemies, nodes, npcs, startTask, doAction, giveXp, save, openSheet, openDialog };
 window.addEventListener('error', (e) => { const m = $('loadmsg'); if (m) m.textContent = `Something went wrong: ${e.message}`; });
 main().catch((err) => {
   console.error(err);

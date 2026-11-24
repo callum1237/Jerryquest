@@ -1090,6 +1090,14 @@
   #actionbar { bottom: calc(env(safe-area-inset-bottom, 0px) + 50px) !important; }
   #hotbar { bottom: calc(env(safe-area-inset-bottom, 0px) + 110px) !important; }
   #specialbtn { bottom: calc(env(safe-area-inset-bottom, 0px) + 50px); }
+  /* v71: small status chips just above your health: Rampage streak and the party Together bonus */
+  #chips { position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(env(safe-area-inset-bottom, 0px) + 168px); display: flex; gap: 6px; z-index: 2; pointer-events: none; }
+  body.talking #chips, body.creating #chips { display: none; }
+  #chips .chip { position: relative; overflow: hidden; padding: 2px 9px 3px; border: 2px solid var(--ink); border-radius: 999px; font: 700 11px/14px Fredoka, Trebuchet MS, sans-serif; color: #fff6dc; box-shadow: 0 2px 0 rgb(0 0 0 / .25); animation: chipin .25s ease-out; }
+  #chips .chip.rampage { background: linear-gradient(180deg, #ff9a4a, #d8501a); }
+  #chips .chip.rampage > i { position: absolute; left: 0; right: 0; bottom: 0; height: 2px; background: #fff2a8; transform-origin: left; }
+  #chips .chip.together { background: linear-gradient(180deg, #6ec8ff, #2f7fd0); }
+  @keyframes chipin { from { transform: translateY(4px); opacity: 0; } }
   body.talking #vitals, body.creating #vitals, body:has(#bossintro:not([hidden])) #vitals { opacity: 0; }
   body.sheet-open #vitals { opacity: .35; }
   @media (max-width: 700px) {
@@ -1097,6 +1105,7 @@
     #actionbar { bottom: calc(env(safe-area-inset-bottom, 0px) + 14px) !important; }
     #hotbar { bottom: calc(env(safe-area-inset-bottom, 0px) + 52px) !important; }
     #menutoggle { bottom: calc(env(safe-area-inset-bottom, 0px) + 98px); }
+    #chips { bottom: calc(env(safe-area-inset-bottom, 0px) + 110px); }
   }
   #travel { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; justify-content: center; margin-top: 8px; font-size: 13px; }
   #travel button { font-size: 13px; padding: 4px 12px; }
@@ -1104,6 +1113,7 @@
   @media (pointer: fine) {
     #actionbar { display: none !important; }
     #hotbar { bottom: calc(env(safe-area-inset-bottom, 0px) + 50px) !important; }
+    #chips { bottom: calc(env(safe-area-inset-bottom, 0px) + 108px); }
     #specialbtn, body.nohint #specialbtn { left: calc(50% + 214px); bottom: calc(env(safe-area-inset-bottom, 0px) + 10px); }
   }
   #hotbar .hot.empty { opacity: .7; }
@@ -1243,7 +1253,7 @@
 </div></div>
 <script>
 (() => {
-  const tips = ['Hold K to charge a slash that flies through the air.', 'Dodge an attack with a dash or a jump, then hit back fast for a Counter: double damage!', 'Any blacksmith can upgrade your gear all the way to +10 with iron ore.', 'Click another player\'s name to trade with them or invite them to your party.', 'A pillar of light means a rare drop. Go grab it!', 'Feeling brave? Sail to the Magma Caverns, where the dragons live.', 'Your bank keeps coins safe. If you fall, you drop half of what you carry.', 'Free a town to become its mayor and collect taxes every week.', 'Press I to open your bag and drag items onto your hotbar.', 'Ores from the Old Quarry sell for good coin at any merchant.', 'Press Tab to see your hero, gold, net worth and towns.', 'Mythic gear is the rarest of all. Bosses guard the best of it.', 'Each level gives you 2 free stat points. Build your hero your way.', 'A magic seal guards each final boss until you beat the one before.', 'Shift to sprint, Space to jump. Dash out of a glowing floor!'];
+  const tips = ['Every Champion has a trick: Swift, Warded, Thorned, Volatile or Mending. Read its name tag!', 'Beat monsters quickly one after another for a Rampage: up to +50% XP and coins.', 'Fight next to your party for +10% damage and XP.', 'Pets follow you around and give a small bonus. You get your first one at level 5.', 'Hold K to charge a slash that flies through the air.', 'Dodge an attack with a dash or a jump, then hit back fast for a Counter: double damage!', 'Any blacksmith can upgrade your gear all the way to +10 with iron ore.', 'Click another player\'s name to trade with them or invite them to your party.', 'A pillar of light means a rare drop. Go grab it!', 'Feeling brave? Sail to the Magma Caverns, where the dragons live.', 'Your bank keeps coins safe. If you fall, you drop half of what you carry.', 'Free a town to become its mayor and collect taxes every week.', 'Press I to open your bag and drag items onto your hotbar.', 'Ores from the Old Quarry sell for good coin at any merchant.', 'Press Tab to see your hero, gold, net worth and towns.', 'Mythic gear is the rarest of all. Bosses guard the best of it.', 'Each level gives you 2 free stat points. Build your hero your way.', 'A magic seal guards each final boss until you beat the one before.', 'Shift to sprint, Space to jump. Dash out of a glowing floor!'];
   const lines = ['Painting the village...', 'Sharpening swords...', 'Waking the dragon (gently)...', 'Polishing the castle...', 'Teaching slimes to bounce...', 'Hiding treasure chests...'];
   let i = Math.floor(Math.random() * tips.length), j = 0;
   const el = document.getElementById('ldtip'); el.textContent = tips[i];
