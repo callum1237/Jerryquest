@@ -4,7 +4,7 @@ import { THREE, scene, camera, renderer, sun, sky, PRESETS, env, applyPreset, bl
 import * as SkeletonUtils from 'three/addons/utils/SkeletonUtils.js';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { buildWorld, buildFlowers, buildMeadow, place, tentAt, S_PROP, S_BUILD, colliders, clouds, dynamic, LAKE, CAMP, MINE, S_NATURE, blocked, isFree, ZONES, WORLD_R, VS, TOWNS, ROADS, townFacing, VALLEY_ARENAS } from './world.js';
-import { LANDS, VALLEY_DOCK, buildLands, makeSnow, makeEmbers, MAGMA_FX, landRoads, coastOf, SANDS_FX, palmNode, roundNode } from './lands.js';
+import { LANDS, landPt, VALLEY_DOCK, buildLands, makeSnow, makeEmbers, MAGMA_FX, landRoads, coastOf, SANDS_FX, palmNode, roundNode } from './lands.js';
 import { ICONS } from './icons.js';
 import { HUMAN_ALIAS, HUMAN_LOOPS, makeHumanHair } from './human.js';
 import { buildInteriors, INTERIORS, lavaPools } from './interiors.js';
@@ -37,23 +37,43 @@ const SKILL_NAME = Object.fromEntries(SKILLS);
 const XPT = [0, 0];
 { let pts = 0; for (let l = 1; l < 99; l++) { pts += Math.floor(l + 300 * Math.pow(2, l / 7)); XPT[l + 1] = Math.floor(pts / 4); } }
 const levelOf = (xp) => { let l = 1; while (l < 99 && xp >= XPT[l + 1]) l++; return l; };
-// Hero levels: cheap at first, steep later. Going from level L to L+1 costs 60 + 40 × L^1.6 XP,
-// so level 1 → 2 is 100 XP, 10 → 11 about 1,650, 50 → 51 about 21,000 and 100 → 101 about 63,500.
-const HERO_MAX = 150, HXT = [0, 0];
-for (let l = 1; l < HERO_MAX; l++) HXT[l + 1] = HXT[l] + Math.round(60 + 40 * Math.pow(l, 1.6));
+// Hero levels (v80 rework): levelling is slower and goes much higher. Reaching Brassbolt Sands (the 4th land)
+// puts you around level 80-100, and the cap is 200. Each new level maps onto the old curve (LV_ANCHORS: new level ->
+// old level), so the whole world rescales with it: monsters keep their old feel at the matching point in the story.
+const LV_ANCHORS = [[1, 1], [8, 5], [12, 8], [20, 14], [26, 18], [50, 30], [76, 44], [108, 60], [140, 92]];
+const invMap = (N) => {
+  if (N <= 1) return N;
+  for (let i = 1; i < LV_ANCHORS.length; i++) if (N <= LV_ANCHORS[i][0]) { const [a, b] = LV_ANCHORS[i - 1], [c, d] = LV_ANCHORS[i]; return b + ((d - b) * (N - a)) / (c - a); }
+  return 92 + (N - 140);
+};
+const fwdMap = (o) => { // old level -> new level (for unlocks that used to sit at an old level)
+  if (o <= 1) return o;
+  for (let i = 1; i < LV_ANCHORS.length; i++) if (o <= LV_ANCHORS[i][1]) { const [a, b] = LV_ANCHORS[i - 1], [c, d] = LV_ANCHORS[i]; return a + ((c - a) * (o - b)) / (d - b); }
+  return 140 + (o - 92);
+};
+const HERO_MAX = 200, HXT = [0, 0];
+{
+  const OLD = [0, 0]; for (let l = 1; l < 260; l++) OLD[l + 1] = OLD[l] + Math.round(60 + 40 * Math.pow(l, 1.6));
+  const at = (o) => { const f = Math.floor(o), t = o - f; return OLD[f] + (OLD[f + 1] - OLD[f]) * t; };
+  for (let l = 2; l <= HERO_MAX; l++) HXT[l] = Math.round(1.25 * at(invMap(l)));
+}
 const heroLevelOf = (xp) => { let l = 1; while (l < HERO_MAX && xp >= HXT[l + 1]) l++; return l; };
 
-// ---------- the hero: one level, three stats ----------
-// Every level gives +1 Attack, +1 Defense and +1 Health for free, plus 2 points to spend anywhere.
-const STATS = { atk: ['Attack', 'melee'], def: ['Defense', 'shield'], hp: ['Health', 'heart'] };
-const AUTO_PER_LEVEL = 1, FREE_PER_LEVEL = 2;
-// Attack multiplies your weapon's base damage. Defense divides the damage you take.
-// Health adds max health. A point of Defense and a point of Health are worth about the same,
-// so a balanced hero lasts longest.
+// ---------- the hero: one level, four stats ----------
+// Every level gives +1 Attack, Defense, Health and Magic for free, plus 3 points to spend anywhere.
+const STATS = { atk: ['Attack', 'melee'], def: ['Defense', 'shield'], hp: ['Health', 'heart'], mag: ['Magic', 'magic'] };
+const AUTO_PER_LEVEL = 1, FREE_PER_LEVEL = 3;
+// Attack multiplies sword, axe and bow damage. Magic multiplies staff and spell damage and is your magic defense.
+// Defense blocks a share of every hit, with diminishing returns, and never more than DEF_CAP (75%).
+// Health adds max health.
 // Hero XP: bosses and quests give the most; hitting and beating monsters gives some;
 // chopping, mining and fishing give a little (this share of the skill XP).
 const GATHER_HERO_XP = 0.25, HIT_HERO_XP = 3;
-const ATK_MULT = 0.1, DEF_DIV = 0.1, HP_BASE = 50, HP_PER = 6, CRIT_CHANCE = 0.1;
+const DEF_CAP = 0.75;
+// defense needed to block the full 75% at your level: about 4 per level (420 at level 100)
+const defFull = (L) => 4 * L + 20;
+const blockPct = (D, L) => Math.min(DEF_CAP, DEF_CAP * Math.pow(Math.max(0, D) / defFull(L), 0.7));
+const ATK_MULT = 0.1, HP_BASE = 50, HP_PER = 6, CRIT_CHANCE = 0.1;
 // How each kind of weapon attacks. The weapon itself sets damage, reach (or range) and swing time.
 const STYLES = {
   melee: { anim: '1H_Melee_Attack_Slice_Diagonal', heavy: '2H_Melee_Attack_Chop', hitAt: 0.32 },
@@ -61,14 +81,19 @@ const STYLES = {
   ranged: { anim: '1H_Ranged_Shoot', hitAt: 0.22, proj: 'bolt' },
 };
 const STYLE_NAME = { melee: 'Melee', magic: 'Magic', ranged: 'Ranged' };
-// Every weapon also has a special attack (R, or the Special button): usually an area attack, on a cooldown.
-const SPECIALS = {
-  whirl: { name: 'Whirlwind', desc: 'Spin and hit everything around you', cd: 6, mult: 1.5 },
-  quake: { name: 'Ground Slam', desc: 'Leap and smash the ground in a wide ring', cd: 8, mult: 2.0 },
-  nova: { name: 'Starburst', desc: 'A magic circle bursts where you aim', cd: 7, mult: 1.8 },
-  volley: { name: 'Volley', desc: 'Fire a fan of five bolts', cd: 6, mult: 1.0 },
+// v77 (Callum): four weapon kinds, each with its own combo and charged attack. The old R specials are gone.
+// Axes are anything built on an axe model (great axes, cleavers, greataxes); daggers and swords are swords.
+const wKind = (w) => (w.fist ? 'fist' : w.type === 'magic' ? 'staff' : w.type === 'ranged' ? 'bow' : /^axe/.test(w.model || '') ? 'axe' : 'sword');
+const KIND_NAME = { sword: 'Sword', axe: 'Axe', bow: 'Bow', staff: 'Staff', fist: 'Fists' };
+// the charged attack (hold K, or hold the star button) for each kind
+const CHARGED = {
+  sword: { name: 'Sword Wave', desc: 'a slash that flies through every monster in a line' },
+  axe: { name: 'Whirling Cleave', desc: 'a full circle slash that hits everything around you' },
+  bow: { name: 'Piercing Shot', desc: 'a heavy arrow that goes through every monster in a long line' },
+  staff: { name: 'Arcane Burst', desc: 'a big slow orb that explodes where it lands' },
+  fist: { name: 'Haymaker', desc: 'a big punch' },
 };
-const specialOf = (w) => (w.type === 'magic' ? 'nova' : w.type === 'ranged' ? 'volley' : w.heavy ? 'quake' : 'whirl');
+const wIcon = (w) => (wKind(w) === 'axe' ? ICONS.woodcutting : ICONS[w.type]);
 const ITEMS = {
   logs: 'Logs', oak_logs: 'Oak logs', copper_ore: 'Copper ore', iron_ore: 'Iron ore', frostsilver_ore: 'Frostsilver ore', silver_ore: 'Silver ore', gold_ore: 'Gold ore', shrimp: 'Raw shrimp', trout: 'Raw trout', bones: 'Bones',
   bread: 'Bread', pie: 'Apple pie', stew: 'Hearty stew', grilled_shrimp: 'Grilled shrimp', grilled_trout: 'Grilled trout', fish_pie: 'Fish pie',
@@ -106,7 +131,7 @@ const WEAPONS = {
   k_flame: { type: 'melee', name: "Gagron's Flamebrand", dmg: 14, reach: 3.0, cd: 0.9, price: 0, unique: true, model: 'sword_2handed_color', tint: '#ff8a3a', heavy: true },
   // Chapter 2: Frostsilver, sold by Frida in Snowdrop
   f_blade: { type: 'melee', tier: 2, name: 'Frostsilver blade', dmg: 17, reach: 2.9, cd: 0.85, price: 1400, model: 'sword_1handed', tint: '#9fe6ff' },
-  f_maul: { type: 'melee', tier: 2, name: 'Glacier maul', dmg: 24, reach: 3.3, cd: 1.3, price: 2200, model: 'axe_2handed', tint: '#bfefff', heavy: true },
+  f_maul: { type: 'melee', tier: 2, name: 'Glacier greataxe', dmg: 24, reach: 3.3, cd: 1.3, price: 2200, model: 'axe_2handed', tint: '#bfefff', heavy: true },
   f_rime: { type: 'magic', tier: 2, name: 'Rime staff', dmg: 17, reach: 14, cd: 1.1, price: 1500, model: 'staff', tint: '#9fe6ff' },
   f_bow: { type: 'ranged', tier: 2, name: 'Icicle crossbow', dmg: 16, reach: 15, cd: 0.75, price: 1500, model: 'crossbow_1handed', tint: '#9fe6ff' },
   a_twin: { type: 'ranged', name: 'Avalanche Twinbow', dmg: 20, reach: 15, cd: 0.6, price: 0, unique: true, model: 'crossbow_2handed', tint: '#e0f4ff' },
@@ -122,7 +147,7 @@ const WEAPONS = {
   k_tongue: { type: 'melee', name: "Gobbler's Tongue", dmg: 36, reach: 4.4, cd: 0.95, price: 0, unique: true, model: 'sword_1handed', tint: '#ff7aa8', poison: true },
   // Chapter 4: Sunsteel, forged by Professor Tinkerwell at Oasis Rest from Sunstone. It burns brighter by day (+15% damage).
   s_sword: { type: 'melee', tier: 4, name: 'Sunsteel sword', dmg: 40, reach: 3.1, cd: 0.8, price: 9000, model: 'sword_1handed', tint: '#ffcf5a', sun: true },
-  s_hammer: { type: 'melee', tier: 4, name: 'Sunsteel warhammer', dmg: 58, reach: 3.5, cd: 1.3, price: 11000, model: 'axe_2handed', tint: '#ffb347', heavy: true, sun: true },
+  s_hammer: { type: 'melee', tier: 4, name: 'Sunsteel greataxe', dmg: 58, reach: 3.5, cd: 1.3, price: 11000, model: 'axe_2handed', tint: '#ffb347', heavy: true, sun: true },
   s_staff: { type: 'magic', tier: 4, name: 'Sunburst staff', dmg: 40, reach: 16, cd: 1.05, price: 9500, model: 'staff', tint: '#ffe27a', sun: true },
   s_bow: { type: 'ranged', tier: 4, name: 'Brassbolt crossbow', dmg: 38, reach: 17, cd: 0.7, price: 9500, model: 'crossbow_1handed', tint: '#d8a850', sun: true },
   p_night: { type: 'melee', tier: 4, path: 'vampire', name: 'Nightfang', dmg: 46, reach: 3.0, cd: 0.65, price: 15000, model: 'dagger', tint: '#8a0a2a', drain: 0.08 },
@@ -182,11 +207,11 @@ function gearRarIx(g) {
 }
 // shop gear always sells for less than it costs (half, up to three quarters for the rarest), so buying to sell never pays
 const gearValue = (g) => Math.floor(g.unique ? [100, 200, 400, 1500, 6000, 40000][gearRarIx(g)] : g.price * [0.5, 0.55, 0.6, 0.65, 0.7, 0.75][gearRarIx(g)]);
-const gearIcon = (g) => (g.slot === 'weapon' ? ICONS[g.type] : ICONS[g.slot]);
+const gearIcon = (g) => (g.slot === 'weapon' ? wIcon(g) : ICONS[g.slot]);
 let gearKeyOf = null; // gear object -> its key, so stats can include smith upgrades
 const gearStats = (g) => { if (!gearKeyOf) gearKeyOf = new Map(Object.entries(GEAR).map(([k, v]) => [v, k])); const k = gearKeyOf.get(g), p = k ? plusOf(k) : 0; return gearStatsRaw(g, p ? (WEAPONS[k] ? upDmg(k, p) : upDef(k, p)) : null); };
 const gearStatsRaw = (g, up) => (g.slot === 'weapon'
-  ? `${up ?? g.dmg} dmg · ${g.type === 'melee' ? 'reach' : 'range'} ${g.reach} · ${g.cd}s · ${SPECIALS[specialOf(g)].name}${g.sun ? ' · +15% by day' : ''}`
+  ? `${up ?? g.dmg} dmg · ${g.type === 'melee' ? 'reach' : 'range'} ${g.reach} · ${g.cd}s · ${KIND_NAME[wKind(g)]}: ${CHARGED[wKind(g)].name}${g.sun ? ' · +15% by day' : ''}`
   : g.slot === 'gadget' ? g.desc : `+${up ?? g.def} defense`);
 // the equipped gadget's bonus for one stat (dmg, def, hp or speed), as a multiplier
 const gadgetMult = (k) => 1 + (((ARMOUR[S.equip.gadget] || {}).bonus || {})[k] || 0);
@@ -476,7 +501,7 @@ const storyStep = () => Object.keys(QUESTS).filter((k) => QUESTS[k].story && sto
 const SAVE_KEY = 'jerryquest_save_v1';
 const fresh = () => ({
   started: false, name: '', bank: 0, xp: Object.fromEntries(SKILLS.map(([k]) => [k, 0])), inv: {}, coins: 0,
-  hero: { xp: 0, alloc: { atk: 0, def: 0, hp: 0 } },
+  hero: { xp: 0, alloc: { atk: 0, def: 0, hp: 0, mag: 0 } }, perks: {}, v80: 1,
   quests: Object.fromEntries(Object.keys(QUESTS).map((k) => [k, { state: 'todo', kills: 0 }])),
   hp: 56, pos: [0, 6], preset: 'day',
   look: { outfit: 'none', trim: 'none', hat: false, cape: true, hair: 'hero', hairLen: 'short', hairCol: 'chestnut', skin: 'peach', eyes: 'brown', eyeStyle: 'round', head: 'big', ears: 'human', sex: 'm', mouth: 'smile', mark: 'none', beard: 'none' },
@@ -514,12 +539,14 @@ function parseSave(d) {
       // older saves had classes and Melee/Magic/Ranged skills: fold that into the hero
       if (d.cls && !d.hero) {
         const old = d.xp || {};
-        d.hero = { xp: (old.melee || 0) + (old.magic || 0) + (old.ranged || 0), alloc: { atk: 0, def: 0, hp: 0 } };
+        d.hero = { xp: (old.melee || 0) + (old.magic || 0) + (old.ranged || 0), alloc: { atk: 0, def: 0, hp: 0, mag: 0 } };
         d.equip = { weapon: (d.equip && d.equip[d.cls]) || 'k_sword', shield: 'sh_badge', armour: 'ar_cloth' };
         d.started = true;
       }
       S = { ...f, ...d, xp: { ...f.xp, ...d.xp }, hero: { ...f.hero, ...d.hero, alloc: { ...f.hero.alloc, ...(d.hero || {}).alloc } }, quests: { ...f.quests, ...d.quests }, look: { ...f.look, ...d.look }, equip: { ...f.equip, ...d.equip }, owned: [...new Set([...f.owned, ...(d.owned || [])])] };
       for (const k of Object.keys(S.xp)) if (!SKILL_NAME[k]) delete S.xp[k];
+      // v80: stats were reworked (Magic, 3 points a level, new levels), so everyone gets their points back once
+      if (!d.v80) { S.v80 = 1; if (Object.values(S.hero.alloc).some((v) => v > 0)) { S.hero.alloc = { atk: 0, def: 0, hp: 0, mag: 0 }; S.v80Refund = 1; } }
       S.owned = S.owned.filter((k) => GEAR[k]);
       for (const sl of ['weapon', 'shield', 'armour']) if (!GEAR[S.equip[sl]]) S.equip[sl] = f.equip[sl];
       delete S.cls;
@@ -538,7 +565,7 @@ function save() {
 const lvl = (k) => levelOf(S.xp[k]);
 const heroLvl = () => heroLevelOf(S.hero.xp);
 // a stat = 1 at level 1, +1 every level, plus whatever points you spent on it
-const stat = (k) => heroLvl() * AUTO_PER_LEVEL + S.hero.alloc[k];
+const stat = (k) => heroLvl() * AUTO_PER_LEVEL + (S.hero.alloc[k] || 0);
 const freePoints = () => (heroLvl() - 1) * FREE_PER_LEVEL - Object.values(S.hero.alloc).reduce((a, b) => a + b, 0);
 // the equipped weapon, with any smith upgrades applied
 const wCache = { k: '', p: -1, w: null };
@@ -560,16 +587,95 @@ let together = false;
 let PETS = null;
 // v74: pets level up as you fight together (to level 10), and their bonus grows by 10% of itself each level
 const petLv = (id) => Math.min(10, Math.floor(Math.sqrt(((S.petXp || {})[id] || 0) / 10)));
-const petBonus = (k) => { const id = S.cos && S.cos.eq && S.cos.eq.pet, P = PETS && id && PETS[id]; return P && P[k] ? P[k] * (1 + 0.1 * petLv(id)) : 0; };
+const petBonus = (k) => { const id = S.cos && S.cos.eq && S.cos.eq.pet, P = PETS && id && PETS[id]; return P && P[k] ? P[k] * (1 + 0.1 * petLv(id)) * (perkOn('petbond') ? 1.5 : 1) : 0; };
 // v74: the monster journal. Beat enough of one kind of monster to earn a hunter rank against it (+3% damage per rank)
 const JOURNAL_AT = [25, 100, 500];
 const journalTier = (t) => { const n = (S.journal || {})[t] || 0; return JOURNAL_AT.filter((x) => n >= x).length; };
 // v72: weapon mastery. Every monster you beat with a kind of weapon (blades, bows, staffs) makes you better with that kind
-const MASTERY = { melee: 'Blade', ranged: 'Bow', magic: 'Staff' };
+const MASTERY = { melee: 'Sword', axe: 'Axe', ranged: 'Bow', magic: 'Staff' };
+// which mastery a weapon trains: axes have their own since v77 (swords keep the old 'melee' count)
+const mKey = (w) => (/^axe/.test(w.model || '') && w.type === 'melee' ? 'axe' : w.type);
+const mIcon = (t) => (t === 'axe' ? ICONS.woodcutting : ICONS[t]);
 const masteryLv = (t) => Math.min(10, Math.floor(Math.sqrt(((S.mastery || {})[t] || 0) / 8)));
-const dmgMult = () => (1 + ATK_MULT * stat('atk')) * renown() * (together ? 1.1 : 1) * (1 + petBonus('dmg')) * (1 + 0.015 * masteryLv(W().type));
-const defDiv = () => (1 + DEF_DIV * totalDef()) * pathDef() * (1 + petBonus('def'));
-const maxHp = () => Math.round((HP_BASE + HP_PER * stat('hp')) * pathHp() * renown() * (1 + petBonus('hp')));
+// ---------- v80: perks ----------
+// At levels 25, 50, 75 and 100 (then every 25 levels) you pick one perk from three. Each tier has eight,
+// and later tiers are stronger. The Point Allocation trainer can swap them for coins.
+const PERK_AT = [25, 50, 75, 100, 125, 150, 175, 200];
+const PERKS = [
+  { // tier 1, level 25
+    lifesteal: ['Lifesteal', 'Heal 3% of the damage you deal.'],
+    longdash: ['Long Dash', 'Your dashes go 50% further.'],
+    thickskin: ['Thick Skin', '+10% Defense.'],
+    nose: ['Treasure Nose', '+20% coins from monsters.'],
+    petbond: ['Pet Bond', "Your pet's bonus is 50% stronger."],
+    gatherer: ['Gatherer', '+30% Woodcutting, Mining and Fishing XP.'],
+    spellweaver: ['Spellweaver', 'Spells recharge 20% faster.'],
+    learner: ['Quick Learner', '+10% XP from everything.'],
+  },
+  { // tier 2, level 50
+    secondwind: ['Second Wind', 'Once every 2 minutes, a knockout blow leaves you standing with 30% health.'],
+    bloodthirst: ['Bloodthirst', 'Heal 5% of the damage you deal.'],
+    ironhide: ['Iron Hide', '+18% Defense.'],
+    arcaneward: ['Arcane Ward', '+25% Magic defense.'],
+    berserker: ['Berserker', '+20% damage while you are under half health.'],
+    fortune: ['Fortune', '+35% coins from monsters.'],
+    swift: ['Swift Feet', 'Move 8% faster.'],
+    relentless: ['Relentless', 'A Rampage waits 9 seconds between kills instead of 6.'],
+  },
+  { // tier 3, level 75
+    giantslayer: ['Giant Slayer', '+18% damage to bosses and Champions.'],
+    bulwark: ['Bulwark', '+12% max health and +10% Defense.'],
+    countermaster: ['Counter Master', 'Counters last 2.5 seconds and do triple damage.'],
+    executioner: ['Executioner', '+30% damage to monsters under 30% health.'],
+    chargemaster: ['Charge Master', 'Charged attacks charge 35% faster.'],
+    lucky: ['Lucky Finds', 'Rare looks drop twice as often, and +20% coins.'],
+    manasurge: ['Mana Surge', '+20% staff and spell damage.'],
+    warpath: ['Warpath', '+12% damage and +8% XP.'],
+  },
+  { // tier 4, level 100 and every 25 levels after
+    titan: ['Titan', '+20% max health.'],
+    warlord: ['Warlord', '+18% damage.'],
+    sanctuary: ['Sanctuary', '+20% Defense and +20% Magic defense.'],
+    phoenix: ['Phoenix', 'Once every 3 minutes, when you are knocked out you rise again with full health.'],
+    leechlord: ['Leech Lord', 'Heal 8% of the damage you deal.'],
+    archmage: ['Archmage', 'Spells recharge 35% faster and hit 25% harder.'],
+    golden: ['Golden Touch', '+50% coins from monsters and +20% XP.'],
+    unbound: ['Unbound', 'Move 12% faster and dash 50% further.'],
+  },
+];
+const PERK_ICON = { lifesteal: 'heart', bloodthirst: 'heart', leechlord: 'heart', longdash: 'star', unbound: 'star', swift: 'star', thickskin: 'shield', ironhide: 'shield', bulwark: 'shield', sanctuary: 'shield', titan: 'heart', arcaneward: 'magic', spellweaver: 'magic', manasurge: 'magic', archmage: 'magic', nose: 'coins', fortune: 'coins', golden: 'coins', lucky: 'coins', petbond: 'star', gatherer: 'mining', learner: 'star', secondwind: 'heart', phoenix: 'heart', berserker: 'melee', giantslayer: 'melee', countermaster: 'melee', executioner: 'melee', chargemaster: 'melee', warpath: 'melee', warlord: 'melee', relentless: 'melee' };
+const perkTier = (i) => PERKS[Math.min(3, i)];
+const perkInfo = (id) => { for (const T of PERKS) if (T[id]) return T[id]; return null; };
+const perkOn = (id) => !!S.perks && Object.values(S.perks).includes(id);
+// sum of a perk-driven bonus: perkSum({ lifesteal: 0.03, bloodthirst: 0.05 })
+const perkSum = (m) => { let t = 0; if (S.perks) for (const id of Object.values(S.perks)) if (m[id]) t += m[id]; return t; };
+// perk picks waiting: tiers you have reached but not chosen yet
+const perksDue = () => PERK_AT.map((L, i) => i).filter((i) => heroLvl() >= PERK_AT[i] && !(S.perks || {})[PERK_AT[i]]);
+// the three choices offered for a tier: fixed per hero (rerolled when the trainer swaps it), never one you already have
+function perkChoices(i) {
+  const pool = Object.keys(perkTier(i)).filter((id) => !perkOn(id) || (S.perks || {})[PERK_AT[i]] === id);
+  let h = ((S.perkSeed || 1) * 2654435761 + i * 40503) >>> 0;
+  const out = [];
+  while (out.length < 3 && pool.length) { h = (h * 1103515245 + 12345) >>> 0; out.push(pool.splice(h % pool.length, 1)[0]); }
+  return out;
+}
+const dmgPerk = () => 1 + perkSum({ warpath: 0.12, warlord: 0.18 }) + (perkOn('berserker') && S.hp < maxHp() * 0.5 ? 0.2 : 0);
+// your power with a kind of attack: Attack for swords, axes and bows, Magic for staffs and spells
+const powMult = (k) => (1 + ATK_MULT * stat(k)) * renown() * (together ? 1.1 : 1) * (1 + petBonus('dmg')) * dmgPerk() * (k === 'mag' ? 1 + perkSum({ manasurge: 0.2 }) : 1);
+const dmgMult = () => powMult(W().type === 'magic' ? 'mag' : 'atk') * (1 + 0.015 * masteryLv(mKey(W())));
+const spellMult = () => powMult('mag') * (1 + perkSum({ archmage: 0.25 }));
+// Defense: armour and your Defense stat add up; Angel path, gadgets, pets and perks multiply it.
+// The share it blocks has diminishing returns and stops at 75%. defDiv() is what a hit is divided by.
+const defPts = () => totalDef() * pathDef() * (1 + petBonus('def')) * (1 + perkSum({ thickskin: 0.1, ironhide: 0.18, bulwark: 0.1, sanctuary: 0.2 }));
+const magPts = () => stat('mag') * (S.path === 'angel' ? 1.15 : 1) * (1 + petBonus('def')) * (1 + perkSum({ arcaneward: 0.25, sanctuary: 0.2 }));
+const defBlock = () => blockPct(defPts(), heroLvl());
+const magBlock = () => blockPct(magPts(), heroLvl());
+const defDiv = () => 1 / (1 - defBlock());
+const magDiv = () => 1 / (1 - magBlock());
+const maxHp = () => Math.round((HP_BASE + HP_PER * stat('hp')) * pathHp() * renown() * (1 + petBonus('hp')) * (1 + perkSum({ bulwark: 0.12, titan: 0.2 })));
+// v80: fighting monsters above your level is rough: they hit up to 60% harder, and your hits do up to half damage
+const gapIn = (e) => 1 + Math.min(0.6, Math.max(0, ((e && e.T && e.T.lv) || 0) - heroLvl()) * 0.03);
+const gapOut = (e) => Math.max(0.5, 1 - Math.max(0, ((e && e.T && e.T.lv) || 0) - heroLvl()) * 0.02);
 
 // ---------- see-through silhouettes ----------
 // When a tree or house hides the hero (or a boss), a soft glowing shape shows through it.
@@ -922,7 +1028,7 @@ function peersTick(dt) {
 // and can't hurt each other unless the leader turns party damage on.
 // Outside the villages and indoors, players level 10 and up can fight each other.
 // The whole Chapter 1 starting area around Jerry Village is always safe.
-const PARTY_MAX = 6, PVP_LVL = 10;
+const PARTY_MAX = 6, PVP_LVL = 15;
 const esc = (t) => String(t).replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
 let party = null; // { leader, members: [{ id, name }], dmg }
 const invites = new Map(); // id we invited -> time
@@ -1824,11 +1930,15 @@ function pickTarget(e) {
 }
 // run a boss move aimed at another hero: for that instant the move "sees" them where you stand
 function aimAt(h, e, fn) {
-  if (!h) return fn();
+  if (!h) { const was = foeNow; foeNow = e; try { return fn(); } finally { foeNow = was; } }
   const P = player.pos, sx = P.x, sz = P.z;
-  aimPeer = { id: h.id, big: !!e.T.boss }; P.x = h.pos.x; P.z = h.pos.z;
-  try { return fn(); } finally { P.x = sx; P.z = sz; aimPeer = null; }
+  aimPeer = { id: h.id, big: !!e.T.boss }; P.x = h.pos.x; P.z = h.pos.z; const was = foeNow; foeNow = e;
+  try { return fn(); } finally { P.x = sx; P.z = sz; aimPeer = null; foeNow = was; }
 }
+// v80: the monster whose move is being worked out right now (so its floor attacks know if they are magic)
+let foeNow = null;
+const MAGIC_BOSS = new Set(['boss_gloom', 'boss_frost', 'boss_mire', 'boss_twin_b', 'boss_pyrrhax']);
+const isMagicFoe = (e) => !!e && !!e.T && (MAGIC_BOSS.has(e.type) || (!!e.T.ranged && !/bow/i.test(e.T.weapon || '')));
 function hitMsg(dmg, big) { return big ? { b: +(dmg / hitUnit()).toFixed(3) } : { d: Math.round(dmg) }; }
 function hitFrom(m) { return m.b ? Math.max(1, Math.round(m.b * hitUnit())) : Math.max(0, m.d | 0); }
 // a basic swing or shot at another hero
@@ -1875,12 +1985,12 @@ function hzShare(o) {
   if (netFxIn || !netDrive || !player) return;
   if (!heroesNear.some((h) => Math.hypot(h.pos.x - o.x, h.pos.z - o.z) < 45)) return;
   if (enemies.some((e) => e.T.boss && netDriven(e) && e.inside === where && Math.hypot(e.pos.x - o.x, e.pos.z - o.z) < 60)) return;
-  sendNet('hz', { w: where, x: r2(o.x), z: r2(o.z), R: r2(o.R), dir: r2(o.dir || 0), half: r2(o.half ?? Math.PI), dur: r2(o.dur ?? 1.1), fire: o.fire === false ? 0 : 1, col: o.col || '', inner: r2(o.inner || 0), b: o.dmg ? +(o.dmg / hitUnit()).toFixed(3) : 0 });
+  sendNet('hz', { w: where, x: r2(o.x), z: r2(o.z), R: r2(o.R), dir: r2(o.dir || 0), half: r2(o.half ?? Math.PI), dur: r2(o.dur ?? 1.1), fire: o.fire === false ? 0 : 1, col: o.col || '', inner: r2(o.inner || 0), mg: o.magic ? 1 : 0, b: o.dmg ? +(o.dmg / hitUnit()).toFixed(3) : 0 });
 }
 function hzNet(m) {
   if (!player || m.w !== where || !(m.R > 0) || m.R > 40) return;
   netFxIn = true;
-  try { hazard({ x: +m.x, z: +m.z, R: +m.R, dir: +m.dir || 0, half: Math.min(Math.PI, +m.half || Math.PI), dur: Math.max(0.2, Math.min(4, +m.dur || 1.1)), fire: !!m.fire, col: m.col || null, inner: +m.inner || 0, dmg: m.b ? Math.max(1, Math.round(m.b * hitUnit())) : 0 }); } finally { netFxIn = false; }
+  try { hazard({ x: +m.x, z: +m.z, R: +m.R, dir: +m.dir || 0, half: Math.min(Math.PI, +m.half || Math.PI), dur: Math.max(0.2, Math.min(4, +m.dur || 1.1)), fire: !!m.fire, col: m.col || null, inner: +m.inner || 0, magic: !!m.mg, dmg: m.b ? Math.max(1, Math.round(m.b * hitUnit())) : 0 }); } finally { netFxIn = false; }
 }
 function bfxShare(k, e, extra = {}) { if (!netFxIn && netDrive && e && e.nid && !netDriven(e)) sendNet('bfx', { w: where, k, n: e.nid, ...extra }); }
 function aimTargetPos() { if (!aimPeer) return player.pos; const h = heroesNear.find((x) => x.id === aimPeer.id); return h ? h.pos : player.pos; }
@@ -3135,7 +3245,7 @@ function breathRelease() {
   const B = breath; breath = null; scene.remove(B.orb); B.orb.geometry.dispose(); B.orb.material.dispose();
   const c = Math.max(0.2, Math.min(1, (now - B.t0) / BREATH_FULL)), sp = SPELLS[B.k];
   if (!player || player.dead) return;
-  spellCd[B.k] = now + sp.cd;
+  spellCd[B.k] = now + sp.cd * spellCdK();
   const ry = player.root.rotation.y, x = player.pos.x, z = player.pos.z;
   player.play('Spellcast_Shoot', { once: true, fade: 0.06, speed: 0.9, onFinish: () => player.play('Idle') });
   player.busyUntil = now + 0.6;
@@ -3175,15 +3285,17 @@ addEventListener('pointerdown', () => { tipEl.hidden = true; });
 const HOT_N = 8;
 function hotbar() { if (!Array.isArray(S.hotbar) || S.hotbar.length !== HOT_N) S.hotbar = [...(S.hotbar || []), ...Array(HOT_N).fill(null)].slice(0, HOT_N); return S.hotbar; }
 let hotPick = -1; // a slot the player tapped to fill next
+const hotName = (k) => (k.startsWith('spell:') ? (SPELLS[k.slice(6)] || {}).name || 'Spell' : ITEMS[k] || (GEAR[k] && GEAR[k].name) || k);
+const hotIcon = (k) => (k.startsWith('spell:') ? spellIcon(k.slice(6)) : ICONS[k] || (GEAR[k] && gearIcon(GEAR[k])) || ICONS.star);
 function pinToHotbar(k) {
   const hb = hotbar(), at = hb.indexOf(k);
-  if (at >= 0 && hotPick < 0) { hb[at] = null; toast(`Took ${ITEMS[k] || GEAR[k].name} off the hotbar.`); }
+  if (at >= 0 && hotPick < 0) { hb[at] = null; toast(`Took ${hotName(k)} off the hotbar.`); }
   else {
     if (at >= 0) hb[at] = null;
     let i = hotPick >= 0 ? hotPick : hb.indexOf(null);
     if (i < 0) i = HOT_N - 1;
     hb[i] = k; hotPick = -1;
-    toast(`${ITEMS[k] || GEAR[k].name} is on hotbar slot ${i + 1}.`, ICONS[k] || gearIcon(GEAR[k]));
+    toast(`${hotName(k)} is on hotbar slot ${i + 1}.`, hotIcon(k));
   }
   save(); renderHotbar();
 }
@@ -3241,9 +3353,11 @@ function renderHotbar() {
 }
 function buildGearBar() {
   const w = W(), free = freePoints();
-  $('classes').innerHTML = `<div class="classchip"><img src="${ICONS[w.type]}" alt="">${w.name}<small>${STYLE_NAME[w.type]}</small></div>`
-    + (free > 0 ? `<button id="spendpts" class="spend"><img src="${ICONS.star}" alt="">${free} stat point${free > 1 ? 's' : ''} to spend</button>` : '');
+  $('classes').innerHTML = `<div class="classchip"><img src="${wIcon(w)}" alt="">${w.name}<small>${KIND_NAME[wKind(w)]}</small></div>`
+    + (free > 0 ? `<button id="spendpts" class="spend"><img src="${ICONS.star}" alt="">${free} stat point${free > 1 ? 's' : ''} to spend</button>` : '')
+    + (perksDue().length ? `<button id="pickperk" class="spend"><img src="${ICONS.star}" alt="">Choose your perk!</button>` : '');
   if (free > 0) $('spendpts').onclick = () => openSheet('skills');
+  if (perksDue().length) $('pickperk').onclick = () => openPerkPick();
 }
 function updateTitle() {
   $('pname').textContent = heroName();
@@ -3398,7 +3512,8 @@ function buildNpcs() {
     { id: 'marta', name: 'Marta the Baker', model: 'barbarian', x: 7.5 * VS, z: 10.2 * VS, hide: [], shop: 'food', tint: '#bfe3ff' },
     { id: 'pip', name: 'Pip of the Request Board', model: 'archer', x: -9.5 * VS, z: 11.5 * VS, hide: [], board: true, tint: '#ffd8a0' },
     { id: 'brom', name: 'Brom the Blacksmith', model: 'barbarian', x: 5.5 * VS, z: -19.8 * VS, hide: [], shop: 'melee', tint: '#ffb38a' },
-    { id: 'wisteria', name: 'Madame Wisteria', model: 'mage', x: 18.4 * VS, z: -21.6 * VS, hide: [], shop: 'magic', tint: '#f0b0ff' },
+    { id: 'wisteria', name: 'Madame Wisteria, spell seller', model: 'mage', x: 18.4 * VS, z: -21.6 * VS, hide: [], shop: 'magic', tint: '#f0b0ff' },
+    { id: 'orrin', name: 'Master Orrin, Point Allocation', model: 'knight', x: 22.6 * VS, z: -18.2 * VS, hide: ['Knight_Helmet'], alloc: true, tint: '#ffe08a' },
     { id: 'hazel', name: 'Hazel the Fletcher', model: 'heroine', x: -22 * VS, z: 10.5 * VS, hide: [], shop: 'ranged', tint: '#d8f0a0' },
     { id: 'king', name: 'King Jerrold', model: 'knight', x: INTERIORS.castle.king.x, z: INTERIORS.castle.king.z, hide: ['Knight_Helmet'], king: true, tint: '#b98cff', inside: 'castle' },
     ...INTERIORS.castle.guards.map(([x, z], i) => ({ id: `guard${i}`, name: 'Royal Guard', model: 'knight', x, z, hide: [], inside: 'castle', tint: '#8fb8ff',
@@ -3407,7 +3522,7 @@ function buildNpcs() {
     { id: 'pip', name: 'Granny Pip', model: 'mage', x: ZONES.meadow.x - 6, z: ZONES.meadow.z + 1, hide: [], tint: '#ffc0d8',
       lines: ['Back in my day, skeletons said please before they stabbed you.', 'Have you tried my apple pie? Marta in the village sells it. I taught her!', 'The windmill squeaks a little song at night. Listen closely.'] },
     { id: 'crier', name: 'Bertram the Town Crier', model: 'knight', x: -6 * VS, z: 5 * VS, hide: ['Knight_Helmet'], tint: '#ffd08a',
-      lines: ['Hear ye! Four lands lie beyond the woods: Glimmerwood to the east, Grumble Crags to the west, Honeymeadow to the south and Haunted Hollow to the north!', 'Hear ye! Each land has a fearsome boss. Watch for the red glow on the ground and get out of the way!', 'Hear ye! Hold Shift to sprint, press C (or tap any direction twice) to dash in any direction, J or click to attack, R for your special attack, and M for the map. Hear ye!', 'Hear ye! Coins in the bank are safe. Coins in your pocket? Half of them fall out when you get knocked out!', 'Hear ye! Adventurers wander the valley. Talk to them or open the Crew menu to make them allies, leave them be, or make them your rivals!', 'Hear ye! Monsters have taken Thornbury, Mossbrook and Cinderholt! Defeat each town\'s tyrant to free it, and the townsfolk will send you coins.'] },
+      lines: ['Hear ye! Four lands lie beyond the woods: Glimmerwood to the east, Grumble Crags to the west, Honeymeadow to the south and Haunted Hollow to the north!', 'Hear ye! Each land has a fearsome boss. Watch for the red glow on the ground and get out of the way!', 'Hear ye! Hold Shift to sprint, press C (or tap any direction twice) to dash in any direction, J or click to attack, hold K for a charged attack, and M for the map. Hear ye!', 'Hear ye! Coins in the bank are safe. Coins in your pocket? Half of them fall out when you get knocked out!', 'Hear ye! Adventurers wander the valley. Talk to them or open the Crew menu to make them allies, leave them be, or make them your rivals!', 'Hear ye! Monsters have taken Thornbury, Mossbrook and Cinderholt! Defeat each town\'s tyrant to free it, and the townsfolk will send you coins.'] },
     { id: 'lumi', name: 'Lumi the Wisp-keeper', model: 'mage', x: ZONES.glimmer.x - 22, z: ZONES.glimmer.z + 8, hide: [], tint: '#9ff0ff',
       lines: ['Harold the Grotesque stole the colour from half my mushrooms. The rest glow twice as bright out of spite!', 'Glimmerwood hums at night. Can you hear it? No? Try humming back.'] },
     { id: 'dot', name: 'Prospector Dot', model: 'heroine', x: ZONES.crags.x + 23, z: ZONES.crags.z + 6, hide: [], tint: '#e8b080',
@@ -3502,6 +3617,7 @@ const NPC_LOOKS = (() => {
     marta: L({ sex: 'f', skin: 'porcelain', eyes: 'sky', eyeStyle: 'happy', mouth: 'grin', hair: 'twin', hairLen: 'shoulder', hairCol: 'blonde', mark: 'freckles' }),
     brom: L({ skin: 'bronze', eyes: 'gold', eyeStyle: 'sharp', mouth: 'grin', hair: 'none', hairCol: 'ginger', beard: 'full', hat: true }),
     wisteria: L({ sex: 'f', skin: 'peach', eyes: 'violet', eyeStyle: 'sleepy', mouth: 'cat', hair: 'hime', hairLen: 'long', hairCol: 'pink', mark: 'star', hat: true }),
+    orrin: L({ skin: 'bronze', eyes: 'gold', eyeStyle: 'sharp', mouth: 'calm', hair: 'swept', hairCol: 'snow', beard: 'full' }),
     hazel: L({ sex: 'f', skin: 'tan', eyes: 'hazel', eyeStyle: 'round', mouth: 'smile', hair: 'long', hairLen: 'long', hairCol: 'green', mark: 'freckles', ears: 'elf' }),
     king: L({ skin: 'peach', eyes: 'blue', eyeStyle: 'happy', mouth: 'grin', hair: 'curls', hairCol: 'snow', beard: 'full', head: 'chibi' }),
     guard: L({ skin: 'honey', eyes: 'brown', eyeStyle: 'sharp', mouth: 'calm', hair: 'none', beard: 'stache', hairCol: 'chestnut', hat: true }),
@@ -3561,14 +3677,14 @@ ENEMY_TYPES.dust_bat.alias = ENEMY_TYPES.mire_bat.alias;
 // per-body shape keeps minions flimsy, warriors beefy and dragons enormous.
 // Chapter 1 mobs are 1-5 and its bosses 10-20, rising every chapter; Magma Caverns sits above all of them.
 const MON_LV = {
-  jelly_slime: 1, skel_minion: 2, honey_slime: 2, mint_slime: 3, skel_mage: 3, hollow_bat: 4, skel_warrior: 5, gloom_shadow: 8,
-  boss_rattle: 10, boss_crusher: 12, boss_gloom: 14, boss_gagron: 18,
-  frost_minion: 14, frost_mage: 15, frost_warrior: 17, thaw_shadow: 18,
-  boss_grumble: 26, boss_twin_a: 28, boss_twin_b: 28, boss_frost: 30,
-  mire_bat: 25, mud_gloop: 26, bog_slime: 27, bog_witchling: 28, bog_knight: 30,
-  boss_mire: 36, boss_sogg: 38, boss_goon: 40, boss_gobbler: 44,
-  dust_bat: 38, sand_gloop: 40, clock_conjurer: 41, clock_soldier: 43,
-  boss_pomp: 52, boss_colossus: 60,
+  jelly_slime: 1, skel_minion: 2, honey_slime: 3, mint_slime: 4, skel_mage: 5, hollow_bat: 6, skel_warrior: 8, gloom_shadow: 12,
+  boss_rattle: 14, boss_crusher: 17, boss_gloom: 20, boss_gagron: 26,
+  frost_minion: 26, frost_mage: 28, frost_warrior: 31, thaw_shadow: 33,
+  boss_grumble: 40, boss_twin_a: 44, boss_twin_b: 44, boss_frost: 50,
+  mire_bat: 50, mud_gloop: 52, bog_slime: 54, bog_witchling: 56, bog_knight: 59,
+  boss_mire: 64, boss_sogg: 67, boss_goon: 70, boss_gobbler: 76,
+  dust_bat: 80, sand_gloop: 83, clock_conjurer: 86, clock_soldier: 89,
+  boss_pomp: 98, boss_colossus: 108,
 };
 // boss-specific shape: [health, damage]
 const BOSS_SHAPE = { boss_pyrrhax: [0.8, 0.9], boss_gagron: [0.75, 0.75], boss_twin_a: [0.75, 1], boss_twin_b: [0.75, 1], boss_colossus: [1.25, 1.05], boss_gobbler: [0.95, 0.95] };
@@ -3579,12 +3695,25 @@ const lvHit = (L, boss) => (boss ? 22 * Math.pow(L / 12, 1.3) : 5 + 0.6 * L + 0.
 const lvXp = (L, boss) => (boss ? 900 * Math.pow(L / 12, 2.2) : 10 + 4 * L + 0.2 * L * L);
 // defense: each point takes about 1% off every hit it receives (level 40 shrugs off about a sixth)
 const lvDef = (L) => Math.round(L * 0.5);
+// v80: monster levels use the new, longer scale. Stats come from the old formulas at the matching old level,
+// scaled by how much stronger (or tougher) a typical hero at that level is under the new stat rules, then
+// made a touch harder (LV_HARD). Typical hero: a third of free points each in Attack, Defense and Health,
+// and the armour of that part of the story.
+const LV_HARD = 1.1;
+const gearAt = (o) => (o < 10 ? 4 : o < 18 ? 8 : o < 30 ? 21 : o < 44 ? 34 : o < 60 ? 51 : 75);
+function heroRatio(N) {
+  const o = invMap(N), oS = o + (2 * (o - 1)) / 3, nS = N + (N - 1), g = gearAt(o);
+  const dmg = (1 + 0.1 * nS) / (1 + 0.1 * oS);
+  const ehpOld = (50 + 6 * oS) * (1 + 0.1 * (oS + g)), ehpNew = (50 + 6 * nS) / (1 - blockPct(nS + g, N));
+  return [dmg, ehpNew / ehpOld, o];
+}
 function setLevel(T, L, sh = T.shape || [1, 1]) {
   T.lv = L; T.shape = sh;
-  T.hp = Math.round(lvHp(L, T.boss) * sh[0]);
-  T.maxHit = Math.max(1, Math.round(lvHit(L, T.boss) * sh[1]));
-  T.xp = Math.round(lvXp(L, T.boss) * (sh[2] || 1));
-  T.def = lvDef(L);
+  const [rD, rE, o] = heroRatio(L);
+  T.hp = Math.round(lvHp(o, T.boss) * sh[0] * rD * LV_HARD);
+  T.maxHit = Math.max(1, Math.round(lvHit(o, T.boss) * sh[1] * rE * LV_HARD));
+  T.xp = Math.round(lvXp(o, T.boss) * (sh[2] || 1));
+  T.def = lvDef(o);
 }
 function farMult(w, x, z) {
   const c = w === 'out' || !LANDS[w] ? { x: 0, z: 0 } : LANDS[w].village;
@@ -3594,15 +3723,16 @@ function farMult(w, x, z) {
 }
 // Boss hits always matter: at least a share of your max health (after your defence), however strong you are.
 function bossDmg(e, k = 1) {
-  if (!e.T.boss) return Math.max(1, Math.round(e.T.maxHit * k));
-  return Math.max(Math.round(e.T.maxHit * k), Math.round(maxHp() * 0.075 * k * defDiv()));
+  const g = gapIn(e);
+  if (!e.T.boss) return Math.max(1, Math.round(e.T.maxHit * k * g));
+  return Math.max(Math.round(e.T.maxHit * k * g), Math.round(maxHp() * 0.075 * k * g * defDiv()));
 }
 function toughen(T, k) {
   if (T.world || T.toughened) return; T.toughened = true;
   const L = T.lv || MON_LV[k];
   if (L) { setLevel(T, L, T.boss ? (BOSS_SHAPE[k] || T.shape || [1, 1]) : (T.shape || MOB_SHAPE[T.model || k] || [1, 1])); return; }
   // anything without a level yet: guess one from its strength so it still shows a sensible number
-  T.lv = Math.max(1, Math.round(T.boss ? 12 * Math.pow(T.hp * 4.5 / 1300, 1 / 2.15) : Math.sqrt(T.hp * 2.9 / 0.62) * 0.8));
+  T.lv = Math.max(1, Math.round(fwdMap(T.boss ? 12 * Math.pow(T.hp * 4.5 / 1300, 1 / 2.15) : Math.sqrt(T.hp * 2.9 / 0.62) * 0.8)));
   setLevel(T, T.lv, T.boss ? [1, 1] : (MOB_SHAPE[T.model || k] || [1, 1]));
 }
 // Valley critters: round, goofy monsters alongside the skeletons (Quaternius CC0 slime and bat)
@@ -3623,7 +3753,7 @@ Object.assign(ENEMY_TYPES, {
   boss_pyrrhax: { name: 'Pyrrhax the Ashen', title: 'Lord of the Magma Caverns', model: 'drake', hp: 1, maxHit: 1, xp: 1, boss: true, dragon: true, scale: 3.0, drake: 'pyrrhax', inside: 'magma', coins: [6000, 9000], drop: 'dragon_heart', noBones: true, mass: 40 },
   elder_dragon: { name: 'Elder Flame Dragon', model: 'drake', hp: 1, maxHit: 1, xp: 1, dragon: true, scale: 2.0, drake: 'elder', inside: 'magma', coins: [1600, 2600], noBones: true, mass: 16, shape: [4.2, 1.5, 1.6] },
 });
-Object.assign(MON_LV, { boss_pyrrhax: 92, flame_minion: 56, flame_mage: 58, flame_warrior: 61, flame_knight: 66, magma_drake: 76, elder_dragon: 86 });
+Object.assign(MON_LV, { boss_pyrrhax: 140, flame_minion: 110, flame_mage: 113, flame_warrior: 117, flame_knight: 122, magma_drake: 128, elder_dragon: 135 });
 MOB_SHAPE.dragon = [3, 1.35, 1.3];
 for (const [k, T] of Object.entries(ENEMY_TYPES)) toughen(T, k);
 // v69: the big dragons use a proper four-legged, winged dragon (Mesh2Motion, CC0) with walk, roar and fire-breath animations
@@ -3654,8 +3784,8 @@ function spawnEnemy(k, x, z) {
   e.type = k; e.T = T; e.home = new THREE.Vector2(x, z);
   e.nid = `${k}@${x.toFixed(1)},${z.toFixed(1)}`; // the same on every player's screen, so hits can be shared
   // monsters far from the land's village are naturally fiercer (up to +80% health and damage, and better rewards)
-  // v68: they're a few levels higher (up to +4), which raises everything else with it
-  const far = farMult(e.inside, x, z), extra = Math.round((far - 1) * 5);
+  // v68: they are a few levels higher (up to +6), which raises everything else with it
+  const far = farMult(e.inside, x, z), extra = Math.round((far - 1) * 8);
   if (!T.boss && !T.town && !T.world && T.lv && extra >= 1) {
     e.T = { ...T, coins: T.coins ? T.coins.map((c) => Math.round(c * (1 + extra * 0.15))) : T.coins, name: extra >= 2 ? `Fierce ${T.name}` : T.name };
     setLevel(e.T, T.lv + extra);
@@ -3664,7 +3794,7 @@ function spawnEnemy(k, x, z) {
   // Which monsters are Champions comes from their spot on the map, so every player sees the same ones.
   if (!T.boss && !T.town && !T.world && !T.dragon && e.T.lv && nidHash(e.nid) % 100 < 6) {
     const B = e.T; e.T = { ...B, elite: true, name: `Champion ${B.name.replace(/^Fierce /, '')}`, coins: B.coins ? B.coins.map((c) => c * 3) : [20, 60] };
-    setLevel(e.T, B.lv + 3); e.T.hp = Math.round(e.T.hp * 1.5); e.T.xp *= 2;
+    setLevel(e.T, B.lv + 5); e.T.hp = Math.round(e.T.hp * 1.5); e.T.xp *= 2;
     // v71: every Champion has one trick of its own (the same one for every player)
     const AF = CHAMP_AFFIX[Math.floor(nidHash(e.nid) / 100) % CHAMP_AFFIX.length];
     e.T.affix = AF.k; e.T.affixName = AF.name; if (AF.k === 'swift') e.T.fast = 1.35;
@@ -3765,10 +3895,10 @@ function skeletonize(e, T) {
 function buildEnemies() {
   for (const [k, dx, dz] of [['skel_warrior', -3, -4], ['skel_minion', -6, 3], ['skel_mage', 2, 6], ['skel_minion', 5, -1], ['skel_minion', -1, 9]]) spawnEnemy(k, CAMP.x + dx, CAMP.z + dz);
   const ring = (Z, list, r) => list.forEach((k, i) => { const a = (i / list.length) * Math.PI * 2 + 0.4; spawnEnemy(k, Z.x + Math.cos(a) * r, Z.z + Math.sin(a) * r); });
-  ring(ZONES.crags, ['skel_warrior', 'skel_minion', 'skel_warrior', 'skel_minion'], 27);
-  ring(ZONES.glimmer, ['skel_mage', 'mint_slime', 'skel_mage', 'mint_slime', 'jelly_slime'], 28);
-  ring(ZONES.hollow, ['skel_minion', 'hollow_bat', 'skel_warrior', 'hollow_bat', 'skel_mage', 'hollow_bat'], 24);
-  ring(ZONES.meadow, ['honey_slime', 'jelly_slime', 'honey_slime', 'jelly_slime', 'honey_slime'], 14);
+  ring(ZONES.crags, ['skel_warrior', 'skel_minion', 'skel_warrior', 'skel_minion'], 34);
+  ring(ZONES.glimmer, ['skel_mage', 'mint_slime', 'skel_mage', 'mint_slime', 'jelly_slime'], 35);
+  ring(ZONES.hollow, ['skel_minion', 'hollow_bat', 'skel_warrior', 'hollow_bat', 'skel_mage', 'hollow_bat'], 31);
+  ring(ZONES.meadow, ['honey_slime', 'jelly_slime', 'honey_slime', 'jelly_slime', 'honey_slime'], 18);
   // a few soft starter critters on the roads near the village
   for (const [x, z] of [[30, 34], [-34, 40], [44, -30]]) spawnEnemy('jelly_slime', x, z);
   spawnEnemy('boss_crusher', ZONES.crags.x, ZONES.crags.z);
@@ -3777,7 +3907,8 @@ function buildEnemies() {
   spawnEnemy('boss_gagron', INTERIORS.cave.lair.x, INTERIORS.cave.lair.z);
   buildTownMonsters();
   const FZs = LANDS.frost.zones;
-  const fring = (Z, list, r) => list.forEach((k, i) => { const a = (i / list.length) * Math.PI * 2 + 0.7; spawnEnemy(k, Z.x + Math.cos(a) * r, Z.z + Math.sin(a) * r); });
+  // v78: land packs spread out more (1.5x the old spacing) so they have room to roam
+  const fring = (Z, list, r) => list.forEach((k, i) => { const a = (i / list.length) * Math.PI * 2 + 0.7, rr = r * 1.5; spawnEnemy(k, Z.x + Math.cos(a) * rr, Z.z + Math.sin(a) * rr); });
   fring(FZs.woods, ['frost_minion', 'frost_warrior', 'frost_minion', 'frost_mage', 'frost_minion'], 11);
   fring(FZs.hills, ['frost_mage', 'frost_minion', 'frost_warrior', 'frost_minion'], 6);
   fring({ x: FZs.palace.x + 16, z: FZs.palace.z + 18 }, ['frost_warrior', 'frost_mage', 'frost_warrior'], 5);
@@ -3816,7 +3947,7 @@ function buildEnemies() {
   spawnEnemy('boss_pomp', DZs.workshop.x, DZs.workshop.z);
   spawnEnemy('boss_colossus', DZs.colossus.x, DZs.colossus.z - 2);
   // v76: the bigger maps' outskirts have their own roaming packs (they come out Fierce, being so far from home)
-  const pack = (land, x, z, list) => { const L = land ? LANDS[land] : { x: 0, z: 0 }; fring({ x: L.x + x, z: L.z + z }, list, 5); };
+  const pack = (land, x, z, list) => { const [px, pz] = land ? landPt(LANDS[land], x, z) : [x, z]; fring({ x: px, z: pz }, list, 5); };
   pack(null, 120, -130, ['skel_warrior', 'skel_mage', 'skel_minion', 'skel_warrior']);
   pack(null, -176, -20, ['skel_warrior', 'skel_minion', 'skel_warrior']);
   pack(null, 135, 122, ['honey_slime', 'mint_slime', 'jelly_slime', 'honey_slime']);
@@ -3839,6 +3970,7 @@ function buildEnemies() {
 function addItem(id, n = 1) { S.inv[id] = (S.inv[id] || 0) + n; refreshUI(); if (!$('sheet').hidden && sheetMode === 'craft') renderSheet(); }
 function takeItem(id, n) { S.inv[id] -= n; if (S.inv[id] <= 0) delete S.inv[id]; }
 function giveXp(skill, amount, at) {
+  if (skill !== 'speed') amount *= 1 + perkSum({ gatherer: 0.3 });
   const before = lvl(skill);
   S.xp[skill] += amount;
   const after = lvl(skill);
@@ -3856,6 +3988,7 @@ function giveXp(skill, amount, at) {
   else if (!$('sheet').hidden && sheetMode === 'card' && skill !== 'speed') renderSheet();
 }
 function giveHeroXp(amount, at) {
+  amount *= 1 + perkSum({ learner: 0.1, warpath: 0.08, golden: 0.2 });
   const before = heroLvl();
   S.hero.xp += amount;
   const after = heroLvl();
@@ -3872,17 +4005,98 @@ function giveHeroXp(amount, at) {
     burst(player.pos.clone().setY(1.5), '#ffd23f', 60, 7, 1.5);
     if (!player.task && now > player.busyUntil && !player.dead) { player.play('Cheer', { once: true, onFinish: () => player.play('Idle') }); player.busyUntil = now + 1.2; }
     buildGearBar();
+    if (PERK_AT.some((L) => before < L && after >= L)) later(2.5, perkNudge);
   }
   updateTitle(); refreshUI();
   if (!$('sheet').hidden && sheetMode === 'card') renderSheet();
 }
+// a perk tier reached: open the choice right away when it's calm, otherwise point at the Hero card
+function perkNudge() {
+  if (!perksDue().length || !player) return;
+  if (player.dead || inCombat() || !$('bossbar').hidden || uiLock() || talking) { toast('A perk is waiting! Open your Hero card (Tab) to choose it.', ICONS.star, true); return; }
+  openPerkPick();
+}
+// v80: one-time note after the level and stat rework
+function v80Note() {
+  if (S.v80Refund) { delete S.v80Refund; toast('Big update: levels and stats are reworked, with a new Magic stat and 3 points a level. All your stat points are refunded, so spend them again on your Hero card (Tab).', ICONS.star, true); save(); }
+  if (perksDue().length) later(4, () => toast(`You can choose a perk! Open your Hero card (Tab).`, ICONS.star, true));
+}
 function spendPoint(k) {
   if (freePoints() <= 0) return;
   const before = maxHp();
-  S.hero.alloc[k]++;
+  S.hero.alloc[k] = (S.hero.alloc[k] || 0) + 1;
   if (k === 'hp') S.hp += maxHp() - before;
-  burst(player.pos.clone().setY(1.6), k === 'hp' ? '#ff7a8a' : k === 'def' ? '#8fc2ff' : '#ffd84a', 16, 4);
+  burst(player.pos.clone().setY(1.6), k === 'hp' ? '#ff7a8a' : k === 'def' ? '#8fc2ff' : k === 'mag' ? '#c8a0ff' : '#ffd84a', 16, 4);
   updateTitle(); buildGearBar(); refreshUI(); save(); renderSheet();
+}
+// v80: what each stat does right now, in plain words (with the 75% block cap spelled out)
+function statEffect() {
+  const L = heroLvl(), dp = Math.round(defPts()), mp = Math.round(magPts()), full = defFull(L), pc = (v) => Math.round(v * 100);
+  const capNote = (pts) => (pts >= full ? ' <b>Maxed!</b>' : `. Max at ${fmt(full)} (you have ${fmt(pts)})`);
+  const capDef = (pts) => (pts >= full ? capNote(pts) : `. Max at ${fmt(full)} (you have ${fmt(pts)}${gearDef() ? `, ${fmt(gearDef())} from armour` : ""})`);
+  return {
+    atk: `Sword, axe and bow damage × ${powMult('atk').toFixed(1)}`,
+    def: `Blocks ${pc(defBlock())}% of hits, max 75%${capDef(dp)}`,
+    hp: `${maxHp()} max health`,
+    mag: `Staff and spell damage × ${powMult('mag').toFixed(1)}. Blocks ${pc(magBlock())}% of magic, max 75%${capNote(mp)}`,
+  };
+}
+// the Perks part of the Hero card: what you have, and a big button when one is waiting
+function perksHtml() {
+  const due = perksDue(), got = PERK_AT.filter((L) => (S.perks || {})[L]);
+  const next = PERK_AT.find((L) => heroLvl() < L);
+  return `<h4 class="sub">Perks <small>pick one at levels 25, 50, 75 and 100</small></h4>
+    ${due.length ? `<button class="primary perkready" data-perkpick="1" type="button">★ Choose your level ${PERK_AT[due[0]]} perk</button>` : ''}
+    ${got.length ? `<div class="perklist">${got.map((L) => { const id = S.perks[L], P = perkInfo(id); return P ? `<div class="perkrow"><img src="${ICONS[PERK_ICON[id]] || ICONS.star}" alt=""><b>${P[0]}</b><small>Lv ${L} · ${P[1]}</small></div>` : ''; }).join('')}</div>` : due.length ? '' : `<p class="hint">Your first perk comes at level 25.</p>`}
+    ${next && !due.length && got.length ? `<p class="hint">Next perk at level ${next}.</p>` : ''}`;
+}
+// pick one of three perks for the earliest tier you have reached
+function openPerkPick(after) {
+  const due = perksDue(); if (!due.length) return;
+  const i = due[0], L = PERK_AT[i], ch = perkChoices(i), d = $('dialog');
+  talking = null;
+  d.innerHTML = `<h3>Choose a perk <small>Level ${L}</small></h3><p>Pick one. It lasts forever (Master Orrin in Jerry Village can swap it later for coins).</p>
+    <div class="perkcards">${ch.map((id) => { const P = perkInfo(id); return `<button class="perkcard" data-perk="${id}" type="button"><img src="${ICONS[PERK_ICON[id]] || ICONS.star}" alt=""><b>${P[0]}</b><span>${P[1]}</span></button>`; }).join('')}</div>
+    <div class="row"><button id="perklater" type="button">Decide later</button></div>`;
+  d.querySelectorAll('[data-perk]').forEach((b) => { b.onclick = () => {
+    S.perks = { ...(S.perks || {}), [L]: b.dataset.perk }; closeDialog(); sfx('levelup'); buildGearBar();
+    burst(player.pos.clone().setY(1.6), '#ffd84a', 50, 6, 1.4);
+    toast(`New perk: ${perkInfo(b.dataset.perk)[0]}!`, ICONS[PERK_ICON[b.dataset.perk]] || ICONS.star, true);
+    refreshUI(); save(); if (!$('sheet').hidden) renderSheet();
+    if (perksDue().length) later(0.4, () => openPerkPick(after)); else if (after) after();
+  }; });
+  $('perklater').onclick = () => { closeDialog(); if (after) after(); };
+  showDialog(d);
+}
+// ---------- v80: Point Allocation (Master Orrin, Jerry Village) ----------
+// Reset all your stat points for coins, or swap a perk you picked.
+const allocCost = () => 100 * heroLvl();
+const perkSwapCost = (L) => 100 * L;
+function openAlloc(npc) {
+  talking = npc;
+  const d = $('dialog'), A = S.hero.alloc, spent = Object.values(A).reduce((a, b) => a + b, 0), cost = allocCost();
+  const got = PERK_AT.filter((L) => (S.perks || {})[L]), due = perksDue();
+  d.innerHTML = `<h3>${npc.name}</h3><p>Point Allocation! Spent your points badly? I can take them all back so you can spend them again. I can swap your perks too.</p>
+    <div class="allocrow">${Object.entries(STATS).map(([k, [nm, ic]]) => `<span><img src="${ICONS[ic]}" alt="">${nm} <b>+${A[k] || 0}</b></span>`).join('')}</div>
+    <div class="row"><button id="areset" class="primary" type="button" ${!spent || S.coins < cost ? 'disabled' : ''}>Reset my ${spent} points (${fmt(cost)} coins)</button></div>
+    ${due.length ? `<div class="row"><button id="apick" class="primary" type="button">★ Choose my level ${PERK_AT[due[0]]} perk</button></div>` : ''}
+    ${got.length ? `<h4 class="sub">Swap a perk</h4><div class="perklist">${got.map((L) => { const id = S.perks[L], P = perkInfo(id) || ['?', '']; return `<div class="perkrow"><img src="${ICONS[PERK_ICON[id]] || ICONS.star}" alt=""><b>${P[0]}</b><small>Lv ${L}</small><button data-swap="${L}" type="button" ${S.coins < perkSwapCost(L) ? 'disabled' : ''}>Swap (${fmt(perkSwapCost(L))})</button></div>`; }).join('')}</div><p class="hint">Swapping gives you three fresh choices for that level.</p>` : '<p class="hint">Perks come at levels 25, 50, 75 and 100.</p>'}
+    <div class="row"><button id="abye" type="button">Bye</button></div>`;
+  $('areset').onclick = () => {
+    if (S.coins < cost || !spent) return;
+    S.coins -= cost; S.hero.alloc = { atk: 0, def: 0, hp: 0, mag: 0 }; S.hp = Math.min(S.hp, maxHp());
+    sfx('special'); burst(player.pos.clone().setY(2), '#ffe08a', 60, 7, 1.4);
+    toast(`Your ${spent} points are back. Spend them on your Hero card (Tab).`, ICONS.star, true);
+    updateTitle(); refreshUI(); save(); openAlloc(npc);
+  };
+  if ($('apick')) $('apick').onclick = () => openPerkPick(() => openAlloc(npc));
+  d.querySelectorAll('[data-swap]').forEach((b) => { b.onclick = () => {
+    const L = +b.dataset.swap; if (S.coins < perkSwapCost(L)) return;
+    S.coins -= perkSwapCost(L); delete S.perks[L]; S.perkSeed = (S.perkSeed || 1) + 1; S.hp = Math.min(S.hp, maxHp()); buildGearBar();
+    refreshUI(); save(); openPerkPick(() => openAlloc(npc));
+  }; });
+  $('abye').onclick = closeDialog;
+  showDialog(d);
 }
 function levelFanfare(col) {
   if (!player) return;
@@ -4083,7 +4297,7 @@ function floatText(p, text, cls = '') {
 }
 const npcName = (id) => npcs.find((n) => n.id === id).name;
 // how a monster's level compares to yours: grey = easy, white = fair, orange = tough, red = deadly
-function lvClass(L) { const d = L - heroLvl(); return d <= -5 ? 'easy' : d <= 2 ? 'fair' : d <= 9 ? 'tough' : 'deadly'; }
+function lvClass(L) { const d = L - heroLvl(); return d <= -8 ? 'easy' : d <= 3 ? 'fair' : d <= 12 ? 'tough' : 'deadly'; }
 function lvTagSet(el, L, elite) { const c = lvClass(L); setText(el, elite ? `★ ${typeof elite === 'string' ? `${elite} ` : ''}Champion · Lv ${L}` : `Lv ${L}`); if (!!elite !== !!el._e) { el._e = !!elite; el.classList.toggle('elite', !!elite); } if (el._c !== c) { if (el._c) el.classList.remove(el._c); el.classList.add(c); el._c = c; } }
 function bossUi() {
   if (!player) return;
@@ -4430,8 +4644,8 @@ function checkDoors() {
   }
 }
 // v65: a new hero's screen starts simple. Extra buttons appear as you level up (nothing is taken away for good):
-//   level 3: special attack button (chat is open from the start); level 4: the Crew menu and the rest of the hotbar.
-function hudUnlocks() { return [[3, 'gate-special', 'New: your special attack! Press R (or the star button).'], [4, 'gate-crew', 'New: the Crew menu. Team up with the valley adventurers.']]; }
+//   level 3: the charged attack button (chat is open from the start); level 4: the Crew menu and the rest of the hotbar.
+function hudUnlocks() { return [[3, 'gate-special', `New: your charged attack button! Hold ${keyOf('charge')} (or hold the star button), then let go.`], [4, 'gate-crew', 'New: the Crew menu. Team up with the valley adventurers.']]; }
 function hudGate() {
   const L = heroLvl();
   for (const [lv, cls] of hudUnlocks()) document.body.classList.toggle(cls, L < lv);
@@ -4443,7 +4657,7 @@ function unlockNotes(before, after) {
 function refreshUI() {
   if (!S.started) return;
   hudGate();
-  $('status').classList.toggle('compact', !S.hudOpen); $('status').classList.toggle('pts', freePoints() > 0);
+  $('status').classList.toggle('compact', !S.hudOpen); $('status').classList.toggle('pts', freePoints() > 0 || perksDue().length > 0);
   $('hudmore').setAttribute('aria-expanded', String(!!S.hudOpen)); $('hudmore').textContent = S.hudOpen ? '▴' : '▾';
   const mh = maxHp();
   $('hpfill').style.width = `${Math.max(0, (S.hp / mh) * 100)}%`;
@@ -4483,13 +4697,13 @@ function renderSheet() {
   if (sheetMode === 'card') { renderCard(el); return; }
   if (sheetMode === 'skills') {
     const L = heroLvl(), cur = HXT[L], next = HXT[Math.min(HERO_MAX, L + 1)], free = freePoints();
-    const pct = L >= 99 ? 100 : ((S.hero.xp - cur) / (next - cur)) * 100;
-    const effect = { atk: `Weapon damage × ${dmgMult().toFixed(1)}`, def: `Damage taken ÷ ${defDiv().toFixed(1)}${gearDef() ? ` (gear +${gearDef()})` : ''}`, hp: `${maxHp()} max health` };
+    const pct = L >= HERO_MAX ? 100 : ((S.hero.xp - cur) / (next - cur)) * 100;
+    const effect = statEffect();
     const w = W();
     el.innerHTML = `<h3>Hero <small>Level ${L}</small></h3>
       <div class="herolvl"><div class="xp"><i style="width:${pct}%"></i></div><small>${Math.floor(S.hero.xp - cur)} / ${next - cur} XP to level ${L + 1}</small></div>
       <div class="stats">${Object.entries(STATS).map(([k, [nm, ic]]) => `<div class="stat"><img src="${ICONS[ic]}" alt=""><span class="nm">${nm}</span><span class="lv">${stat(k)}</span><small>${effect[k]}</small>${free > 0 ? `<button class="plus" data-stat="${k}" aria-label="Add a point to ${nm}">+</button>` : ''}</div>`).join('')}</div>
-      <p class="hint">${free > 0 ? `<b>${free} point${free > 1 ? 's' : ''} to spend.</b> ` : ''}You get ${FREE_PER_LEVEL} more points each level.</p>
+      <p class="hint">${free > 0 ? `<b>${free} point${free > 1 ? 's' : ''} to spend.</b> ` : ''}You get ${FREE_PER_LEVEL} more points each level. Master Orrin in Jerry Village resets them for coins.</p>${perksHtml()}
       <h4 class="sub">Weapon</h4><div class="gearbtn now"><b><img src="${ICONS[w.type]}" alt="">${w.name}</b><span>${gearStats(w)}</span></div>
       <h4 class="sub">Gathering</h4><div class="skills">${SKILLS.filter(([k]) => k !== 'crafting').map(([k, nm]) => {
       const l = lvl(k), c0 = XPT[l], n0 = XPT[Math.min(99, l + 1)];
@@ -4497,6 +4711,7 @@ function renderSheet() {
       return `<div class="skill" title="${Math.floor(S.xp[k])} XP"><img src="${ICONS[k]}" alt=""><span class="nm">${nm}</span><span class="lv">${l}</span><div class="xp"><i style="width:${pc}%"></i></div></div>`;
     }).join('')}</div><p class="hint">Skills level up as you use them.</p>${worthHtml()}`;
     el.querySelectorAll('[data-stat]').forEach((b) => { b.onclick = () => spendPoint(b.dataset.stat); });
+    el.querySelectorAll('[data-perkpick]').forEach((b) => { b.onclick = () => openPerkPick(); });
   } else if (sheetMode === 'bag') { renderBag(el); return;
   } else if (sheetMode === 'bagOld') {
     const items = Object.entries(S.inv);
@@ -4636,7 +4851,7 @@ $('status').addEventListener('click', (e) => { if (e.target.closest('#classes bu
 // ---------- spells ----------
 // Buy them from the magic sellers (each land sells its own), or find one rarely when a boss falls.
 // They live on the hotbar: press the slot's number to cast toward where you're facing.
-// Damage spells scale with your Attack, like your weapon does.
+// Damage spells scale with your Magic stat (v80), like staffs do.
 const SPELLS = {
   azap: { name: 'Admin Zap', icon: 'zap', r: 5, cd: 0.12, price: 0, admin: true, col: '#b98aff', desc: 'Admin only. Huge violet lightning that chains to three foes, with no cooldown.', dmg: 60 },
   zap: { name: 'Zap', r: 0, cd: 2.5, price: 350, sold: 'magic', col: '#ffe14a', desc: 'A bolt of lightning strikes the ground ahead of you. Long range.', dmg: 10 },
@@ -4651,6 +4866,7 @@ const SPELLS = {
 };
 const SPELL_LAND = { out: ['zap', 'heal', 'scorch'], frost: ['gust', 'bigheal'], marsh: ['tidal', 'breath'], sands: ['shadow'], magma: ['breath', 'shadow', 'tidal'] };
 const spellCd = {};
+const spellCdK = () => 1 - Math.min(0.5, perkSum({ spellweaver: 0.2, archmage: 0.35 }));
 const spellsOwned = () => (S.spells = S.spells || {});
 const spellIcon = (k) => ICONS[`spell_${k}`] || (SPELLS[k] && ICONS[`spell_${SPELLS[k].icon}`]) || ICONS.star;
 function learnSpell(k) {
@@ -4660,7 +4876,7 @@ function learnSpell(k) {
   if (!hb.includes(id)) { const at = hb.indexOf(null); if (at >= 0 && (at < 4 || heroLvl() >= 4)) hb[at] = id; } // slots 5-8 stay hidden until level 4
   renderHotbar(); save();
 }
-function spellPower(base) { return Math.max(1, Math.round(base * dmgMult() * pathDmg() * (0.85 + rng() * 0.3))); }
+function spellPower(base) { return Math.max(1, Math.round(base * spellMult() * pathDmg() * (0.85 + rng() * 0.3))); }
 function castSpell(k) {
   const sp = SPELLS[k];
   if (!sp || !player || player.dead || uiLock() || talking) return;
@@ -4669,7 +4885,7 @@ function castSpell(k) {
   if (left > 0) { toast(`${sp.name} is ready in ${Math.ceil(left)}s.`, spellIcon(k)); return; }
   if (now - aim.at < 2.5) { player.face(aim.x, aim.z); aim.at = -99; }
   if (sp.charge) { breathStart(k); return; } // Fire Breath: hold to charge, let go to breathe
-  spellCd[k] = now + sp.cd;
+  spellCd[k] = now + sp.cd * spellCdK();
   const ry = player.root.rotation.y, x = player.pos.x, z = player.pos.z;
   player.play('Spellcast_Shoot', { once: true, fade: 0.08, speed: 1.4, onFinish: () => player.play('Idle') });
   player.busyUntil = Math.max(player.busyUntil, now + 0.35);
@@ -5035,7 +5251,7 @@ function openShop(npc) {
 }
 function openWeaponShop(npc) {
   const type = npc.shop;
-  const lines = { melee: 'Finest steel this side of the mountains! A longer blade swings wider, a lighter one swings faster.', magic: 'Wands, staves and spell books, darling, humming with power.', ranged: 'Crossbows I made myself. Shoot from a safe distance. Lighter ones shoot faster.', frost: 'Frostsilver, forged cold and sharp! And a few spells from the north.', marsh: 'Bogwood and Mireiron! Everything I make drips with marsh poison. And one VERY wet spell.', sands: 'Sunsteel, hot from the forge! Gadgets, and the darkest spell I have ever sold.' };
+  const lines = { melee: 'Finest steel this side of the mountains! A longer blade swings wider, a lighter one swings faster.', magic: 'Spells, darling! Zap, Heal and Scorch, the basics every hero needs. Learn one and it goes straight onto your hotbar. Wands and staves too.', ranged: 'Crossbows I made myself. Shoot from a safe distance. Lighter ones shoot faster.', frost: 'Frostsilver, forged cold and sharp! And a few spells from the north.', marsh: 'Bogwood and Mireiron! Everything I make drips with marsh poison. And one VERY wet spell.', sands: 'Sunsteel, hot from the forge! Gadgets, and the darkest spell I have ever sold.' };
   const sells = (g) => (type === 'frost' ? g.tier === 2 : type === 'marsh' ? g.tier === 3 && (!g.path || g.path === S.path) : type === 'sands' ? g.tier === 4 && (!g.path || g.path === S.path) : !g.tier && (g.slot === 'weapon' ? g.type === type : type === 'melee'));
   const buy = { id: 'buy', label: 'Buy', icon: type === 'magic' || type === 'ranged' ? type : 'melee', say: lines[type],
     goods: () => Object.entries(GEAR).filter(([, g]) => !g.unique && g.price > 0 && sells(g)).map(([k, g]) => {
@@ -5048,7 +5264,8 @@ function openWeaponShop(npc) {
           S.equip[g.slot] = k; cancelTask(); equipGear(); burst(player.pos.clone().setY(1.6), '#ffe07a', 24, 4); buildGearBar(); updateTitle(); shopRefresh(); } }] };
     }) };
   const tabs = [buy];
-  const sp = spellTab(type); if (sp) tabs.push(sp);
+  // v79: the village magic shop is the spell seller, so her spell books come first
+  const sp = spellTab(type); if (sp) { if (type === 'magic') tabs.unshift(sp); else tabs.push(sp); }
   tabs.push(sellTab(npc));
   if (type !== 'magic' && type !== 'ranged') tabs.push({ id: 'up', label: 'Upgrade', icon: 'hammer', go: () => openUpgrade(npc) });
   openShopScreen(npc, { greet: lines[type], tabs });
@@ -5191,6 +5408,7 @@ function openDialog(npc, plain = false) {
   if (npc.crew) { openCrewTalk(npc); return; }
   if (npc.id === 'croakley' && !S.path && S.quests.st_choice && (S.quests.st_choice.state === 'active' || S.repick)) { openPathChoice(npc); return; }
   if (npc.id === 'fenwick' && S.path && !plain) { openPathUndo(npc); return; }
+  if (npc.alloc) { openAlloc(npc); return; }
   if (npc.id === 'cogsworth') { openRiddle(npc); return; }
   if (npc.sail) { openSail(npc); return; }
   if (npc.clerk) { openMayor(npc); return; }
@@ -5326,7 +5544,7 @@ const BIND_ACTIONS = [
   ['up', 'Move up', ['KeyW', 'ArrowUp']], ['down', 'Move down', ['KeyS', 'ArrowDown']],
   ['left', 'Move left', ['KeyA', 'ArrowLeft']], ['right', 'Move right', ['KeyD', 'ArrowRight']],
   ['sprint', 'Sprint', ['ShiftLeft', 'ShiftRight']], ['attack', 'Attack', ['KeyJ', '']], ['charge', 'Charged attack (hold)', ['KeyK', '']],
-  ['special', 'Special move', ['KeyR', '']], ['dash', 'Dash', ['KeyC', 'KeyZ']],
+  ['dash', 'Dash', ['KeyC', 'KeyZ']],
   ['jump', 'Jump', ['Space', '']], ['interact', 'Talk / use / skip', ['KeyE', 'KeyF']],
   ['eat', 'Eat best food', ['KeyH', '']], ['map', 'Map', ['KeyM', '']],
   ['hero', 'Hero sheet', ['KeyP', '']], ['card', 'Hero card (your worth and towns)', ['Tab', '']], ['bag', 'Bag', ['KeyI', 'KeyB']], ['quests', 'Quests', ['KeyQ', '']],
@@ -5391,7 +5609,6 @@ addEventListener('keydown', (e) => {
   if (act === 'attack') attackPress(true);
   else if (act === 'charge') chargeStart();
   else if (act === 'dash') dash();
-  else if (act === 'special') special();
   // spamming E through a conversation: the extra presses after it ends don't start it all over again
   else if (act === 'interact') { if (!e.repeat && (talking || performance.now() - dlgClosedAt > 700)) { held = true; const t = !talking && swingTarget(), rc = !talking && (!t || t.type === 'attack') && nearCrew(5); if (rc && !uiLock() && !player.dead) openCrewTalk(rc); else doAction(); } }
   else if (act === 'jump') jump();
@@ -5536,7 +5753,7 @@ const dodging = () => player.pos.y > 0.7 || now < dashUntil + 0.08 || dashLeft >
 let counterUntil = 0;
 function dodgedFx() {
   floatText(player.pos.clone().setY(3.6), 'Dodged!', 'miss');
-  if (now > counterUntil) { counterUntil = now + 1.5; burst(player.pos.clone().setY(1.4), '#9fe8ff', 14, 3.5, 0.8); sfx('special'); if (!S.seenCounter) { S.seenCounter = true; toast('Nice dodge! Hit back quickly for a Counter: double damage.', ICONS.star, true); } }
+  if (now > counterUntil) { counterUntil = now + (perkOn('countermaster') ? 2.5 : 1.5); burst(player.pos.clone().setY(1.4), '#9fe8ff', 14, 3.5, 0.8); sfx('special'); if (!S.seenCounter) { S.seenCounter = true; toast('Nice dodge! Hit back quickly for a Counter: double damage.', ICONS.star, true); } }
 }
 // dir: [x, z] on screen. Left out, you dash the way you are moving, or the way you face when standing still.
 function dash(dir) {
@@ -5552,7 +5769,7 @@ function dash(dir) {
   }
   const L = Math.hypot(dir[0], dir[1]) || 1;
   sfx('dash');
-  dashDir = { x: dir[0] / L, z: dir[1] / L }; dashUntil = now + 0.18; dashReady = now + 0.55; dashLeft = 4.2;
+  dashDir = { x: dir[0] / L, z: dir[1] / L }; dashUntil = now + 0.18; dashReady = now + 0.55; dashLeft = 4.2 * (1 + perkSum({ longdash: 0.5, unbound: 0.5 }));
   stamina = Math.max(0, stamina - 12); staminaAt = now + 1;
   burst(player.pos.clone().setY(0.4), '#f3e2bd', 12, 3);
 }
@@ -5626,18 +5843,26 @@ function swing() {
   // the wind-up is skipped so the blow lands right on the keystroke
   player.nextHit = now + w.cd * (fin ? 0.6 : 0.34);
   const lead = 0.06 * spd, from = Math.max(0, C.hitAt - lead);
-  const dur = player.play(C.anim, { once: true, fade: 0.04, speed: spd, from });
+  const dur = player.play(C.anim, { once: true, fade: 0.04, speed: spd, from }) || player.play(C.alt || C.anim, { once: true, fade: 0.04, speed: spd, from });
+  if (C.spin) { let n = 0; const sp = () => { n++; player.root.rotation.y += Math.PI / 4; if (n < 8) later(0.03, sp); }; later(Math.max(0, (C.hitAt - from) / spd - 0.12), sp); }
   player.busyUntil = now + Math.min(dur * 0.4, w.cd * 0.25);
-  if (fin) { const fw = fwdOf(player); dashLunge = { x: fw.x, z: fw.z, left: A.proj ? 0 : 0.6 }; }
+  if (fin && !C.spin) { const fw = fwdOf(player); dashLunge = { x: fw.x, z: fw.z, left: A.proj ? 0 : 0.6 }; }
   later((C.hitAt - from) / spd, () => {
     if (player.dead) return;
     const fwd = fwdOf(player), dmg = () => Math.max(1, Math.round(heroDamage() * C.mult * 0.8)); // faster swings, slightly lighter hits
     if (A.proj) {
-      const shots = fin && A.proj === 'bolt' ? [-0.12, 0.12] : [0];
-      for (const a of shots) {
-        const d = fwd.clone().applyAxisAngle(new THREE.Vector3(0, 1, 0), a);
-        shoot(player.pos.clone().add(new THREE.Vector3(0, 1.8, 0)).addScaledVector(d, 0.8), d, A.proj, w.reach, 'player', (e) => (e.isCrew ? hurtCrew(e, dmg(), player) : hurtEnemy(e, dmg(), null, C.power)), { pdmg: dmg() });
-      }
+      // Bows: Long Shot, +30% damage on anything hit far away (keep your distance!). The finisher pierces.
+      // Staffs: the orbs curve gently onto nearby monsters, and the finisher chains a spark onwards.
+      const bow = A.proj === 'bolt', from0 = player.pos.clone();
+      const hitFoe = (e) => {
+        let n = dmg();
+        if (bow && Math.hypot(e.pos.x - from0.x, e.pos.z - from0.z) > w.reach * 0.62) { n = Math.round(n * 1.3); if (!e.isCrew) floatText(e.pos.clone().setY(3.4), 'Long shot!', 'gain'); }
+        if (e.isCrew) return hurtCrew(e, n, player);
+        hurtEnemy(e, n, null, C.power);
+        if (C.chain) chainSpark(e, n);
+      };
+      shoot(player.pos.clone().add(new THREE.Vector3(0, 1.8, 0)).addScaledVector(fwd, 0.8), fwd, A.proj, w.reach, 'player', hitFoe,
+        C.pierce ? { pierce: new Set(), size: 0.45, pdmg: dmg() } : { pdmg: dmg(), seek: !bow });
       if (fin) burst(player.pos.clone().setY(1.8).addScaledVector(fwd, 1), A.proj === 'orb' ? '#bff6ff' : '#ffe9a8', 18, 4);
       return;
     }
@@ -5656,7 +5881,7 @@ let comboStep = 0, lastSwingAt = -9, dashLunge = null;
 // blow with up to almost three times the damage, and melee weapons send a slash wave flying ahead.
 const CHARGE_MIN = 0.45;
 // the charge fills faster as you level: about 2 seconds at level 1, 0.6 seconds by level 100
-const chargeFull = () => 2.0 - 1.4 * (Math.min(100, Math.max(1, heroLvl())) - 1) / 99;
+const chargeFull = () => (2.0 - 1.4 * (Math.min(100, Math.max(1, heroLvl())) - 1) / 99) * (perkOn('chargemaster') ? 0.65 : 1);
 let charge = null, chargeRing = null;
 function chargeStart() { if (!player || player.dead || uiLock() || talking) return; charge = { at: now, full: false }; }
 function chargeTick() {
@@ -5680,60 +5905,111 @@ function chargeRelease() {
   chargedAttack(Math.min(1, (t - CHARGE_MIN) / (chargeFull() - CHARGE_MIN)));
 }
 function chargedAttack(k) {
-  const w = W(), A = STYLES[w.type];
+  const w = W(), A = STYLES[w.type], kind = wKind(w);
   if (now - aim.at < 2.5) { player.face(aim.x, aim.z); aim.at = -99; }
   if (player.task) cancelTask();
   const mult = 1.7 + 1.1 * k, reachK = 1.45 + 0.45 * k;
   player.nextHit = now + Math.max(0.35, w.cd * 0.6); comboStep = 0;
   showGear(null); sfx('slam');
-  player.play(A.proj ? (A.proj === 'orb' ? 'Spellcast_Shoot' : '1H_Ranged_Shoot') : w.heavy ? '2H_Melee_Attack_Chop' : '1H_Melee_Attack_Chop', { once: true, fade: 0.04, speed: 1.9 });
   player.busyUntil = now + 0.22;
-  const fwd = fwdOf(player), dmg = () => Math.max(1, Math.round(heroDamage() * mult));
-  if (A.proj) {
-    // a fan of five shots: the first one to reach a foe hits in full, extra shots on the same foe only graze,
-    // so a big boss doesn't soak up all five for a one-button wipe
-    const struck = new Set(), part = (e) => { const f = struck.has(e) ? 0.25 : 1; struck.add(e); return Math.max(1, Math.round(dmg() * f)); };
-    for (const a of [-0.24, -0.12, 0, 0.12, 0.24]) {
-      const d = fwd.clone().applyAxisAngle(new THREE.Vector3(0, 1, 0), a);
-      shoot(player.pos.clone().add(new THREE.Vector3(0, 1.8, 0)).addScaledVector(d, 0.8), d, A.proj, w.reach * 1.35, 'player', (e) => (e.isCrew ? hurtCrew(e, part(e), player) : hurtEnemy(e, part(e), null, 2)), { pdmg: dmg(), pseen: struck });
+  const fwd = fwdOf(player), pp = player.pos, dmg = () => Math.max(1, Math.round(heroDamage() * mult));
+  floatText(pp.clone().setY(4.2), CHARGED[kind].name + '!', 'gain');
+  rankFlourish(pp.x, pp.z, (cx, cz, R, col) => { const m = new THREE.Mesh(new THREE.RingGeometry(0.7, 1, 48), new THREE.MeshBasicMaterial({ color: col, transparent: true, opacity: 0.85, depthWrite: false, fog: false, side: THREE.DoubleSide })); m.rotation.x = -Math.PI / 2; m.position.set(cx, 0.2, cz); m.layers.set(1); scene.add(m); fx.push({ m, t: 0, dur: 0.45, R }); });
+  if (kind === 'bow') {
+    // Piercing Shot: a big heavy arrow that goes through everything in a long line. Fully drawn, three of them.
+    player.play('1H_Ranged_Shoot', { once: true, fade: 0.04, speed: 1.6 });
+    const struck = new Set(), angs = k >= 1 ? [-0.1, 0, 0.1] : [0];
+    for (const a of angs) {
+      const d = fwd.clone().applyAxisAngle(new THREE.Vector3(0, 1, 0), a), seen = new Set();
+      shoot(pp.clone().add(new THREE.Vector3(0, 1.8, 0)).addScaledVector(d, 0.8), d, 'bolt', w.reach * 1.8, 'player',
+        (e) => { const f = struck.has(e) ? 0.3 : 1; struck.add(e); const n = Math.max(1, Math.round(dmg() * f)); return e.isCrew ? hurtCrew(e, n, player) : hurtEnemy(e, n, null, 1.8); },
+        { pierce: seen, size: 0.6, pdmg: dmg(), heavy: true });
     }
-    burst(player.pos.clone().setY(1.8).addScaledVector(fwd, 1.2), A.proj === 'orb' ? '#bff6ff' : '#ffe9a8', 30, 6);
+    burst(pp.clone().setY(1.8).addScaledVector(fwd, 1.2), '#ffe9a8', 30, 6);
     return;
   }
+  if (kind === 'staff') {
+    // Arcane Burst: a big, slow orb that bursts in a wide circle on the first monster it touches (or at the end)
+    player.play('Spellcasting', { once: true, fade: 0.04, speed: 1.6 });
+    const R = 3 + 2.2 * k;
+    shoot(pp.clone().add(new THREE.Vector3(0, 1.8, 0)).addScaledVector(fwd, 0.9), fwd, 'orb', w.reach, 'player', () => {}, {
+      orbSize: 2.4 + 1.2 * k, speed: 12,
+      onEnd: (at) => {
+        const ring = new THREE.Mesh(new THREE.RingGeometry(0.7, 1, 48), new THREE.MeshBasicMaterial({ color: '#9ff0ff', transparent: true, opacity: 0.85, depthWrite: false, fog: false, side: THREE.DoubleSide }));
+        ring.rotation.x = -Math.PI / 2; ring.position.set(at.x, 0.2, at.z); ring.layers.set(1); scene.add(ring); fx.push({ m: ring, t: 0, dur: 0.45, R });
+        burst(at.clone().setY(1), '#bff6ff', 60, 8, 1.4); burst(at.clone().setY(1), '#ffe07a', 20, 6); sfx('special');
+        for (const e of enemies) if (e.hp > 0 && e.state !== 'rising' && e.state !== 'gone' && e.inside === where && Math.hypot(e.pos.x - at.x, e.pos.z - at.z) < R + (e.T.boss ? 1.2 : 0.5)) hurtEnemy(e, dmg(), { x: at.x, z: at.z }, 2);
+        for (const c of crew) if (isRival(c) && crewUp(c) && c.inside === where && Math.hypot(c.pos.x - at.x, c.pos.z - at.z) < R) hurtCrew(c, dmg(), player);
+        if (net.on) hitPeers((x, z) => Math.hypot(x - at.x, z - at.z) < R, dmg());
+      } });
+    burst(pp.clone().setY(1.8).addScaledVector(fwd, 1.2), '#bff6ff', 30, 6);
+    return;
+  }
+  if (kind === 'axe') {
+    // Whirling Cleave: spin right round and cut a full circle, flinging everything away from you
+    const R = (w.reach + 1.2) * (1.25 + 0.4 * k);
+    if (!player.play('2H_Melee_Attack_Spin', { once: true, fade: 0.04, speed: 1.7 })) player.play('2H_Melee_Attack_Slice', { once: true, fade: 0.04, speed: 1.7 });
+    player.busyUntil = now + 0.4;
+    let spin = 0; const spinT = () => { spin += 1; player.root.rotation.y += Math.PI / 4; if (spin < 8) later(0.035, spinT); }; spinT();
+    later(0.12, () => {
+      if (player.dead) return;
+      // a golden circle slash sweeps round you, then a soft shockwave ring
+      const arcM = new THREE.Mesh(new THREE.RingGeometry(0.72, 1, 64, 1, 0, Math.PI * 1.6), new THREE.MeshBasicMaterial({ color: '#ffd23f', transparent: true, opacity: 0.85, depthWrite: false, fog: false, side: THREE.DoubleSide }));
+      arcM.rotation.x = -Math.PI / 2; arcM.position.set(pp.x, 0.9, pp.z); arcM.scale.setScalar(R); arcM.layers.set(1); scene.add(arcM);
+      fx.push({ m: arcM, t: 0, dur: 0.4, spin: true, spinSp: 16 });
+      const ring = new THREE.Mesh(new THREE.RingGeometry(0.85, 1, 64), new THREE.MeshBasicMaterial({ color: '#fff2a8', transparent: true, opacity: 0.8, depthWrite: false, fog: false, side: THREE.DoubleSide }));
+      ring.rotation.x = -Math.PI / 2; ring.position.set(pp.x, 0.2, pp.z); ring.layers.set(1); scene.add(ring); fx.push({ m: ring, t: 0, dur: 0.45, R: R + 0.3 });
+      burst(pp.clone().setY(1.2), '#ffd27a', 50, 9, 1.3);
+      const inR = (x, z, pad) => Math.hypot(x - pp.x, z - pp.z) < R + pad;
+      for (const e of enemies) if (e.hp > 0 && e.state !== 'rising' && e.state !== 'gone' && e.inside === where && inR(e.pos.x, e.pos.z, e.T.boss ? 1.2 : 0.5)) hurtEnemy(e, dmg(), { x: pp.x, z: pp.z }, 2.8);
+      for (const c of crew) if (isRival(c) && crewUp(c) && c.inside === where && inR(c.pos.x, c.pos.z, 0.4)) hurtCrew(c, dmg(), player);
+      if (net.on) hitPeers((x, z) => inR(x, z, 0.4), dmg());
+    });
+    return;
+  }
+  // swords (and fists): a big forward blow, then a crescent slash flies on ahead
+  player.play(w.heavy ? '2H_Melee_Attack_Chop' : '1H_Melee_Attack_Chop', { once: true, fade: 0.04, speed: 1.9 });
   const reach = w.reach * reachK, arc = 1.35;
   dashLunge = { x: fwd.x, z: fwd.z, left: 0.5 };
   later(0.08, () => {
     if (player.dead) return;
     // a golden shockwave fan in front of you shows how far the blow reached
-    const m = new THREE.Mesh(new THREE.CircleGeometry(1, 32, Math.PI / 2 - arc, arc * 2), new THREE.MeshBasicMaterial({ color: w.beam ? '#5a0a12' : '#ffd23f', transparent: true, opacity: 0.55, depthWrite: false, fog: false, side: THREE.DoubleSide }));
+    // the Dark Blade's blow is steel-white and soft, not a big gold fan (Callum)
+    const steel = !!w.custom, m = new THREE.Mesh(new THREE.CircleGeometry(1, 32, Math.PI / 2 - arc, arc * 2), new THREE.MeshBasicMaterial({ color: steel ? '#e6ecf4' : '#ffd23f', transparent: true, opacity: steel ? 0.22 : 0.55, depthWrite: false, fog: false, side: THREE.DoubleSide }));
     m.rotation.x = -Math.PI / 2; m.rotation.z = player.root.rotation.y + Math.PI; m.position.set(player.pos.x, 0.2, player.pos.z); m.layers.set(1); scene.add(m);
     fx.push({ m, t: 0, dur: 0.35, R: reach + 0.3 });
-    burst(player.pos.clone().setY(1.2).addScaledVector(fwd, reach * 0.6), w.beam ? '#a01828' : '#ffd27a', 40, 8, 1.3);
+    burst(player.pos.clone().setY(1.2).addScaledVector(fwd, reach * 0.6), steel ? '#eef3fa' : '#ffd27a', 40, 8, 1.3);
     for (const e of enemies) if (e.hp > 0 && e.state !== 'rising' && e.state !== 'gone' && e.inside === where && inArc(e.pos.x, e.pos.z, 0.8, reach + 0.3, arc) >= 0) hurtEnemy(e, dmg(), null, 2.6);
     for (const c of crew) if (isRival(c) && crewUp(c) && c.inside === where && inArc(c.pos.x, c.pos.z, 0.7, reach + 0.3, arc) >= 0) hurtCrew(c, dmg(), player);
     if (net.on) hitPeers((x, z) => inArc(x, z, 0.7, reach + 0.3, arc) >= 0, dmg());
-    // ...and a crescent slash flies on ahead, cutting through everything in a short line
     const struck = new Set(enemies.filter((e) => e.hp > 0 && e.inside === where && inArc(e.pos.x, e.pos.z, 0.8, reach + 0.3, arc) >= 0));
     if (net.on) for (const [id, p] of net.peers) if (p.where === where && p.x !== undefined && inArc(p.x, p.z, 0.7, reach + 0.3, arc) >= 0) struck.add(id);
     const wave = Math.max(1, Math.round(dmg() * 0.75));
     shoot(player.pos.clone().setY(1.1).addScaledVector(fwd, 0.6), fwd, 'slash', 6 + 5 * k + w.reach, 'player',
-      (e) => (e.isCrew ? hurtCrew(e, wave, player) : hurtEnemy(e, wave, null, 1.8)), { pierce: struck, size: (1 + 0.5 * k) * (w.beam ? 1.25 : 1), pdmg: wave, beam: w.beam });
+      (e) => (e.isCrew ? hurtCrew(e, wave, player) : hurtEnemy(e, wave, null, 1.8)), { pierce: struck, size: (1 + 0.5 * k) * (steel ? 1.7 : 1), pdmg: wave, beam: steel ? 'steel' : undefined });
   });
 }
-// three moves per weapon style: anim, when it lands, damage, knockback, reach and arc
+// three moves per weapon kind: anim, when it lands, damage, knockback, reach and arc.
+// Bows: the third shot pierces. Staffs: the third orb chains a spark to two more monsters.
+// Axes: a heavy overhead chop, a wide sweep, then a spinning cleave that hits all the way round you.
 function comboOf(w) {
   if (w.fist) return [
     { anim: '1H_Melee_Attack_Stab', hitAt: 0.4, mult: 1, power: 0.6, speed: 1.5, reach: 1, arc: 0.8 },
     { anim: '1H_Melee_Attack_Stab', hitAt: 0.4, mult: 1, power: 0.6, speed: 1.7, reach: 1, arc: 0.8 },
     { anim: 'Unarmed_Melee_Attack_Kick', hitAt: 0.35, mult: 1.4, power: 1.2, speed: 1.3, reach: 1.15, arc: 0.8 }];
-  if (w.type === 'magic') return [
+  const kind = wKind(w);
+  if (kind === 'staff') return [
     { anim: 'Spellcast_Shoot', hitAt: 0.35, mult: 1, power: 1, speed: 1 },
     { anim: 'Spellcast_Shoot', hitAt: 0.3, mult: 1, power: 1, speed: 1.15 },
-    { anim: 'Spellcasting', hitAt: 0.3, mult: 1.6, power: 2.2, speed: 1.1 }];
-  if (w.type === 'ranged') return [
+    { anim: 'Spellcasting', hitAt: 0.3, mult: 1.4, power: 1.6, speed: 1.1, chain: true }];
+  if (kind === 'bow') return [
     { anim: '1H_Ranged_Shoot', hitAt: 0.22, mult: 1, power: 1, speed: 1 },
     { anim: '1H_Ranged_Shoot', hitAt: 0.2, mult: 1, power: 1, speed: 1.15 },
-    { anim: '1H_Ranged_Shoot', hitAt: 0.24, mult: 1.15, power: 1.8, speed: 0.95 }];
+    { anim: '1H_Ranged_Shoot', hitAt: 0.24, mult: 1.25, power: 1.8, speed: 0.95, pierce: true }];
+  if (kind === 'axe') return [
+    { anim: '2H_Melee_Attack_Chop', hitAt: 0.5, mult: 1.25, power: 1.6, speed: 1.15, reach: 1.05, arc: 0.6 },
+    { anim: '2H_Melee_Attack_Slice', hitAt: 0.36, mult: 1, power: 1.3, speed: 1.1, reach: 1, arc: 1.5 },
+    { anim: '2H_Melee_Attack_Spin', alt: '2H_Melee_Attack_Slice', hitAt: 0.35, mult: 1.5, power: 2.6, speed: 1.3, reach: 1.1, arc: Math.PI, spin: true }];
   if (w.heavy) return [
     { anim: '2H_Melee_Attack_Slice', hitAt: 0.36, mult: 1, power: 1.1, speed: 1.1, reach: 1, arc: 0.95 },
     { anim: '2H_Melee_Attack_Chop', hitAt: 0.5, mult: 1.1, power: 1.2, speed: 1.15, reach: 1, arc: 0.85 },
@@ -5743,50 +6019,19 @@ function comboOf(w) {
     { anim: '1H_Melee_Attack_Slice_Horizontal', hitAt: 0.34, mult: 1, power: 1.1, speed: 1.1, reach: 1.05, arc: 1.15 },
     { anim: '1H_Melee_Attack_Stab', hitAt: 0.5, mult: 1.5, power: 2.3, speed: 1.4, reach: 1.25, arc: 0.6 }];
 }
-let specialReady = 0;
-function special() {
-  if (!player || player.dead || uiLock() || where === 'castle' || where === 'tavern') return;
-  if (now < specialReady) return; // v65: the button already counts down, no extra note
-  if (talking) closeDialog();
-  if (player.task) cancelTask();
-  if (now - aim.at < 2.5) { player.face(aim.x, aim.z); aim.at = -99; }
-  const w = W(), key = specialOf(w), SP = SPECIALS[key];
-  specialReady = now + SP.cd; player.nextHit = now + 0.6; sfx('special');
-  const big = (w.unique ? 1.25 : 1) * (1 + 0.05 * rankOf(heroLvl()));
-  const fwd = fwdOf(player), pp = player.pos;
-  const hitIn = (cx, cz, R, mult) => { let n = 0; for (const e of enemies) if (e.hp > 0 && e.state !== 'rising' && e.inside === where && Math.hypot(e.pos.x - cx, e.pos.z - cz) < R + (e.T.boss ? 1.2 : 0.5)) { hurtEnemy(e, Math.round(heroDamage() * mult) || 1, { x: cx, z: cz }, 1.7); n++; } if (net.on) n += hitPeers((x, z) => Math.hypot(x - cx, z - cz) < R + 0.5, Math.round(heroDamage() * mult) || 1); return n; };
-  const ring = (cx, cz, R, col) => {
-    const m = new THREE.Mesh(new THREE.RingGeometry(0.7, 1, 48), new THREE.MeshBasicMaterial({ color: col, transparent: true, opacity: 0.85, depthWrite: false, fog: false, side: THREE.DoubleSide }));
-    m.rotation.x = -Math.PI / 2; m.position.set(cx, 0.2, cz); m.layers.set(1); scene.add(m);
-    fx.push({ m, t: 0, dur: 0.45, R });
-  };
-  floatText(pp.clone().setY(4.2), SP.name + '!', 'gain');
-  rankFlourish(pp.x, pp.z, ring);
-  if (key === 'whirl') {
-    const R = (w.reach + 1.4) * big;
-    player.play('1H_Melee_Attack_Slice_Diagonal', { once: true, fade: 0.05, speed: 1.6 }); player.busyUntil = now + 0.45;
-    let spin = 0; const spinT = () => { spin += 1; player.root.rotation.y += Math.PI / 3; if (spin < 6) later(0.05, spinT); }; spinT();
-    later(0.2, () => { ring(pp.x, pp.z, R, '#fff2a8'); burst(pp.clone().setY(1.2), '#fff2a8', 30, 7); hitIn(pp.x, pp.z, R, SP.mult); });
-  } else if (key === 'quake') {
-    const R = 4.6 * big;
-    player.air = true; player.vy = 12; player.play(player.clips.Jump_Full_Short ? 'Jump_Full_Short' : 'Cheer', { once: true, fade: 0.06, speed: 1.3 });
-    later(0.62, () => { player.play('2H_Melee_Attack_Chop', { once: true, fade: 0.05, speed: 1.6 }); });
-    later(0.75, () => { ring(pp.x, pp.z, R, '#ffd08a'); burst(pp.clone().setY(0.4), '#ffd08a', 60, 9, 1.4); shake = 0.45; hitIn(pp.x, pp.z, R, SP.mult); });
-  } else if (key === 'nova') {
-    const dist = Math.min(w.reach * 0.6, 7), cx = pp.x + fwd.x * dist, cz = pp.z + fwd.z * dist, R = 3.6 * big;
-    player.play('Spellcasting', { once: true, fade: 0.06, speed: 1.4 }); player.busyUntil = now + 0.5;
-    const rune = new THREE.Mesh(new THREE.RingGeometry(0.8, 1, 6), new THREE.MeshBasicMaterial({ color: '#9ff0ff', transparent: true, opacity: 0.8, depthWrite: false, fog: false, side: THREE.DoubleSide }));
-    rune.rotation.x = -Math.PI / 2; rune.position.set(cx, 0.2, cz); rune.scale.setScalar(R); rune.layers.set(1); scene.add(rune);
-    fx.push({ m: rune, t: 0, dur: 0.55, spin: true });
-    later(0.5, () => { ring(cx, cz, R, '#9ff0ff'); burst(new THREE.Vector3(cx, 1, cz), '#bff6ff', 60, 8, 1.4); burst(new THREE.Vector3(cx, 1, cz), '#ffe07a', 24, 6); hitIn(cx, cz, R, SP.mult); });
-  } else {
-    player.play('1H_Ranged_Shoot', { once: true, fade: 0.06, speed: 1.5 }); player.busyUntil = now + 0.4;
-    later(0.2, () => {
-      for (const a of [-0.36, -0.18, 0, 0.18, 0.36]) {
-        const d = fwd.clone().applyAxisAngle(new THREE.Vector3(0, 1, 0), a * big);
-        shoot(pp.clone().add(new THREE.Vector3(0, 1.8, 0)).addScaledVector(d, 0.8), d, 'bolt', w.reach, 'player', (e) => hurtEnemy(e, Math.round(heroDamage() * SP.mult), null, 1.2), { pdmg: Math.round(heroDamage() * SP.mult) });
-      }
-    });
+// Staff combo finisher: a spark leaps from the struck monster to up to two more close by
+function chainSpark(from, dmg) {
+  let last = from; const hit = new Set([from]);
+  for (let j = 0; j < 2; j++) {
+    let best = null, bd = 7;
+    for (const e of enemies) if (!hit.has(e) && e.hp > 0 && e.state !== 'rising' && e.state !== 'gone' && e.inside === where) { const d = Math.hypot(e.pos.x - last.pos.x, e.pos.z - last.pos.z); if (d < bd) { bd = d; best = e; } }
+    if (!best) break;
+    const a = last.pos.clone().setY(1.4), b = best.pos.clone().setY(1.4), seg = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.12, a.distanceTo(b)), new THREE.MeshBasicMaterial({ color: '#bff6ff', fog: false }));
+    seg.position.copy(a).add(b).multiplyScalar(0.5); seg.lookAt(b); seg.layers.set(1); scene.add(seg);
+    later(0.14, () => { scene.remove(seg); seg.geometry.dispose(); seg.material.dispose(); });
+    burst(b, '#bff6ff', 12, 4); hit.add(best);
+    const target = best; later(0.05 * (j + 1), () => { if (target.hp > 0) hurtEnemy(target, Math.max(1, Math.round(dmg * 0.6)), null, 0.8); });
+    last = best;
   }
 }
 const fx = [];
@@ -5794,16 +6039,14 @@ function fxTick(dt) {
   for (let i = fx.length - 1; i >= 0; i--) {
     const f = fx[i]; f.t += dt; const k = f.t / f.dur;
     if (f.R) f.m.scale.setScalar(f.R * (0.3 + 0.7 * k));
-    if (f.spin) f.m.rotation.z += dt * 4;
+    if (f.spin) f.m.rotation.z += dt * (f.spinSp || 4);
     f.m.material.opacity = 0.85 * (1 - k);
     if (k >= 1) { scene.remove(f.m); f.m.geometry.dispose(); f.m.material.dispose(); fx.splice(i, 1); }
   }
   const el = $('specialbtn');
   if (el && player) {
-    const left = Math.max(0, specialReady - now), SP = SPECIALS[specialOf(W())];
-    el.style.setProperty('--cd', String(left / SP.cd));
-    el.classList.toggle('cooling', left > 0);
-    const lbl = left > 0 ? `${Math.ceil(left)}s` : SP.name;
+    const lbl = CHARGED[wKind(W())].name, ch = charge ? Math.min(1, (now - charge.at) / chargeFull()) : 1;
+    el.style.setProperty('--cd', String(1 - ch)); el.classList.toggle('cooling', !!charge && ch < 1);
     if (el.dataset.lbl !== lbl) { el.dataset.lbl = lbl; el.querySelector('span').textContent = lbl; }
   }
 }
@@ -5922,24 +6165,30 @@ function shoot(from, dir, kind, range, owner, onHit, opt = {}) {
     // a crisp, thin sword-beam crescent: glowing edge, white-hot core and a few fading after-images behind it
     mesh = new THREE.Group();
     const mat = (col, op, add) => new THREE.MeshBasicMaterial({ color: col, transparent: true, opacity: op, depthWrite: false, fog: false, side: THREE.DoubleSide, blending: add ? THREE.AdditiveBlending : THREE.NormalBlending });
-    // the Dark Blade's beam is cleaner: a black crescent with a thin dark red rim and no sparkle trail
-    const parts = opt.beam === 'dark' ? [[slashGeoA, '#9a1020', 0.95, false, -0.01, 0, 1.08], [slashGeoA, '#1c1a20', 1, false, 0], [slashGeoB, '#4a4650', 1, false, 0.01]]
+    // the Dark Blade's wave is a big pale steel crescent with a white core and cool silver after-images
+    const st = opt.beam === 'steel', parts = st ? [[slashGeoA, '#c8d2de', 0.9, true, 0], [slashGeoB, '#ffffff', 1, false, 0.01]]
       : [[slashGeoA, '#ffd86a', 0.95, true, 0], [slashGeoB, '#ffffff', 1, false, 0.01]];
-    if (opt.beam !== 'dark') for (const [k, op] of [[1, 0.45], [2, 0.25], [3, 0.12]]) parts.push([slashGeoA, '#ffe9a8', op, true, -0.01 * k, -0.55 * k, 1 - 0.08 * k]);
+    for (const [k, op] of [[1, 0.45], [2, 0.25], [3, 0.12]]) parts.push([slashGeoA, st ? '#dfe6ef' : '#ffe9a8', op, true, -0.01 * k, -0.55 * k, 1 - 0.08 * k]);
     for (const [g, col, op, add, y, z = 0, sc = 1] of parts) { const m = new THREE.Mesh(g, mat(col, op, add)); m.position.set(0, y, z); m.scale.set(sc, 1, sc); m.userData.op = op; m.layers.set(1); m.renderOrder = 5; mesh.add(m); }
     mesh.userData.size = opt.size || 1; mesh.scale.set(0.5 * mesh.userData.size, 1, 0.8 * mesh.userData.size);
   } else if (kind === 'bolt') {
     // the arrow model stands upright, so lay it along the flight line (lookAt aims +Z)
-    const a = lib.arrow.clone(true); stylize(a); a.rotation.x = -Math.PI / 2; a.scale.setScalar(2.6);
+    const a = lib.arrow.clone(true); stylize(a); a.rotation.x = -Math.PI / 2; a.scale.setScalar(opt.heavy ? 4.2 : 2.6);
     mesh = new THREE.Group(); mesh.add(a);
+    if (opt.pierce) { // a piercing arrow leaves a pale streak so you can see it cut through
+      const tr = new THREE.Mesh(new THREE.PlaneGeometry(0.22, 2.4), new THREE.MeshBasicMaterial({ color: '#fff2c0', transparent: true, opacity: 0.6, depthWrite: false, fog: false, side: THREE.DoubleSide }));
+      tr.rotation.x = -Math.PI / 2; tr.position.z = -1.2; tr.layers.set(1); mesh.add(tr);
+    }
   } else {
     mesh = new THREE.Mesh(orbGeo, new THREE.MeshBasicMaterial({ color: kind === 'dark' ? '#c58bff' : '#8ff7ff', fog: false }));
-    mesh.layers.set(1);
+    mesh.layers.set(1); if (opt.orbSize) mesh.scale.setScalar(opt.orbSize);
   }
   mesh.position.copy(from);
   mesh.lookAt(from.clone().add(dir));
   scene.add(mesh);
-  const pr = { mesh, dir: dir.clone().setY(0).normalize(), kind, owner, onHit, speed: kind === 'bolt' ? 26 : kind === 'slash' ? 20 : kind === 'dark' ? 11 : 17, left: range + 1 };
+  const pr = { mesh, dir: dir.clone().setY(0).normalize(), kind, owner, onHit, speed: opt.speed || (kind === 'bolt' ? 26 : kind === 'slash' ? 20 : kind === 'dark' ? 11 : 17), left: range + 1 };
+  if (opt.onEnd) pr.onEnd = opt.onEnd;
+  if (opt.seek) pr.seek = true;
   if (opt.pierce) { pr.pierce = opt.pierce; pr.R = 1.9 * (opt.size || 1); pr.range = range + 1; }
   if (opt.beam) pr.clean = true;
   if (opt.pdmg) { pr.pdmg = opt.pdmg; pr.pseen = opt.pseen || null; } // damage to other heroes (PvP)
@@ -6030,10 +6279,10 @@ function affixTick(e, dt) {
   }
 }
 let streak = 0, streakAt = -99;
-const STREAK_T = 6;
+const STREAK_T = 6, streakT = () => (perkOn('relentless') ? 9 : STREAK_T);
 const streakBonus = () => (streak >= 3 ? Math.min(0.5, (streak - 2) * 0.1) : 0);
 function streakKill() {
-  streak = now - streakAt < STREAK_T ? streak + 1 : 1; streakAt = now;
+  streak = now - streakAt < streakT() ? streak + 1 : 1; streakAt = now;
   const at = player.pos.clone().setY(4.4);
   if (streak === 3) floatText(at, 'Rampage!', 'crit');
   else if (streak === 6) { floatText(at, 'Unstoppable!', 'crit'); sfx('special'); }
@@ -6196,14 +6445,14 @@ function masteryKill(t) {
   const was = masteryLv(t);
   S.mastery = { ...(S.mastery || {}), [t]: ((S.mastery || {})[t] || 0) + 1 };
   const lv = masteryLv(t);
-  if (lv > was) { toast(`${MASTERY[t]} mastery ${lv}! +${(lv * 1.5).toFixed(1).replace(/\.0$/, '')}% damage with ${t === 'melee' ? 'blades and hammers' : t === 'ranged' ? 'bows' : 'staffs and wands'}.`, ICONS[t] || ICONS.star, true); floatText(player.pos.clone().setY(4.4), `${MASTERY[t]} mastery ${lv}!`, 'crit'); }
+  if (lv > was) { toast(`${MASTERY[t]} mastery ${lv}! +${(lv * 1.5).toFixed(1).replace(/\.0$/, '')}% damage with ${t === 'melee' ? 'swords' : t === 'axe' ? 'axes' : t === 'ranged' ? 'bows' : 'staffs and wands'}.`, mIcon(t) || ICONS.star, true); floatText(player.pos.clone().setY(4.4), `${MASTERY[t]} mastery ${lv}!`, 'crit'); }
 }
 function chipsTick() {
   if (!player) return;
   together = !player.dead && !!party && party.members.length > 1 && heroesNear.some((h) => !h.dead && inParty(h.id) && Math.hypot(h.pos.x - player.pos.x, h.pos.z - player.pos.z) < 14);
   if (together && !togetherWas && !S.seenTogether) { S.seenTogether = true; toast('Fighting beside your party: +10% damage and +10% XP from kills.', ICONS.star, true); }
   togetherWas = together;
-  const left = STREAK_T - (now - streakAt), rampage = streak >= 3 && left > 0;
+  const left = streakT() - (now - streakAt), rampage = streak >= 3 && left > 0;
   if (!chipsEl) { chipsEl = document.createElement('div'); chipsEl.id = 'chips'; chipsEl.innerHTML = '<span class="chip rampage" hidden><b></b><i></i></span><span class="chip together" hidden><b>Together +10%</b></span><span class="chip rampage helping" hidden><b></b><i></i></span><span class="chip treasure" hidden><b></b></span><span class="chip lucky" hidden><b></b></span>'; document.body.appendChild(chipsEl); }
   const [r, t, hp, tr, lk] = chipsEl.children;
   const ll = luckyText(); setShown(lk, !!ll); if (ll) setText(lk.firstChild, ll);
@@ -6211,7 +6460,7 @@ function chipsTick() {
   setShown(t, together);
   const h = reviveTick(); setShown(hp, !!h);
   if (h) { setText(hp.firstChild, `Helping ${h.name} up...`); hp.lastChild.style.transform = `scaleX(${h.k.toFixed(3)})`; }
-  if (!dailyDone && S.started && S.seenIntro && !uiLock() && !document.body.classList.contains('titling')) { dailyDone = true; later(2, dailyGift); }
+  if (!dailyDone && S.started && S.seenIntro && !uiLock() && !document.body.classList.contains('titling')) { dailyDone = true; later(2, dailyGift); later(7, v80Note); }
   setShown(r, rampage);
   if (rampage) { setText(r.firstChild, `Rampage ×${streak} · +${Math.round(streakBonus() * 100)}%`); r.lastChild.style.transform = `scaleX(${Math.max(0, left / STREAK_T).toFixed(3)})`; }
 }
@@ -6228,16 +6477,25 @@ function hurtEnemy(e, dmg, src = null, power = 1) {
   if (dmg === 0) { floatText(head, 'Miss', 'miss'); return; }
   // v68: a monster's defense (from its level) takes a little off every hit you land (remote hits arrive already reduced)
   if (e.T.def && !bossRemote && !mobRemote && !wbRemote && !poisonHit) dmg = Math.max(1, Math.round(dmg * 100 / (100 + e.T.def)));
+  // v80: level gap (monsters above you shrug off up to half), and perks that pick their targets
+  if (!crewHitting && !bossRemote && !mobRemote && !wbRemote) {
+    let k = gapOut(e);
+    if (e.T.boss || e.T.elite) k *= 1 + perkSum({ giantslayer: 0.18 });
+    if (e.hp < e.T.hp * 0.3) k *= 1 + perkSum({ executioner: 0.3 });
+    if (k !== 1) dmg = Math.max(1, Math.round(dmg * k));
+  }
   // v68.2: critical hits. About one hit in ten lands extra hard (your own hits only)
   let crit = false;
   let counter = false;
-  if (!crewHitting && !poisonHit && !bossRemote && !mobRemote && !wbRemote && dmg > 0 && now < counterUntil) { counterUntil = 0; counter = true; dmg = Math.round(dmg * 2); crit = true; }
+  if (!crewHitting && !poisonHit && !bossRemote && !mobRemote && !wbRemote && dmg > 0 && now < counterUntil) { counterUntil = 0; counter = true; dmg = Math.round(dmg * (perkOn('countermaster') ? 3 : 2)); crit = true; }
   else if (!crewHitting && !poisonHit && !bossRemote && !mobRemote && !wbRemote && dmg > 0 && rng() < CRIT_CHANCE) { dmg = Math.round(dmg * 1.75); crit = true; }
   if (!crewHitting && !poisonHit && !bossRemote && !mobRemote && !wbRemote) {
     const w = W();
     // marsh poison keeps hurting for a few seconds; the Fangblade drinks a little health back
     if (w.poison) e.poison = { left: 3, at: now + 1, dmg: Math.max(1, Math.round(dmg * 0.15)) };
     if (w.drain && S.hp < maxHp()) { S.hp = Math.min(maxHp(), S.hp + Math.max(1, Math.round(dmg * w.drain))); refreshUI(); }
+    const ls = perkSum({ lifesteal: 0.03, bloodthirst: 0.05, leechlord: 0.08 });
+    if (ls && S.hp > 0 && S.hp < maxHp()) { S.hp = Math.min(maxHp(), S.hp + Math.max(1, Math.round(dmg * ls))); refreshUI(); }
   }
   if (e.T.affix && !crewHitting && !poisonHit && !bossRemote && !mobRemote && !wbRemote) dmg = affixHit(e, dmg, head);
   if (e.shield) { dmg = Math.max(1, Math.round(dmg * 0.25)); if (rng() < 0.4) floatText(head.clone().setY(4.6), 'Shielded! Break the glowing crystal', 'miss'); }
@@ -6285,7 +6543,7 @@ function hurtEnemy(e, dmg, src = null, power = 1) {
     } else {
     const sb = (e.T.boss || e.temp ? 0 : streakKill()) + (luckyNow() ? 0.5 : 0); // v71: a Rampage (quick kills in a row) adds up to +50% XP and coins
     giveHeroXp(Math.round(e.T.xp * (1 + sb + (together ? 0.1 : 0) + (e.T.boss ? 0 : petBonus('xp')))), e.pos.clone().setY(4)); partyShareXp(e.T.xp, e.pos);
-    const coins = Math.round((e.T.coins ? e.T.coins[0] + Math.floor(rng() * (e.T.coins[1] - e.T.coins[0])) : 3 + Math.floor(rng() * 9)) * (1 + sb + (e.T.boss ? 0 : petBonus('coins'))));
+    const coins = Math.round((e.T.coins ? e.T.coins[0] + Math.floor(rng() * (e.T.coins[1] - e.T.coins[0])) : 3 + Math.floor(rng() * 9)) * (1 + sb + (e.T.boss ? 0 : petBonus('coins')) + perkSum({ nose: 0.2, fortune: 0.35, lucky: 0.2, golden: 0.5 })));
     S.coins += coins; if (e.T.boss || rng() < 0.6) addItem('bones'); later(0.25, () => sfx('coin')); // v65: bones 60% from ordinary monsters (was every kill)
     rollLoot(e);
     if (e.T.boss) {
@@ -6306,7 +6564,7 @@ function hurtEnemy(e, dmg, src = null, power = 1) {
     floatText(e.pos.clone().setY(2.4), `+${coins} coins`, 'gain');
     if (e.golden) goldenCaught(e);
     if (e.T.elite) { S.champKills = (S.champKills || 0) + 1; const bd = boardToday(); bd.champs = (bd.champs || 0) + 1; }
-    if (!crewHitting && !W().fist && MASTERY[W().type]) masteryKill(W().type);
+    if (!crewHitting && !W().fist && MASTERY[mKey(W())]) masteryKill(mKey(W()));
     if (!e.T.boss && !e.temp) journalKill(e);
     if (!e.temp) petKill();
     if (e.T.boss && !e.temp) bossFirstWin(e, coins);
@@ -6337,16 +6595,23 @@ const vig = document.createElement('div'); vig.id = 'vignette'; document.body.ap
 function hurtFlash(dmg) { vig.classList.remove('hit'); void vig.offsetWidth; if (dmg >= maxHp() * 0.06) vig.classList.add('hit'); }
 let vigLow = false;
 function vigTick() { const low = !!player && !player.dead && S.hp > 0 && S.hp < maxHp() * 0.25; if (low !== vigLow) { vigLow = low; vig.classList.toggle('low', low); } }
-function hurtPlayer(dmg, from = null) {
+// v80: magic hits (casters' bolts, magic bosses' spells) are blocked by your Magic instead of your Defense
+const perkCd = {};
+function hurtPlayer(dmg, from = null, magic = false) {
   if (aimPeer) { sendNet('ea', { w: where, t: aimPeer.id, i: 1, ...hitMsg(dmg, aimPeer.big) }); return; } // a boss move aimed at a friend: the hit is theirs
   if (player.dead || creator.open) return;
   const head = player.pos.clone().setY(3.6);
   if (dmg === 0) { floatText(head, 'Miss', 'miss'); return; }
   // Defense divides the hit; the leftover fraction rounds up or down by chance
-  const d = dmg / defDiv();
+  const d = dmg / (magic ? magDiv() : defDiv());
   dmg = Math.floor(d) + (rng() < d - Math.floor(d) ? 1 : 0);
   if (dmg === 0) { floatText(head, 'Blocked', 'miss'); burst(player.pos.clone().setY(1.5), '#bfe0ff', 8, 3); return; }
   S.hp -= dmg; lastHurt = now; player.hurtFace = now + 0.45; sfx('hurt');
+  // v80 perks: Phoenix (full health, every 3 minutes) and Second Wind (30%, every 2 minutes) catch a knockout blow
+  if (S.hp <= 0 && !from) {
+    const pk = perkOn('phoenix') && now > (perkCd.phoenix || 0) ? ['phoenix', 180, 1, 'Phoenix! You rise again!', '#ffb347'] : perkOn('secondwind') && now > (perkCd.secondwind || 0) ? ['secondwind', 120, 0.3, 'Second Wind!', '#9fe8ff'] : null;
+    if (pk) { perkCd[pk[0]] = now + pk[1]; S.hp = Math.max(1, Math.round(maxHp() * pk[2])); floatText(head.clone().setY(4.4), pk[3], 'crit'); burst(player.pos.clone().setY(1.5), pk[4], 40, 6, 1.3); sfx('special'); refreshUI(); return; }
+  }
   hurtFlash(dmg);
   floatText(head, String(dmg), 'hurt');
   burst(player.pos.clone().setY(1.5), '#ff8a7a', 10, 4);
@@ -6441,14 +6706,14 @@ function wakeUp() {
 // Every fire attack paints a glowing warning on the floor first. Jump, dash or step out before it fills.
 const hazards = [];
 const hazardMat = () => new THREE.MeshBasicMaterial({ color: '#ff6a1f', transparent: true, opacity: 0.25, depthWrite: false, fog: false, side: THREE.DoubleSide });
-function hazard({ x, z, R, dir = 0, half = Math.PI, dur = 1.1, dmg, fire = true, col = null, inner = 0 }) {
-  hzShare({ x, z, R, dir, half, dur, dmg, fire, col, inner });
+function hazard({ x, z, R, dir = 0, half = Math.PI, dur = 1.1, dmg, fire = true, col = null, inner = 0, magic = isMagicFoe(foeNow) }) {
+  hzShare({ x, z, R, dir, half, dur, dmg, fire, col, inner, magic });
   const geo = inner > 0 ? new THREE.RingGeometry(inner / R, 1, 48) : half >= Math.PI ? new THREE.CircleGeometry(1, 40) : new THREE.CircleGeometry(1, 30, Math.PI / 2 - half, half * 2);
   const m = new THREE.Mesh(geo, hazardMat()); if (col) m.material.color.set(col); m.rotation.x = -Math.PI / 2; m.rotation.z = dir; m.position.set(x, 0.14, z); m.layers.set(1); m.scale.setScalar(R * 0.1); scene.add(m);
   const edge = new THREE.Mesh(inner > 0 ? new THREE.RingGeometry(0.95, 1, 48) : half >= Math.PI ? new THREE.RingGeometry(0.95, 1, 48) : new THREE.RingGeometry(0.96, 1, 30, 1, Math.PI / 2 - half, half * 2), new THREE.MeshBasicMaterial({ color: '#ffd23f', transparent: true, opacity: 0.9, depthWrite: false, fog: false, side: THREE.DoubleSide }));
   edge.rotation.x = -Math.PI / 2; edge.rotation.z = dir; edge.position.set(x, 0.15, z); edge.layers.set(1); edge.scale.setScalar(R); scene.add(edge);
   if (inner > 0) { const e2 = new THREE.Mesh(new THREE.RingGeometry(0.94, 1, 48), edge.material); e2.rotation.x = -Math.PI / 2; e2.position.set(x, 0.15, z); e2.layers.set(1); e2.scale.setScalar(inner); scene.add(e2); m.userData.inEdge = e2; }
-  hazards.push({ x, z, R, dir, half, dur, dmg, fire, col, inner, m, edge, t: 0 });
+  hazards.push({ x, z, R, dir, half, dur, dmg, fire, col, inner, magic, m, edge, t: 0 });
 }
 function inHazard(h) {
   const dx = player.pos.x - h.x, dz = player.pos.z - h.z, d = Math.hypot(dx, dz);
@@ -6472,7 +6737,7 @@ function hazardTick(dt) {
       shake = Math.max(shake, 0.3);
       if (!player.dead && inHazard(h)) {
         if (dodging()) dodgedFx();
-        else hurtPlayer(h.dmg);
+        else hurtPlayer(h.dmg, null, h.magic);
       }
       scene.remove(h.m, h.edge); if (h.m.userData.inEdge) scene.remove(h.m.userData.inEdge); h.m.material.dispose(); hazards.splice(i, 1);
     }
@@ -7149,7 +7414,7 @@ const PATH_UNDO = 5000;
 // paths and gadgets both nudge your stats; Sunsteel burns 15% hotter in daylight
 const sunBoost = () => (W().sun && env.preset !== 'night' && (where === 'out' || LANDS[where]) ? 1.15 : 1);
 const pathDmg = () => (S.path === 'vampire' ? 1.12 : 1) * gadgetMult('dmg') * sunBoost();
-const pathSpeed = () => (S.path === 'vampire' ? 1.06 : 1) * gadgetMult('speed');
+const pathSpeed = () => (S.path === 'vampire' ? 1.06 : 1) * gadgetMult('speed') * (1 + perkSum({ swift: 0.08, unbound: 0.12 }));
 const pathDef = () => (S.path === 'angel' ? 1.15 : 1) * gadgetMult('def');
 const pathHp = () => (S.path === 'human' ? 1.15 : 1) * gadgetMult('hp');
 function openPathChoice(npc) {
@@ -7604,7 +7869,7 @@ function enemyTick(e, dt) {
     && (!big || (!otherBossBusy(e) && !bossLocked(e))) && (big || enemies.filter((o) => o.state === 'chase' && !o.T.boss).length < 3 + 2 * heroesNear.length)) e.state = 'chase';
   if (e.state === 'slam') return;
   if (e.state === 'chase') {
-    if (fromHome > (big ? bossLeash(e) : 20)) { e.state = 'return'; return; }
+    if (fromHome > (big ? bossLeash(e) : 26)) { e.state = 'return'; return; }
     e.face(tp.x, tp.z);
     if (big && !foe && !e.T.world && toHero < 30 && now > (e.nextSpecial ??= now + 3) && now > (e.dizzyUntil || 0) && now > (e.staggerUntil || 0) && aim(() => bossSpecial(e))) return;
     if (toP > reach) {
@@ -7613,7 +7878,7 @@ function enemyTick(e, dt) {
       if (e.name !== '1H_Melee_Attack_Chop' && e.name !== 'Spellcast_Shoot' && e.name !== 'Hit_A') e.play('Running_A', { fade: 0.15 });
     } else if (now > e.nextHit) {
       e.nextHit = now + (big ? 1.5 / (e.T.fast || 1) : 1.9) + rng() * (big && e.T.fast ? 0.4 : 0.6);
-      const dmg = big ? bossDmg(e, 0.65 + rng() * 0.45) : rng() < 0.3 ? 0 : 1 + Math.floor(rng() * e.T.maxHit);
+      const dmg = big ? bossDmg(e, 0.65 + rng() * 0.45) : rng() < 0.3 ? 0 : Math.round((1 + Math.floor(rng() * e.T.maxHit)) * gapIn(e));
       if (BOSS_AI[e.type] && aim(() => BOSS_AI[e.type](e, toP))) return;
       if (e.T.dragon) { aim(() => dragonAttack(e, toP)); return; }
       if (big && ++e.swings % 3 === 0) { bossSlam(e); return; }
@@ -7630,7 +7895,7 @@ function enemyTick(e, dt) {
           const spreads = e.T.spread ? [-0.3, 0, 0.3] : [0];
           for (const sp of spreads) {
             const d2 = dir.clone().applyAxisAngle(new THREE.Vector3(0, 1, 0), sp);
-            shoot(ep.clone().setY(big ? 3 : 1.8).addScaledVector(d2.clone().normalize(), big ? 1.4 : 0.6), d2, 'dark', big ? 15 : 12, 'enemy', () => (tgt ? hurtCrew(tgt, dmg, e) : hurtPlayer(dmg)));
+            shoot(ep.clone().setY(big ? 3 : 1.8).addScaledVector(d2.clone().normalize(), big ? 1.4 : 0.6), d2, 'dark', big ? 15 : 12, 'enemy', () => (tgt ? hurtCrew(tgt, dmg, e) : hurtPlayer(dmg, null, isMagicFoe(e))));
             if (tgt) projectiles[projectiles.length - 1].tgt = tgt;
           }
         });
@@ -7657,7 +7922,7 @@ function enemyTick(e, dt) {
     e.timer -= dt;
     if (e.timer < 0) {
       e.timer = 2 + rng() * 4;
-      const a = rng() * 6.28, r = rng() * 5;
+      const a = rng() * 6.28, r = rng() * (big ? 6 : 11); // v78: more room to roam
       e.target.set(e.home.x + Math.cos(a) * r, e.home.y + Math.sin(a) * r);
       e.state = 'walk'; e.walkAt = now;
     }
@@ -7670,7 +7935,7 @@ function enemyTick(e, dt) {
 }
 
 // Big hanging signs beside every shopkeeper and smith, easy to read from above (v67.3)
-const SIGN_FOR = { food: ['SHOP', '$', '#ffd23f'], melee: ['BLACKSMITH', '⚒', '#ff9a5a'], frost: ['BLACKSMITH', '⚒', '#9fdcff'], marsh: ['BLACKSMITH', '⚒', '#a8e07a'], sands: ['BLACKSMITH', '⚒', '#ffcf7a'], magic: ['MAGIC SHOP', '✦', '#e0a8ff'], ranged: ['BOWS', '🏹', '#c8f08a'] };
+const SIGN_FOR = { food: ['SHOP', '$', '#ffd23f'], melee: ['BLACKSMITH', '⚒', '#ff9a5a'], frost: ['BLACKSMITH', '⚒', '#9fdcff'], marsh: ['BLACKSMITH', '⚒', '#a8e07a'], sands: ['BLACKSMITH', '⚒', '#ffcf7a'], magic: ['SPELLS', '✦', '#e0a8ff'], ranged: ['BOWS', '🏹', '#c8f08a'] };
 function shopBoard(d) {
   const [label, icon, col] = SIGN_FOR[d.shop] || SIGN_FOR.food;
   if (dynamic.shop && Math.hypot(dynamic.shop.x - d.x, dynamic.shop.z - d.z) < 12) return; // the village shop already has one
@@ -7793,7 +8058,8 @@ function toggleBigMap(force) {
 mini.addEventListener('click', () => toggleBigMap(true));
 $('jumpbtn').addEventListener('pointerdown', (e) => { e.preventDefault(); jump(); });
 $('dashr').addEventListener('pointerdown', (e) => { e.preventDefault(); dash(); });
-$('specialbtn').addEventListener('pointerdown', (e) => { e.preventDefault(); special(); });
+$('specialbtn').addEventListener('pointerdown', (e) => { e.preventDefault(); try { $('specialbtn').setPointerCapture(e.pointerId); } catch {} chargeStart(); });
+for (const ev of ['pointerup', 'pointercancel']) $('specialbtn').addEventListener(ev, (e) => { e.preventDefault(); chargeRelease(); });
 $('sprintbtn').addEventListener('pointerdown', (e) => { e.preventDefault(); sprintToggle = !sprintToggle; $('sprintbtn').setAttribute('aria-pressed', String(sprintToggle)); });
 bigMap.addEventListener('click', () => toggleBigMap(false));
 $('bosstalk').addEventListener('pointerdown', (e) => { e.preventDefault(); e.stopPropagation(); bossSkip(); });
@@ -8273,20 +8539,30 @@ function tick() {
     const step = pr.speed * dt;
     pr.mesh.position.addScaledVector(pr.dir, step); pr.left -= step;
     const pp = pr.mesh.position;
+    // distance from a point to the stretch this shot just flew, so a fast frame can't skip past a monster
+    const segD = (x, z) => { const ax = pp.x - pr.dir.x * step, az = pp.z - pr.dir.z * step, t = Math.max(0, Math.min(step, (x - ax) * pr.dir.x + (z - az) * pr.dir.z)); return Math.hypot(x - ax - pr.dir.x * t, z - az - pr.dir.z * t); };
     let hitSomething = false;
     if (pr.pierce) {
       // the slash wave cuts through: each foe is struck once, and it fades as it flies
-      for (const e of enemies) if (e.hp > 0 && !pr.pierce.has(e) && e.state !== 'rising' && e.state !== 'gone' && e.inside === where && Math.hypot(e.pos.x - pp.x, e.pos.z - pp.z) < pr.R + (e.T.boss ? 1.2 : 0.3)) { pr.pierce.add(e); pr.onHit(e); }
+      for (const e of enemies) if (e.hp > 0 && !pr.pierce.has(e) && e.state !== 'rising' && e.state !== 'gone' && e.inside === where && segD(e.pos.x, e.pos.z) < pr.R + (e.T.boss ? 1.2 : 0.3)) { pr.pierce.add(e); pr.onHit(e); }
       for (const c of crew) if (!pr.pierce.has(c) && isRival(c) && crewUp(c) && c.inside === where && Math.hypot(c.pos.x - pp.x, c.pos.z - pp.z) < pr.R) { pr.pierce.add(c); pr.onHit(c); }
       if (pr.pdmg) shotHitsPeer(pp, pr.R, pr.pdmg, null, pr.pierce);
       // it snaps open wide right after launch, then thins and fades as it runs out
-      const life = Math.max(0, pr.left / pr.range), age = 1 - life, sz = pr.mesh.userData.size || 1;
-      const open = Math.min(1, age * 6), wide = 0.5 + 0.7 * (1 - Math.pow(1 - open, 3)) + age * 0.25;
-      pr.mesh.scale.set(wide * sz, 1, (0.8 + 0.2 * open) * sz);
-      pr.mesh.children.forEach((m) => { m.material.opacity = m.userData.op * Math.min(1, life * 2.5); });
-      if (!pr.clean && rng() < 0.7) burst(pp.clone().addScaledVector(pr.dir, 0.4), '#ffe9a8', 1, 1.5);
+      if (pr.kind === 'slash') {
+        const life = Math.max(0, pr.left / pr.range), age = 1 - life, sz = pr.mesh.userData.size || 1;
+        const open = Math.min(1, age * 6), wide = 0.5 + 0.7 * (1 - Math.pow(1 - open, 3)) + age * 0.25;
+        pr.mesh.scale.set(wide * sz, 1, (0.8 + 0.2 * open) * sz);
+        pr.mesh.children.forEach((m) => { m.material.opacity = m.userData.op * Math.min(1, life * 2.5); });
+        if (!pr.clean && rng() < 0.7) burst(pp.clone().addScaledVector(pr.dir, 0.4), '#ffe9a8', 1, 1.5);
+      } else if (rng() < 0.5) burst(pp.clone(), '#fff2c0', 1, 1);
       if (pr.left <= 0) { dropShot(pr); projectiles.splice(i, 1); }
       continue;
+    }
+    if (pr.seek) {
+      // staff orbs curve gently towards the closest monster ahead of them
+      let best = null, bd = 7;
+      for (const e of enemies) if (e.hp > 0 && e.state !== 'rising' && e.state !== 'gone' && e.inside === where) { const dx = e.pos.x - pp.x, dz = e.pos.z - pp.z, d = Math.hypot(dx, dz); if (d < bd && (dx * pr.dir.x + dz * pr.dir.z) / (d || 1) > 0.5) { bd = d; best = e; } }
+      if (best) { const want = tmpV.set(best.pos.x - pp.x, 0, best.pos.z - pp.z).normalize(); pr.dir.lerp(want, Math.min(1, dt * 5)).normalize(); }
     }
     if (pr.owner === 'player' || pr.owner === 'ally') {
       for (const e of enemies) if (e.hp > 0 && e.state !== 'rising' && e.state !== 'gone' && e.inside === where && Math.hypot(e.pos.x - pp.x, e.pos.z - pp.z) < 0.95) { pr.onHit(e); hitSomething = true; break; }
@@ -8297,6 +8573,7 @@ function tick() {
     } else if (player && !player.dead && Math.abs(player.pos.y + 1.6 - pp.y) < 1.4 && Math.hypot(player.pos.x - pp.x, player.pos.z - pp.z) < 0.8) { pr.onHit(); hitSomething = true; }
     if (!hitSomething) for (const c of colliders) if (c.r > 0.9 && Math.hypot(c.x - pp.x, c.z - pp.z) < c.r * 0.8) { hitSomething = true; break; }
     if (hitSomething || pr.left <= 0) {
+      if (pr.onEnd) pr.onEnd(pp.clone());
       burst(pp, pr.kind === 'dark' ? '#d6a8ff' : pr.kind === 'bolt' ? '#fff2c0' : '#8ff7ff', hitSomething ? 20 : 8, hitSomething ? 5 : 2);
       dropShot(pr); projectiles.splice(i, 1); continue;
     }
@@ -8437,18 +8714,18 @@ let bossIntro = null;
 // A chapter's last boss stays behind a shimmering seal until you've beaten the one before it.
 const BOSS_GATES = {
   // Chapter 1: the three shard guardians wake only once Gagron is beaten
-  boss_crusher: { quest: 'st_dragon', beat: 'boss_gagron', who: 'Gagron the Hideous', r: 21 },
-  boss_gloom: { all: [['st_crags', 'boss_crusher'], ['st_hollow', 'boss_rattle']], who: 'Bonecrusher and Captain Rattlebones', r: 21 },
-  boss_rattle: { quest: 'st_dragon', beat: 'boss_gagron', who: 'Gagron the Hideous', r: 19 },
+  boss_crusher: { quest: 'st_dragon', beat: 'boss_gagron', who: 'Gagron the Hideous', r: 28 },
+  boss_gloom: { all: [['st_crags', 'boss_crusher'], ['st_hollow', 'boss_rattle']], who: 'Bonecrusher and Captain Rattlebones', r: 28 },
+  boss_rattle: { quest: 'st_dragon', beat: 'boss_gagron', who: 'Gagron the Hideous', r: 26 },
   boss_colossus: { quest: 'st_pomp', beat: 'boss_pomp', who: 'Sir Percival Pompington' },
   boss_frost: { quest: 'st_twins', beat: 'boss_twin_a', who: 'the Avalanche Twins' },
   boss_gobbler: { quest: 'st_lantern', who: 'Lantern Night', finish: true },
-  boss_goon: { quest: 'st_sogg', beat: 'boss_sogg', who: 'Sir Soggington', r: 19 },
+  boss_goon: { quest: 'st_sogg', beat: 'boss_sogg', who: 'Sir Soggington', r: 26 },
 };
 // a friend already inside the seal (so they've unlocked it) lets you in to help them
 const friendInside = (e, g) => { if (!net.on) return false; const R = (g.r || SEAL_R) + 2; for (const p of net.peers.values()) if (p.where === e.inside && p.x !== undefined && Math.hypot(p.x - e.home.x, p.z - e.home.y) < R) return true; return false; };
 const bossLocked = (e) => { const g = e && BOSS_GATES[e.type]; if (!g) return false; if (friendInside(e, g)) return false; const B = S.beat || {}, Q = (q) => S.quests[q] && S.quests[q].state === 'done'; if (g.all) return !(B[e.type] || g.all.every(([q, b]) => Q(q) || B[b])); if ((S.beat || {})[e.type] || (S.quests[g.quest] && S.quests[g.quest].state === 'done') || (g.beat && (S.beat || {})[g.beat])) return false; return true; };
-const SEAL_R = 21;
+const SEAL_R = 27; // v78: boss stages are bigger
 let sealSaid = 0;
 function bossGateTick() {
   if (!player || player.dead) return;
@@ -8836,11 +9113,11 @@ function showKeysNote() {
   el.innerHTML = `<div class="panel knote" role="dialog" aria-labelledby="kn-h">
     <h3 id="kn-h">How to play</h3>
     <div class="kbig"><div><kbd class="kk">${keyOf('attack')}</kbd><b>Attack</b><small>Tap to swing. Keep tapping for a combo.</small></div>
-      <div><kbd class="kk">${keyOf('charge')}</kbd><b>Charged attack</b><small>Hold, then let go to send a slash flying.</small></div></div>
+      <div><kbd class="kk">${keyOf('charge')}</kbd><b>Charged attack</b><small>Hold, then let go. Every kind of weapon has its own.</small></div></div>
     <ul class="klist">
       ${row(`${k('up')}${k('left')}${k('down')}${k('right')}`, 'Move')}
       ${row(k('sprint'), 'Sprint')}${row(k('jump'), 'Jump')}
-      ${row(k('dash'), 'Dash')}${row(k('special'), 'Special move')}
+      ${row(k('dash'), 'Dash')}
       ${row(k('interact'), 'Talk / use')}${row(k('bag'), 'Bag')}
       ${row(k('quests'), 'Quests')}${row(k('map'), 'Map')}
       ${row(k('card'), 'Your hero')}${row(k('eat'), 'Eat food')}
@@ -9129,12 +9406,12 @@ for (const T of TOWNS) {
   for (const k of ['skel_minion', 'skel_warrior', 'skel_mage']) {
     const b = ENEMY_TYPES[T.land ? LAND_TOWN[T.land].mobs[k] : k];
     ENEMY_TYPES[`${T.id}_${k}`] = { ...b, model: k, name: `${tier.tag} ${b.name}`, tint: tier.tint, town: T.id, inside, coins: [Math.round(5 * T.stars * m), Math.round(12 * T.stars * m)] };
-    setLevel(ENEMY_TYPES[`${T.id}_${k}`], b.lv + 2 * T.stars + (T.outer ? 4 : 0), MOB_SHAPE[k]); // outskirt towns are 4 levels tougher // town guards are a few levels above the wild ones
+    setLevel(ENEMY_TYPES[`${T.id}_${k}`], b.lv + 3 * T.stars + (T.outer ? 6 : 0), MOB_SHAPE[k]); // outskirt towns are 6 levels tougher // town guards are a few levels above the wild ones
   }
   ENEMY_TYPES[`${T.id}_boss`] = { ...TOWN_BOSS[T.id], title: `Tyrant of ${T.name}`, hp: Math.round((110 + 90 * T.stars) * (T.land ? LAND_TOWN[T.land].hp : 1)), maxHit: Math.round((5 + 2 * T.stars) * (T.land ? LAND_TOWN[T.land].hit : 1)), xp: Math.round((500 + 400 * T.stars) * (T.land ? LAND_TOWN[T.land].xp : 1)), boss: true,
     scale: 2 + 0.15 * T.stars, coins: [Math.round(80 * T.stars * m), Math.round(140 * T.stars * m)], slam: 4.5 + T.stars * 0.5, town: T.id, tint: tier.tint, inside };
   // town tyrants: Chapter 1 levels 11-15, then about a chapter higher in each land
-  ENEMY_TYPES[`${T.id}_boss`].lv = ({ out: 9, frost: 22, marsh: 32, sands: 46 }[inside] || 9) + 2 * T.stars + (T.outer ? 4 : 0);
+  ENEMY_TYPES[`${T.id}_boss`].lv = ({ out: 14, frost: 38, marsh: 62, sands: 92 }[inside] || 14) + 3 * T.stars + (T.outer ? 6 : 0);
   ENEMY_TYPES[`${T.id}_boss`].shape = [0.8, 0.9];
   toughen(ENEMY_TYPES[`${T.id}_boss`]);
 }
@@ -9242,7 +9519,7 @@ const crew = [];
 const pickOne = (arr) => arr[Math.floor(rng() * arr.length)];
 const crewCfg = (c) => { S.crew = S.crew || {}; return (S.crew[c.id] = S.crew[c.id] || { mode: 'neutral', tactic: 'charge' }); };
 const isRival = (c) => crewCfg(c).mode === 'rival';
-const crewMax = (c) => Math.round((c.def.hp + heroLvl() * 5) * (isRival(c) ? 0.75 : 1)); // rivals are a fair duel, not a wall
+const crewMax = (c) => Math.round((c.def.hp + invMap(heroLvl()) * 5) * (isRival(c) ? 0.75 : 1)); // rivals are a fair duel, not a wall
 const crewUp = (c) => c.hp > 0 && c.state !== 'ko';
 const dist2d = (a, b) => Math.hypot(a.x - b.x, a.z - b.z);
 const NPC_BASE = { skin: 'peach', eyes: 'brown', eyeStyle: 'round', mouth: 'smile', mark: 'none', hair: 'short', hairLen: 'short', hairCol: 'chestnut', ears: 'human', head: 'big', beard: 'none', hat: false, sex: 'm' };
@@ -9315,7 +9592,7 @@ function crewFindFoe(c, center, radius, onlyAngry) {
   return best;
 }
 const foeAlive = (f) => f && (f === player ? !player.dead : f.isCrew ? crewUp(f) && isRival(f) : f.hp > 0 && f.state !== 'dead' && f.state !== 'gone' && f.state !== 'rising');
-const crewDmg = (c) => (rng() < 0.12 ? 0 : Math.round((c.def.hit[0] + rng() * (c.def.hit[1] - c.def.hit[0])) * (1 + (heroLvl() - 1) * 0.07)));
+const crewDmg = (c) => (rng() < 0.12 ? 0 : Math.round((c.def.hit[0] + rng() * (c.def.hit[1] - c.def.hit[0])) * (1 + (invMap(heroLvl()) - 1) * 0.07)));
 let crewHitting = false;
 // a crew member lands a blow on t (a monster, a rival, or you)
 function crewStrike(c, t) {
@@ -9678,11 +9955,11 @@ function goldenCaught(e) {
 // you earn only by playing (beating bosses, reaching ranks, catching golden monsters, freeing towns).
 const RANKS = [
   { min: 1, name: 'Rookie', col: '#9a9aa8' },
-  { min: 10, name: 'Adventurer', col: '#5fbf6a' },
-  { min: 25, name: 'Veteran', col: '#4f9ae8' },
-  { min: 45, name: 'Champion', col: '#b06ae8' },
-  { min: 70, name: 'Legend', col: '#ffb02e' },
-  { min: 90, name: 'Mythic', col: '#ff4a6a' },
+  { min: 15, name: 'Adventurer', col: '#5fbf6a' },
+  { min: 40, name: 'Veteran', col: '#4f9ae8' },
+  { min: 75, name: 'Champion', col: '#b06ae8' },
+  { min: 110, name: 'Legend', col: '#ffb02e' },
+  { min: 140, name: 'Mythic', col: '#ff4a6a' },
 ];
 function rankOf(l) { let r = 0; for (let i = 0; i < RANKS.length; i++) if (l >= RANKS[i].min) r = i; return r; }
 // each rank: +5% damage and +5% max health
@@ -9804,7 +10081,7 @@ for (const [id, c] of Object.entries(COS.outfit)) c.id = id;
 const COS_ODDS = { magma: [8, 20, 30, 27, 12, 3], out: [70, 24, 5, 1, 0, 0], frost: [50, 32, 13, 4.5, 0.5, 0], marsh: [35, 33, 20, 10, 1.8, 0.2], sands: [22, 30, 25, 17, 5.2, 0.8] };
 function cosDrop(e, at, boss) {
   const land = ['frost', 'marsh', 'sands', 'magma'].includes(e.inside) ? e.inside : 'out';
-  if (rng() > (boss ? 0.3 : e.temp ? 0.001 : e.T.elite ? 0.1 : land === 'magma' ? (e.T.dragon ? 0.12 : 0.02) : 0.006)) return;
+  if (rng() > (boss ? 0.3 : e.temp ? 0.001 : e.T.elite ? 0.1 : land === 'magma' ? (e.T.dragon ? 0.12 : 0.02) : 0.006) * (perkOn('lucky') ? 2 : 1)) return;
   const odds = COS_ODDS[land].slice(); if (boss) { odds[0] *= 0.4; odds[3] *= 1.6; odds[4] *= 2; odds[5] *= 2; }
   let roll = rng() * odds.reduce((a, b) => a + b, 0), r = 0;
   while (r < 5 && roll > odds[r]) { roll -= odds[r]; r++; }
@@ -9828,13 +10105,13 @@ function cosEarned() {
   const out = new Set(), l = heroLvl();
   for (const [t, ids] of Object.entries(COS_BOSS)) if (beaten(t)) ids.forEach((i) => out.add(i));
   if (l >= 5) out.add('pet:slimy');
-  if (l >= 10) out.add('trail:sparkle');
+  if (l >= 15) out.add('trail:sparkle');
   if ((S.champKills || 0) >= 25) out.add('pet:rattles');
   if (beaten('boss_gagron')) out.add('pet:gagjr');
-  if (l >= 25) out.add('cape:royal');
-  if (l >= 45) out.add('aura:royal');
-  if (l >= 70) { out.add('hat:crown'); out.add('cape:gold'); }
-  if (l >= 90) { out.add('aura:void'); out.add('trail:shadow'); }
+  if (l >= 40) out.add('cape:royal');
+  if (l >= 75) out.add('aura:royal');
+  if (l >= 110) { out.add('hat:crown'); out.add('cape:gold'); }
+  if (l >= 140) { out.add('aura:void'); out.add('trail:shadow'); }
   if ((S.goldenN || 0) > 0) out.add('trail:hearts');
   if (lvl('woodcutting') >= 50) out.add('cape:wood');
   if (lvl('mining') >= 50) out.add('cape:mine');
@@ -10088,11 +10365,6 @@ function rankFlourish(x, z, ringFn) {
   later(0.35, () => {
     ringFn(x, z, 3 + rk * 0.8, col);
     burst(new THREE.Vector3(x, 1, z), col, 16 * rk, 5 + rk, 1.3);
-    if (rk >= 4) {
-      const p = new THREE.Mesh(new THREE.CylinderGeometry(0.9, 0.9, 14, 16, 1, true), new THREE.MeshBasicMaterial({ color: col, transparent: true, opacity: 0.5, depthWrite: false, fog: false, side: THREE.DoubleSide }));
-      p.position.set(x, 7, z); p.layers.set(1); scene.add(p);
-      tween(0.6, (k) => { p.material.opacity = 0.5 * (1 - k); p.scale.set(1 + k, 1, 1 + k); }, () => { scene.remove(p); p.geometry.dispose(); p.material.dispose(); });
-    }
   });
 }
 
@@ -10100,7 +10372,7 @@ function rankFlourish(x, z, ringFn) {
 const itemRarIx = (k) => { const v = SELL[k] || 0; return v >= 5000 ? 5 : v >= 800 ? 4 : v >= 250 ? 3 : v >= 40 ? 2 : v >= 10 ? 1 : 0; };
 const itemRarity = (k) => { const r = RARITY[itemRarIx(k)]; return [r.id, r.name]; };
 const gearRarity = (g) => { const r = RARITY[gearRarIx(g)]; return [r.id, r.name]; };
-let bagTab = 'gear', dollSlot = 'weapon', bagPick = null;
+let bagTab = 'gear', dollSlot = 'weapon', bagPick = null, dollJustPicked = false;
 // ---------- live preview: your actual hero, drawn in the loadout window, wearing what you pick ----------
 const prev = { cv: null, r: null, scene: null, cam: null, yaw: 0.5, drag: null, at: 0 };
 function previewMount() {
@@ -10170,12 +10442,46 @@ function bagKeys() {
   S.bagOrder = order;
   return order;
 }
+// v79: what kind of thing each bag item is, for the filter chips
+const bagCat = (k) => (GEAR[k] ? 'gear' : FOOD[k] ? 'food' : (SELL[k] || 0) >= 50 ? 'treasure' : 'mat');
+const BAG_CATS = { all: 'All', gear: 'Gear', food: 'Food', mat: 'Materials', treasure: 'Treasures', spells: 'Spells' };
+const BAG_SORTS = { kind: 'Type', rar: 'Rarity', name: 'Name', value: 'Value', count: 'Amount' };
+let bagCatOn = 'all';
 function bagSort(how) {
   const keys = bagKeys(), rar = (k) => (GEAR[k] ? gearRarIx(GEAR[k]) : itemRarIx(k));
-  const kind = (k) => (GEAR[k] ? 0 : FOOD[k] ? 1 : SELL[k] && SELL[k] >= 50 ? 2 : 3);
+  const kind = (k) => ({ gear: 0, food: 1, treasure: 2, mat: 3 })[bagCat(k)];
   const name = (k) => (GEAR[k] ? GEAR[k].name : ITEMS[k] || k);
-  keys.sort(how === 'rar' ? (a, b) => rar(b) - rar(a) || kind(a) - kind(b) || name(a).localeCompare(name(b)) : (a, b) => kind(a) - kind(b) || rar(b) - rar(a) || name(a).localeCompare(name(b)));
-  S.bagOrder = keys; save();
+  const val = (k) => (GEAR[k] ? gearValue(GEAR[k]) : (SELL[k] || 0) * (S.inv[k] || 0)), cnt = (k) => (GEAR[k] ? 1 : S.inv[k] || 0);
+  const by = { rar: (a, b) => rar(b) - rar(a) || kind(a) - kind(b), name: (a, b) => name(a).localeCompare(name(b)), value: (a, b) => val(b) - val(a), count: (a, b) => cnt(b) - cnt(a), kind: (a, b) => kind(a) - kind(b) || rar(b) - rar(a) }[how] || ((a, b) => kind(a) - kind(b));
+  keys.sort((a, b) => by(a, b) || name(a).localeCompare(name(b)));
+  S.bagOrder = keys; S.bagSortBy = how; save();
+}
+// v79: tidy the hotbar: weapons first, then spells, then food, then anything else, with no gaps
+function hotSort() {
+  const hb = hotbar(), rank = (k) => (!k ? 9 : k.startsWith('spell:') ? 1 : GEAR[k] ? 0 : FOOD[k] ? 2 : 3);
+  const got = hb.filter(Boolean).sort((a, b) => rank(a) - rank(b));
+  for (let i = 0; i < HOT_N; i++) hb[i] = got[i] || null;
+  save(); renderHotbar();
+}
+function hotFill() {
+  const hb = hotbar(), add = (k) => { if (!k || hb.includes(k)) return; const at = hb.indexOf(null); if (at >= 0) hb[at] = k; };
+  add(S.equip.weapon); S.owned.filter((k) => GEAR[k] && GEAR[k].slot === 'weapon').sort((a, b) => GEAR[b].dmg - GEAR[a].dmg).slice(0, 2).forEach(add);
+  Object.keys(spellsOwned()).filter((k) => SPELLS[k] && !SPELLS[k].admin).forEach((k) => add(`spell:${k}`));
+  Object.keys(FOOD).filter((k) => S.inv[k]).sort((a, b) => FOOD[b].heal - FOOD[a].heal).slice(0, 2).forEach(add);
+  hotSort();
+}
+// the hotbar, drawn inside the inventory so you can arrange it there (drag, or pick an item then tap a slot)
+function sheetHotbar() {
+  const hb = hotbar(), kb = binds();
+  const cells = hb.map((k, i) => {
+    const key = keyLabel(kb[`hot${i + 1}`][0] || kb[`hot${i + 1}`][1]);
+    if (k && k.startsWith('spell:')) { const sp = SPELLS[k.slice(6)]; if (sp) return `<button class="shot spell" data-hot="${i}" data-drag="${k}" data-hclear="${i}" style="--sc:${sp.col}" title="${esc(sp.name)}: drag to move, tap to take off"><img src="${spellIcon(k.slice(6))}" alt=""><kbd>${key}</kbd><small>${esc(sp.name)}</small></button>`; }
+    const g = k && GEAR[k], it = k && !g && ITEMS[k];
+    if (!g && !it) return `<button class="shot empty" data-hot="${i}" data-hset="${i}" title="${bagPick ? 'Tap to put it here' : 'Empty: drag something here'}"><kbd>${key}</kbd><small>${bagPick ? 'Put here' : 'Empty'}</small></button>`;
+    const [rc] = g ? gearRarity(g) : itemRarity(k);
+    return `<button class="shot ${rc}" data-hot="${i}" data-drag="${k}" data-hclear="${i}" title="${esc(g ? g.name : it)}: drag to move, tap to take off"><img src="${g ? gearIcon(g) : ICONS[k]}" alt=""><kbd>${key}</kbd>${g ? '' : `<span>${S.inv[k] || 0}</span>`}<small>${esc(g ? g.name : it)}</small></button>`;
+  }).join('');
+  return `<div class="sheethot"><div class="shhead"><b>Hotbar</b><small>Drag things here, or pick one in your bag and tap a slot. Tap a slot to empty it.</small><button data-hsort>Sort</button><button data-hfill>Auto-fill</button><button data-hclearall>Clear</button></div><div class="shrow">${cells}</div></div>`;
 }
 // Pointer-based dragging, so it works with a mouse and on touch screens (hold, then drag).
 let drag = null;
@@ -10210,7 +10516,7 @@ function dragEnd(e) {
   d.ghost.remove(); d.src.classList.remove('dragging'); document.body.classList.remove('dragging-item');
   document.querySelectorAll('.dropover').forEach((x) => x.classList.remove('dropover'));
   dragJustEnded = performance.now();
-  const over = document.elementFromPoint(e.clientX, e.clientY), hot = over && over.closest('#hotbar [data-hot]'), bag = over && over.closest('[data-bagdrop]');
+  const over = document.elementFromPoint(e.clientX, e.clientY), hot = over && over.closest('#hotbar [data-hot], .sheethot [data-hot]'), bag = over && over.closest('[data-bagdrop]');
   const hb = hotbar();
   if (hot) {
     const to = +hot.dataset.hot;
@@ -10220,7 +10526,7 @@ function dragEnd(e) {
   } else if (bag && d.from < 0) {
     const keys = bagKeys(), a = keys.indexOf(d.k), b = +bag.dataset.bagdrop;
     if (a >= 0) { if (b < keys.length) [keys[a], keys[b]] = [keys[b], keys[a]]; else { keys.splice(a, 1); keys.push(d.k); } S.bagOrder = keys; }
-  } else if (d.from >= 0 && !(over && over.closest('#hotbar'))) {
+  } else if (d.from >= 0 && !(over && over.closest('#hotbar, .sheethot'))) {
     hb[d.from] = null; // dragged off the bar: clear the slot
   }
   save(); renderHotbar(); if (sheetMode === 'bag') renderSheet();
@@ -10234,7 +10540,7 @@ addEventListener('pointercancel', (e) => { if (drag && drag.on) dragEnd(e); else
 addEventListener('click', (e) => { if (performance.now() - dragJustEnded < 250) { e.stopPropagation(); e.preventDefault(); } }, true);
 
 function renderBag(el) {
-  const tabs = { gear: 'Gear', items: 'Bag', style: 'Style' };
+  const tabs = { gear: 'Gear', items: 'Bag', style: 'Looks & titles' };
   let body = '';
   if (bagTab === 'gear') {
     const rk = rankOf(heroLvl()), R = RANKS[rk], t = heroTitle(), C = cosState(), w = W();
@@ -10246,17 +10552,33 @@ function renderBag(el) {
       <div class="dcol">${cslot('hat')}${cslot('outfit')}${cslot('cape')}${cslot('aura')}${cslot('pet')}</div></div>
       <div class="dstats"><div><img src="${ICONS[w.type]}" alt=""><span>Hit</span><b>${Math.round(w.dmg * dmgMult() * pathDmg())}</b></div><div><img src="${ICONS.shield}" alt=""><span>Defense</span><b>${totalDef()}</b></div><div><img src="${ICONS.heart}" alt=""><span>Health</span><b>${maxHp()}</b></div><div><img src="${ICONS.star}" alt=""><span>Renown</span><b>+${Math.round((renown() - 1) * 100)}%</b></div></div>
       ${(() => { const oc = COS.outfit[C.eq.outfit || '']; return oc && oc.helm ? `<button id="helmtog" class="helmtog" aria-pressed="${!S.look.helmOff}">${S.look.helmOff ? 'Show helmet' : 'Hide helmet'}</button>` : ''; })()}
-      ${outfitOn() ? '<p class="hint">Your outfit is a full look: armour and shield stats still count, they just stay hidden under it.</p>' : ''}
-      ${dollList()}`;
+      ${outfitOn() ? '<p class="hint">Your outfit is a full look: armour and shield stats still count, they just stay hidden under it.</p>' : ''}`;
+    // v79: the list for the slot you picked sits beside the hero (not hidden below), so pets and looks show at once
+    body = `<div class="gearsplit"><div class="gl">${body}</div><div class="gr" id="dlist">${dollList()}</div></div>`;
   } else if (bagTab === 'items') {
-    const keys = bagKeys(), slots = [];
-    for (let i = 0; i < Math.max(20, Math.ceil((keys.length + 1) / 5) * 5); i++) {
-      const k = keys[i];
-      if (!k) { slots.push(`<div class="slot empty" data-bagdrop="${i}"></div>`); continue; }
-      const g = GEAR[k], [rc, rn] = g ? gearRarity(g) : itemRarity(k), nm = g ? g.name : ITEMS[k], tipT = `${nm}${g && plusOf(k) ? ` +${plusOf(k)}` : ''} · ${rn}${g ? ` · ${gearStats(g)}` : ` · ${S.inv[k]} in your bag`}${!g && SELL[k] ? ` · sells for ${fmt(SELL[k])}` : ''}${FOOD[k] ? ` · heals ${FOOD[k].heal}` : ''}`;
-      slots.push(`<button class="slot ${rc}${bagPick === k ? ' on' : ''}${(S.hotbar || []).includes(k) ? ' pinned' : ''}" data-item="${k}" data-drag="${k}" data-bagdrop="${i}" title="${esc(tipT)}"><img src="${g ? gearIcon(g) : ICONS[k]}" alt="${nm}">${g ? (plusOf(k) ? `<span>+${plusOf(k)}</span>` : '') : `<span>${S.inv[k]}</span>`}</button>`);
+    const keys = bagKeys(), slots = [], cat = bagCatOn;
+    const counts = { all: keys.length, spells: Object.keys(spellsOwned()).filter((k) => SPELLS[k] && !SPELLS[k].admin).length };
+    for (const k of keys) counts[bagCat(k)] = (counts[bagCat(k)] || 0) + 1;
+    if (cat === 'spells') {
+      for (const k of Object.keys(spellsOwned())) {
+        const sp = SPELLS[k]; if (!sp || sp.admin) continue; const hk = `spell:${k}`;
+        slots.push(`<button class="slot spellslot${bagPick === hk ? ' on' : ''}${(S.hotbar || []).includes(hk) ? ' pinned' : ''}" data-item="${hk}" data-drag="${hk}" style="--sc:${sp.col}" title="${esc(sp.name)}"><img src="${spellIcon(k)}" alt=""><small class="nm">${esc(sp.name)}</small></button>`);
+      }
+      if (!slots.length) slots.push('<p class="hint" style="grid-column:1/-1">No spells yet. Madame Wisteria, the spell seller in Jerry Village, sells the basic ones.</p>');
+    } else {
+      const shown = cat === 'all' ? keys : keys.filter((k) => bagCat(k) === cat);
+      for (const k of shown) {
+        const i = keys.indexOf(k), g = GEAR[k], [rc, rn] = g ? gearRarity(g) : itemRarity(k), nm = g ? g.name : ITEMS[k], tipT = `${nm}${g && plusOf(k) ? ` +${plusOf(k)}` : ''} · ${rn}${g ? ` · ${gearStats(g)}` : ` · ${S.inv[k]} in your bag`}${!g && SELL[k] ? ` · sells for ${fmt(SELL[k])}` : ''}${FOOD[k] ? ` · heals ${FOOD[k].heal}` : ''}`;
+        slots.push(`<button class="slot ${rc}${bagPick === k ? ' on' : ''}${(S.hotbar || []).includes(k) ? ' pinned' : ''}" data-item="${k}" data-drag="${k}" data-bagdrop="${i}" title="${esc(tipT)}"><img src="${g ? gearIcon(g) : ICONS[k]}" alt="">${g ? (plusOf(k) ? `<span>+${plusOf(k)}</span>` : '') : `<span>${fmt(S.inv[k])}</span>`}<small class="nm">${esc(nm)}${g && plusOf(k) ? ` +${plusOf(k)}` : ''}</small></button>`);
+      }
+      if (cat === 'all') for (let i = shown.length; i < Math.max(15, Math.ceil((shown.length + 1) / 5) * 5); i++) slots.push(`<div class="slot empty" data-bagdrop="${i}"></div>`);
+      if (!shown.length && cat !== 'all') slots.push(`<p class="hint" style="grid-column:1/-1">No ${BAG_CATS[cat].toLowerCase()} in your bag right now.</p>`);
     }
-    let info = '<p class="hint">Drag items to move them or onto the hotbar. Tap one to see its worth.</p>';
+    let info = '<p class="hint">Tap anything to see what it is, what it\'s worth and what you can do with it. Drag things to move them, or onto the hotbar below.</p>';
+    if (bagPick && bagPick.startsWith('spell:') && SPELLS[bagPick.slice(6)]) {
+      const sp = SPELLS[bagPick.slice(6)];
+      info = `<div class="iteminfo"><img src="${spellIcon(bagPick.slice(6))}" alt=""><div><b>${esc(sp.name)}</b><small>Spell · ${sp.cd}s cooldown</small></div><p class="idesc">${esc(sp.desc)}</p><div class="row"><button class="primary" data-pin="${bagPick}" aria-pressed="${(S.hotbar || []).includes(bagPick)}">${(S.hotbar || []).includes(bagPick) ? 'Take off hotbar' : 'Put on hotbar'}</button></div></div>`;
+    }
     if (bagPick && GEAR[bagPick] && S.owned.includes(bagPick)) {
       const k = bagPick, g = GEAR[k], [rc, rn] = gearRarity(g);
       info = `<div class="iteminfo ${rc}"><img src="${gearIcon(g)}" alt=""><div><b>${g.name}${plusOf(k) ? ` +${plusOf(k)}` : ''}</b><small><i class="rar">${rn}</i> · ${SLOT_NAMES[g.slot]} · spare, not equipped</small></div><div class="row"><button class="primary" data-equip="${k}">Equip</button><button data-pin="${k}" aria-pressed="${(S.hotbar || []).includes(k)}">Hotbar</button>${Object.values(STARTER).includes(k) || k === 'sh_badge' ? '' : delBtns(k, 1)}</div></div>`;
@@ -10264,18 +10586,20 @@ function renderBag(el) {
       const k = bagPick, [rc, rn] = itemRarity(k), f = FOOD[k];
       info = `<div class="iteminfo ${rc}"><img src="${ICONS[k]}" alt=""><div><b>${ITEMS[k]}</b><small><i class="rar">${rn}</i> · ${S.inv[k]} in your bag${SELL[k] ? ` · sells for ${fmt(SELL[k])} each` : ''}${f ? ` · heals ${f.heal}` : ''}</small></div><div class="row">${f ? `<button class="primary" data-eat="${k}">Eat</button>` : ''}<button data-pin="${k}" aria-pressed="${(S.hotbar || []).includes(k)}">Hotbar</button>${delBtns(k, S.inv[k])}</div></div>`;
     }
-    body = `<div class="bagbar"><span>${keys.length} things</span>${keys.length >= 8 ? '<button data-bagsort="kind">Sort by type</button><button data-bagsort="rar">Sort by rarity</button>' : ''}</div><div class="bag five">${slots.join('')}</div>${info}`;
+    const chips = Object.entries(BAG_CATS).map(([c, n]) => `<button class="bchip" data-bcat="${c}" aria-pressed="${cat === c}">${n} <i>${counts[c] || 0}</i></button>`).join('');
+    const sorts = cat === 'spells' ? '' : `<label class="bsort">Sort by <select data-bagsortsel>${Object.entries(BAG_SORTS).map(([k2, n]) => `<option value="${k2}"${(S.bagSortBy || 'kind') === k2 ? ' selected' : ''}>${n}</option>`).join('')}</select></label><button data-bagsort="${S.bagSortBy || 'kind'}">Sort now</button>`;
+    body = `<div class="bagsplit"><div class="bl"><div class="bchips">${chips}</div><div class="bagbar"><span>${keys.length} things in your bag</span>${sorts}</div><div class="bag big">${slots.join('')}</div></div><div class="br">${info}</div></div>`;
   } else {
     const C = cosState(), T = titleList(), cur = heroTitle();
     const total = Object.values(COS).reduce((a, s) => a + Object.keys(s).length, 0), have = Object.keys(C.got).length;
     body = `<button id="b-appear" class="primary">Change appearance (face, hair, body)</button><h4 class="sub">Title <small>shown over your name</small></h4><div class="titles">${T.map((t) => `<button class="titlebtn${t.ok ? '' : ' locked'}" data-title="${t.id}" aria-pressed="${cur && cur.id === t.id}" ${t.ok ? '' : 'disabled'} style="--tc:${t.col}" title="${t.how}">${t.name}${t.ok ? '' : `<small>${t.how}</small>`}</button>`).join('')}</div>
       <h4 class="sub">Looks <small>${have} of ${total} found</small></h4><div class="cosgrid">${Object.entries(COS_SLOTS).map(([sl, nm]) => { const c = C.eq[sl] && COS[sl][C.eq[sl]]; return `<button class="dslot cos ${c ? RARITY[c.r || 0].id : 'empty'}" data-dslot="cos:${sl}"><span class="swatch" style="--sw:${c ? c.col || c.body || '#e8a93a' : '#d8c8a8'}"></span><small>${nm}</small></button>`; }).join('')}</div>
-      <p class="hint">Ranks: ${RANKS.map((r) => `<b style="color:${r.col}">${r.name}</b> (${r.min})`).join(' · ')}. Every rank gives +5% damage and health, a bigger aura and flashier specials.</p>`;
+      <p class="hint">Ranks: ${RANKS.map((r) => `<b style="color:${r.col}">${r.name}</b> (${r.min})`).join(' · ')}. Every rank gives +5% damage and health, a bigger aura and flashier charged attacks.</p>`;
   }
-  el.innerHTML = `<h3>Inventory <small>${fmt(S.coins)} coins${S.bank ? ` · ${fmt(S.bank)} banked` : ''}</small></h3><div class="bagtabs">${Object.entries(tabs).map(([k, n]) => `<button data-btab="${k}" aria-pressed="${bagTab === k}">${n}</button>`).join('')}</div>${body}`;
+  el.innerHTML = `<h3>Inventory <small>${fmt(S.coins)} coins${S.bank ? ` · ${fmt(S.bank)} banked` : ''}</small></h3><div class="bagtabs">${Object.entries(tabs).map(([k, n]) => `<button data-btab="${k}" aria-pressed="${bagTab === k}">${n}</button>`).join('')}</div><div class="bagbody">${body}</div>${sheetHotbar()}`;
   previewMount();
   el.querySelectorAll('[data-btab]').forEach((b) => { b.onclick = () => { bagTab = b.dataset.btab; renderSheet(); }; });
-  el.querySelectorAll('[data-dslot]').forEach((b) => { b.onclick = () => { dollSlot = b.dataset.dslot; bagTab = 'gear'; renderSheet(); }; });
+  el.querySelectorAll('[data-dslot]').forEach((b) => { b.onclick = () => { dollSlot = b.dataset.dslot; bagTab = 'gear'; dollJustPicked = true; renderSheet(); }; });
   el.querySelectorAll('[data-item]').forEach((b) => { b.onclick = () => { bagPick = bagPick === b.dataset.item ? null : b.dataset.item; renderSheet(); }; });
   el.querySelectorAll('[data-eat]').forEach((b) => { b.onclick = () => { eat(b.dataset.eat); renderSheet(); }; });
   el.querySelectorAll('[data-equip]').forEach((b) => { b.onclick = () => { const k = b.dataset.equip, g = GEAR[k]; if (!g || !S.owned.includes(k)) return; S.equip[g.slot] = k; bagPick = null; cancelTask(); equipGear(); buildGearBar(); updateTitle(); save(); renderSheet(); renderHotbar(); sfx('equip'); toast(`Equipped ${g.name}.`, gearIcon(g)); }; });
@@ -10288,6 +10612,15 @@ function renderBag(el) {
     renderSheet();
   }; });
   el.querySelectorAll('[data-bagsort]').forEach((b) => { b.onclick = () => { bagSort(b.dataset.bagsort); renderSheet(); }; });
+  el.querySelectorAll('[data-bagsortsel]').forEach((b) => { b.onchange = () => { bagSort(b.value); renderSheet(); }; });
+  el.querySelectorAll('[data-bcat]').forEach((b) => { b.onclick = () => { bagCatOn = b.dataset.bcat; bagPick = null; renderSheet(); }; });
+  el.querySelectorAll('[data-hset]').forEach((b) => { b.onclick = () => { if (!bagPick) return; const hb = hotbar(), i = +b.dataset.hset, was = hb.indexOf(bagPick); if (was >= 0) hb[was] = null; hb[i] = bagPick; sfx('equip'); save(); renderHotbar(); renderSheet(); }; });
+  el.querySelectorAll('[data-hclear]').forEach((b) => { b.onclick = () => { const hb = hotbar(), i = +b.dataset.hclear; if (bagPick && hb[i] !== bagPick) { const was = hb.indexOf(bagPick); if (was >= 0) hb[was] = null; hb[i] = bagPick; } else hb[i] = null; save(); renderHotbar(); renderSheet(); }; });
+  const hs = el.querySelector('[data-hsort]'); if (hs) hs.onclick = () => { hotSort(); renderSheet(); };
+  const hf = el.querySelector('[data-hfill]'); if (hf) hf.onclick = () => { hotFill(); renderSheet(); };
+  const hc = el.querySelector('[data-hclearall]'); if (hc) hc.onclick = () => { const hb = hotbar(); for (let i = 0; i < HOT_N; i++) hb[i] = null; save(); renderHotbar(); renderSheet(); };
+  // on a narrow screen the slot's list is below the hero: bring it into view when you pick a slot
+  if (dollJustPicked) { dollJustPicked = false; const dl = el.querySelector('#dlist'); if (dl && matchMedia('(max-width: 900px)').matches) dl.scrollIntoView({ block: 'start', behavior: 'smooth' }); }
   el.querySelectorAll('[data-pin]').forEach((b) => { b.onclick = () => { pinToHotbar(b.dataset.pin); renderSheet(); }; });
   el.querySelectorAll('[data-gear]').forEach((b) => { b.onclick = () => { const g = GEAR[b.dataset.gear]; S.equip[g.slot] = g.slot === 'gadget' && S.equip.gadget === b.dataset.gear ? null : b.dataset.gear; cancelTask(); equipGear(); buildGearBar(); updateTitle(); save(); renderSheet(); burst(player.pos.clone().setY(1.6), '#ffe07a', 20, 4); sfx('equip'); }; });
   el.querySelectorAll('[data-cos]').forEach((b) => { b.onclick = () => { const [sl, k] = b.dataset.cos.split(':'); const C = cosState(); const wasSkel = heroSkel(); C.eq[sl] = k && C.eq[sl] !== k ? k : null; if (sl === 'outfit' && wasSkel !== heroSkel()) { rebuildHero(); if (net.on) profileKey = ''; } else if (sl === 'cape' || sl === 'outfit') { applyLook(); if (sl === 'outfit') equipGear(); } heroFlair(); save(); renderSheet(); burst(player.pos.clone().setY(1.6), '#ffe07a', 24, 4); }; });
@@ -10356,7 +10689,7 @@ const upgradeCost = (T, l) => Math.round(TOWN_LEVELS[l].cost * T.stars * townMul
 // Tab: a hero card with your look, level, gold, net worth and the towns you run
 function renderCard(el) {
   const nw = netWorth(), mine = TOWNS.filter((T) => townMine(T.id)), rk = rankOf(heroLvl()), R = RANKS[rk], t = heroTitle(), ch = chapterNow();
-  const L = heroLvl(), cur = HXT[L], next = HXT[Math.min(HERO_MAX, L + 1)], pct = L >= 99 ? 100 : ((S.hero.xp - cur) / (next - cur)) * 100;
+  const L = heroLvl(), cur = HXT[L], next = HXT[Math.min(HERO_MAX, L + 1)], pct = L >= HERO_MAX ? 100 : ((S.hero.xp - cur) / (next - cur)) * 100;
   el.innerHTML = `<h3>${esc(heroName())} <small>${ch.tag}</small></h3>
     <div class="herocard" style="--rank:${R.col}">
       <div class="dfig"><div class="dprev" title="Drag to turn your hero"></div><span class="drank">${R.name}</span>${t && t.name !== R.name ? `<em>${esc(t.name)}</em>` : ''}</div>
@@ -10376,16 +10709,18 @@ function renderCard(el) {
     <div class="row"><button id="cardclose">Close (Tab)</button></div>`;
   previewMount();
   el.querySelectorAll('[data-stat]').forEach((b) => { b.onclick = () => spendPoint(b.dataset.stat); });
+    el.querySelectorAll('[data-perkpick]').forEach((b) => { b.onclick = () => openPerkPick(); });
   $('cardclose').onclick = closeSheet;
 }
 // stat points, weapon, gathering skills and the rich list (this used to be its own Hero sheet)
 function heroStatsHtml() {
   const free = freePoints();
-  const effect = { atk: `Weapon damage × ${dmgMult().toFixed(1)}`, def: `Damage taken ÷ ${defDiv().toFixed(1)}${gearDef() ? ` (gear +${gearDef()})` : ''}`, hp: `${maxHp()} max health` };
+  const effect = statEffect();
   return `<h4 class="sub">Stats ${free > 0 ? `<small><b>${free} point${free > 1 ? 's' : ''} to spend</b></small>` : ''}</h4>
       <div class="stats">${Object.entries(STATS).map(([k, [nm, ic]]) => `<div class="stat"><img src="${ICONS[ic]}" alt=""><span class="nm">${nm}</span><span class="lv">${stat(k)}</span><small>${effect[k]}</small>${free > 0 ? `<button class="plus" data-stat="${k}" aria-label="Add a point to ${nm}">+</button>` : ''}</div>`).join('')}</div>
-      <p class="hint">You get ${FREE_PER_LEVEL} more points each level.</p>
-      <h4 class="sub">Weapon mastery</h4><div class="stats">${Object.entries(MASTERY).map(([t, nm]) => { const l = masteryLv(t), k = (S.mastery || {})[t] || 0, next = l < 10 ? 8 * (l + 1) ** 2 : 0; return `<div class="stat"><img src="${ICONS[t]}" alt=""><span class="nm">${nm}</span><span class="lv">${l}</span><small>${l ? `+${(l * 1.5).toFixed(1).replace(/\.0$/, '')}% damage · ` : ''}${next ? `${fmt(k)} / ${fmt(next)} monsters` : 'Mastered!'}</small></div>`; }).join('')}</div>
+      <p class="hint">You get ${FREE_PER_LEVEL} more points each level. Master Orrin in Jerry Village resets them for coins.</p>
+      ${perksHtml()}
+      <h4 class="sub">Weapon mastery</h4><div class="stats">${Object.entries(MASTERY).map(([t, nm]) => { const l = masteryLv(t), k = (S.mastery || {})[t] || 0, next = l < 10 ? 8 * (l + 1) ** 2 : 0; return `<div class="stat"><img src="${mIcon(t)}" alt=""><span class="nm">${nm}</span><span class="lv">${l}</span><small>${l ? `+${(l * 1.5).toFixed(1).replace(/\.0$/, '')}% damage · ` : ''}${next ? `${fmt(k)} / ${fmt(next)} monsters` : 'Mastered!'}</small></div>`; }).join('')}</div>
       <p class="hint">Beat monsters with a kind of weapon to master it, up to +15% damage.</p>
       <h4 class="sub">Monster journal <small>${Object.keys(S.journal || {}).length} kinds beaten</small></h4>${Object.keys(S.journal || {}).length ? `<div class="journal">${Object.entries(S.journal).sort((a, b) => b[1] - a[1]).map(([t, n]) => { const tr = journalTier(t), nx = JOURNAL_AT[tr]; return `<div class="jrow"><b>${esc((ENEMY_TYPES[t] || { name: t }).name)}</b><span class="jstars">${'★'.repeat(tr)}${'☆'.repeat(3 - tr)}</span><small>${fmt(n)}${nx ? ` / ${fmt(nx)}` : ''}</small></div>`; }).join('')}</div>` : ''}
       <p class="hint">Beat 25, 100 and 500 of a kind of monster to become its Hunter: +3% damage against it per star, plus a reward.</p>
@@ -10777,7 +11112,7 @@ function makeGagronFriend() {
   npcs.push(gagronFriend);
 }
 
-window.__jq = { dogMe, dogSet, get dogOn() { return dogOn; }, journalTier, petLv, bossFirstWin, SPELL_FX, adminHuman, humanSet, get humanOn() { return humanOn; }, helpedUp, dailyGift, masteryLv, reviveTick, affixFx, partySet, get streak() { return streak; }, get together() { return together; }, dragonAttack, dodgedFx, popLoot, toast, wolfSet, get wolfOn() { return wolfOn; }, set wolfOn(v) { wolfOn = v; }, mobNet, netHeroesTick, esNet, enemyAttackNet, hzNet, bfxNet, pickTarget, heroesNear, get hazards() { return hazards; }, get netDrive() { return netDrive; }, shrinkMe, showStoryIntro, hurtPlayer, koSitOut, wakeUp, showLook, removeThing, giveThing, COS, ITEMS, GEAR, parseGive, chargedAttack, parseAmount, hitPeers, shotHitsPeer, showKeysNote, castSpell, learnSpell, spellCd, SPELLS, goonSneeze, goonDrips, goonFlop, setSlotBox, showSlots, get slotBox() { return slotBox; }, get guide() { return guide; }, bossNet, safeSpot, get PVP_LVL() { return PVP_LVL; }, goldNode, wbInfo, wbTick, get wb() { return wb; }, WB_SPOTS, tradeOpen, tradeNet, offerKey, get trade() { return trade; }, adv(s) { for (let t = 0; t < s; t += 0.05) { for (let i = timers.length - 1; i >= 0; i--) { timers[i].t -= 0.05; if (timers[i].t <= 0) { const f = timers[i].f; timers.splice(i, 1); f(); } } bossFxTick(0.05); } }, get party() { return party; }, BOSS_AI, PHASE_SETUP, get gulped() { return gulped; }, wriggle, toggleBigMap, spawnEnemy, openPathChoice, choosePath, startLanternNight, get lanterns() { return lanterns; }, duelOffer, duelPrize, onNet, chatCommand, canFight, openUpgrade, openBoard, boardToday, queueLetter, makeGagronFriend, net, peerActors, runeTick, bossFx, renderer, scene, openMayor, darkOmen, netWorth, liberateTown, setGolden, goldenCaught, pompArrive, get goldenE() { return goldenE; }, spinWheel, dayTick, get bossIntro() { return bossIntro; }, bossSkip, startBossScene, sailTo, regions, closeSheet, renderHotbar, crew, setCrewMode, TOWNS, liberateTown, chests, openChest, stopRoulette, enemies, startBossIntro, closeDialog, advanceDialog, dash, attackPress, craft, CRAFTS, openCreator, closeCreator, creator, rebuildHero, setZoom: (z) => { zoom = zoomGoal = z; }, hurtEnemy, goThrough, get where() { return where; }, INTERIORS, equipGear, spendPoint, giveHeroXp, heroLvl, stat, maxHp, defDiv, openWeaponShop, openKing, jump, eat, eatBest, openShop, swing, swingTarget, hitNode, projectiles, timers, get S() { return S; }, get player() { return player; }, enemies, nodes, npcs, startTask, doAction, giveXp, save, openSheet, openDialog };
+window.__jq = { openPerkPick, openAlloc, perksDue, defBlock, magBlock, magDiv, perkOn, statEffect, gapIn, gapOut, dogMe, dogSet, get dogOn() { return dogOn; }, journalTier, petLv, bossFirstWin, SPELL_FX, adminHuman, humanSet, get humanOn() { return humanOn; }, helpedUp, dailyGift, masteryLv, reviveTick, affixFx, partySet, get streak() { return streak; }, get together() { return together; }, dragonAttack, dodgedFx, popLoot, toast, wolfSet, get wolfOn() { return wolfOn; }, set wolfOn(v) { wolfOn = v; }, mobNet, netHeroesTick, esNet, enemyAttackNet, hzNet, bfxNet, pickTarget, heroesNear, get hazards() { return hazards; }, get netDrive() { return netDrive; }, shrinkMe, showStoryIntro, hurtPlayer, koSitOut, wakeUp, showLook, removeThing, giveThing, COS, ITEMS, GEAR, parseGive, chargedAttack, parseAmount, hitPeers, shotHitsPeer, showKeysNote, castSpell, learnSpell, spellCd, SPELLS, goonSneeze, goonDrips, goonFlop, setSlotBox, showSlots, get slotBox() { return slotBox; }, get guide() { return guide; }, bossNet, safeSpot, get PVP_LVL() { return PVP_LVL; }, goldNode, wbInfo, wbTick, get wb() { return wb; }, WB_SPOTS, tradeOpen, tradeNet, offerKey, get trade() { return trade; }, adv(s) { for (let t = 0; t < s; t += 0.05) { for (let i = timers.length - 1; i >= 0; i--) { timers[i].t -= 0.05; if (timers[i].t <= 0) { const f = timers[i].f; timers.splice(i, 1); f(); } } bossFxTick(0.05); } }, get party() { return party; }, BOSS_AI, PHASE_SETUP, get gulped() { return gulped; }, wriggle, toggleBigMap, spawnEnemy, openPathChoice, choosePath, startLanternNight, get lanterns() { return lanterns; }, duelOffer, duelPrize, onNet, chatCommand, canFight, openUpgrade, openBoard, boardToday, queueLetter, makeGagronFriend, net, peerActors, runeTick, bossFx, renderer, scene, openMayor, darkOmen, netWorth, liberateTown, setGolden, goldenCaught, pompArrive, get goldenE() { return goldenE; }, spinWheel, dayTick, get bossIntro() { return bossIntro; }, bossSkip, startBossScene, sailTo, regions, closeSheet, renderHotbar, crew, setCrewMode, TOWNS, liberateTown, chests, openChest, stopRoulette, enemies, startBossIntro, closeDialog, advanceDialog, dash, attackPress, craft, CRAFTS, openCreator, closeCreator, creator, rebuildHero, setZoom: (z) => { zoom = zoomGoal = z; }, hurtEnemy, goThrough, get where() { return where; }, INTERIORS, equipGear, spendPoint, giveHeroXp, heroLvl, stat, maxHp, defDiv, openWeaponShop, openKing, jump, eat, eatBest, openShop, swing, swingTarget, hitNode, projectiles, timers, get S() { return S; }, get player() { return player; }, enemies, nodes, npcs, startTask, doAction, giveXp, save, openSheet, openDialog };
 window.addEventListener('error', (e) => { const m = $('loadmsg'); if (m) m.textContent = `Something went wrong: ${e.message}`; });
 main().catch((err) => {
   console.error(err);

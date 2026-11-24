@@ -22,12 +22,12 @@ export const TOWNS = [
   { id: 'iciclehollow', name: 'Icicle Hollow', x: 1050, z: 46, r: 14, stars: 1, land: 'frost', home: [1000, 50] },
   { id: 'pinecrest', name: 'Pinecrest', x: 950, z: 46, r: 14, stars: 2, land: 'frost', home: [1000, 50] },
   { id: 'glaciergate', name: 'Glacier Gate', x: 1036, z: -14, r: 14, stars: 3, land: 'frost', home: [1000, 8] },
-  { id: 'frostmere', name: 'Frostmere', x: 906, z: -34, r: 14, stars: 2, land: 'frost', home: [1000, 8], outer: true },
-  { id: 'hailstone', name: 'Hailstone Hold', x: 1094, z: -34, r: 14, stars: 3, land: 'frost', home: [1000, 8], outer: true },
+  { id: 'frostmere', name: 'Frostmere', x: 916, z: -30, r: 14, stars: 2, land: 'frost', home: [1000, 8], outer: true },
+  { id: 'hailstone', name: 'Hailstone Hold', x: 1084, z: -30, r: 14, stars: 3, land: 'frost', home: [1000, 8], outer: true },
   { id: 'bogbottom', name: 'Bogbottom', x: 1950, z: 44, r: 14, stars: 2, land: 'marsh', home: [2000, 50] },
   { id: 'reedwhistle', name: 'Reedwhistle', x: 2052, z: 40, r: 14, stars: 3, land: 'marsh', home: [2000, 50] },
-  { id: 'mudwallow', name: 'Mudwallow', x: 1902, z: 10, r: 14, stars: 2, land: 'marsh', home: [2000, 10], outer: true },
-  { id: 'toadstool', name: 'Toadstool Hollow', x: 1936, z: -86, r: 14, stars: 3, land: 'marsh', home: [2000, 10], outer: true },
+  { id: 'mudwallow', name: 'Mudwallow', x: 1916, z: 10, r: 14, stars: 2, land: 'marsh', home: [2000, 10], outer: true },
+  { id: 'toadstool', name: 'Toadstool Hollow', x: 1946, z: -74, r: 14, stars: 3, land: 'marsh', home: [2000, 10], outer: true },
   { id: 'dunecrest', name: 'Dunecrest', x: 2954, z: 30, r: 14, stars: 2, land: 'sands', home: [3000, 30] },
   { id: 'copperspring', name: 'Copperspring', x: 3046, z: 32, r: 14, stars: 3, land: 'sands', home: [3000, 30] },
   { id: 'rustwater', name: 'Rustwater', x: 2916, z: -4, r: 14, stars: 2, land: 'sands', home: [3000, 30], outer: true },
@@ -39,16 +39,16 @@ export const townFacing = (T) => Math.atan2((T.home ? T.home[1] : 0) - T.z, (T.h
 // The village is spread out a little: every village building and prop sits VS times further from the well.
 export const VS = 1.6;
 export const ZONES = {
-  glimmer: { name: 'Glimmerwood', x: 108, z: 6, r: 34, grass: '#5aa6a0', grass2: '#7d7fd6' },
-  crags: { name: 'Grumble Crags', x: -106, z: -4, r: 34, grass: '#9a9a78', grass2: '#b5a27e' },
-  meadow: { name: 'Honeymeadow', x: 4, z: 108, r: 34, grass: '#8fc24e', grass2: '#c6c25c' },
-  hollow: { name: 'Haunted Hollow', x: -10, z: -112, r: 30, grass: '#4f6b58', grass2: '#6a5f78' },
+  glimmer: { name: 'Glimmerwood', x: 108, z: 6, r: 42, grass: '#5aa6a0', grass2: '#7d7fd6' },
+  crags: { name: 'Grumble Crags', x: -106, z: -4, r: 42, grass: '#9a9a78', grass2: '#b5a27e' },
+  meadow: { name: 'Honeymeadow', x: 4, z: 108, r: 40, grass: '#8fc24e', grass2: '#c6c25c' },
+  hollow: { name: 'Haunted Hollow', x: -10, z: -112, r: 38, grass: '#4f6b58', grass2: '#6a5f78' },
 };
 // Boss stages: a big cleared ring in the middle of each land, kept free of trees, rocks and props.
 export const VALLEY_ARENAS = [
-  { boss: 'boss_crusher', x: ZONES.crags.x, z: ZONES.crags.z, r: 20, col: '#c8b48a', rim: '#8a7a5a' },
-  { boss: 'boss_gloom', x: ZONES.glimmer.x + 4, z: ZONES.glimmer.z, r: 20, col: '#8ac8c0', rim: '#bfa8ff' },
-  { boss: 'boss_rattle', x: ZONES.hollow.x, z: ZONES.hollow.z + 2, r: 18, col: '#6a7a6a', rim: '#a7a3ad' },
+  { boss: 'boss_crusher', x: ZONES.crags.x, z: ZONES.crags.z, r: 27, col: '#c8b48a', rim: '#8a7a5a' },
+  { boss: 'boss_gloom', x: ZONES.glimmer.x + 4, z: ZONES.glimmer.z, r: 27, col: '#8ac8c0', rim: '#bfa8ff' },
+  { boss: 'boss_rattle', x: ZONES.hollow.x, z: ZONES.hollow.z + 2, r: 25, col: '#6a7a6a', rim: '#a7a3ad' },
 ];
 // Roads out of the valley: [toX, toZ, fromX, fromZ]
 export const ROADS = [[MINE.x - MINE.r + 1, MINE.z + 3, 44, -38], [58, 58, 2, 46], [-60, 58, 1, 40], [-56, -66, -16, -58], [62, -55, 25, -21], [ZONES.glimmer.x - 20, 6, 22, 10], [-86, -4, -28, -4], [4, 86, 0, 30], [-16, -58, 0, -40], [-10, -92, -16, -58],

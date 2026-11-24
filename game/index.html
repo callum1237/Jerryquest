@@ -494,6 +494,23 @@
   .stat img, .stat .lv, .stat .plus { grid-row: 1 / span 2 !important; align-self: center; }
   .stat .lv { grid-column: 3; } .stat .plus { grid-column: 4; }
   .stat .plus { grid-row: span 2; width: 36px; height: 36px; padding: 0; font: 700 22px/1 var(--display); border-radius: 50%; background: linear-gradient(#ffe58a, var(--gold)); }
+  /* v80: perks and Point Allocation */
+  .perkready { width: 100%; margin: 4px 0 8px; animation: glowpulse 1.6s ease-in-out infinite; }
+  .perklist { display: grid; gap: 6px; margin-bottom: 6px; }
+  .perkrow { display: grid; grid-template-columns: 28px auto 1fr auto; gap: 0 8px; align-items: center; background: #f2e2bd; border: 2px solid var(--ink); border-radius: 10px; padding: 5px 8px; }
+  .perkrow img { width: 28px; height: 28px; }
+  .perkrow small { font-size: 12px; color: var(--ink-soft); font-weight: 700; }
+  .perkrow button { padding: 4px 10px; font-size: 13px; }
+  .perkcards { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin: 10px 0; }
+  .perkcard { display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 14px 10px; text-align: center; background: linear-gradient(#fff4d6, #f2e2bd); border: 2.5px solid var(--ink); border-radius: 14px; min-width: 0; }
+  .perkcard:hover, .perkcard:focus-visible { background: linear-gradient(#fff8e0, #ffe58a); transform: translateY(-2px); }
+  .perkcard img { width: 44px; height: 44px; }
+  .perkcard b { font-family: var(--display); font-size: 18px; }
+  .perkcard span { font-size: 13px; font-weight: 700; color: var(--ink-soft); line-height: 1.3; }
+  @media (max-width: 560px) { .perkcards { grid-template-columns: 1fr; } .perkcard { flex-direction: row; text-align: left; padding: 10px; } .perkcard img { width: 34px; height: 34px; } .perkcard span { flex: 1; } }
+  .allocrow { display: flex; flex-wrap: wrap; gap: 6px 12px; margin: 8px 0; font-weight: 700; }
+  .allocrow span { display: inline-flex; align-items: center; gap: 4px; background: #f2e2bd; border: 2px solid var(--ink); border-radius: 10px; padding: 3px 8px; }
+  .allocrow img { width: 22px; height: 22px; }
   #classes .spend { margin-top: 4px; font-size: 13px; padding: 4px 8px; background: linear-gradient(#ffe58a, var(--gold)); animation: glowpulse 1.6s ease-in-out infinite; }
   @keyframes glowpulse { 50% { box-shadow: 0 0 0 3px rgb(255 216 74 / .55), 0 3px 0 var(--ink); } }
   @media (prefers-reduced-motion: reduce) { #classes .spend { animation: none; } }
@@ -868,6 +885,47 @@
 
   /* v36: inventory, paper doll, rarity, titles */
   body.sheet-bag #sheet { width: 400px; }
+  /* v79: a big, easy inventory. On a wide screen it fills the middle, with the chosen slot's list beside the hero,
+     the bag next to a details panel, and your hotbar along the bottom so you can arrange it right there. */
+  body.sheet-bag #hotbar, body.sheet-bag #chips, body.sheet-bag .herotag, body.sheet-bag .ebar, body.sheet-bag .lvtag { visibility: hidden; }
+  @media (min-width: 901px) {
+    body.sheet-bag #sheet { width: auto; max-width: none; left: max(16px, calc(50% - 560px)); right: max(16px, calc(50% - 560px)); top: calc(env(safe-area-inset-top, 0px) + 60px); bottom: calc(env(safe-area-inset-bottom, 0px) + 24px); max-height: none; display: flex; flex-direction: column; overflow: hidden; }
+    body.sheet-bag #sheet .bagbody { flex: 1; min-height: 0; overflow: auto; padding-right: 4px; }
+    .gearsplit { display: grid; grid-template-columns: minmax(360px, 440px) 1fr; gap: 16px; align-items: start; }
+    .gearsplit .gr { position: sticky; top: 0; }
+    .bagsplit { display: grid; grid-template-columns: 1fr 300px; gap: 16px; align-items: start; }
+    .bagsplit .br { position: sticky; top: 0; }
+    .doll .dprev { min-height: 260px; }
+  }
+  .gearsplit .gr .coslist, .gearsplit .gr .gearlist { max-height: none; }
+  .bchips { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
+  .bchip { padding: 5px 12px; font-size: 14px; border-radius: 999px; }
+  .bchip i { font-style: normal; font: 800 12px var(--display); color: var(--ink-soft); margin-left: 4px; }
+  .bchip[aria-pressed="true"] { background: linear-gradient(180deg, #ffe58a, var(--gold)); }
+  .bsort { display: flex; align-items: center; gap: 6px; font: 700 13px var(--display); }
+  .bsort select { font: 700 13px var(--body); padding: 3px 6px; border: 2px solid var(--ink); border-radius: 8px; background: #fbf3df; }
+  .bag.big { grid-template-columns: repeat(auto-fill, minmax(84px, 1fr)); gap: 8px; }
+  .bag.big .slot { aspect-ratio: auto; height: 96px; align-content: start; padding-top: 8px; gap: 2px; }
+  .bag.big .slot img { width: 46px; height: 46px; }
+  .bag.big .slot .nm { display: block; font: 700 11px/1.15 var(--body); text-align: center; padding: 0 4px; max-height: 26px; overflow: hidden; color: var(--ink); }
+  .bag.big .slot.spellslot { background: radial-gradient(circle at 50% 38%, color-mix(in srgb, var(--sc) 30%, #fbf3df) 30%, #f2e2bd); }
+  .iteminfo .idesc { grid-column: 1 / -1; margin: 2px 0; font-size: 13px; }
+  .sheethot { margin-top: 10px; padding: 8px 10px 10px; border: 2px solid var(--ink); border-radius: 14px; background: #efdcb2; }
+  .sheethot .shhead { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; flex-wrap: wrap; }
+  .sheethot .shhead b { font: 700 16px var(--display); }
+  .sheethot .shhead small { flex: 1; min-width: 160px; font-size: 12px; color: var(--ink-soft); font-weight: 700; }
+  .sheethot .shhead button { padding: 4px 10px; font-size: 13px; }
+  .sheethot .shrow { display: grid; grid-template-columns: repeat(8, minmax(0, 1fr)); gap: 6px; }
+  .shot { position: relative; height: 74px; padding: 6px 2px 2px; display: grid; justify-items: center; align-content: start; gap: 1px; border-radius: 12px; background: #f2e2bd; box-shadow: inset 0 0 0 2px var(--rc, transparent), 0 2px 0 var(--ink); touch-action: pan-y; cursor: grab; }
+  .shot img { width: 36px; height: 36px; -webkit-user-drag: none; }
+  .shot kbd { position: absolute; left: 4px; top: 2px; font: 800 11px var(--display); }
+  .shot span { position: absolute; right: 5px; top: 2px; font: 800 11px var(--display); }
+  .shot small { font: 700 10px/1.1 var(--body); max-width: 100%; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+  .shot.empty { background: rgb(242 226 189 / .5); border: 2px dashed var(--ink-soft); box-shadow: none; align-content: center; cursor: default; }
+  .shot.empty small { color: var(--ink-soft); }
+  .shot.spell { background: radial-gradient(circle at 50% 38%, color-mix(in srgb, var(--sc) 30%, #fbf3df) 30%, #f2e2bd); }
+  .shot.dropover, .slot.dropover { outline: 3px solid var(--gold); outline-offset: 1px; }
+  @media (max-width: 700px) { .sheethot .shrow { grid-template-columns: repeat(4, minmax(0, 1fr)); } .shot { height: 62px; } }
   .bagtabs { display: flex; gap: 6px; margin: -2px 0 10px; }
   .bagtabs button { flex: 1; padding: 5px 0; font-size: 14px; }
   .bagtabs button[aria-pressed="true"] { background: linear-gradient(180deg, #ffe58a, var(--gold)); }
@@ -1229,7 +1287,7 @@
 <canvas id="minimap" class="panel" title="Map (M)" hidden></canvas>
 <div id="bigmap" class="overlay" hidden><div class="panel mapwrap"><h3>Map of the valley</h3><canvas></canvas><div class="maplegend"><span><i style="background:#ffd23f;border-radius:2px"></i>Chest</span><span><i style="background:#fff;box-shadow:inset 0 0 0 3px #e8304a"></i>Boss</span><span><i style="background:#ffd23f"></i>Quest</span><span><i style="background:#ff6ad5"></i>Hand in</span><span><i style="background:#ffb43a"></i>Event</span></div><div id="travel"></div><p class="hint">Tap outside the map to close it.</p></div></div>
 <button id="jumpbtn" class="panel" aria-label="Jump">Jump</button>
-<button id="specialbtn" class="panel" aria-label="Special attack (R)" title="Special attack (R)"><img data-icon="star" alt=""><span>Special</span></button>
+<button id="specialbtn" class="panel" aria-label="Charged attack (hold)" title="Charged attack: hold, then let go"><img data-icon="star" alt=""><span>Charge</span></button>
 <button id="dashr" class="panel dash" aria-label="Dash">&raquo;</button>
 <button id="sprintbtn" class="panel" aria-label="Sprint" aria-pressed="false">Run</button>
 <div id="fade"></div>
