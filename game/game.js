@@ -8,7 +8,7 @@ import { LANDS, VALLEY_DOCK, buildLands, makeSnow, landRoads, coastOf, SANDS_FX,
 import { ICONS } from './icons.js';
 import { buildInteriors, INTERIORS, lavaPools } from './interiors.js';
 import { unlockAudio, playMusic, sfx, setVolumes, fxMute } from './audio.js';
-import { net, resume, signIn, signOut, loadCloud, cloudSave, flushSave, refreshBoard, setTown, connect, updateProfile, sendPos, sendChat, cleanChat, sendNet, isAdmin } from './online.js';
+import { net, resume, signIn, signOut, loadCloud, cloudSave, flushSave, refreshBoard, setTown, connect, updateProfile, sendPos, sendChat, cleanChat, sendNet, isAdmin, adminSend, adminInbox } from './online.js';
 
 const $ = (id) => document.getElementById(id);
 let resizeCount = 0; addEventListener('resize', () => { resizeCount++; });
@@ -661,6 +661,7 @@ async function main() {
   $('ldfill').style.width = '100%';
   $('loading').style.opacity = '0';
   setTimeout(() => $('loading').remove(), 700);
+  { let ku = 0; try { ku = +localStorage.getItem('jq_kick') || 0; } catch (e) { /* ignore */ } if (ku > Date.now()) { kickScreen(ku); return; } }
   showTitle(had, begin);
   renderer.setAnimationLoop(tick);
 }
@@ -801,7 +802,8 @@ function goOnline() {
   net.onTowns = syncTowns;
   net.onPeerGone = (id) => { dropPeer(id); partyPeerGone(id); if (trade && trade.with === id) tradeClose('Your trade partner left.'); };
   net.onNet = onNet;
-  connect(profile()).then(() => { toast(`Online as ${net.user.name}. Friends who are playing show up in the world.`, ICONS.star); sys('Press Enter to chat with everyone. Type /p and a name to invite a friend to your party.'); });
+  setInterval(() => { if (player) adminInboxTick(); }, 5000);
+  connect(profile()).then(() => { toast(`Online as ${net.user.name}. Friends who are playing show up in the world.`, ICONS.star); sys('Press Enter to chat with everyone. Type /who to see who is online and where, or /p and a name to invite a friend to your party.'); });
   save();
 }
 
@@ -889,33 +891,91 @@ function partySet(p, why) {
   renderParty();
 }
 // /give: an admin-only command (the server decides who is an admin). Gives items, gear, cosmetics or coins.
+// ---------- admin commands ----------
+// Only accounts in the server's admins table can use these. Giving to or kicking someone else goes
+// through the server's admin_actions table, which only admins can write to: the other player's game
+// picks the action up from there, so nobody can fake one by sending a message.
+const ADMIN_HELP = 'Admin: /give [player] thing [amount]. Things: coins, xp (or exp), an item or gear id, outfit:id, aura:id, hat:id, cape:id, trail:id, spell:id, or "all-looks". /give find word searches ids. /kick player (30 seconds).';
+function giveThing(what, n) {
+  if (what === 'coins' || what === 'gold') { S.coins += n; refreshUI(); return `${fmt(n)} coins`; }
+  if (what === 'xp' || what === 'exp') { giveHeroXp(n); return `${fmt(n)} hero XP`; }
+  if (what === 'all-looks' || what === 'all-skins') { const C = cosState(); let c = 0; for (const [slot, list] of Object.entries(COS)) for (const k of Object.keys(list)) if (!C.got[`${slot}:${k}`]) { C.got[`${slot}:${k}`] = 1; c++; } return `every look (${c} new)`; }
+  if (what.includes(':')) {
+    const [slot0, k] = what.split(':'), slot = { skin: 'outfit', skins: 'outfit', outfits: 'outfit', auras: 'aura', hats: 'hat' }[slot0] || slot0;
+    if (slot === 'spell' && SPELLS[k]) { learnSpell(k); return `the ${SPELLS[k].name} spell`; }
+    if (COS[slot] && COS[slot][k]) { cosState().got[`${slot}:${k}`] = 1; return `${COS[slot][k].name} (wear it from the Bag, Style tab)`; }
+    return null;
+  }
+  if (GEAR[what]) { if (!S.owned.includes(what)) S.owned.push(what); refreshUI(); renderHotbar(); return GEAR[what].name; }
+  if (ITEMS[what] || FOOD[what]) { addItem(what, n); return `${n} × ${ITEMS[what] || what}`; }
+  return null;
+}
+const knownThing = (w) => ['coins', 'gold', 'xp', 'exp', 'all-looks', 'all-skins'].includes(w) || !!GEAR[w] || !!ITEMS[w] || !!FOOD[w] || (w.includes(':') && (() => { const [a0, k] = w.split(':'), sl = { skin: 'outfit', skins: 'outfit', outfits: 'outfit', auras: 'aura', hats: 'hat' }[a0] || a0; return sl === 'spell' ? !!SPELLS[k] : !!(COS[sl] && COS[sl][k]); })());
 async function adminGive(rest) {
-  if (!(await isAdmin())) { sys('Commands: /p name to invite, /p list, /p leave, /p kick name, /p damage on|off, /p disband, /trade name'); return; }
-  const what = (rest[0] || '').toLowerCase(), n = Math.max(1, Math.min(100000, parseInt(rest[1], 10) || 1));
-  if (!what || what === 'help') { sys('Admin: /give item_id [amount], /give coins 5000, /give xp 1000, /give aura:dark, /give find word (search ids)'); return; }
-  if (what === 'find') {
-    const q = (rest[1] || '').toLowerCase(), hits = [];
+  if (!(await isAdmin())) { sys('Unknown command. Type /p for party commands or /who to see who is online.'); return; }
+  let args = rest.filter(Boolean);
+  if (!args.length || args[0].toLowerCase() === 'help') { sys(ADMIN_HELP); return; }
+  if (args[0].toLowerCase() === 'find') {
+    const q = (args[1] || '').toLowerCase(), hits = [];
     for (const [k, v] of Object.entries(ITEMS)) if (k.includes(q) || String(v).toLowerCase().includes(q)) hits.push(k);
     for (const [k, g] of Object.entries(GEAR)) if (k.includes(q) || (g.name || '').toLowerCase().includes(q)) hits.push(k);
     for (const [slot, list] of Object.entries(COS)) for (const [k, c] of Object.entries(list)) if (k.includes(q) || (c.name || '').toLowerCase().includes(q)) hits.push(`${slot}:${k}`);
-    for (const [k, sp] of Object.entries(typeof SPELLS === 'object' ? SPELLS : {})) if (k.includes(q) || sp.name.toLowerCase().includes(q)) hits.push(`spell:${k}`);
-    sys(hits.length ? `Found: ${hits.slice(0, 30).join(', ')}${hits.length > 30 ? '...' : ''}` : 'Nothing found.'); return;
+    for (const [k, sp] of Object.entries(SPELLS)) if (k.includes(q) || sp.name.toLowerCase().includes(q)) hits.push(`spell:${k}`);
+    sys(hits.length ? `Found: ${hits.slice(0, 40).join(', ')}${hits.length > 40 ? '...' : ''}` : 'Nothing found.'); return;
   }
-  if (what === 'coins' || what === 'gold') { S.coins += n; refreshUI(); sys(`Gave ${n} coins.`); save(); return; }
-  if (what === 'xp') { giveHeroXp(n); sys(`Gave ${n} hero XP.`); save(); return; }
-  if (what.includes(':')) {
-    const [slot, k] = what.split(':');
-    if (slot === 'spell' && typeof SPELLS === 'object' && SPELLS[k]) { learnSpell(k); sys(`Learned ${SPELLS[k].name}.`); save(); return; }
-    if (COS[slot] && COS[slot][k]) { cosState().got[what] = 1; sys(`Unlocked ${COS[slot][k].name}. Wear it from your Bag (Style tab).`); save(); return; }
-    sys(`No cosmetic called ${what}.`); return;
+  // "/give Bob coins 500" gives to Bob; "/give coins 500" (or "/give me ...") gives to you
+  let target = null;
+  const first = args[0].toLowerCase();
+  if (first === 'me' || first === heroName().toLowerCase()) args = args.slice(1);
+  else if (!knownThing(first)) { target = peerByName(args[0]); if (!target) { sys(`Nobody called "${args[0]}" is online (and "${args[0]}" isn't something I can give). Try /who or /give find word.`); return; } args = args.slice(1); }
+  const what = (args[0] || '').toLowerCase(), n = Math.max(1, Math.min(10000000, parseInt(args[1], 10) || 1));
+  if (!knownThing(what)) { sys(`I don't know "${args[0] || ''}". Try /give find word.`); return; }
+  if (!target) { const got = giveThing(what, n); save(); sys(`Gave yourself ${got}.`); return; }
+  const r = await adminSend(target[0], 'give', { what, n });
+  sys(r.error ? `Couldn't send that: ${r.error}` : `Sent ${what === 'coins' ? `${fmt(n)} coins` : what === 'xp' || what === 'exp' ? `${fmt(n)} XP` : `${n > 1 ? `${n} × ` : ''}${what}`} to ${target[1].name}. It arrives within a few seconds.`);
+}
+async function adminKick(rest) {
+  if (!(await isAdmin())) { sys('Unknown command. Type /p for party commands or /who to see who is online.'); return; }
+  const t = peerByName(rest[0]);
+  if (!t) { sys(rest[0] ? `Nobody called "${rest[0]}" is online. Try /who.` : 'Kick who? /kick name'); return; }
+  const r = await adminSend(t[0], 'kick', { secs: 30 });
+  sys(r.error ? `Couldn't kick: ${r.error}` : `Kicked ${t[1].name} for 30 seconds.`);
+}
+// the target's side: every few seconds, pick up anything an admin sent
+async function adminInboxTick() {
+  const rows = await adminInbox(); if (!rows || !rows.length) return;
+  for (const r of rows) {
+    if (r.action === 'give') { const got = giveThing(String(r.data.what || '').toLowerCase(), Math.max(1, Math.min(10000000, +r.data.n || 1))); if (got) { toast(`An admin gave you ${got}!`, ICONS.star, true); burst(player.pos.clone().setY(2), '#ffe07a', 40, 6, 1.2); } save(); }
+    if (r.action === 'kick') kickedOut(Math.max(5, Math.min(600, +r.data.secs || 30)));
   }
-  if (GEAR[what]) { for (let i = 0; i < Math.min(n, 1); i++) if (!S.owned.includes(what)) S.owned.push(what); refreshUI(); sys(`Gave ${GEAR[what].name}.`); save(); return; }
-  if (ITEMS[what] || FOOD[what]) { addItem(what, n); sys(`Gave ${n} x ${ITEMS[what] || what}.`); save(); return; }
-  sys(`No item called "${what}". Try /give find word`);
+}
+// kicked: back to a loading screen that counts down, then the game reloads. Reloading early doesn't skip it.
+async function kickedOut(secs) {
+  const until = Date.now() + secs * 1000;
+  try { localStorage.setItem('jq_kick', String(until)); } catch (e) { /* ignore */ }
+  save(); try { await flushSave(); } catch (e) { /* ignore */ }
+  kickScreen(until);
+}
+function kickScreen(until) {
+  resetting = true;
+  const el = document.createElement('div'); el.id = 'kicked'; el.className = 'overlay';
+  el.innerHTML = '<div class="ld"><h1 class="ldtitle"><span>Jerry</span><span>Quest</span></h1><p class="ldline">You were kicked by an admin.</p><div class="ldbar"><i id="kickfill"></i></div><small id="kickmsg"></small></div>';
+  document.body.appendChild(el);
+  const total = Math.max(1, until - Date.now());
+  const step = () => { const left = until - Date.now(); if (left <= 0) { try { localStorage.removeItem('jq_kick'); } catch (e) { /* ignore */ } location.reload(); return; } $('kickmsg').textContent = `You can come back in ${Math.ceil(left / 1000)} seconds`; $('kickfill').style.width = `${100 - (left / total) * 100}%`; setTimeout(step, 250); };
+  step();
 }
 function chatCommand(line) {
   const [cmd, ...rest] = line.slice(1).split(/\s+/), arg = rest.join(' ');
   if (/^give$/i.test(cmd)) { adminGive(rest); return; }
+  if (/^kick$/i.test(cmd)) { adminKick(rest); return; }
+  if (/^(who|online)$/i.test(cmd)) {
+    if (!net.on) { sys('You are not online.'); return; }
+    const place = (w) => (w === 'out' ? 'Jerry Valley' : LANDS[w] ? LANDS[w].name : w ? `indoors (${w})` : 'loading in');
+    const list = [...net.peers.values()].map((p) => `${p.name || 'Someone'} (Lv ${p.lvl || 1}, ${place(p.where)}${p.where === where ? ', near you' : ''})`);
+    sys(list.length ? `Online now: ${list.join(', ')}. You only see players in the same land and the same building as you.` : 'Nobody else is online right now.');
+    return;
+  }
   if (/^(t|trade)$/i.test(cmd)) { if (!arg) sys('Trade: /trade name, standing near them.'); else tradeInvite(arg); return; }
   if (!/^(p|party)$/i.test(cmd)) { sys('Commands: /p name to invite, /p list, /p leave, /p kick name, /p damage on|off, /p disband, /trade name'); return; }
   if (!net.on) { sys('Parties need the game server.'); return; }
@@ -1033,6 +1093,8 @@ function onNet(ev, m) {
     } else if (party && party.leader === from && party.leader !== me) partySet(null, 'You were removed from the party.');
     return;
   }
+  if (ev === 'spell') { if (m.w === where && SPELL_FX[m.k]) SPELL_FX[m.k](+m.x || 0, +m.z || 0, +m.ry || 0, false); return; }
+  if (ev === 'push') { if (player && !player.dead) { const vx = Math.max(-12, Math.min(12, +m.x || 0)), vz = Math.max(-12, Math.min(12, +m.z || 0)); tween(0.45, (k) => { player.pos.x += vx * 0.016 * (1 - k) * 2.2; player.pos.z += vz * 0.016 * (1 - k) * 2.2; collide(player.pos); }); toast('Whoosh! A gust blew you away!', ICONS.star); } return; }
   if (ev === 'hit') { if (canFight(from, true)) hurtPlayer(Math.max(1, Math.min(9999, +m.dmg || 0)), from); return; }
   if (ev === 'ko') { if (peer && m.offer) duelPrize(from, peer.name || 'a hero', m.offer); return; }
   if (ev === 'loot') { takeDuelLoss(from, m.pick); return; }
@@ -2269,6 +2331,7 @@ function useHotbar(i) {
   const slotEl = $('hotbar').children[i];
   if (slotEl) { slotEl.classList.remove('used'); void slotEl.offsetWidth; slotEl.classList.add('used'); }
   if (!k) { hotPick = i; bagTab = 'items'; if (sheetMode !== 'bag') openSheet('bag'); else renderSheet(); toast(`Pick something in your bag for slot ${i + 1} (press +).`); renderHotbar(); return; }
+  if (k.startsWith('spell:')) { castSpell(k.slice(6)); return; }
   if (FOOD[k]) { if (!S.inv[k]) { toast(`You're out of ${ITEMS[k]}.`, ICONS[k]); return; } eat(k); renderHotbar(); return; }
   const g = GEAR[k];
   if (!g && ITEMS[k]) { toast(`${ITEMS[k]}: ${S.inv[k] || 0} in your bag.`, ICONS[k]); return; }
@@ -2297,6 +2360,7 @@ function renderHotbar() {
   el.innerHTML = hb.map((k, i) => {
     const key = keyLabel(kb[`hot${i + 1}`][0] || kb[`hot${i + 1}`][1]);
     if (!k) return `<button class="hot empty${hotPick === i ? ' picking' : ''}" data-hot="${i}" title="Empty: tap, then press + on something in your bag"><kbd>${key}</kbd></button>`;
+    if (k.startsWith('spell:')) { const sk = k.slice(6), sp = SPELLS[sk]; if (!sp || !spellsOwned()[sk]) return `<button class="hot empty" data-hot="${i}"><kbd>${key}</kbd></button>`; return `<button class="hot spell" data-hot="${i}" data-drag="${k}" data-spell="${sk}" style="--sc:${sp.col}" title="Cast ${sp.name} (${sp.cd}s cooldown). Drag to move, right-click to clear."><img src="${spellIcon(sk)}" alt=""><kbd>${key}</kbd><span></span></button>`; }
     const food = FOOD[k], g = GEAR[k], item = !g && ITEMS[k], n = !g ? (S.inv[k] || 0) : null;
     if (!g && !item) return `<button class="hot empty" data-hot="${i}"><kbd>${key}</kbd></button>`;
     const on = g && S.equip[g.slot] === k;
@@ -3468,59 +3532,298 @@ function sellPicker(box, k, max, each, done, name = ITEMS[k], icon = ICONS[k]) {
 }
 // The status panel stays small (name, level, health) until you tap it.
 $('status').addEventListener('click', (e) => { if (e.target.closest('#classes button, #tracker button')) return; S.hudOpen = !S.hudOpen; refreshUI(); save(); });
-function openShop(npc) {
-  talking = npc;
-  const d = $('dialog');
-  // keep whatever an active quest still needs, and never bulk-sell treasures or trophies
-  const keep = {};
-  for (const [q, st] of Object.entries(S.quests)) if (st.state === 'active') for (const [k, n] of Object.entries(QUESTS[q].need)) if (ITEMS[k]) keep[k] = (keep[k] || 0) + n;
-  const spareOf = (k) => Math.max(0, (S.inv[k] || 0) - (keep[k] || 0));
-  const goods = Object.entries(S.inv).filter(([k]) => SELL[k] && spareOf(k) > 0).map(([k]) => [k, spareOf(k)]);
-  const bulk = goods.filter(([k]) => !FOOD[k] && !['silver_ring', 'ruby', 'golden_crown', 'lucky_sock', 'gloom_hat', 'rattle_tooth'].includes(k));
-  const worth = bulk.reduce((a, [k, n]) => a + SELL[k] * n, 0);
-  const tavern = npc.id === 'tom', who = npc.name.split(' ')[0], trader = npc.id.startsWith('trader');
-  // gear you own but aren't using: merchants buy it, and rarer gear is worth far more
-  const spareGear = S.owned.filter((k) => GEAR[k] && !Object.values(S.equip).includes(k) && gearValue(GEAR[k]) > 0 && k !== 'k_sword');
-  d.innerHTML = `<h3>${npc.name}</h3><p>${tavern ? "Welcome to the Sleepy Boar! Pull up a stool. A hot meal mends any bruise. Eat it from your bag, or press H." : trader ? 'Travelling goods! Snacks for the road, and I buy anything: treasures, materials, spare weapons and armour. The rarer it is, the more I pay.' : 'Fresh from the oven! Food heals you when you eat it from your bag, or press H. And I buy anything you bring me, gear too.'}</p>
-    <div class="shop">${Object.entries(FOOD).filter(([, f]) => f.price).map(([k, f]) => `<button class="buy" data-food="${k}" ${S.coins < f.price ? 'disabled' : ''}><img src="${ICONS[k]}" alt=""><b>${ITEMS[k]}</b><span>Heals ${f.heal}</span><em>${f.price} coins</em></button>`).join('')}</div>
-    ${goods.length && !tavern ? `<h4 class="sub">Sell to ${who}</h4><div class="shop sell">${goods.map(([k, n]) => `<button class="buy" data-sell="${k}"><img src="${ICONS[k]}" alt=""><b>${ITEMS[k]} × ${n}</b><span>${keep[k] ? `keeping ${keep[k]} for a quest` : `${SELL[k]} each`}</span><em>Sell…</em></button>`).join('')}</div><div class="sellpick" hidden></div>` : ''}
-    ${spareGear.length && !tavern ? `<h4 class="sub">Sell spare gear</h4><div class="shop sell">${spareGear.map((k) => { const g = GEAR[k], [rc, rn] = gearRarity(g); return `<button class="buy ${rc}" data-sellgear="${k}"><img src="${gearIcon(g)}" alt=""><b>${g.name}</b><span><i class="rar">${rn}</i></span><em>${fmt(gearValue(g))} coins</em></button>`; }).join('')}</div>` : ''}
-    <p class="hint">You have ${S.coins} coins.${tavern ? ' Marta at the market buys goods, if you have any to sell.' : goods.length ? '' : ' Bring me logs, ore, fish, bones or treasures from monsters and I will buy them.'}</p>
-    <div class="row">${worth && !tavern ? `<button id="sellall">Sell all materials (+${worth})</button>` : ''}<button id="shopbye">Goodbye</button></div>`;
-  d.querySelectorAll('[data-food]').forEach((b) => { b.onclick = () => {
-    const k = b.dataset.food, f = FOOD[k];
-    if (S.coins < f.price) return;
-    S.coins -= f.price; addItem(k);
-    toast(`You buy ${ITEMS[k].toLowerCase()}.`, ICONS[k]);
-    save(); openShop(npc);
-  }; });
-  d.querySelectorAll('[data-sell]').forEach((b) => { b.onclick = () => {
-    const k = b.dataset.sell, max = spareOf(k);
-    if (!max) return;
-    sellPicker(d.querySelector('.sellpick'), k, max, SELL[k], (n) => {
-      takeItem(k, n); const c = SELL[k] * n; S.coins += c;
-      toast(`Sold ${n} × ${ITEMS[k].toLowerCase()} for ${c} coins.`, ICONS.coins, c >= 100);
-      refreshUI(); save(); openShop(npc);
+// ---------- spells ----------
+// Buy them from the magic sellers (each land sells its own), or find one rarely when a boss falls.
+// They live on the hotbar: press the slot's number to cast toward where you're facing.
+// Damage spells scale with your Attack, like your weapon does.
+const SPELLS = {
+  zap: { name: 'Zap', r: 0, cd: 4, price: 350, sold: 'magic', col: '#ffe14a', desc: 'A bolt of lightning strikes the ground ahead of you. Long range.', dmg: 10 },
+  heal: { name: 'Heal', r: 0, cd: 22, price: 300, sold: 'magic', col: '#7dff8a', desc: 'Heals a quarter of your health.' },
+  scorch: { name: 'Scorch', r: 1, cd: 8, price: 900, sold: 'magic', col: '#ff7a2a', desc: 'A short burst of fire in front of you. Burns foes for a few seconds.', dmg: 7 },
+  gust: { name: 'Gust', r: 2, cd: 10, price: 4000, sold: 'frost', col: '#e8f6ff', desc: 'No damage, but blows monsters and other players away in the direction you face.' },
+  bigheal: { name: 'Big Heal', r: 2, cd: 40, price: 6500, sold: 'frost', col: '#ffe9a0', desc: 'Heals most of your health in a column of golden light.' },
+  tidal: { name: 'Tidal Wave', r: 3, cd: 20, price: 30000, sold: 'marsh', col: '#3ab0ff', desc: 'Summons a huge wave that rolls forward, smashing and knocking back everything in its path.', dmg: 22 },
+  shadow: { name: 'Shadow Wave', r: 4, cd: 28, price: 150000, sold: 'sands', col: '#8a3aff', desc: 'Two rings of living shadow burst out around you, hurting and dazing every foe they touch.', dmg: 36 },
+};
+const SPELL_LAND = { out: ['zap', 'heal', 'scorch'], frost: ['gust', 'bigheal'], marsh: ['tidal'], sands: ['shadow'] };
+const spellCd = {};
+const spellsOwned = () => (S.spells = S.spells || {});
+const spellIcon = (k) => ICONS[`spell_${k}`] || ICONS.star;
+function learnSpell(k) {
+  if (!SPELLS[k]) return;
+  spellsOwned()[k] = 1;
+  const hb = hotbar(), id = `spell:${k}`;
+  if (!hb.includes(id)) { const at = hb.indexOf(null); if (at >= 0) hb[at] = id; }
+  renderHotbar(); save();
+}
+function spellPower(base) { return Math.max(1, Math.round(base * dmgMult() * pathDmg() * (0.85 + rng() * 0.3))); }
+function castSpell(k) {
+  const sp = SPELLS[k];
+  if (!sp || !player || player.dead || uiLock() || talking) return;
+  if (!spellsOwned()[k]) { toast(`You don't know ${sp.name} yet.`, spellIcon(k)); return; }
+  const left = (spellCd[k] || 0) - now;
+  if (left > 0) { toast(`${sp.name} is ready in ${Math.ceil(left)}s.`, spellIcon(k)); return; }
+  if (now - aim.at < 2.5) { player.face(aim.x, aim.z); aim.at = -99; }
+  spellCd[k] = now + sp.cd;
+  const ry = player.root.rotation.y, x = player.pos.x, z = player.pos.z;
+  player.play('Spellcast_Shoot', { once: true, fade: 0.08, speed: 1.4, onFinish: () => player.play('Idle') });
+  player.busyUntil = Math.max(player.busyUntil, now + 0.35);
+  SPELL_FX[k](x, z, ry, true);
+  if (net.on) sendNet('spell', { k, x: +x.toFixed(2), z: +z.toFixed(2), ry: +ry.toFixed(3), w: where });
+  renderHotbar();
+}
+const foesIn = (test) => enemies.filter((e) => e.hp > 0 && e.state !== 'dead' && e.state !== 'gone' && e.state !== 'rising' && e.inside === where && test(e.pos.x, e.pos.z));
+const inCone = (x, z, ry, R, half) => (px, pz) => { const dx = px - x, dz = pz - z, d = Math.hypot(dx, dz); if (d > R) return false; if (d < 0.8) return true; let a = Math.atan2(dx, dz) - ry; a = Math.atan2(Math.sin(a), Math.cos(a)); return Math.abs(a) <= half; };
+function spellHit(test, base, power = 1, extra = null) {
+  for (const e of foesIn(test)) { const n = spellPower(base); hurtEnemy(e, n, player.pos, power); if (extra) extra(e, n); }
+  for (const c of crew) if (isRival(c) && crewUp(c) && c.inside === where && test(c.pos.x, c.pos.z)) hurtCrew(c, spellPower(base), player);
+  if (net.on) hitPeers(test, spellPower(base));
+}
+function fxMesh(geo, col, opts = {}) {
+  const m = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ color: col, transparent: true, opacity: opts.opacity ?? 0.9, depthWrite: false, fog: false, side: THREE.DoubleSide, blending: opts.dark ? THREE.NormalBlending : THREE.AdditiveBlending }));
+  m.layers.set(1); scene.add(m); return m;
+}
+function fade(m, dur, f, done) { tween(dur, (k) => { if (f) f(k); m.material.opacity = (m.userData.op ?? 0.9) * (1 - k); }, () => { scene.remove(m); m.geometry.dispose(); m.material.dispose(); if (done) done(); }); }
+const SPELL_FX = {
+  // common spells: simple and quick
+  zap(x, z, ry, mine) {
+    const R = 13; let tx = x + Math.sin(ry) * R, tz = z + Math.cos(ry) * R;
+    const near = foesIn(inCone(x, z, ry, R + 1, 0.3)).sort((a, b) => Math.hypot(a.pos.x - x, a.pos.z - z) - Math.hypot(b.pos.x - x, b.pos.z - z))[0];
+    if (near) { tx = near.pos.x; tz = near.pos.z; }
+    const pts = []; for (let i = 0; i <= 7; i++) pts.push(new THREE.Vector3(tx + (i && i < 7 ? (rng() - 0.5) * 1.2 : 0), 12 - i * 12 / 7, tz + (i && i < 7 ? (rng() - 0.5) * 1.2 : 0)));
+    // a plain jagged bolt: a few thin yellow sticks from the sky to the ground
+    const bolt = new THREE.Group(), mat = new THREE.MeshBasicMaterial({ color: '#fff27a', transparent: true, opacity: 1, fog: false, depthWrite: false });
+    for (let i = 0; i < pts.length - 1; i++) { const a = pts[i], b = pts[i + 1], len = a.distanceTo(b); const seg = new THREE.Mesh(new THREE.BoxGeometry(0.24, len, 0.24), mat); seg.position.copy(a).add(b).multiplyScalar(0.5); seg.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), b.clone().sub(a).normalize()); seg.layers.set(1); bolt.add(seg); }
+    bolt.layers.set(1); scene.add(bolt);
+    tween(0.45, (k) => { mat.opacity = k < 0.4 ? 1 : 1 - (k - 0.4) / 0.6; }, () => { scene.remove(bolt); bolt.traverse((o) => o.geometry && o.geometry.dispose()); mat.dispose(); });
+    burst(new THREE.Vector3(tx, 0.6, tz), '#ffe14a', 16, 5); sfx('hit');
+    if (mine) spellHit((px, pz) => Math.hypot(px - tx, pz - tz) < 1.9, SPELLS.zap.dmg, 0.8);
+  },
+  heal(x, z, ry, mine) {
+    burst(new THREE.Vector3(x, 1.6, z), '#7dff8a', 24, 3, 1.2); sfx('eat');
+    if (mine) { const h = Math.min(maxHp() - S.hp, Math.round(maxHp() * 0.25)); S.hp += h; floatText(player.pos.clone().setY(3.6), `+${h}`, 'gain'); refreshUI(); }
+  },
+  scorch(x, z, ry, mine) {
+    for (let i = 0; i < 6; i++) { const a = ry + (rng() - 0.5) * 1.0, r = 1.2 + rng() * 3.6; burst(new THREE.Vector3(x + Math.sin(a) * r, 0.8, z + Math.cos(a) * r), i % 2 ? '#ff7a2a' : '#ffd24a', 8, 3); }
+    sfx('dash');
+    if (mine) spellHit(inCone(x, z, ry, 5.2, 0.55), SPELLS.scorch.dmg, 0.6, (e, n) => { e.poison = { left: 3, at: now + 1, dmg: Math.max(1, Math.round(n * 0.25)) }; });
+  },
+  // rarer spells: properly flashy
+  gust(x, z, ry, mine) {
+    sfx('dash');
+    for (let i = 0; i < 4; i++) later(i * 0.08, () => {
+      const arc = fxMesh(new THREE.RingGeometry(0.9, 1, 32, 1, Math.PI / 2 - 0.6, 1.2), '#e8f6ff'); arc.userData.op = 0.8;
+      arc.rotation.x = -Math.PI / 2; arc.rotation.z = ry; arc.position.set(x, 1 + i * 0.25, z);
+      fade(arc, 0.55, (k) => { const s = 1.2 + k * 9; arc.scale.set(s, s, s); });
     });
-  }; });
-  d.querySelectorAll('[data-sellgear]').forEach((b) => { b.onclick = () => {
-    const k = b.dataset.sellgear, g = GEAR[k], v = gearValue(g);
-    // rare things ask twice, so nobody sells a treasure by accident
-    if (gearRarIx(g) >= 2 && b.dataset.sure !== '1') { b.dataset.sure = '1'; b.querySelector('em').textContent = `Sure? ${fmt(v)}`; return; }
-    if (!S.owned.includes(k) || Object.values(S.equip).includes(k)) return;
-    S.owned = S.owned.filter((x) => x !== k); S.hotbar = (S.hotbar || []).map((x) => (x === k ? null : x)); if (S.plus) delete S.plus[k];
-    S.coins += v; renderHotbar(); toast(`Sold ${g.name} for ${fmt(v)} coins.`, ICONS.coins, v >= 1000);
-    refreshUI(); save(); openShop(npc);
-  }; });
-  if (worth && !tavern) $('sellall').onclick = () => {
-    for (const [k, n] of bulk) takeItem(k, n);
-    S.coins += worth; toast(`Sold your materials for ${worth} coins.`, ICONS.coins);
-    refreshUI(); save(); openShop(npc);
-  };
-  $('shopbye').onclick = closeDialog;
-  showDialog(d);
+    for (let i = 0; i < 10; i++) { const a = ry + (rng() - 0.5) * 1.1, r = 1 + rng() * 6; burst(new THREE.Vector3(x + Math.sin(a) * r, 0.6 + rng(), z + Math.cos(a) * r), '#ffffff', 3, 4, 0.6); }
+    if (!mine) return;
+    const fx = Math.sin(ry), fz = Math.cos(ry), test = inCone(x, z, ry, 10, 0.75);
+    for (const e of foesIn(test)) { const m = e.mass || 1; e.kb.set(fx * 26 / Math.sqrt(m), fz * 26 / Math.sqrt(m)); if (m < 3) { e.vy = 7 / m; e.lift = Math.max(e.lift, 0.01); } e.staggerUntil = now + 0.6; }
+    if (net.on) for (const [id, p] of net.peers) if (p.where === where && test(p.x, p.z)) sendNet('push', { to: id, x: +(fx * 9).toFixed(2), z: +(fz * 9).toFixed(2) });
+  },
+  bigheal(x, z, ry, mine) {
+    sfx('levelup');
+    const col = fxMesh(new THREE.CylinderGeometry(1.2, 1.6, 8, 28, 1, true), '#ffe9a0'); col.userData.op = 0.55; col.position.set(x, 4, z);
+    fade(col, 1.4, (k) => { col.scale.set(1 + k * 0.3, 1, 1 + k * 0.3); col.rotation.y = k * 3; });
+    const ring = fxMesh(new THREE.RingGeometry(0.7, 1, 40), '#fff3c4'); ring.rotation.x = -Math.PI / 2; ring.position.set(x, 0.1, z);
+    fade(ring, 1.2, (k) => ring.scale.setScalar(1 + k * 4));
+    for (let i = 0; i < 4; i++) later(i * 0.25, () => burst(new THREE.Vector3(x, 0.5 + i, z), i % 2 ? '#ffe9a0' : '#9cff6b', 22, 3, 1.4));
+    if (mine) { const h = Math.min(maxHp() - S.hp, Math.round(maxHp() * 0.7)); S.hp += h; floatText(player.pos.clone().setY(3.8), `+${h}`, 'gain'); refreshUI(); }
+  },
+  tidal(x, z, ry, mine) {
+    sfx('splash'); later(0.3, () => sfx('splash'));
+    const fx = Math.sin(ry), fz = Math.cos(ry), W = 9, L = 17;
+    const wave = new THREE.Group(); wave.position.set(x + fx * 1.5, 0, z + fz * 1.5); wave.rotation.y = ry; scene.add(wave);
+    const body = new THREE.Mesh(new THREE.CylinderGeometry(2.6, 2.6, W, 24, 1, true, 0, Math.PI), new THREE.MeshBasicMaterial({ color: '#2a8ae0', transparent: true, opacity: 0.85, depthWrite: false, fog: false, side: THREE.DoubleSide }));
+    body.rotation.z = Math.PI / 2; wave.add(body);
+    const crest = new THREE.Mesh(new THREE.CylinderGeometry(1.3, 1.3, W, 18, 1, true, 0, Math.PI), new THREE.MeshBasicMaterial({ color: '#7fd0ff', transparent: true, opacity: 0.9, depthWrite: false, fog: false, side: THREE.DoubleSide }));
+    crest.rotation.z = Math.PI / 2; crest.position.set(0, 2.1, 1.0); wave.add(crest);
+    const foam = new THREE.Mesh(new THREE.CylinderGeometry(0.45, 0.45, W + 0.4, 12), new THREE.MeshBasicMaterial({ color: '#e8fbff', transparent: true, opacity: 0.95, fog: false }));
+    foam.rotation.z = Math.PI / 2; foam.position.set(0, 3.3, 1.2); wave.add(foam);
+    for (const o of [body, foam, crest]) o.layers.set(1);
+    wave.scale.set(0.3, 0.2, 0.3);
+    const hitSet = new Set();
+    tween(1.1, (k) => {
+      const d = k * L, grow = Math.min(1, k * 4), fall = k > 0.8 ? 1 - (k - 0.8) / 0.2 : 1;
+      wave.position.set(x + fx * (1.5 + d), 0, z + fz * (1.5 + d)); wave.scale.set(grow, grow * fall * 1.2, grow);
+      if (rng() < 0.7) burst(new THREE.Vector3(wave.position.x + (rng() - 0.5) * W * Math.cos(ry), 2.4 * fall, wave.position.z - (rng() - 0.5) * W * Math.sin(ry)), '#e8fbff', 4, 4, 0.7);
+      if (!mine) return;
+      const cx = wave.position.x, cz = wave.position.z;
+      const test = (px, pz) => { const dx = px - cx, dz = pz - cz, along = dx * fx + dz * fz, side = Math.abs(dx * fz - dz * fx); return Math.abs(along) < 1.8 && side < W / 2; };
+      for (const e of foesIn(test)) { if (hitSet.has(e)) continue; hitSet.add(e); hurtEnemy(e, spellPower(SPELLS.tidal.dmg), new THREE.Vector3(cx - fx * 3, 0, cz - fz * 3), 1.8); const m = e.mass || 1; e.kb.set(fx * 22 / Math.sqrt(m), fz * 22 / Math.sqrt(m)); }
+      if (net.on && k > 0.3 && !hitSet.has('peers')) { if (hitPeers(test, spellPower(SPELLS.tidal.dmg))) hitSet.add('peers'); }
+    }, () => { scene.remove(wave); body.geometry.dispose(); foam.geometry.dispose(); crest.geometry.dispose(); });
+  },
+  shadow(x, z, ry, mine) {
+    sfx('special'); later(0.45, () => sfx('slam'));
+    const rune = fxMesh(new THREE.PlaneGeometry(1, 1), '#14061f', { dark: true, opacity: 0.85 }); rune.material.map = runeTex; rune.userData.op = 0.85;
+    rune.rotation.x = -Math.PI / 2; rune.position.set(x, 0.09, z);
+    fade(rune, 1.6, (k) => { rune.scale.setScalar(4 + k * 10); rune.rotation.z = k * 2; });
+    for (let w = 0; w < 2; w++) later(w * 0.45, () => {
+      const dark = fxMesh(new THREE.TorusGeometry(1, 0.35, 10, 48), '#12051c', { dark: true, opacity: 0.85 }); dark.userData.op = 0.85; dark.rotation.x = -Math.PI / 2; dark.position.set(x, 0.6, z);
+      const glow = fxMesh(new THREE.TorusGeometry(1, 0.12, 8, 48), '#b46aff'); glow.rotation.x = -Math.PI / 2; glow.position.set(x, 0.95, z);
+      const hit = new Set();
+      fade(dark, 0.9, (k) => {
+        const R = 1 + k * 12; dark.scale.set(R, R, 1 + k * 2); glow.scale.set(R, R, 1); glow.material.opacity = 0.9 * (1 - k);
+        for (let i = 0; i < 3; i++) { const a = rng() * 6.28; burst(new THREE.Vector3(x + Math.cos(a) * R, 0.6, z + Math.sin(a) * R), i ? '#2a0e40' : '#b46aff', 2, 3, 0.8); }
+        if (!mine) return;
+        const test = (px, pz) => Math.abs(Math.hypot(px - x, pz - z) - R) < 1.6;
+        for (const e of foesIn(test)) { if (hit.has(e)) continue; hit.add(e); hurtEnemy(e, spellPower(SPELLS.shadow.dmg), new THREE.Vector3(x, 0, z), 1.5); if (e.hp > 0 && !e.T.boss) dizzy(e, 1.6); }
+        if (net.on && !hit.has('peers') && hitPeers(test, spellPower(SPELLS.shadow.dmg))) hit.add('peers');
+      }, () => { scene.remove(glow); glow.geometry.dispose(); glow.material.dispose(); });
+    });
+  },
+};
+// spells now and then fall from bosses: the land decides which
+function spellDrop(e) {
+  const land = ['frost', 'marsh', 'sands'].includes(e.inside) ? e.inside : 'out';
+  const pool = SPELL_LAND[land].filter((k) => !spellsOwned()[k]);
+  if (!pool.length || rng() > 0.08) return;
+  const k = pool[Math.floor(rng() * pool.length)];
+  learnSpell(k);
+  toast(`A spell book fell from ${e.T.name}! You learned ${SPELLS[k].name}. It's on your hotbar.`, spellIcon(k), true);
+  burst(player.pos.clone().setY(2), SPELLS[k].col, 50, 6, 1.4);
+}
+// hotbar cooldown sweep
+let spellUiAt = 0;
+function spellTick() {
+  if (now < spellUiAt) return; spellUiAt = now + 0.1;
+  const el = $('hotbar'); if (!el) return;
+  for (const b of el.querySelectorAll('[data-spell]')) {
+    const k = b.dataset.spell, sp = SPELLS[k], left = Math.max(0, (spellCd[k] || 0) - now);
+    b.style.setProperty('--cd', String(left / sp.cd)); b.classList.toggle('cooling', left > 0);
+    const s = b.querySelector('span'); if (s) s.textContent = left > 0 ? String(Math.ceil(left)) : '';
+  }
+}
+
+// ---------- the shop screen ----------
+// Every shopkeeper uses the same simple screen: their face and a speech box, big round buttons down the
+// side (Buy, Spells, Sell, Upgrade, Leave), your gold up top, and a grid of clearly labelled goods.
+// Tap a good to see exactly what it is, then buy or sell it.
+const RAR_CHIP = (r) => `<i class="rchip" style="--rc:${RARITY[r].col}">${RARITY[r].name}</i>`;
+let shopState = null;
+function openShopScreen(npc, cfg) {
+  talking = npc;
+  const tab0 = (shopState && shopState.npc === npc && cfg.tabs.some((t) => t.id === shopState.tab)) ? shopState.tab : cfg.tabs[0].id;
+  shopState = { npc, cfg, tab: tab0, pick: shopState && shopState.npc === npc ? shopState.pick : null };
+  renderShopScreen();
   npc.actor.face(player.pos.x, player.pos.z);
 }
+function renderShopScreen() {
+  const st = shopState; if (!st) return;
+  const { npc, cfg } = st, d = $('dialog'), tab = cfg.tabs.find((t) => t.id === st.tab) || cfg.tabs[0];
+  const goods = tab.goods ? tab.goods() : [];
+  if (st.pick && !goods.some((g) => g.key === st.pick)) st.pick = null;
+  const sel = goods.find((g) => g.key === st.pick) || null;
+  const face = npc.look ? `<img class="sh-face" src="${portrait(npc.look)}" alt="">` : `<div class="sh-face none"><img src="${ICONS[tab.icon] || ICONS.coins}" alt=""></div>`;
+  d.innerHTML = `<div class="sh-top"><div class="sh-gold"><img src="${ICONS.coins}" alt=""><b>${fmt(S.coins)}</b><small>gold</small></div><button class="sh-x" id="sh-x" aria-label="Leave">✕</button></div>
+    <div class="sh-wrap">
+      <nav class="sh-tabs" aria-label="Shop">${cfg.tabs.map((t) => `<button class="sh-tab${t.id === tab.id ? ' on' : ''}" data-tab="${t.id}" aria-pressed="${t.id === tab.id}"><span class="sh-ico"><img src="${ICONS[t.icon] || ICONS.star}" alt=""></span><b>${t.label}</b></button>`).join('')}
+        <button class="sh-tab leave" id="sh-leave"><span class="sh-ico"><img src="${ICONS.door || ICONS.star}" alt=""></span><b>Leave</b></button></nav>
+      <div class="sh-main">
+        <div class="sh-keeper">${face}<div class="sh-say"><b class="sh-name">${npc.name}</b><p class="sh-line"></p></div></div>
+        ${tab.top ? `<div class="sh-topline">${tab.top()}</div>` : ''}
+        ${goods.length ? `<div class="sh-grid">${goods.map((g) => `<button class="sh-card${g.key === st.pick ? ' on' : ''}${g.dim ? ' dim' : ''}" data-good="${g.key}" style="--rc:${RARITY[g.r || 0].col}">
+            <span class="sh-cimg"><img src="${g.icon}" alt=""></span><b>${g.name}</b><small>${g.short || ''}</small><em class="${g.tagCls || ''}">${g.tag}</em></button>`).join('')}</div>`
+        : `<p class="sh-empty">${tab.empty || 'Nothing here right now.'}</p>`}
+        <div class="sh-detail" ${sel ? '' : 'hidden'}>${sel ? `<span class="sh-dimg" style="--rc:${RARITY[sel.r || 0].col}"><img src="${sel.icon}" alt=""></span>
+          <div class="sh-dtext"><b>${sel.name}</b> ${RAR_CHIP(sel.r || 0)}<p>${sel.desc || ''}</p>${sel.stats ? `<div class="sh-stats">${sel.stats}</div>` : ''}</div>
+          <div class="sh-dact">${sel.actions.map((a, i) => `<button class="${i === 0 ? 'primary' : ''}" data-act="${i}" ${a.off ? 'disabled' : ''}>${a.label}</button>`).join('')}</div>` : ''}</div>
+        <div class="sellpick" hidden></div>
+        ${tab.foot ? `<div class="sh-foot">${tab.foot()}</div>` : ''}
+      </div>
+    </div>`;
+  d.querySelector('.sh-line').textContent = sel && sel.say ? sel.say : tab.say || cfg.greet;
+  d.querySelectorAll('[data-tab]').forEach((b) => { b.onclick = () => { sfx('click'); st.tab = b.dataset.tab; st.pick = null; const t = cfg.tabs.find((x) => x.id === st.tab); if (t.go) { t.go(); return; } renderShopScreen(); }; });
+  d.querySelectorAll('[data-good]').forEach((b) => { b.onclick = () => { sfx('click'); st.pick = st.pick === b.dataset.good ? null : b.dataset.good; renderShopScreen(); const det = d.querySelector('.sh-detail'); if (det && !det.hidden) det.scrollIntoView({ block: 'nearest' }); }; });
+  if (sel) d.querySelectorAll('[data-act]').forEach((b) => { b.onclick = () => sel.actions[+b.dataset.act].run(b); });
+  if (tab.wire) tab.wire(d);
+  $('sh-x').onclick = closeDialog; $('sh-leave').onclick = closeDialog;
+  d.classList.add('shopmode');
+  showDialog(d, { shop: true });
+}
+const shopRefresh = () => { refreshUI(); save(); renderShopScreen(); };
+// what a merchant will buy from you: spare materials and treasures, and spare gear
+function sellTab(npc) {
+  const keepFor = () => { const keep = {}; for (const [q, st] of Object.entries(S.quests)) if (st.state === 'active') for (const [k, n] of Object.entries(QUESTS[q].need)) if (ITEMS[k]) keep[k] = (keep[k] || 0) + n; return keep; };
+  const TREAS = ['silver_ring', 'ruby', 'golden_crown', 'lucky_sock', 'gloom_hat', 'rattle_tooth'];
+  const lists = () => {
+    const keep = keepFor(), spareOf = (k) => Math.max(0, (S.inv[k] || 0) - (keep[k] || 0));
+    const mats = Object.keys(S.inv).filter((k) => SELL[k] && spareOf(k) > 0).map((k) => [k, spareOf(k)]);
+    const bulk = mats.filter(([k]) => !FOOD[k] && !TREAS.includes(k));
+    const gear = S.owned.filter((k) => GEAR[k] && !Object.values(S.equip).includes(k) && gearValue(GEAR[k]) > 0 && k !== 'k_sword');
+    return { keep, spareOf, mats, bulk, gear, worth: bulk.reduce((a, [k, n]) => a + SELL[k] * n, 0) };
+  };
+  return {
+    id: 'sell', label: 'Sell', icon: 'coins',
+    say: 'Let\'s see what you\'ve got! I buy materials, treasures and spare gear. The rarer it is, the more I pay.',
+    empty: 'You have nothing to sell yet. Bring logs, ore, fish, bones, treasures or spare gear.',
+    goods: () => {
+      const L = lists();
+      return [
+        ...L.mats.map(([k, n]) => ({ key: k, icon: ICONS[k], name: ITEMS[k], r: TREAS.includes(k) ? 2 : 0, short: `You have ${n}${L.keep[k] ? ` (+${L.keep[k]} kept)` : ''}`, tag: `${SELL[k]} each`, tagCls: 'sellp',
+          desc: L.keep[k] ? `I'll leave you ${L.keep[k]} for your quest.` : 'Choose how many to sell.', stats: `<span>Price: <b>${SELL[k]} gold each</b></span><span>You can sell: <b>${n}</b></span>`,
+          actions: [{ label: 'Choose how many…', run: () => sellPicker($('dialog').querySelector('.sellpick'), k, n, SELL[k], (c) => { takeItem(k, c); S.coins += SELL[k] * c; sfx('coin'); toast(`Sold ${c} × ${ITEMS[k].toLowerCase()} for ${fmt(SELL[k] * c)} gold.`, ICONS.coins); shopRefresh(); }) },
+            { label: `Sell all ${n} (+${fmt(SELL[k] * n)})`, run: () => { takeItem(k, n); S.coins += SELL[k] * n; sfx('coin'); toast(`Sold ${n} × ${ITEMS[k].toLowerCase()} for ${fmt(SELL[k] * n)} gold.`, ICONS.coins); shopRefresh(); } }] })),
+        ...L.gear.map((k) => { const g = GEAR[k], v = gearValue(g), ri = gearRarIx(g); return { key: k, icon: gearIcon(g), name: g.name, r: ri, short: gearStats(g), tag: `+${fmt(v)}`, tagCls: 'sellp',
+          desc: 'Spare gear you are not wearing.', stats: gearStats(g),
+          actions: [{ label: `Sell for ${fmt(v)} gold`, run: (b) => {
+            if (ri >= 2 && b.dataset.sure !== '1') { b.dataset.sure = '1'; b.textContent = `Really sell it? (${fmt(v)})`; return; }
+            if (!S.owned.includes(k) || Object.values(S.equip).includes(k)) return;
+            S.owned = S.owned.filter((x) => x !== k); S.hotbar = (S.hotbar || []).map((x) => (x === k ? null : x)); if (S.plus) delete S.plus[k];
+            S.coins += v; sfx('coin'); renderHotbar(); toast(`Sold ${g.name} for ${fmt(v)} gold.`, ICONS.coins, v >= 1000); shopRefresh(); } }] }; }),
+      ];
+    },
+    foot: () => { const L = lists(); return L.worth ? `<button class="primary" id="sh-sellall"><img src="${ICONS.coins}" alt="">Sell all materials (+${fmt(L.worth)})</button><small>Food and treasures are kept.</small>` : ''; },
+    wire: (d) => { const b = d.querySelector('#sh-sellall'); if (b) b.onclick = () => { const L = lists(); for (const [k, n] of L.bulk) takeItem(k, n); S.coins += L.worth; sfx('coin'); toast(`Sold your materials for ${fmt(L.worth)} gold.`, ICONS.coins); shopRefresh(); }; },
+  };
+}
+function spellGood(k) {
+  const sp = SPELLS[k], own = !!spellsOwned()[k], on = hotbar().includes(`spell:${k}`), poor = S.coins < sp.price;
+  return { key: `spell:${k}`, icon: spellIcon(k), name: sp.name, r: sp.r, short: `Cooldown ${sp.cd}s`, tag: own ? (on ? 'Known' : 'Known') : `${fmt(sp.price)} gold`, tagCls: own ? 'owned' : poor ? 'poor' : '', dim: !own && poor,
+    desc: sp.desc, stats: `<span>Cooldown: <b>${sp.cd} seconds</b></span>${sp.dmg ? `<span>Power: <b>${sp.dmg}</b> × your Attack</span>` : ''}<span>Cast it from your hotbar (number keys).</span>`,
+    say: own ? `You already know ${sp.name}. Lovely, isn't it?` : `${sp.name}! ${sp.r >= 3 ? 'Oh, a rare one. Handle with care.' : 'A good one to start with.'}`,
+    actions: own ? [{ label: on ? 'On your hotbar' : 'Put on hotbar', off: on, run: () => { learnSpell(k); toast(`${sp.name} is on your hotbar.`, spellIcon(k)); renderShopScreen(); } }]
+      : [{ label: poor ? `Need ${fmt(sp.price - S.coins)} more gold` : `Learn for ${fmt(sp.price)} gold`, off: poor, run: () => { if (S.coins < sp.price) return; S.coins -= sp.price; learnSpell(k); sfx('special'); burst(player.pos.clone().setY(2), sp.col, 40, 5, 1.2); toast(`You learned ${sp.name}! It's on your hotbar.`, spellIcon(k), true); shopRefresh(); } }] };
+}
+function spellTab(type) {
+  const land = type === 'magic' ? 'out' : type;
+  const list = SPELL_LAND[land]; if (!list) return null;
+  return { id: 'spells', label: 'Spells', icon: 'scroll', say: 'Spell books! Learn one and it goes straight onto your hotbar. Each one needs a little rest between casts.', goods: () => list.map(spellGood) };
+}
+function foodTab(npc) {
+  return { id: 'buy', label: 'Buy', icon: 'bread', say: npc.id === 'tom' ? 'A hot meal mends any bruise! Eat it from your bag, or press H.' : 'Fresh food for the road. It heals you when you eat it.',
+    goods: () => Object.entries(FOOD).filter(([, f]) => f.price).map(([k, f]) => ({ key: k, icon: ICONS[k], name: ITEMS[k], r: 0, short: `Heals ${f.heal}`, tag: `${f.price} gold`, tagCls: S.coins < f.price ? 'poor' : '', dim: S.coins < f.price,
+      desc: `Heals ${f.heal} health. You have ${S.inv[k] || 0}.`, stats: `<span>Heals: <b>${f.heal}</b></span><span>Price: <b>${f.price} gold</b></span>`,
+      actions: [1, 5].map((n) => ({ label: `Buy ${n} (${f.price * n} gold)`, off: S.coins < f.price * n, run: () => { if (S.coins < f.price * n) return; S.coins -= f.price * n; addItem(k, n); sfx('coin'); toast(`You buy ${n} × ${ITEMS[k].toLowerCase()}.`, ICONS[k]); shopRefresh(); } })) })) };
+}
+function openShop(npc) {
+  const tavern = npc.id === 'tom', trader = npc.id.startsWith('trader');
+  const greet = tavern ? 'Welcome to the Sleepy Boar! Pull up a stool.' : trader ? 'Travelling goods! Snacks for the road, and I buy anything you bring me.' : 'Fresh from the oven! And I buy anything you bring me, gear too.';
+  openShopScreen(npc, { greet, tabs: [foodTab(npc), ...(tavern ? [] : [sellTab(npc)])] });
+}
+function openWeaponShop(npc) {
+  const type = npc.shop;
+  const lines = { melee: 'Finest steel this side of the mountains! A longer blade swings wider, a lighter one swings faster.', magic: 'Wands, staves and spell books, darling, humming with power.', ranged: 'Crossbows I made myself. Shoot from a safe distance. Lighter ones shoot faster.', frost: 'Frostsilver, forged cold and sharp! And a few spells from the north.', marsh: 'Bogwood and Mireiron! Everything I make drips with marsh poison. And one VERY wet spell.', sands: 'Sunsteel, hot from the forge! Gadgets, and the darkest spell I have ever sold.' };
+  const sells = (g) => (type === 'frost' ? g.tier === 2 : type === 'marsh' ? g.tier === 3 && (!g.path || g.path === S.path) : type === 'sands' ? g.tier === 4 && (!g.path || g.path === S.path) : !g.tier && (g.slot === 'weapon' ? g.type === type : type === 'melee'));
+  const buy = { id: 'buy', label: 'Buy', icon: type === 'magic' || type === 'ranged' ? type : 'melee', say: lines[type],
+    goods: () => Object.entries(GEAR).filter(([, g]) => !g.unique && g.price > 0 && sells(g)).map(([k, g]) => {
+      const own = S.owned.includes(k), eq = S.equip[g.slot] === k, poor = !own && S.coins < g.price, ri = gearRarIx(g);
+      return { key: k, icon: gearIcon(g), name: g.name, r: ri, short: gearStats(g), tag: eq ? 'Equipped' : own ? 'Owned' : `${fmt(g.price)} gold`, tagCls: eq || own ? 'owned' : poor ? 'poor' : '', dim: poor,
+        desc: g.slot === 'weapon' ? 'Weapon damage is the base: your Attack multiplies it.' : g.slot === 'shield' ? 'A shield blocks some of every hit.' : 'Armour adds Defence, which divides the damage you take.', stats: gearStats(g),
+        say: eq ? 'Already in your hands! Fine choice.' : own ? 'You own that one. Want to wear it?' : `The ${g.name}? ${ri >= 2 ? 'One of my best.' : 'Good, honest work.'}`,
+        actions: eq ? [{ label: 'Equipped', off: true, run: () => {} }] : [{ label: own ? 'Equip it' : poor ? `Need ${fmt(g.price - S.coins)} more gold` : `Buy and equip (${fmt(g.price)})`, off: poor, run: () => {
+          if (!S.owned.includes(k)) { if (S.coins < g.price) return; S.coins -= g.price; S.owned.push(k); sfx('coin'); toast(`You buy the ${g.name}!`, gearIcon(g), true); }
+          S.equip[g.slot] = k; cancelTask(); equipGear(); burst(player.pos.clone().setY(1.6), '#ffe07a', 24, 4); buildGearBar(); updateTitle(); shopRefresh(); } }] };
+    }) };
+  const tabs = [buy];
+  const sp = spellTab(type); if (sp) tabs.push(sp);
+  tabs.push(sellTab(npc));
+  if (type !== 'magic' && type !== 'ranged') tabs.push({ id: 'up', label: 'Upgrade', icon: 'hammer', go: () => openUpgrade(npc) });
+  openShopScreen(npc, { greet: lines[type], tabs });
+}
+
 let eatAt = -9;
 function eat(k) {
   if (!player || player.dead || !FOOD[k] || !S.inv[k] || now < eatAt) return false;
@@ -3565,41 +3868,6 @@ function openKing(npc) {
   d.innerHTML = `<h3>${npc.name}</h3><p>You have done the kingdom proud. ${DARK_KING}'s shadow still lingers, and I will call on you again soon. Until then, grow strong: the smiths in the village sell fine weapons, shields and armour.</p>
     <div class="row"><button id="kingbye">Farewell</button></div>`;
   $('kingbye').onclick = closeDialog;
-  showDialog(d);
-  npc.actor.face(player.pos.x, player.pos.z);
-}
-function openWeaponShop(npc) {
-  talking = npc;
-  const type = npc.shop, d = $('dialog');
-  const lines = { melee: 'Finest steel this side of the mountains! Swords, axes, shields and armour. A longer blade swings wider, a lighter one swings faster.', magic: 'Wands and staves, darling, humming with power. Hold one and your blows become bolts of magic you can throw from afar.', ranged: 'Crossbows I made myself. Hold one and you shoot from a safe distance. Lighter ones shoot faster.', frost: 'Frostsilver, forged cold and sharp! It shrugs off the north\'s worst. Bring me frostsilver ore and I\'ll make it even better.', marsh: 'Bogwood and Mireiron! Everything I make drips with marsh poison, so your foes keep hurting after you hit them. Chosen your path yet? I forge path weapons too.', sands: 'Sunsteel, hot from the forge! It burns brighter in daylight. And gadgets! Springs, lenses, cogs. One gadget at a time, mind, or you will start ticking.' };
-   const sells = (g) => (type === 'frost' ? g.tier === 2 : type === 'marsh' ? g.tier === 3 && (!g.path || g.path === S.path) : type === 'sands' ? g.tier === 4 && (!g.path || g.path === S.path) : !g.tier && (g.slot === 'weapon' ? g.type === type : type === 'melee'));
-  const list = Object.entries(GEAR).filter(([, g]) => !g.unique && g.price > 0 && sells(g));
-  const spare = S.owned.map((k) => [k, GEAR[k]]).filter(([k, g]) => g && sells(g) && gearValue(g) > 0 && S.equip[g.slot] !== k);
-  d.innerHTML = `<h3>${npc.name}</h3><p>${lines[type]}</p>
-    <div class="shop wide">${list.map(([k, g]) => {
-      const own = S.owned.includes(k), eq = S.equip[g.slot] === k;
-      const label = eq ? 'Equipped' : own ? 'Equip' : `${g.price} coins`;
-      return `<button class="buy" data-w="${k}" ${eq || (!own && S.coins < g.price) ? 'disabled' : ''}><img src="${gearIcon(g)}" alt=""><b>${g.name}</b><span>${gearStats(g)}</span><em>${label}</em></button>`;
-    }).join('')}</div>
-    ${spare.length ? `<h4 class="sub">Sell spare gear</h4><div class="shop sell">${spare.map(([k, g]) => `<button class="buy" data-sellg="${k}"><img src="${gearIcon(g)}" alt=""><b>${g.name}</b><span>${gearStats(g)}</span><em>Sell +${gearValue(g)}</em></button>`).join('')}</div>` : ''}
-    <p class="hint">You have ${S.coins} coins. Damage is the weapon's base: your Attack multiplies it.</p><div class="row">${type === 'frost' || type === 'marsh' || type === 'sands' ? `<button id="wup" class="primary"><img src="${ICONS.hammer}" alt="">Upgrade gear</button>` : ''}${type === 'melee' ? `<button id="wup" class="primary"><img src="${ICONS.hammer}" alt="">Upgrade gear</button>` : ''}<button id="wbye">Goodbye</button></div>`;
-  d.querySelectorAll('[data-w]').forEach((b) => { b.onclick = () => {
-    const k = b.dataset.w, g = GEAR[k];
-    if (!S.owned.includes(k)) { if (S.coins < g.price) return; S.coins -= g.price; S.owned.push(k); toast(`You buy the ${g.name}!`, gearIcon(g), true); }
-    S.equip[g.slot] = k;
-    cancelTask(); equipGear(); burst(player.pos.clone().setY(1.6), '#ffe07a', 24, 4);
-    buildGearBar(); updateTitle(); refreshUI(); save(); openWeaponShop(npc);
-  }; });
-  d.querySelectorAll('[data-sellg]').forEach((b) => { b.onclick = () => {
-    const k = b.dataset.sellg, g = GEAR[k];
-    if (!S.owned.includes(k) || S.equip[g.slot] === k) return;
-    S.owned = S.owned.filter((o) => o !== k); S.coins += gearValue(g); if (S.plus) delete S.plus[k]; S.hotbar = (S.hotbar || []).map((x) => (x === k ? null : x)); renderHotbar();
-    toast(`Sold the ${g.name} for ${gearValue(g)} coins.`, ICONS.coins, g.unique);
-    refreshUI(); save(); openWeaponShop(npc);
-  }; });
-  if ($('wforge')) $('wforge').onclick = () => { closeDialog(); openSheet('craft'); };
-  if ($('wup')) $('wup').onclick = () => openUpgrade(npc);
-  $('wbye').onclick = closeDialog;
   showDialog(d);
   npc.actor.face(player.pos.x, player.pos.z);
 }
@@ -3741,6 +4009,7 @@ function pagesOf(text, max = 150) {
 // Storybook speech: letters pop in one by one while the speaker chatters.
 // Press interact (or tap the text) once to finish the line, again to turn the page.
 function showDialog(d, opts = {}) {
+  if (!opts.shop) { d.classList.remove('shopmode'); shopState = null; }
   const fresh = d.hidden || !dlg || dlg.npc !== talking;
   d.hidden = false;
   document.body.classList.add('talking');
@@ -3805,7 +4074,7 @@ function advanceDialog() {
   return false;
 }
 let dlgClosedAt = 0;
-function closeDialog() { if (dlg) dlgClosedAt = performance.now(); $('dialog').hidden = true; talking = null; dlg = null; clearInterval(typing); document.body.classList.remove('talking'); }
+function closeDialog() { if (dlg) dlgClosedAt = performance.now(); $('dialog').hidden = true; $('dialog').classList.remove('shopmode'); shopState = null; talking = null; dlg = null; clearInterval(typing); document.body.classList.remove('talking'); }
 
 // ---------- input ----------
 // Keybinds: every action has two keys, and the player can change both from Options.
@@ -4518,6 +4787,7 @@ function hurtEnemy(e, dmg, src = null, power = 1) {
       if (e.type === 'boss_colossus') sandsCleanup(e);
       addItem(e.T.drop);
       toast(`You defeated ${e.T.name}! It dropped ${ITEMS[e.T.drop].toLowerCase()}!`, ICONS[e.T.drop], true);
+      later(1.5, () => spellDrop(e));
       burst(e.pos.clone().setY(2), '#ffe07a', 80, 8, 1.6);
       for (const k of Object.keys(QUESTS)) if (S.quests[k].state === 'active' && QUESTS[k].bossType === e.type) S.quests[k].boss = 1;
       $('bossbar').hidden = true;
@@ -6376,7 +6646,7 @@ function tick() {
   const off = camOff.copy(CAM_OFF).multiplyScalar(zoom * (camera.aspect < 1 ? 1.3 : 1));
   const following = !(creator.open && player) && !bossIntro && !(camMoment && player && camMoment.t < camMoment.dur) && !(player && dlg && dlg.talky && talking && talking.actor && !$('dialog').hidden) && !(!player && !$('pick').hidden);
   if (!following) camFollow = false;
-  bossIntroTick(dt); bossGateTick(); goonTick();
+  bossIntroTick(dt); bossGateTick(); goonTick(); spellTick();
   if (creator.open && player) creatorCam(dt);
   else if (bossIntro) introCam(dt);
   else if (camMoment && player && camMoment.t < camMoment.dur) momentCam(dt);
@@ -8616,7 +8886,7 @@ function makeGagronFriend() {
   npcs.push(gagronFriend);
 }
 
-window.__jq = { toast, showKeysNote, goonSneeze, goonDrips, goonFlop, setSlotBox, showSlots, get slotBox() { return slotBox; }, get guide() { return guide; }, bossNet, safeSpot, get PVP_LVL() { return PVP_LVL; }, goldNode, wbInfo, wbTick, get wb() { return wb; }, WB_SPOTS, tradeOpen, tradeNet, offerKey, get trade() { return trade; }, adv(s) { for (let t = 0; t < s; t += 0.05) { for (let i = timers.length - 1; i >= 0; i--) { timers[i].t -= 0.05; if (timers[i].t <= 0) { const f = timers[i].f; timers.splice(i, 1); f(); } } bossFxTick(0.05); } }, get party() { return party; }, BOSS_AI, PHASE_SETUP, get gulped() { return gulped; }, wriggle, toggleBigMap, spawnEnemy, openPathChoice, choosePath, startLanternNight, get lanterns() { return lanterns; }, duelOffer, duelPrize, onNet, chatCommand, canFight, openUpgrade, openBoard, boardToday, queueLetter, makeGagronFriend, net, peerActors, runeTick, bossFx, renderer, scene, openMayor, darkOmen, netWorth, liberateTown, setGolden, goldenCaught, pompArrive, get goldenE() { return goldenE; }, spinWheel, dayTick, get bossIntro() { return bossIntro; }, bossSkip, startBossScene, sailTo, regions, closeSheet, renderHotbar, crew, setCrewMode, TOWNS, liberateTown, chests, openChest, stopRoulette, enemies, startBossIntro, closeDialog, advanceDialog, dash, attackPress, craft, CRAFTS, openCreator, closeCreator, creator, rebuildHero, setZoom: (z) => { zoom = zoomGoal = z; }, hurtEnemy, goThrough, get where() { return where; }, INTERIORS, equipGear, spendPoint, giveHeroXp, heroLvl, stat, maxHp, defDiv, openWeaponShop, openKing, jump, eat, eatBest, openShop, swing, swingTarget, hitNode, projectiles, timers, get S() { return S; }, get player() { return player; }, enemies, nodes, npcs, startTask, doAction, giveXp, save, openSheet, openDialog };
+window.__jq = { toast, showKeysNote, castSpell, learnSpell, spellCd, SPELLS, goonSneeze, goonDrips, goonFlop, setSlotBox, showSlots, get slotBox() { return slotBox; }, get guide() { return guide; }, bossNet, safeSpot, get PVP_LVL() { return PVP_LVL; }, goldNode, wbInfo, wbTick, get wb() { return wb; }, WB_SPOTS, tradeOpen, tradeNet, offerKey, get trade() { return trade; }, adv(s) { for (let t = 0; t < s; t += 0.05) { for (let i = timers.length - 1; i >= 0; i--) { timers[i].t -= 0.05; if (timers[i].t <= 0) { const f = timers[i].f; timers.splice(i, 1); f(); } } bossFxTick(0.05); } }, get party() { return party; }, BOSS_AI, PHASE_SETUP, get gulped() { return gulped; }, wriggle, toggleBigMap, spawnEnemy, openPathChoice, choosePath, startLanternNight, get lanterns() { return lanterns; }, duelOffer, duelPrize, onNet, chatCommand, canFight, openUpgrade, openBoard, boardToday, queueLetter, makeGagronFriend, net, peerActors, runeTick, bossFx, renderer, scene, openMayor, darkOmen, netWorth, liberateTown, setGolden, goldenCaught, pompArrive, get goldenE() { return goldenE; }, spinWheel, dayTick, get bossIntro() { return bossIntro; }, bossSkip, startBossScene, sailTo, regions, closeSheet, renderHotbar, crew, setCrewMode, TOWNS, liberateTown, chests, openChest, stopRoulette, enemies, startBossIntro, closeDialog, advanceDialog, dash, attackPress, craft, CRAFTS, openCreator, closeCreator, creator, rebuildHero, setZoom: (z) => { zoom = zoomGoal = z; }, hurtEnemy, goThrough, get where() { return where; }, INTERIORS, equipGear, spendPoint, giveHeroXp, heroLvl, stat, maxHp, defDiv, openWeaponShop, openKing, jump, eat, eatBest, openShop, swing, swingTarget, hitNode, projectiles, timers, get S() { return S; }, get player() { return player; }, enemies, nodes, npcs, startTask, doAction, giveXp, save, openSheet, openDialog };
 window.addEventListener('error', (e) => { const m = $('loadmsg'); if (m) m.textContent = `Something went wrong: ${e.message}`; });
 main().catch((err) => {
   console.error(err);

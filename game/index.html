@@ -231,6 +231,70 @@
   #dialog .reward { font-size: 13px; color: var(--ink-soft); font-weight: 800; margin-top: -4px; }
   #dialog .row { display: flex; gap: 8px; flex-wrap: wrap; }
 
+  /* ---------- the shop screen: keeper, speech box, round tab buttons, clear goods ---------- */
+  #dialog.shopmode { top: 50%; bottom: auto; transform: translate(-50%, -50%); width: min(880px, calc(100% - 24px)); max-height: min(92dvh, 760px); padding: 0; overflow: hidden; display: flex; flex-direction: column;
+    background: linear-gradient(180deg, #5a3a26, #3e2618); border: 4px solid #2a160a; border-radius: 22px; box-shadow: 0 0 0 3px #c9a253 inset, 0 8px 0 #2a160a, 0 24px 48px rgb(0 0 0 / .5); }
+  #dialog.shopmode.pop { animation: shoppop .3s cubic-bezier(.3, 1.5, .5, 1) both; }
+  @keyframes shoppop { from { transform: translate(-50%, -46%) scale(.9); opacity: 0; } }
+  .sh-top { display: flex; justify-content: space-between; align-items: center; padding: 10px 14px 0; }
+  .sh-gold { display: flex; align-items: center; gap: 8px; padding: 5px 18px 5px 8px; border-radius: 99px; background: linear-gradient(180deg, #fff3c4, #f2d27a); border: 3px solid #2a160a; box-shadow: 0 3px 0 #2a160a; }
+  .sh-gold img { width: 28px; height: 28px; }
+  .sh-gold b { font: 700 22px var(--display); color: #4a2a17; font-variant-numeric: tabular-nums; }
+  .sh-gold small { font: 700 12px var(--display); color: #8a5a2a; }
+  .sh-x { width: 40px; height: 40px; padding: 0; border-radius: 50%; font-size: 18px; }
+  .sh-wrap { display: grid; grid-template-columns: 96px 1fr; gap: 12px; padding: 10px 14px 14px; min-height: 0; flex: 1; }
+  .sh-tabs { display: flex; flex-direction: column; gap: 10px; align-items: center; }
+  .sh-tab, .sh-tab[aria-pressed], .sh-tab:hover, .sh-tab:active { display: grid; justify-items: center; gap: 2px; padding: 0; background: none !important; border: 0 !important; box-shadow: none !important; color: #f6e6c4; transform: none; }
+  .sh-tab .sh-ico { width: 62px; height: 62px; border-radius: 50%; display: grid; place-items: center; background: radial-gradient(circle at 40% 35%, #6aa8f0, #2f5fa8); border: 4px solid #e8c46a; box-shadow: 0 0 0 3px #2a160a, 0 4px 0 #2a160a; transition: transform .12s; }
+  .sh-tab .sh-ico img { width: 36px; height: 36px; filter: drop-shadow(0 2px 0 rgb(0 0 0 / .35)); }
+  .sh-tab b { font: 700 13px var(--display); text-shadow: 0 2px 0 #2a160a; }
+  .sh-tab:hover .sh-ico { transform: scale(1.06); }
+  .sh-tab.on .sh-ico { background: radial-gradient(circle at 40% 35%, #ffe58a, #e3a23a); transform: scale(1.1); }
+  .sh-tab.leave .sh-ico { background: radial-gradient(circle at 40% 35%, #c98a5a, #7a4a2a); }
+  .sh-main { min-width: 0; min-height: 0; overflow-y: auto; overscroll-behavior: contain; display: grid; gap: 10px; align-content: start; padding-right: 2px; }
+  .sh-keeper { display: grid; grid-template-columns: 92px 1fr; gap: 12px; align-items: center; }
+  .sh-face { width: 92px; height: 92px; border-radius: 50%; border: 4px solid #e8c46a; background: radial-gradient(circle at 40% 35%, #fff3c4, #d8a85a); box-shadow: 0 0 0 3px #2a160a; }
+  .sh-face.none { display: grid; place-items: center; } .sh-face.none img { width: 56px; }
+  .sh-say { position: relative; background: #fff6dc; border: 3px solid #e8c46a; border-radius: 16px; padding: 18px 16px 12px; box-shadow: 0 0 0 3px #2a160a; }
+  .sh-name { position: absolute; top: -14px; left: 14px; font: 700 15px var(--display); color: #4a2a17; background: linear-gradient(180deg, #fff3c4, #f2d27a); border: 3px solid #2a160a; border-radius: 10px; padding: 2px 12px; }
+  #dialog .sh-say p { margin: 0; font: 700 16px/1.4 var(--body); color: #2c1a10; }
+  .sh-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
+  .sh-card { position: relative; display: grid; justify-items: center; gap: 3px; padding: 10px 8px 8px; text-align: center; background: #f6e6c4; border: 3px solid #2a160a; border-radius: 14px; box-shadow: 0 3px 0 #2a160a, inset 0 0 0 2px color-mix(in srgb, var(--rc) 60%, transparent); }
+  .sh-card:hover { transform: translateY(-2px); }
+  .sh-card.on { background: #fff6dc; box-shadow: 0 3px 0 #2a160a, 0 0 0 3px #ffd84a; }
+  .sh-card.dim { opacity: .62; }
+  .sh-cimg { width: 58px; height: 58px; border-radius: 50%; display: grid; place-items: center; background: radial-gradient(circle at 40% 35%, color-mix(in srgb, var(--rc) 30%, #fff), color-mix(in srgb, var(--rc) 70%, #3a2010)); border: 3px solid #2a160a; }
+  .sh-cimg img { width: 40px; height: 40px; }
+  .sh-card b { font: 700 14px/1.15 var(--display); color: #2c1a10; }
+  .sh-card small { font-size: 11.5px; color: var(--ink-soft); line-height: 1.25; min-height: 1.25em; }
+  .sh-card em { font: 700 13px var(--display); font-style: normal; color: #4a2a17; background: linear-gradient(180deg, #fff3c4, #f2d27a); border: 2px solid #2a160a; border-radius: 99px; padding: 1px 10px; margin-top: 2px; }
+  .sh-card em.poor { background: #e8d0c0; color: #8a3a2a; }
+  .sh-card em.owned { background: #cfe8c0; color: #2f6a2f; }
+  .sh-card em.sellp { background: #d8f0c8; color: #2f6a2f; }
+  .rchip { display: inline-block; font: 700 11px var(--display); font-style: normal; color: #fff; background: var(--rc); border: 2px solid #2a160a; border-radius: 99px; padding: 0 8px; vertical-align: 2px; }
+  .sh-detail { display: grid; grid-template-columns: 70px 1fr auto; gap: 12px; align-items: center; padding: 12px; background: #fff6dc; border: 3px solid #e8c46a; border-radius: 16px; box-shadow: 0 0 0 3px #2a160a; }
+  .sh-dimg { width: 70px; height: 70px; border-radius: 50%; display: grid; place-items: center; background: radial-gradient(circle at 40% 35%, color-mix(in srgb, var(--rc) 30%, #fff), color-mix(in srgb, var(--rc) 70%, #3a2010)); border: 3px solid #2a160a; }
+  .sh-dimg img { width: 48px; height: 48px; }
+  .sh-dtext b { font: 700 18px var(--display); color: #2c1a10; }
+  #dialog .sh-dtext p { margin: 4px 0; font: 600 14px/1.35 var(--body); }
+  .sh-stats { display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: 12.5px; color: var(--ink-soft); }
+  .sh-dact { display: grid; gap: 6px; }
+  .sh-dact button { white-space: nowrap; }
+  .sh-empty { text-align: center; color: #f1dcae; font-weight: 700; padding: 18px; }
+  .sh-foot { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; } .sh-foot small { color: #f1dcae; }
+  .sh-foot button img { width: 20px; height: 20px; vertical-align: -4px; margin-right: 4px; }
+  #dialog.shopmode .sellpick { background: #fff6dc; border-radius: 14px; padding: 10px; border: 3px solid #e8c46a; }
+  @media (max-width: 620px) {
+    .sh-wrap { grid-template-columns: 1fr; } .sh-tabs { flex-direction: row; justify-content: center; flex-wrap: wrap; gap: 8px; }
+    .sh-tab .sh-ico { width: 48px; height: 48px; } .sh-tab .sh-ico img { width: 28px; height: 28px; }
+    .sh-keeper { grid-template-columns: 64px 1fr; } .sh-face { width: 64px; height: 64px; }
+    .sh-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .sh-detail { grid-template-columns: 56px 1fr; } .sh-dimg { width: 56px; height: 56px; } .sh-dact { grid-column: 1 / -1; }
+  }
+  /* spells on the hotbar: a dark sweep shows the cooldown */
+  #hotbar .hot.spell { background: radial-gradient(circle at 50% 40%, color-mix(in srgb, var(--sc) 35%, #fff6dc), #f2e2bd); }
+  #hotbar .hot.spell::after { content: ''; position: absolute; inset: 0; border-radius: inherit; pointer-events: none; background: conic-gradient(rgb(20 10 30 / .62) calc(var(--cd, 0) * 360deg), transparent 0); }
+  #hotbar .hot.spell span { position: absolute; inset: 0; display: grid; place-items: center; font: 700 18px var(--display); color: #fff; text-shadow: 0 2px 0 #2a160a; z-index: 1; pointer-events: none; }
   /* overlays */
   .overlay { position: fixed; inset: 0; display: grid; place-items: center; z-index: 6; padding-inline: max(16px, env(safe-area-inset-left, 0px)) max(16px, env(safe-area-inset-right, 0px)); background: radial-gradient(circle at 50% 35%, rgb(59 42 104 / .82), rgb(30 22 54 / .94)); overflow: auto; }
   #loading { color: var(--parch); font-family: var(--display); text-align: center; transition: opacity .6s; z-index: 8; overflow: hidden;

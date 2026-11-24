@@ -87,6 +87,22 @@ export async function isAdmin() {
   return ok;
 }
 
+// admin actions go through the server: only admins may write a row, and only its target may read it
+export async function adminSend(targetId, action, data) {
+  if (!net.on || !sb) return { error: 'not online' };
+  const { error } = await sb.from('admin_actions').insert({ target_id: targetId, action, data });
+  return error ? { error: /relation|does not exist/i.test(error.message) ? 'run admin-setup.sql (part 2) in Supabase first' : error.message } : {};
+}
+export async function adminInbox() {
+  if (!net.on || !sb || !net.user) return [];
+  try {
+    const { data, error } = await sb.from('admin_actions').select('id, action, data').eq('target_id', net.user.id).eq('done', false).limit(20);
+    if (error || !data || !data.length) return [];
+    await sb.from('admin_actions').update({ done: true }).in('id', data.map((r) => r.id));
+    return data;
+  } catch (e) { return []; }
+}
+
 // ---------- cloud saves ----------
 export async function loadCloud() {
   const { data, error } = await sb.from('saves').select('data').eq('user_id', net.user.id).maybeSingle();
@@ -168,7 +184,7 @@ export async function connect(profile) {
 }
 // ---------- player-to-player messages ----------
 // Parties (invite, accept, state, leave), duels (hit, knock-out, the winner's prize) and shared party XP.
-const NET_EVENTS = ['pi', 'pa', 'ps', 'pl', 'hit', 'ko', 'loot', 'px', 'ti', 'ta', 'to', 'tx', 'wb', 'bh', 'bs'];
+const NET_EVENTS = ['pi', 'pa', 'ps', 'pl', 'hit', 'ko', 'loot', 'px', 'ti', 'ta', 'to', 'tx', 'wb', 'bh', 'bs', 'spell', 'push', 'adm'];
 export function sendNet(ev, payload = {}) {
   if (!channel || !net.on || !NET_EVENTS.includes(ev)) return;
   channel.send({ type: 'broadcast', event: ev, payload: { ...payload, id: net.user.id } });
