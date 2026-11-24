@@ -5947,7 +5947,6 @@ function chargedAttack(k) {
   player.busyUntil = now + 0.22;
   const fwd = fwdOf(player), pp = player.pos, dmg = () => Math.max(1, Math.round(heroDamage() * mult));
   floatText(pp.clone().setY(4.2), CHARGED[kind].name + '!', 'gain');
-  rankFlourish(pp.x, pp.z, (cx, cz, R, col) => { const m = new THREE.Mesh(new THREE.RingGeometry(0.7, 1, 48), new THREE.MeshBasicMaterial({ color: col, transparent: true, opacity: 0.85, depthWrite: false, fog: false, side: THREE.DoubleSide })); m.rotation.x = -Math.PI / 2; m.position.set(cx, 0.2, cz); m.layers.set(1); scene.add(m); fx.push({ m, t: 0, dur: 0.45, R }); });
   if (kind === 'bow') {
     // Piercing Shot: a big heavy arrow that goes through everything in a long line. Fully drawn, three of them.
     player.play('1H_Ranged_Shoot', { once: true, fade: 0.04, speed: 1.6 });
