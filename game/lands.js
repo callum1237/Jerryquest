@@ -317,7 +317,7 @@ export function buildLands() {
   }
   for (let i = 0; i < 26; i++) { const [x, z] = rnd(20, R - 16); if (!open(x, z, 3, 5)) continue; pineAt(x, z, 4 + rng() * 1.2); }
   // v81: painted pines whose tips are frosted with snow (same spots and sizes as the old cone pines)
-  { const ph = (() => { const b = new THREE.Box3().setFromObject(snowPine()); return b.max.y - b.min.y; })() * 1.15;
+  { const ph = (() => { const b = new THREE.Box3().setFromObject(snowPine()); return b.max.y - b.min.y; })() * 1.4;
     const P = new THREE.Vector3(), lists = [[], []];
     for (const m of pines) { P.setFromMatrixPosition(m); lists[(Math.sin(P.x * 12.99 + P.z * 78.2) * 43758.5 % 1 + 1) % 1 < 0.5 ? 0 : 1].push(m); }
     if (lists[0].length) instanced(natural('Pine_1', { h: ph, pal: ['#173f4a', '#eef6ff'] }), lists[0]);
@@ -483,7 +483,7 @@ export function buildMarsh() {
 
 // Gentle snowfall that follows the camera while you're in a snowy land.
 export function makeSnow() {
-  const N = 420, geo = new THREE.BufferGeometry(), p = new Float32Array(N * 3);
+  const N = 220, geo = new THREE.BufferGeometry(), p = new Float32Array(N * 3);
   for (let i = 0; i < N; i++) { p[i * 3] = (Math.random() - 0.5) * 80; p[i * 3 + 1] = Math.random() * 30; p[i * 3 + 2] = (Math.random() - 0.5) * 80; }
   geo.setAttribute('position', new THREE.BufferAttribute(p, 3));
   const dot = document.createElement('canvas'); dot.width = dot.height = 32; const dg = dot.getContext('2d');
@@ -546,7 +546,7 @@ export const SANDS_FX = { castle: null };
 export function roundNode(x, z, oak = false, sc = 2.4) {
   // v81: a painted Quaternius tree (oaks are the big dark ones, with red apples)
   const g = new THREE.Group();
-  g.add(naturalCopy(natural(oak ? 'CommonTree_2' : 'CommonTree_1', { h: oak ? 1.75 : 1.5, pal: oak ? PAL.deep : PAL.spring })));
+  g.add(naturalCopy(natural(oak ? 'CommonTree_2' : 'CommonTree_1', { h: oak ? 2.15 : 1.85, pal: oak ? PAL.deep : PAL.spring })));
   if (oak) for (const [ax, ay, az] of [[0.3, 1.05, 0.28], [-0.32, 1.2, 0.16], [0.1, 0.95, -0.36], [-0.12, 1.4, 0.28]]) { const a = new THREE.Mesh(new THREE.SphereGeometry(0.05, 8, 6)); a.position.set(ax, ay, az); g.add(add(a, '#e8402f')); }
   g.scale.setScalar(sc * (0.9 + rng() * 0.2)); g.position.set(x, 0, z); g.rotation.y = rng() * 6; scene.add(g);
   const cut = new THREE.Group(); const st = new THREE.Mesh(new THREE.CylinderGeometry(0.13, 0.16, 0.22, 10)); st.position.y = 0.11; cut.add(add(st, '#8a5530'));
@@ -776,7 +776,7 @@ export function buildMagma() {
 }
 // rising embers for the Magma Caverns (like the snow, but warm and floating upward)
 export function makeEmbers() {
-  const N = 160, geo = new THREE.BufferGeometry(), p = new Float32Array(N * 3);
+  const N = 80, geo = new THREE.BufferGeometry(), p = new Float32Array(N * 3);
   for (let i = 0; i < N; i++) { p[i * 3] = (Math.random() - 0.5) * 70; p[i * 3 + 1] = Math.random() * 18; p[i * 3 + 2] = (Math.random() - 0.5) * 70; }
   geo.setAttribute('position', new THREE.BufferAttribute(p, 3));
   const dot = document.createElement('canvas'); dot.width = dot.height = 32; const dg = dot.getContext('2d');
