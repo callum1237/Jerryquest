@@ -1726,6 +1726,7 @@ function bfxNet(m) {
         if (e.hp <= 0 || player.dead || where !== e.inside || now < at) return;
         if (Math.hypot(player.pos.x - e.pos.x, player.pos.z - e.pos.z) < R) { at = now + tick; if (dodging()) floatText(player.pos.clone().setY(3.6), 'Dodged!', 'miss'); else hurtPlayer(d); }
       });
+    } else if (m.k === 'flame' && e.T.drake) { e.face(e.pos.x + Math.sin(+m.d || 0), e.pos.z + Math.cos(+m.d || 0)); e.play('Spellcast_Shoot', { once: true, fade: 0.1 }); dragonFlame(e, +m.d || 0, 12);
     } else if (m.k === 'ring') { toast('Its knees are glowing! Jump the laser (Space)!', ICONS.star); laserRing(e, +m.x, +m.z, hitFrom(m)); }
     else if (m.k === 'pull') sniffPull(e, +m.x, +m.z);
     else if (m.k === 'add' && ENEMY_TYPES[m.t] && !enemies.some((a) => a.nid === `${m.t}@${(+m.x).toFixed(1)},${(+m.z).toFixed(1)}` && a.hp > 0)) bossAdd(e, m.t, +m.x, +m.z);
@@ -5981,6 +5982,7 @@ function hazardTick(dt) {
 // A stream of fire from the dragon's jaws along its breath cone, timed to the Fire_Breath animation.
 const _fp = new THREE.Vector3(), _fq = new THREE.Vector3();
 function dragonFlame(e, dir, len) {
+  bfxShare('flame', e, { d: r2(dir) }); // friends see the fire too
   let jaw = null; e.root.traverse((o) => { if (!jaw && o.isBone && o.name === 'mouth_upper') jaw = o; });
   const cols = e.T.drake === 'elder' ? ['#7af0e0', '#c89aff'] : ['#ffd25a', '#ff7a2a'];
   for (let i = 0; i < 16; i++) later(0.4 + i * 0.045, () => {
