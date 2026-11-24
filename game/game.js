@@ -558,7 +558,10 @@ let together = false;
 // v71: pets each give one small bonus (see COS.pet)
 let PETS = null;
 const petBonus = (k) => { const P = PETS && S.cos && S.cos.eq && PETS[S.cos.eq.pet]; return (P && P[k]) || 0; };
-const dmgMult = () => (1 + ATK_MULT * stat('atk')) * renown() * (together ? 1.1 : 1) * (1 + petBonus('dmg'));
+// v72: weapon mastery. Every monster you beat with a kind of weapon (blades, bows, staffs) makes you better with that kind
+const MASTERY = { melee: 'Blade', ranged: 'Bow', magic: 'Staff' };
+const masteryLv = (t) => Math.min(10, Math.floor(Math.sqrt(((S.mastery || {})[t] || 0) / 8)));
+const dmgMult = () => (1 + ATK_MULT * stat('atk')) * renown() * (together ? 1.1 : 1) * (1 + petBonus('dmg')) * (1 + 0.015 * masteryLv(W().type));
 const defDiv = () => (1 + DEF_DIV * totalDef()) * pathDef() * (1 + petBonus('def'));
 const maxHp = () => Math.round((HP_BASE + HP_PER * stat('hp')) * pathHp() * renown() * (1 + petBonus('hp')));
 
@@ -1387,6 +1390,7 @@ function onNet(ev, m) {
   if (ev === 'hit') { if (canFight(from, true)) hurtPlayer(Math.max(1, Math.min(9999, +m.dmg || 0)), from); return; }
   if (ev === 'ko') { if (peer && m.offer) duelPrize(from, peer.name || 'a hero', m.offer); return; }
   if (ev === 'loot') { takeDuelLoss(from, m.pick, m.wait); return; }
+  if (ev === 'rv') { if (m.to === me && inParty(from)) helpedUp((peer && peer.name) || 'A friend'); return; }
   if (ev === 'px') {
     if (!inParty(from) || m.w !== where || !player || player.dead) return;
     if (Math.hypot(player.pos.x - m.x, player.pos.z - m.z) > 40) return;
@@ -5857,16 +5861,66 @@ function streakKill() {
   if (streak === 3 && !S.seenStreak) { S.seenStreak = true; toast('Rampage! Keep beating monsters quickly, one after another, for up to +50% XP and coins.', ICONS.star, true); }
   return streakBonus();
 }
-let chipsEl = null, togetherWas = false;
+let chipsEl = null, togetherWas = false, dailyDone = false;
+// ---------- v72: helping a fallen party friend back up ----------
+function partyPalNear() {
+  if (!party || party.members.length < 2) return null;
+  const h = heroesNear.find((x) => !x.dead && inParty(x.id) && Math.hypot(x.pos.x - player.pos.x, x.pos.z - player.pos.z) < 30);
+  return h ? ((net.peers.get(h.id) || {}).name || 'Your friend') : null;
+}
+let reviving = null; // { id, t }
+function reviveTick() {
+  if (!party || player.dead || !net.on) { reviving = null; return null; }
+  const h = heroesNear.find((x) => x.dead && inParty(x.id) && Math.hypot(x.pos.x - player.pos.x, x.pos.z - player.pos.z) < 2.6);
+  if (!h) { reviving = null; return null; }
+  if (!reviving || reviving.id !== h.id) reviving = { id: h.id, t: now };
+  const name = (net.peers.get(h.id) || {}).name || 'your friend', k = Math.min(1, (now - reviving.t) / 3);
+  if (k >= 1) {
+    sendNet('rv', { to: h.id }); reviving = null;
+    toast(`You helped ${name} back up!`, ICONS.heart || ICONS.star); burst(h.pos.clone().setY(1.5), '#fff2c0', 30, 4, 1.2); sfx('win');
+    return null;
+  }
+  if (rng() < 0.2) burst(h.pos.clone().setY(1 + rng()), '#fff2c0', 2, 1.5, 0.7);
+  return { name, k };
+}
+function helpedUp(who) {
+  if (!player || !player.dead || (duelLoss && now < duelLoss.until) || koWaitUntil) return;
+  koLife++; player.dead = false; S.hp = Math.max(1, Math.round(maxHp() * 0.4));
+  player.play('Idle'); renderer.domElement.classList.remove('ko-grey'); if (koEl) koEl.className = '';
+  burst(player.pos.clone().setY(1.5), '#fff2c0', 40, 5, 1.3); sfx('win');
+  toast(`${who} helped you back up!`, ICONS.star, true); refreshUI(); save();
+}
+// ---------- v72: a gift for every day you play (come back on the next day to grow your streak) ----------
+function dailyGift() {
+  const today = new Date().toDateString(), D = S.daily || { last: '', streak: 0 };
+  if (D.last === today) return;
+  const yest = new Date(Date.now() - 864e5).toDateString();
+  D.streak = D.last === yest ? (D.streak % 7) + 1 : 1; D.last = today; S.daily = D;
+  const coins = (40 + heroLvl() * 8) * D.streak; S.coins += coins;
+  if (D.streak === 7) { addItem('dark_essence', 3); addItem('ruby'); }
+  sfx('coin'); burst(player.pos.clone().setY(2), '#ffe07a', 40, 6, 1.2);
+  toast(`Daily gift, day ${D.streak} of 7: +${fmt(coins)} coins${D.streak === 7 ? ', 3 dark essence and a ruby!' : '. Come back tomorrow for a bigger one!'}`, ICONS.coins, true);
+  refreshUI(); save();
+}
+// ---------- v72: weapon mastery ----------
+function masteryKill(t) {
+  const was = masteryLv(t);
+  S.mastery = { ...(S.mastery || {}), [t]: ((S.mastery || {})[t] || 0) + 1 };
+  const lv = masteryLv(t);
+  if (lv > was) { toast(`${MASTERY[t]} mastery ${lv}! +${(lv * 1.5).toFixed(1).replace(/\.0$/, '')}% damage with ${t === 'melee' ? 'blades and hammers' : t === 'ranged' ? 'bows' : 'staffs and wands'}.`, ICONS[t] || ICONS.star, true); floatText(player.pos.clone().setY(4.4), `${MASTERY[t]} mastery ${lv}!`, 'crit'); }
+}
 function chipsTick() {
   if (!player) return;
   together = !player.dead && !!party && party.members.length > 1 && heroesNear.some((h) => !h.dead && inParty(h.id) && Math.hypot(h.pos.x - player.pos.x, h.pos.z - player.pos.z) < 14);
   if (together && !togetherWas && !S.seenTogether) { S.seenTogether = true; toast('Fighting beside your party: +10% damage and +10% XP from kills.', ICONS.star, true); }
   togetherWas = together;
   const left = STREAK_T - (now - streakAt), rampage = streak >= 3 && left > 0;
-  if (!chipsEl) { chipsEl = document.createElement('div'); chipsEl.id = 'chips'; chipsEl.innerHTML = '<span class="chip rampage" hidden><b></b><i></i></span><span class="chip together" hidden><b>Together +10%</b></span>'; document.body.appendChild(chipsEl); }
-  const [r, t] = chipsEl.children;
+  if (!chipsEl) { chipsEl = document.createElement('div'); chipsEl.id = 'chips'; chipsEl.innerHTML = '<span class="chip rampage" hidden><b></b><i></i></span><span class="chip together" hidden><b>Together +10%</b></span><span class="chip rampage helping" hidden><b></b><i></i></span>'; document.body.appendChild(chipsEl); }
+  const [r, t, hp] = chipsEl.children;
   setShown(t, together);
+  const h = reviveTick(); setShown(hp, !!h);
+  if (h) { setText(hp.firstChild, `Helping ${h.name} up...`); hp.lastChild.style.transform = `scaleX(${h.k.toFixed(3)})`; }
+  if (!dailyDone && S.started && S.seenIntro && !uiLock() && !document.body.classList.contains('titling')) { dailyDone = true; later(2, dailyGift); }
   setShown(r, rampage);
   if (rampage) { setText(r.firstChild, `Rampage ×${streak} · +${Math.round(streakBonus() * 100)}%`); r.lastChild.style.transform = `scaleX(${Math.max(0, left / STREAK_T).toFixed(3)})`; }
 }
@@ -5960,6 +6014,7 @@ function hurtEnemy(e, dmg, src = null, power = 1) {
     floatText(e.pos.clone().setY(2.4), `+${coins} coins`, 'gain');
     if (e.golden) goldenCaught(e);
     if (e.T.elite) S.champKills = (S.champKills || 0) + 1;
+    if (!crewHitting && !W().fist && MASTERY[W().type]) masteryKill(W().type);
     if (streak > (S.bestStreak || 0)) S.bestStreak = streak;
     for (const k of Object.keys(QUESTS)) if (S.quests[k].state === 'active' && QUESTS[k].need.kills !== undefined && (!QUESTS[k].land || QUESTS[k].land === e.inside)) S.quests[k].kills++;
     if (!e.temp || e.boss) boardToday().kills++;
@@ -6016,8 +6071,16 @@ function hurtPlayer(dmg, from = null) {
       later(20, () => { if (player.dead && koLife === life && !koWaitUntil) wakeUp(); }); // they took too long to choose
     } else {
       if (lost > 0) { S.coins -= lost; dropPouch(lost); }
-      koShow('Knocked out!', lost > 0 ? `You dropped ${fmt(lost)} coins where you fell. Bank your coins to keep them safe.` : 'You wake up in the nearest village.');
-      later(2.6, wakeUp);
+      const pal = partyPalNear();
+      if (pal) {
+        // v72: a party friend is close by. Give them a few seconds to come and help you up where you fell
+        koShow('Knocked out!', `${pal} can help you up: they just need to stand next to you for a moment. ${lost > 0 ? `You dropped ${fmt(lost)} coins.` : ''}`);
+        const life = koLife;
+        later(12, () => { if (player.dead && koLife === life) wakeUp(); });
+      } else {
+        koShow('Knocked out!', lost > 0 ? `You dropped ${fmt(lost)} coins where you fell. Bank your coins to keep them safe.` : 'You wake up in the nearest village.');
+        later(2.6, wakeUp);
+      }
     }
   } else if (!player.task && now > player.busyUntil) {
     player.play('Hit_A', { once: true, fade: 0.05, onFinish: () => player.play('Idle') });
@@ -9994,6 +10057,8 @@ function heroStatsHtml() {
   return `<h4 class="sub">Stats ${free > 0 ? `<small><b>${free} point${free > 1 ? 's' : ''} to spend</b></small>` : ''}</h4>
       <div class="stats">${Object.entries(STATS).map(([k, [nm, ic]]) => `<div class="stat"><img src="${ICONS[ic]}" alt=""><span class="nm">${nm}</span><span class="lv">${stat(k)}</span><small>${effect[k]}</small>${free > 0 ? `<button class="plus" data-stat="${k}" aria-label="Add a point to ${nm}">+</button>` : ''}</div>`).join('')}</div>
       <p class="hint">You get ${FREE_PER_LEVEL} more points each level.</p>
+      <h4 class="sub">Weapon mastery</h4><div class="stats">${Object.entries(MASTERY).map(([t, nm]) => { const l = masteryLv(t), k = (S.mastery || {})[t] || 0, next = l < 10 ? 8 * (l + 1) ** 2 : 0; return `<div class="stat"><img src="${ICONS[t]}" alt=""><span class="nm">${nm}</span><span class="lv">${l}</span><small>${l ? `+${(l * 1.5).toFixed(1).replace(/\.0$/, '')}% damage · ` : ''}${next ? `${fmt(k)} / ${fmt(next)} monsters` : 'Mastered!'}</small></div>`; }).join('')}</div>
+      <p class="hint">Beat monsters with a kind of weapon to master it, up to +15% damage.</p>
       <h4 class="sub">Gathering</h4><div class="skills">${SKILLS.filter(([k]) => k !== 'crafting').map(([k, nm]) => {
       const l = lvl(k), c0 = XPT[l], n0 = XPT[Math.min(99, l + 1)];
       const pc = l >= 99 ? 100 : ((S.xp[k] - c0) / (n0 - c0)) * 100;
@@ -10380,7 +10445,7 @@ function makeGagronFriend() {
   npcs.push(gagronFriend);
 }
 
-window.__jq = { affixFx, partySet, get streak() { return streak; }, get together() { return together; }, dragonAttack, dodgedFx, popLoot, toast, wolfSet, get wolfOn() { return wolfOn; }, set wolfOn(v) { wolfOn = v; }, mobNet, netHeroesTick, esNet, enemyAttackNet, hzNet, bfxNet, pickTarget, heroesNear, get hazards() { return hazards; }, get netDrive() { return netDrive; }, shrinkMe, showStoryIntro, hurtPlayer, koSitOut, wakeUp, showLook, removeThing, giveThing, COS, ITEMS, GEAR, parseGive, chargedAttack, parseAmount, hitPeers, shotHitsPeer, showKeysNote, castSpell, learnSpell, spellCd, SPELLS, goonSneeze, goonDrips, goonFlop, setSlotBox, showSlots, get slotBox() { return slotBox; }, get guide() { return guide; }, bossNet, safeSpot, get PVP_LVL() { return PVP_LVL; }, goldNode, wbInfo, wbTick, get wb() { return wb; }, WB_SPOTS, tradeOpen, tradeNet, offerKey, get trade() { return trade; }, adv(s) { for (let t = 0; t < s; t += 0.05) { for (let i = timers.length - 1; i >= 0; i--) { timers[i].t -= 0.05; if (timers[i].t <= 0) { const f = timers[i].f; timers.splice(i, 1); f(); } } bossFxTick(0.05); } }, get party() { return party; }, BOSS_AI, PHASE_SETUP, get gulped() { return gulped; }, wriggle, toggleBigMap, spawnEnemy, openPathChoice, choosePath, startLanternNight, get lanterns() { return lanterns; }, duelOffer, duelPrize, onNet, chatCommand, canFight, openUpgrade, openBoard, boardToday, queueLetter, makeGagronFriend, net, peerActors, runeTick, bossFx, renderer, scene, openMayor, darkOmen, netWorth, liberateTown, setGolden, goldenCaught, pompArrive, get goldenE() { return goldenE; }, spinWheel, dayTick, get bossIntro() { return bossIntro; }, bossSkip, startBossScene, sailTo, regions, closeSheet, renderHotbar, crew, setCrewMode, TOWNS, liberateTown, chests, openChest, stopRoulette, enemies, startBossIntro, closeDialog, advanceDialog, dash, attackPress, craft, CRAFTS, openCreator, closeCreator, creator, rebuildHero, setZoom: (z) => { zoom = zoomGoal = z; }, hurtEnemy, goThrough, get where() { return where; }, INTERIORS, equipGear, spendPoint, giveHeroXp, heroLvl, stat, maxHp, defDiv, openWeaponShop, openKing, jump, eat, eatBest, openShop, swing, swingTarget, hitNode, projectiles, timers, get S() { return S; }, get player() { return player; }, enemies, nodes, npcs, startTask, doAction, giveXp, save, openSheet, openDialog };
+window.__jq = { helpedUp, dailyGift, masteryLv, reviveTick, affixFx, partySet, get streak() { return streak; }, get together() { return together; }, dragonAttack, dodgedFx, popLoot, toast, wolfSet, get wolfOn() { return wolfOn; }, set wolfOn(v) { wolfOn = v; }, mobNet, netHeroesTick, esNet, enemyAttackNet, hzNet, bfxNet, pickTarget, heroesNear, get hazards() { return hazards; }, get netDrive() { return netDrive; }, shrinkMe, showStoryIntro, hurtPlayer, koSitOut, wakeUp, showLook, removeThing, giveThing, COS, ITEMS, GEAR, parseGive, chargedAttack, parseAmount, hitPeers, shotHitsPeer, showKeysNote, castSpell, learnSpell, spellCd, SPELLS, goonSneeze, goonDrips, goonFlop, setSlotBox, showSlots, get slotBox() { return slotBox; }, get guide() { return guide; }, bossNet, safeSpot, get PVP_LVL() { return PVP_LVL; }, goldNode, wbInfo, wbTick, get wb() { return wb; }, WB_SPOTS, tradeOpen, tradeNet, offerKey, get trade() { return trade; }, adv(s) { for (let t = 0; t < s; t += 0.05) { for (let i = timers.length - 1; i >= 0; i--) { timers[i].t -= 0.05; if (timers[i].t <= 0) { const f = timers[i].f; timers.splice(i, 1); f(); } } bossFxTick(0.05); } }, get party() { return party; }, BOSS_AI, PHASE_SETUP, get gulped() { return gulped; }, wriggle, toggleBigMap, spawnEnemy, openPathChoice, choosePath, startLanternNight, get lanterns() { return lanterns; }, duelOffer, duelPrize, onNet, chatCommand, canFight, openUpgrade, openBoard, boardToday, queueLetter, makeGagronFriend, net, peerActors, runeTick, bossFx, renderer, scene, openMayor, darkOmen, netWorth, liberateTown, setGolden, goldenCaught, pompArrive, get goldenE() { return goldenE; }, spinWheel, dayTick, get bossIntro() { return bossIntro; }, bossSkip, startBossScene, sailTo, regions, closeSheet, renderHotbar, crew, setCrewMode, TOWNS, liberateTown, chests, openChest, stopRoulette, enemies, startBossIntro, closeDialog, advanceDialog, dash, attackPress, craft, CRAFTS, openCreator, closeCreator, creator, rebuildHero, setZoom: (z) => { zoom = zoomGoal = z; }, hurtEnemy, goThrough, get where() { return where; }, INTERIORS, equipGear, spendPoint, giveHeroXp, heroLvl, stat, maxHp, defDiv, openWeaponShop, openKing, jump, eat, eatBest, openShop, swing, swingTarget, hitNode, projectiles, timers, get S() { return S; }, get player() { return player; }, enemies, nodes, npcs, startTask, doAction, giveXp, save, openSheet, openDialog };
 window.addEventListener('error', (e) => { const m = $('loadmsg'); if (m) m.textContent = `Something went wrong: ${e.message}`; });
 main().catch((err) => {
   console.error(err);
