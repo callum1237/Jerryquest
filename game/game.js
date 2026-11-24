@@ -135,8 +135,8 @@ const WEAPONS = {
   my_root: { type: 'magic', name: 'Worldroot Staff', dmg: 80, reach: 19, cd: 0.95, price: 0, unique: true, mythic: true, model: 'staff', tint: '#7affc8' },
   my_dawn: { type: 'ranged', name: 'Dawnbreaker', dmg: 46, reach: 20, cd: 0.55, price: 0, unique: true, mythic: true, model: 'crossbow_2handed', tint: '#fff6d0' },
   // the Dark Blade: sold by the Chapter 1 smith for 250,000 gold (Callum, Nov 24). The best and fastest sword in the game,
-  // extra long, near-black with a thin dark red outline, and a clean black-and-red slash beam.
-  my_dark: { type: 'melee', name: 'Dark Blade', dmg: 100, reach: 4.6, cd: 0.5, price: 250000, mythic: true, model: 'sword_2handed_color', tint: '#2a2830', glow: '#8e1020', big: 1.3, beam: 'dark', custom: 'darkblade' },
+  // shorter and thicker in dark steel with a normal slash (v76).
+  my_dark: { type: 'melee', name: 'Dark Blade', dmg: 100, reach: 4.6, cd: 0.5, price: 250000, mythic: true, model: 'sword_2handed_color', tint: '#3c424a', big: 1.25, custom: 'darkblade' },
   a_rattle: { type: 'ranged', name: "Rattlebones' Repeater", dmg: 12, reach: 14, cd: 0.55, price: 0, unique: true, model: 'crossbow_2handed', tint: '#9effa8' },
 };
 // Shields and armour add Defense on top of your Defense points.
@@ -3013,42 +3013,38 @@ function stretchBlade(m) {
   for (const k of ['x', 'y', 'z']) m.scale[k] *= k === ax ? 1.28 : 1.08;
 }
 // ---------- the Dark Blade's own model ----------
-// Sleek rather than bulky (Callum, Nov 24): a long, slim, double-edged blade of near-black steel that tapers to a
-// needle point, a thin dark red glow along both edges and a fine red line down the fuller, a slim swept-down guard
-// with a small red gem, a narrow wrapped grip and a pointed pommel. Built along +Y from the pommel (0) to the tip (L).
-function darkBladeModel(L) {
-  // v67.8: simple and bold. A long, slightly curved single-edged blade in near-black steel, a glowing crimson cutting
-  // edge, a round guard ringed in red and a long black grip, so it reads clearly from the overhead camera.
-  const g = new THREE.Group(), fx = [];
-  const mesh = (geo, mats, glow) => { const m = new THREE.Mesh(geo, glow ? mats : mats.std); if (!glow) registerMesh(m, mats); else { m.layers.set(1); m.userData.noGlow = true; } g.add(m); return m; };
-  const glowMat = (c, op) => new THREE.MeshBasicMaterial({ color: c, transparent: true, opacity: op, depthWrite: false, fog: false, side: THREE.DoubleSide });
-  const b0 = 0.25 * L, BL = L - b0, w = 0.05 * L, th = 0.011 * L, curv = 0.07 * L, N = 14;
-  // along the blade (t from 0 at the guard to 1 at the tip): it bows gently back and narrows a little
-  const cx = (t) => -curv * t * t, hw = (t) => w * (1 - 0.22 * t);
-  const blade = (grow, edgeOnly) => {
-    const sh = new THREE.Shape(), y = (t) => b0 + t * BL;
-    sh.moveTo(cx(0) - hw(0) * grow * (edgeOnly ? -0.68 : 1), y(0));
-    for (let i = 1; i <= N; i++) { const t = (i / N) * 0.86; sh.lineTo(cx(t) - hw(t) * grow * (edgeOnly ? -0.68 : 1), y(t)); }
-    sh.lineTo(cx(1) + hw(1) * 0.35, y(1) + (grow - 1) * 0.03 * L); // the point sweeps to the cutting edge, like a katana tip
-    for (let i = N; i >= 0; i--) { const t = (i / N) * 0.86; sh.lineTo(cx(t) + hw(t) * grow, y(t)); }
+// v76 (Callum, Nov 24): shorter and thicker, all dark steel, no red. A broad, straight double-edged blade of
+// gunmetal steel with bright honed edges and a dark fuller down the middle, a heavy squared crossguard, a wrapped
+// leather grip and a faceted pommel. Built along +Y from the pommel (0) to the tip (L).
+function darkBladeModel(L0) {
+  const L = L0 * 0.84, g = new THREE.Group();
+  const mesh = (geo, mats) => { const m = new THREE.Mesh(geo, mats.std); registerMesh(m, mats); g.add(m); return m; };
+  const b0 = 0.24 * L, BL = L - b0, w = 0.078 * L, th = 0.018 * L;
+  // blade outline: straight, a slight swell a third of the way up, then a firm point
+  const hw = (t) => w * (1 + 0.08 * Math.sin(t * Math.PI * 1.2)) * (t > 0.82 ? Math.max(0, (1 - t) / 0.18) * 0.92 + 0.08 : 1);
+  const outline = (k) => {
+    const sh = new THREE.Shape(), N = 16, y = (t) => b0 + t * BL;
+    sh.moveTo(-hw(0) * k, y(0));
+    for (let i = 1; i <= N; i++) { const t = (i / N) * 0.98; sh.lineTo(-hw(t) * k, y(t)); }
+    sh.lineTo(0, y(1));
+    for (let i = N; i >= 0; i--) { const t = (i / N) * 0.98; sh.lineTo(hw(t) * k, y(t)); }
     return sh;
   };
-  const bg = new THREE.ExtrudeGeometry(blade(1), { depth: th, bevelEnabled: true, bevelThickness: th * 0.9, bevelSize: w * 0.18, bevelSegments: 1, curveSegments: 1 });
-  bg.translate(0, 0, -th / 2); mesh(bg, toon('#1d1c21'));
-  // a faint dark red rim round the whole blade (a slightly bigger copy tucked inside it)
-  const rim = mesh(new THREE.ShapeGeometry(blade(1.32)), glowMat('#7a0c18', 0.6), true); rim.renderOrder = -1; fx.push({ m: rim, base: 0.45, amp: 0.2, sp: 1.6, ph: 0 });
-  // the glowing cutting edge on both faces
-  const eg = new THREE.ShapeGeometry(blade(1.0, true));
-  for (const z of [th * 1.45, -th * 1.45]) { const e = mesh(eg, glowMat('#d0202e', 0.9), true); e.position.z = z; fx.push({ m: e, base: 0.7, amp: 0.3, sp: 2.2, ph: 0.5 }); }
-  // round guard with a red ring
-  const tsuba = mesh(new THREE.CylinderGeometry(w * 1.45, w * 1.45, th * 3.2, 20), toon('#141317')); tsuba.rotation.x = Math.PI / 2; tsuba.position.y = b0 - th;
-  const ring = mesh(new THREE.TorusGeometry(w * 1.45, th * 0.55, 6, 24), glowMat('#b81828', 0.95), true); ring.position.y = b0 - th; fx.push({ m: ring, base: 0.75, amp: 0.25, sp: 2.2, ph: 1.2 });
-  const collar = mesh(new THREE.BoxGeometry(w * 1.3, 0.025 * L, th * 3.6), toon('#2a282e')); collar.position.y = b0 + 0.01 * L;
-  // long black grip with crimson wraps and a plain end cap
-  const grip = mesh(new THREE.CylinderGeometry(w * 0.36, w * 0.4, 0.21 * L, 8), toon('#0f0e12')); grip.position.y = 0.125 * L;
-  for (let i = 0; i < 5; i++) { const r = mesh(new THREE.BoxGeometry(w * 0.85, 0.012 * L, w * 0.85), toon('#5a0c16')); r.position.y = (0.05 + i * 0.038) * L; r.rotation.y = Math.PI / 4; }
-  const cap = mesh(new THREE.CylinderGeometry(w * 0.46, w * 0.4, 0.028 * L, 8), toon('#2a282e')); cap.position.y = 0.014 * L;
-  rim.onBeforeRender = () => { const t = performance.now() / 1000; for (const f of fx) f.m.material.opacity = f.base + f.amp * (0.5 + 0.5 * Math.sin(t * f.sp + f.ph)); };
+  // the honed edge: a slightly wider, brighter steel blade behind the dark core, so a light rim shows all round
+  const edge = new THREE.ExtrudeGeometry(outline(1), { depth: th * 0.5, bevelEnabled: true, bevelThickness: th * 0.25, bevelSize: w * 0.06, bevelSegments: 1, curveSegments: 1 });
+  edge.translate(0, 0, -th * 0.25); mesh(edge, toon('#9aa3ad'));
+  const core = new THREE.ExtrudeGeometry(outline(0.8), { depth: th, bevelEnabled: true, bevelThickness: th * 0.35, bevelSize: w * 0.08, bevelSegments: 1, curveSegments: 1 });
+  core.translate(0, 0, -th / 2); mesh(core, toon('#3c424a'));
+  // a dark fuller groove down both faces
+  for (const z of [th * 0.86, -th * 0.86]) { const f = mesh(new THREE.BoxGeometry(w * 0.32, BL * 0.62, th * 0.2), toon('#22262c')); f.position.set(0, b0 + BL * 0.36, z); }
+  // heavy squared crossguard with flared ends
+  const guard = mesh(new THREE.BoxGeometry(w * 3.6, 0.05 * L, th * 4.2), toon('#2c3036')); guard.position.y = b0 - 0.012 * L;
+  for (const sx of [-1, 1]) { const e = mesh(new THREE.BoxGeometry(w * 0.55, 0.085 * L, th * 4.8), toon('#4a5058')); e.position.set(sx * w * 1.85, b0 - 0.012 * L, 0); }
+  const ricasso = mesh(new THREE.BoxGeometry(w * 1.2, 0.03 * L, th * 3), toon('#4a5058')); ricasso.position.y = b0 + 0.02 * L;
+  // thick leather grip with steel bands, and a faceted pommel
+  const grip = mesh(new THREE.CylinderGeometry(w * 0.42, w * 0.46, 0.19 * L, 8), toon('#2a2522')); grip.position.y = 0.115 * L;
+  for (const y of [0.04, 0.115, 0.19]) { const r = mesh(new THREE.CylinderGeometry(w * 0.5, w * 0.5, 0.014 * L, 8), toon('#4a5058')); r.position.y = y * L; }
+  const pom = mesh(new THREE.OctahedronGeometry(w * 0.78, 0), toon('#3c424a')); pom.position.y = 0.012 * L; pom.scale.set(1, 0.8, 1);
   return g;
 }
 // put the custom model where the stock sword was: same length, same axis, pommel at the hand end
