@@ -6061,6 +6061,9 @@ function dailyGift() {
   const yest = new Date(Date.now() - 864e5).toDateString();
   D.streak = D.last === yest ? (D.streak % 7) + 1 : 1; D.last = today; S.daily = D;
   const coins = (40 + heroLvl() * 8) * D.streak; S.coins += coins;
+  // v75: the bank pays 1% interest once a day (up to a cap that grows with your level)
+  const interest = S.bank > 0 ? Math.min(Math.round(S.bank * 0.01), 2000 + heroLvl() * 200) : 0;
+  if (interest > 0) { S.bank += interest; later(3, () => toast(`The bank paid you ${fmt(interest)} coins of interest today.`, ICONS.coins)); }
   if (D.streak === 7) { addItem('dark_essence', 3); addItem('ruby'); }
   sfx('coin'); burst(player.pos.clone().setY(2), '#ffe07a', 40, 6, 1.2);
   toast(`Daily gift, day ${D.streak} of 7: +${fmt(coins)} coins${D.streak === 7 ? ', 3 dark essence and a ruby!' : '. Come back tomorrow for a bigger one!'}`, ICONS.coins, true);
@@ -6125,6 +6128,22 @@ function tmapDig() {
   toast(`You dug up buried treasure: ${got.join(', ')}!`, ICONS.treasure_map || ICONS.coins, true);
   S.mapsDug = (S.mapsDug || 0) + 1; refreshUI(); save();
 }
+// ---------- v75: Lucky Hour ----------
+// For the first 10 minutes of every hour (by the real clock, so it's the same moment for everyone online),
+// monsters give +50% XP and coins. A gold badge counts down, and warns you a few minutes before it starts.
+const luckyNow = () => new Date().getUTCMinutes() < 10;
+let luckySaid = -1;
+function luckyText() {
+  const d = new Date(), m = d.getUTCMinutes(), sec = d.getUTCSeconds();
+  if (m < 10) {
+    const h = d.getUTCHours();
+    if (luckySaid !== h && player && !uiLock()) { luckySaid = h; toast('LUCKY HOUR! For 10 minutes, every monster gives +50% XP and coins. Go hunting!', ICONS.star, true); sfx('win'); }
+    const left = 600 - (m * 60 + sec);
+    return `Lucky Hour · +50% · ${Math.floor(left / 60)}:${String(left % 60).padStart(2, '0')}`;
+  }
+  if (m >= 57) return `Lucky Hour in ${60 - m}m`;
+  return null;
+}
 // ---------- v74: monster journal, pet levels, first boss win of the day ----------
 const ROMAN = ['', 'I', 'II', 'III'];
 function journalKill(e) {
@@ -6169,8 +6188,9 @@ function chipsTick() {
   if (together && !togetherWas && !S.seenTogether) { S.seenTogether = true; toast('Fighting beside your party: +10% damage and +10% XP from kills.', ICONS.star, true); }
   togetherWas = together;
   const left = STREAK_T - (now - streakAt), rampage = streak >= 3 && left > 0;
-  if (!chipsEl) { chipsEl = document.createElement('div'); chipsEl.id = 'chips'; chipsEl.innerHTML = '<span class="chip rampage" hidden><b></b><i></i></span><span class="chip together" hidden><b>Together +10%</b></span><span class="chip rampage helping" hidden><b></b><i></i></span><span class="chip treasure" hidden><b></b></span>'; document.body.appendChild(chipsEl); }
-  const [r, t, hp, tr] = chipsEl.children;
+  if (!chipsEl) { chipsEl = document.createElement('div'); chipsEl.id = 'chips'; chipsEl.innerHTML = '<span class="chip rampage" hidden><b></b><i></i></span><span class="chip together" hidden><b>Together +10%</b></span><span class="chip rampage helping" hidden><b></b><i></i></span><span class="chip treasure" hidden><b></b></span><span class="chip lucky" hidden><b></b></span>'; document.body.appendChild(chipsEl); }
+  const [r, t, hp, tr, lk] = chipsEl.children;
+  const ll = luckyText(); setShown(lk, !!ll); if (ll) setText(lk.firstChild, ll);
   const tl = tmapTick(); setShown(tr, !!tl); if (tl) setText(tr.firstChild, tl);
   setShown(t, together);
   const h = reviveTick(); setShown(hp, !!h);
@@ -6209,6 +6229,9 @@ function hurtEnemy(e, dmg, src = null, power = 1) {
   if (!e.T.boss && !crewHitting && !poisonHit && !bossRemote && !mobRemote && !wbRemote && journalTier(e.type)) dmg = Math.round(dmg * (1 + 0.03 * journalTier(e.type)));
   if (e.coreOpen) { dmg = Math.round(dmg * 1.3); if (rng() < 0.15) floatText(head.clone().setY(5), 'Core hit!', 'gain'); }
   const hpWas = e.hp; e.hp = Math.max(0, e.hp - dmg);
+  // v75: finishing blow. Your hit leaves an ordinary monster nearly beaten (12% or less)? It goes down right away
+  let finish = false;
+  if (!e.T.boss && !crewHitting && !poisonHit && !bossRemote && !mobRemote && !wbRemote && e.hp > 0 && e.hp <= e.T.hp * 0.12) { dmg += e.hp; e.hp = 0; finish = true; }
   if (!bossRemote && !wbRemote && !mobRemote) { e.myDmg = (e.myDmg || 0) + dmg; mobShare(e, dmg); }
   wbShare(e, dmg); bossShare(e, dmg);
   // the Avalanche Twins share one strength: hurt one and the other feels it (and gets angry)
@@ -6222,6 +6245,7 @@ function hurtEnemy(e, dmg, src = null, power = 1) {
   phaseCheck(e);
   if (e.T.boss && !PHASE_LINES[e.type] && !e.lowSaid && e.hp > 0 && e.hp <= e.T.hp * 0.4) { e.lowSaid = true; bossShout(e); }
   if (counter) floatText(head.clone().setY(head.y + 0.9), 'Counter!', 'crit');
+  else if (finish) { floatText(head.clone().setY(head.y + 0.9), 'Finish!', 'crit'); burst(head.clone().setY(1.6), '#ffffff', 16, 5, 0.9); }
   floatText(head, crit ? `${dmg}!` : String(dmg), crit ? 'crit' : e.hp <= 0 ? 'kill' : dmg >= Math.max(8, W().dmg * 1.6) ? 'big' : '');
   if (crit) burst(head.clone().setY(2.4), '#ffe07a', 10, 4, 0.8);
   impact(e, dmg, src, power, e.hp <= 0);
@@ -6247,7 +6271,7 @@ function hurtEnemy(e, dmg, src = null, power = 1) {
         toast(`Other heroes beat ${e.T.name}. Hit it next time to share the loot!`, ICONS.star);
       }
     } else {
-    const sb = e.T.boss || e.temp ? 0 : streakKill(); // v71: a Rampage (quick kills in a row) adds up to +50% XP and coins
+    const sb = (e.T.boss || e.temp ? 0 : streakKill()) + (luckyNow() ? 0.5 : 0); // v71: a Rampage (quick kills in a row) adds up to +50% XP and coins
     giveHeroXp(Math.round(e.T.xp * (1 + sb + (together ? 0.1 : 0) + (e.T.boss ? 0 : petBonus('xp')))), e.pos.clone().setY(4)); partyShareXp(e.T.xp, e.pos);
     const coins = Math.round((e.T.coins ? e.T.coins[0] + Math.floor(rng() * (e.T.coins[1] - e.T.coins[0])) : 3 + Math.floor(rng() * 9)) * (1 + sb + (e.T.boss ? 0 : petBonus('coins'))));
     S.coins += coins; if (e.T.boss || rng() < 0.6) addItem('bones'); later(0.25, () => sfx('coin')); // v65: bones 60% from ordinary monsters (was every kill)
