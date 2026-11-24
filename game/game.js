@@ -1123,17 +1123,44 @@ function canFight(id, incoming = false) {
   if (incoming && Math.hypot(player.pos.x - p.x, player.pos.z - p.z) > 30) return false;
   return true;
 }
+// why a hit on another hero did nothing (shown at most every 6 seconds, so it doesn't nag)
+let pvpWhyAt = 0;
+function pvpWhyNot(id) {
+  if (now < pvpWhyAt) return; const p = net.peers.get(id); if (!p || !player) return;
+  let why = '';
+  if (inParty(id) && !party.dmg) why = `${p.name || 'They'} is in your party. The leader can turn on /p damage on.`;
+  else if (heroLvl() < PVP_LVL) why = `You can fight other players from level ${PVP_LVL}.`;
+  else if ((p.lvl || 1) < PVP_LVL) why = `${p.name || 'They'} is under level ${PVP_LVL}, so you can't fight them yet.`;
+  else if (safeSpot(player.pos.x, player.pos.z, where) || safeSpot(p.x, p.z, p.where)) why = 'No fighting here: villages, towns, indoors and the starting valley are safe.';
+  if (why) { pvpWhyAt = now + 6; toast(why, ICONS.star); }
+}
 // called from the attack code: strike any other hero inside the hit shape
 function hitPeers(test, dmg) {
   let n = 0;
   for (const [id, p] of net.peers) {
     if (p.where !== where || !test(p.x, p.z)) continue;
-    if (!canFight(id)) continue;
+    if (!canFight(id)) { pvpWhyNot(id); continue; }
     sendNet('hit', { to: id, dmg: Math.round(dmg) });
     burst(new THREE.Vector3(p.x, 1.5, p.z), '#ff8a7a', 10, 4); floatText(new THREE.Vector3(p.x, 3.8, p.z), String(Math.round(dmg)), 'big');
     n++;
   }
   return n;
+}
+// a flying shot (bolt, orb or slash wave) reaching another hero. Returns true if it struck someone.
+// seen: heroes this shot (or this fan of shots) already struck; a second hit from the same fan only grazes.
+function shotHitsPeer(pp, R, dmg, seen, pierce) {
+  if (!net.on || !dmg) return false;
+  for (const [id, p] of net.peers) {
+    if (p.where !== where || p.x === undefined || Math.hypot(p.x - pp.x, p.z - pp.z) > R) continue;
+    if (pierce && pierce.has(id)) continue;
+    if (!canFight(id)) { pvpWhyNot(id); continue; }
+    const d = Math.max(1, Math.round(dmg * (seen && seen.has(id) ? 0.25 : 1)));
+    if (seen) seen.add(id); if (pierce) pierce.add(id);
+    sendNet('hit', { to: id, dmg: d });
+    burst(new THREE.Vector3(p.x, 1.5, p.z), '#ff8a7a', 10, 4); floatText(new THREE.Vector3(p.x, 3.8, p.z), String(d), 'big');
+    return true;
+  }
+  return false;
 }
 // party frame under the hero card: names and health bars
 function renderParty() {
@@ -4402,7 +4429,7 @@ function swing() {
       const shots = fin && A.proj === 'bolt' ? [-0.12, 0.12] : [0];
       for (const a of shots) {
         const d = fwd.clone().applyAxisAngle(new THREE.Vector3(0, 1, 0), a);
-        shoot(player.pos.clone().add(new THREE.Vector3(0, 1.8, 0)).addScaledVector(d, 0.8), d, A.proj, w.reach, 'player', (e) => (e.isCrew ? hurtCrew(e, dmg(), player) : hurtEnemy(e, dmg(), null, C.power)));
+        shoot(player.pos.clone().add(new THREE.Vector3(0, 1.8, 0)).addScaledVector(d, 0.8), d, A.proj, w.reach, 'player', (e) => (e.isCrew ? hurtCrew(e, dmg(), player) : hurtEnemy(e, dmg(), null, C.power)), { pdmg: dmg() });
       }
       if (fin) burst(player.pos.clone().setY(1.8).addScaledVector(fwd, 1), A.proj === 'orb' ? '#bff6ff' : '#ffe9a8', 18, 4);
       return;
@@ -4461,7 +4488,7 @@ function chargedAttack(k) {
     const struck = new Set(), part = (e) => { const f = struck.has(e) ? 0.25 : 1; struck.add(e); return Math.max(1, Math.round(dmg() * f)); };
     for (const a of [-0.24, -0.12, 0, 0.12, 0.24]) {
       const d = fwd.clone().applyAxisAngle(new THREE.Vector3(0, 1, 0), a);
-      shoot(player.pos.clone().add(new THREE.Vector3(0, 1.8, 0)).addScaledVector(d, 0.8), d, A.proj, w.reach * 1.35, 'player', (e) => (e.isCrew ? hurtCrew(e, part(e), player) : hurtEnemy(e, part(e), null, 2)));
+      shoot(player.pos.clone().add(new THREE.Vector3(0, 1.8, 0)).addScaledVector(d, 0.8), d, A.proj, w.reach * 1.35, 'player', (e) => (e.isCrew ? hurtCrew(e, part(e), player) : hurtEnemy(e, part(e), null, 2)), { pdmg: dmg(), pseen: struck });
     }
     burst(player.pos.clone().setY(1.8).addScaledVector(fwd, 1.2), A.proj === 'orb' ? '#bff6ff' : '#ffe9a8', 30, 6);
     return;
@@ -4480,9 +4507,10 @@ function chargedAttack(k) {
     if (net.on) hitPeers((x, z) => inArc(x, z, 0.7, reach + 0.3, arc) >= 0, dmg());
     // ...and a crescent slash flies on ahead, cutting through everything in a short line
     const struck = new Set(enemies.filter((e) => e.hp > 0 && e.inside === where && inArc(e.pos.x, e.pos.z, 0.8, reach + 0.3, arc) >= 0));
+    if (net.on) for (const [id, p] of net.peers) if (p.where === where && p.x !== undefined && inArc(p.x, p.z, 0.7, reach + 0.3, arc) >= 0) struck.add(id);
     const wave = Math.max(1, Math.round(dmg() * 0.75));
     shoot(player.pos.clone().setY(1.1).addScaledVector(fwd, 0.6), fwd, 'slash', 6 + 5 * k + w.reach, 'player',
-      (e) => (e.isCrew ? hurtCrew(e, wave, player) : hurtEnemy(e, wave, null, 1.8)), { pierce: struck, size: 1 + 0.5 * k });
+      (e) => (e.isCrew ? hurtCrew(e, wave, player) : hurtEnemy(e, wave, null, 1.8)), { pierce: struck, size: 1 + 0.5 * k, pdmg: wave });
   });
 }
 // three moves per weapon style: anim, when it lands, damage, knockback, reach and arc
@@ -4545,7 +4573,7 @@ function special() {
     later(0.2, () => {
       for (const a of [-0.36, -0.18, 0, 0.18, 0.36]) {
         const d = fwd.clone().applyAxisAngle(new THREE.Vector3(0, 1, 0), a * big);
-        shoot(pp.clone().add(new THREE.Vector3(0, 1.8, 0)).addScaledVector(d, 0.8), d, 'bolt', w.reach, 'player', (e) => hurtEnemy(e, Math.round(heroDamage() * SP.mult), null, 1.2));
+        shoot(pp.clone().add(new THREE.Vector3(0, 1.8, 0)).addScaledVector(d, 0.8), d, 'bolt', w.reach, 'player', (e) => hurtEnemy(e, Math.round(heroDamage() * SP.mult), null, 1.2), { pdmg: Math.round(heroDamage() * SP.mult) });
       }
     });
   }
@@ -4700,6 +4728,7 @@ function shoot(from, dir, kind, range, owner, onHit, opt = {}) {
   scene.add(mesh);
   const pr = { mesh, dir: dir.clone().setY(0).normalize(), kind, owner, onHit, speed: kind === 'bolt' ? 26 : kind === 'slash' ? 20 : kind === 'dark' ? 11 : 17, left: range + 1 };
   if (opt.pierce) { pr.pierce = opt.pierce; pr.R = 1.9 * (opt.size || 1); pr.range = range + 1; }
+  if (opt.pdmg) { pr.pdmg = opt.pdmg; pr.pseen = opt.pseen || null; } // damage to other heroes (PvP)
   projectiles.push(pr);
 }
 // Your damage: the weapon's base damage, multiplied by your Attack, with a little luck either way.
@@ -6577,6 +6606,7 @@ function tick() {
       // the slash wave cuts through: each foe is struck once, and it fades as it flies
       for (const e of enemies) if (e.hp > 0 && !pr.pierce.has(e) && e.state !== 'rising' && e.state !== 'gone' && e.inside === where && Math.hypot(e.pos.x - pp.x, e.pos.z - pp.z) < pr.R + (e.T.boss ? 1.2 : 0.3)) { pr.pierce.add(e); pr.onHit(e); }
       for (const c of crew) if (!pr.pierce.has(c) && isRival(c) && crewUp(c) && c.inside === where && Math.hypot(c.pos.x - pp.x, c.pos.z - pp.z) < pr.R) { pr.pierce.add(c); pr.onHit(c); }
+      if (pr.pdmg) shotHitsPeer(pp, pr.R, pr.pdmg, null, pr.pierce);
       // it snaps open wide right after launch, then thins and fades as it runs out
       const life = Math.max(0, pr.left / pr.range), age = 1 - life, sz = pr.mesh.userData.size || 1;
       const open = Math.min(1, age * 6), wide = 0.5 + 0.7 * (1 - Math.pow(1 - open, 3)) + age * 0.25;
@@ -6589,6 +6619,7 @@ function tick() {
     if (pr.owner === 'player' || pr.owner === 'ally') {
       for (const e of enemies) if (e.hp > 0 && e.state !== 'rising' && e.state !== 'gone' && e.inside === where && Math.hypot(e.pos.x - pp.x, e.pos.z - pp.z) < 0.95) { pr.onHit(e); hitSomething = true; break; }
       if (!hitSomething) for (const c of crew) if (isRival(c) && crewUp(c) && c.inside === where && Math.hypot(c.pos.x - pp.x, c.pos.z - pp.z) < 0.95) { pr.onHit(c); hitSomething = true; break; }
+      if (!hitSomething && pr.pdmg && shotHitsPeer(pp, 1.0, pr.pdmg, pr.pseen)) hitSomething = true;
     } else if (pr.tgt) {
       if (crewUp(pr.tgt) && Math.hypot(pr.tgt.pos.x - pp.x, pr.tgt.pos.z - pp.z) < 0.9) { pr.onHit(); hitSomething = true; }
     } else if (player && !player.dead && Math.abs(player.pos.y + 1.6 - pp.y) < 1.4 && Math.hypot(player.pos.x - pp.x, player.pos.z - pp.z) < 0.8) { pr.onHit(); hitSomething = true; }
@@ -8908,7 +8939,7 @@ function makeGagronFriend() {
   npcs.push(gagronFriend);
 }
 
-window.__jq = { toast, showKeysNote, castSpell, learnSpell, spellCd, SPELLS, goonSneeze, goonDrips, goonFlop, setSlotBox, showSlots, get slotBox() { return slotBox; }, get guide() { return guide; }, bossNet, safeSpot, get PVP_LVL() { return PVP_LVL; }, goldNode, wbInfo, wbTick, get wb() { return wb; }, WB_SPOTS, tradeOpen, tradeNet, offerKey, get trade() { return trade; }, adv(s) { for (let t = 0; t < s; t += 0.05) { for (let i = timers.length - 1; i >= 0; i--) { timers[i].t -= 0.05; if (timers[i].t <= 0) { const f = timers[i].f; timers.splice(i, 1); f(); } } bossFxTick(0.05); } }, get party() { return party; }, BOSS_AI, PHASE_SETUP, get gulped() { return gulped; }, wriggle, toggleBigMap, spawnEnemy, openPathChoice, choosePath, startLanternNight, get lanterns() { return lanterns; }, duelOffer, duelPrize, onNet, chatCommand, canFight, openUpgrade, openBoard, boardToday, queueLetter, makeGagronFriend, net, peerActors, runeTick, bossFx, renderer, scene, openMayor, darkOmen, netWorth, liberateTown, setGolden, goldenCaught, pompArrive, get goldenE() { return goldenE; }, spinWheel, dayTick, get bossIntro() { return bossIntro; }, bossSkip, startBossScene, sailTo, regions, closeSheet, renderHotbar, crew, setCrewMode, TOWNS, liberateTown, chests, openChest, stopRoulette, enemies, startBossIntro, closeDialog, advanceDialog, dash, attackPress, craft, CRAFTS, openCreator, closeCreator, creator, rebuildHero, setZoom: (z) => { zoom = zoomGoal = z; }, hurtEnemy, goThrough, get where() { return where; }, INTERIORS, equipGear, spendPoint, giveHeroXp, heroLvl, stat, maxHp, defDiv, openWeaponShop, openKing, jump, eat, eatBest, openShop, swing, swingTarget, hitNode, projectiles, timers, get S() { return S; }, get player() { return player; }, enemies, nodes, npcs, startTask, doAction, giveXp, save, openSheet, openDialog };
+window.__jq = { toast, hitPeers, shotHitsPeer, showKeysNote, castSpell, learnSpell, spellCd, SPELLS, goonSneeze, goonDrips, goonFlop, setSlotBox, showSlots, get slotBox() { return slotBox; }, get guide() { return guide; }, bossNet, safeSpot, get PVP_LVL() { return PVP_LVL; }, goldNode, wbInfo, wbTick, get wb() { return wb; }, WB_SPOTS, tradeOpen, tradeNet, offerKey, get trade() { return trade; }, adv(s) { for (let t = 0; t < s; t += 0.05) { for (let i = timers.length - 1; i >= 0; i--) { timers[i].t -= 0.05; if (timers[i].t <= 0) { const f = timers[i].f; timers.splice(i, 1); f(); } } bossFxTick(0.05); } }, get party() { return party; }, BOSS_AI, PHASE_SETUP, get gulped() { return gulped; }, wriggle, toggleBigMap, spawnEnemy, openPathChoice, choosePath, startLanternNight, get lanterns() { return lanterns; }, duelOffer, duelPrize, onNet, chatCommand, canFight, openUpgrade, openBoard, boardToday, queueLetter, makeGagronFriend, net, peerActors, runeTick, bossFx, renderer, scene, openMayor, darkOmen, netWorth, liberateTown, setGolden, goldenCaught, pompArrive, get goldenE() { return goldenE; }, spinWheel, dayTick, get bossIntro() { return bossIntro; }, bossSkip, startBossScene, sailTo, regions, closeSheet, renderHotbar, crew, setCrewMode, TOWNS, liberateTown, chests, openChest, stopRoulette, enemies, startBossIntro, closeDialog, advanceDialog, dash, attackPress, craft, CRAFTS, openCreator, closeCreator, creator, rebuildHero, setZoom: (z) => { zoom = zoomGoal = z; }, hurtEnemy, goThrough, get where() { return where; }, INTERIORS, equipGear, spendPoint, giveHeroXp, heroLvl, stat, maxHp, defDiv, openWeaponShop, openKing, jump, eat, eatBest, openShop, swing, swingTarget, hitNode, projectiles, timers, get S() { return S; }, get player() { return player; }, enemies, nodes, npcs, startTask, doAction, giveXp, save, openSheet, openDialog };
 window.addEventListener('error', (e) => { const m = $('loadmsg'); if (m) m.textContent = `Something went wrong: ${e.message}`; });
 main().catch((err) => {
   console.error(err);
