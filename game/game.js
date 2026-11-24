@@ -895,6 +895,8 @@ function partySet(p, why) {
 // Only accounts in the server's admins table can use these. Giving to or kicking someone else goes
 // through the server's admin_actions table, which only admins can write to: the other player's game
 // picks the action up from there, so nobody can fake one by sending a message.
+// typed amounts: "90k" = 90,000, "2.5m" = 2,500,000, "1b" = a billion; commas and spaces are ignored. NaN if it isn't a number.
+const parseAmount = (t) => { const m = String(t ?? '').replace(/[,\s_]/g, '').toLowerCase().match(/^(\d+(?:\.\d+)?|\.\d+)([kmb])?$/); return m ? Math.floor(parseFloat(m[1]) * ({ k: 1e3, m: 1e6, b: 1e9 }[m[2]] || 1)) : NaN; };
 const ADMIN_HELP = 'Admin: /give [player] thing [amount]. Things: coins, xp (or exp), an item or gear id, outfit:id, aura:id, hat:id, cape:id, trail:id, spell:id, or "all-looks". /give find word searches ids. /kick player (30 seconds).';
 function giveThing(what, n) {
   if (what === 'coins' || what === 'gold') { S.coins += n; refreshUI(); return `${fmt(n)} coins`; }
@@ -928,7 +930,7 @@ async function adminGive(rest) {
   const first = args[0].toLowerCase();
   if (first === 'me' || first === heroName().toLowerCase()) args = args.slice(1);
   else if (!knownThing(first)) { target = peerByName(args[0]); if (!target) { sys(`Nobody called "${args[0]}" is online (and "${args[0]}" isn't something I can give). Try /who or /give find word.`); return; } args = args.slice(1); }
-  const what = (args[0] || '').toLowerCase(), n = Math.max(1, Math.min(10000000, parseInt(args[1], 10) || 1));
+  const what = (args[0] || '').toLowerCase(), n = Math.max(1, Math.min(1e9, parseAmount(args[1]) || 1));
   if (!knownThing(what)) { sys(`I don't know "${args[0] || ''}". Try /give find word.`); return; }
   if (!target) { const got = giveThing(what, n); save(); sys(`Gave yourself ${got}.`); return; }
   const r = await adminSend(target[0], 'give', { what, n });
@@ -945,7 +947,7 @@ async function adminKick(rest) {
 async function adminInboxTick() {
   const rows = await adminInbox(); if (!rows || !rows.length) return;
   for (const r of rows) {
-    if (r.action === 'give') { const got = giveThing(String(r.data.what || '').toLowerCase(), Math.max(1, Math.min(10000000, +r.data.n || 1))); if (got) { toast(`An admin gave you ${got}!`, ICONS.star, true); burst(player.pos.clone().setY(2), '#ffe07a', 40, 6, 1.2); } save(); }
+    if (r.action === 'give') { const got = giveThing(String(r.data.what || '').toLowerCase(), Math.max(1, Math.min(1e9, +r.data.n || 1))); if (got) { toast(`An admin gave you ${got}!`, ICONS.star, true); burst(player.pos.clone().setY(2), '#ffe07a', 40, 6, 1.2); } save(); }
     if (r.action === 'kick') kickedOut(Math.max(5, Math.min(600, +r.data.secs || 30)));
   }
 }
@@ -1389,13 +1391,13 @@ function tradeRender() {
   el.innerHTML = `<h3>Trade with <span></span></h3>
     <div class="tcols"><div><h4>You give${T.ready ? ' <b class="rdy">Ready</b>' : ''}</h4><div class="toffer">${offerHtml(T.mine, true)}</div></div>
     <div><h4>They give${T.theirReady ? ' <b class="rdy">Ready</b>' : ''}</h4><div class="toffer">${offerHtml(T.theirs, false)}</div></div></div>
-    <div class="tadd"><label>Coins <input type="number" min="0" step="10" value="${T.mine.coins || ''}" placeholder="0" max="${S.coins}"></label>
+    <div class="tadd"><label>Coins <input type="text" inputmode="decimal" autocomplete="off" value="${T.mine.coins || ''}" placeholder="0 (try 90k)"></label>
     <div class="tbag">${bag.map(([k, n]) => `<button type="button" data-add="${k}" title="${esc(ITEMS[k])}"><img src="${ICONS[k]}" alt=""><small>${n - (T.mine.items[k] || 0)}</small></button>`).join('')}${gear.map((k) => `<button type="button" data-addg="${k}" title="${esc(GEAR[k].name)}" class="g"><img src="${gearIcon(GEAR[k])}" alt=""></button>`).join('')}</div>
     <p class="hint">Tap things in your bag to add them. Tap them in "You give" to take them back. Worn gear can't be traded.</p></div>
     <div class="row"><button type="button" class="primary" id="tready">${T.ready ? 'Waiting for them...' : 'Ready'}</button><button type="button" id="tcancel">Cancel</button></div>`;
   el.querySelector('h3 span').textContent = T.name;
   const inp = el.querySelector('input');
-  inp.onchange = () => { T.mine.coins = Math.max(0, Math.min(S.coins, Math.floor(+inp.value || 0))); tradeChanged(); };
+  inp.onchange = () => { T.mine.coins = Math.max(0, Math.min(S.coins, parseAmount(inp.value) || 0)); inp.value = T.mine.coins || ''; tradeChanged(); };
   inp.onkeydown = (e) => e.stopPropagation(); inp.onkeyup = (e) => e.stopPropagation();
   el.querySelectorAll('[data-add]').forEach((b) => { b.onclick = () => { const k = b.dataset.add; T.mine.items[k] = (T.mine.items[k] || 0) + 1; tradeChanged(); }; });
   el.querySelectorAll('[data-addg]').forEach((b) => { b.onclick = () => { T.mine.gear.push(b.dataset.addg); tradeChanged(); }; });
@@ -3918,11 +3920,22 @@ function openKing(npc) {
 function openBank(npc) {
   talking = npc;
   const d = $('dialog');
-  const opts = (verb, have) => [10, 100, 1000].filter((n) => n <= have).map((n) => `<button data-${verb}="${n}">${verb === 'dep' ? 'Deposit' : 'Withdraw'} ${n}</button>`).join('') + (have ? `<button data-${verb}="${have}" class="primary">${verb === 'dep' ? 'Deposit' : 'Withdraw'} all (${have})</button>` : '');
+  const opts = (verb, have) => [10, 100, 1000].filter((n) => n <= have).map((n) => `<button data-${verb}="${n}">${verb === 'dep' ? 'Deposit' : 'Withdraw'} ${n}</button>`).join('') + (have ? `<button data-${verb}="${have}" class="primary">${verb === 'dep' ? 'Deposit' : 'Withdraw'} all (${fmt(have)})</button>` : '');
   d.innerHTML = `<h3>${npc.name}</h3><p>Coins in my vault are safe as houses. Coins in your pocket? Get knocked out and half of them spill on the ground!</p>
-    <div class="bankrow"><div class="bankbox"><img src="${ICONS.coins}" alt=""><b>${S.coins}</b><small>in your pocket</small></div><div class="bankbox vault"><img src="${ICONS.chest}" alt=""><b>${S.bank}</b><small>in the bank</small></div></div>
+    <div class="bankrow"><div class="bankbox"><img src="${ICONS.coins}" alt=""><b>${fmt(S.coins)}</b><small>in your pocket</small></div><div class="bankbox vault"><img src="${ICONS.chest}" alt=""><b>${fmt(S.bank)}</b><small>in the bank</small></div></div>
     <div class="row wrap">${opts('dep', S.coins)}</div><div class="row wrap">${opts('wd', S.bank)}</div>
+    <div class="row bankamt"><input id="bankn" type="text" inputmode="decimal" autocomplete="off" placeholder="Amount, like 90k or 1.5m" aria-label="Amount"><button id="bankdep">Deposit</button><button id="bankwd">Withdraw</button></div>
+    <p class="hint" id="bankmsg" hidden></p>
     <div class="row"><button id="bankbye">Goodbye</button></div>`;
+  const typed = (dep) => {
+    const n = parseAmount($('bankn').value), have = dep ? S.coins : S.bank;
+    if (!(n > 0)) { $('bankmsg').hidden = false; $('bankmsg').textContent = 'Type a number, like 500, 90k or 1.5m.'; return; }
+    if (n > have) { $('bankmsg').hidden = false; $('bankmsg').textContent = `You only have ${fmt(have)} ${dep ? 'in your pocket' : 'in the bank'}.`; return; }
+    if (dep) { S.coins -= n; S.bank += n; toast(`Deposited ${fmt(n)} coins. They're safe now.`, ICONS.coins); } else { S.bank -= n; S.coins += n; toast(`Withdrew ${fmt(n)} coins.`, ICONS.coins); }
+    refreshUI(); save(); openBank(npc);
+  };
+  $('bankdep').onclick = () => typed(true); $('bankwd').onclick = () => typed(false);
+  $('bankn').onkeydown = (e) => { e.stopPropagation(); if (e.key === 'Enter') typed(true); };
   d.querySelectorAll('[data-dep]').forEach((b) => { b.onclick = () => { const n = Math.min(+b.dataset.dep, S.coins); S.coins -= n; S.bank += n; toast(`Deposited ${n} coins. They're safe now.`, ICONS.coins); refreshUI(); save(); openBank(npc); }; });
   d.querySelectorAll('[data-wd]').forEach((b) => { b.onclick = () => { const n = Math.min(+b.dataset.wd, S.bank); S.bank -= n; S.coins += n; toast(`Withdrew ${n} coins.`, ICONS.coins); refreshUI(); save(); openBank(npc); }; });
   $('bankbye').onclick = closeDialog;
@@ -4174,6 +4187,7 @@ addEventListener('keydown', (e) => {
   if (!player || uiLock()) return;
   if (e.target && /INPUT|TEXTAREA|SELECT/.test(e.target.tagName)) return;
   if ((e.code === 'Enter' || e.code === 'NumpadEnter') && !codeToAct[e.code] && !creator.open) { e.preventDefault(); openChat(); return; }
+  if (e.key === '/' && !codeToAct[e.code] && !creator.open) { e.preventDefault(); openChat(); chatEl.inp.value = '/'; return; } // / opens chat ready for a command
   const act = codeToAct[e.code];
   if (!act) return;
   e.preventDefault();
@@ -8938,7 +8952,7 @@ function makeGagronFriend() {
   npcs.push(gagronFriend);
 }
 
-window.__jq = { toast, hitPeers, shotHitsPeer, showKeysNote, castSpell, learnSpell, spellCd, SPELLS, goonSneeze, goonDrips, goonFlop, setSlotBox, showSlots, get slotBox() { return slotBox; }, get guide() { return guide; }, bossNet, safeSpot, get PVP_LVL() { return PVP_LVL; }, goldNode, wbInfo, wbTick, get wb() { return wb; }, WB_SPOTS, tradeOpen, tradeNet, offerKey, get trade() { return trade; }, adv(s) { for (let t = 0; t < s; t += 0.05) { for (let i = timers.length - 1; i >= 0; i--) { timers[i].t -= 0.05; if (timers[i].t <= 0) { const f = timers[i].f; timers.splice(i, 1); f(); } } bossFxTick(0.05); } }, get party() { return party; }, BOSS_AI, PHASE_SETUP, get gulped() { return gulped; }, wriggle, toggleBigMap, spawnEnemy, openPathChoice, choosePath, startLanternNight, get lanterns() { return lanterns; }, duelOffer, duelPrize, onNet, chatCommand, canFight, openUpgrade, openBoard, boardToday, queueLetter, makeGagronFriend, net, peerActors, runeTick, bossFx, renderer, scene, openMayor, darkOmen, netWorth, liberateTown, setGolden, goldenCaught, pompArrive, get goldenE() { return goldenE; }, spinWheel, dayTick, get bossIntro() { return bossIntro; }, bossSkip, startBossScene, sailTo, regions, closeSheet, renderHotbar, crew, setCrewMode, TOWNS, liberateTown, chests, openChest, stopRoulette, enemies, startBossIntro, closeDialog, advanceDialog, dash, attackPress, craft, CRAFTS, openCreator, closeCreator, creator, rebuildHero, setZoom: (z) => { zoom = zoomGoal = z; }, hurtEnemy, goThrough, get where() { return where; }, INTERIORS, equipGear, spendPoint, giveHeroXp, heroLvl, stat, maxHp, defDiv, openWeaponShop, openKing, jump, eat, eatBest, openShop, swing, swingTarget, hitNode, projectiles, timers, get S() { return S; }, get player() { return player; }, enemies, nodes, npcs, startTask, doAction, giveXp, save, openSheet, openDialog };
+window.__jq = { toast, parseAmount, hitPeers, shotHitsPeer, showKeysNote, castSpell, learnSpell, spellCd, SPELLS, goonSneeze, goonDrips, goonFlop, setSlotBox, showSlots, get slotBox() { return slotBox; }, get guide() { return guide; }, bossNet, safeSpot, get PVP_LVL() { return PVP_LVL; }, goldNode, wbInfo, wbTick, get wb() { return wb; }, WB_SPOTS, tradeOpen, tradeNet, offerKey, get trade() { return trade; }, adv(s) { for (let t = 0; t < s; t += 0.05) { for (let i = timers.length - 1; i >= 0; i--) { timers[i].t -= 0.05; if (timers[i].t <= 0) { const f = timers[i].f; timers.splice(i, 1); f(); } } bossFxTick(0.05); } }, get party() { return party; }, BOSS_AI, PHASE_SETUP, get gulped() { return gulped; }, wriggle, toggleBigMap, spawnEnemy, openPathChoice, choosePath, startLanternNight, get lanterns() { return lanterns; }, duelOffer, duelPrize, onNet, chatCommand, canFight, openUpgrade, openBoard, boardToday, queueLetter, makeGagronFriend, net, peerActors, runeTick, bossFx, renderer, scene, openMayor, darkOmen, netWorth, liberateTown, setGolden, goldenCaught, pompArrive, get goldenE() { return goldenE; }, spinWheel, dayTick, get bossIntro() { return bossIntro; }, bossSkip, startBossScene, sailTo, regions, closeSheet, renderHotbar, crew, setCrewMode, TOWNS, liberateTown, chests, openChest, stopRoulette, enemies, startBossIntro, closeDialog, advanceDialog, dash, attackPress, craft, CRAFTS, openCreator, closeCreator, creator, rebuildHero, setZoom: (z) => { zoom = zoomGoal = z; }, hurtEnemy, goThrough, get where() { return where; }, INTERIORS, equipGear, spendPoint, giveHeroXp, heroLvl, stat, maxHp, defDiv, openWeaponShop, openKing, jump, eat, eatBest, openShop, swing, swingTarget, hitNode, projectiles, timers, get S() { return S; }, get player() { return player; }, enemies, nodes, npcs, startTask, doAction, giveXp, save, openSheet, openDialog };
 window.addEventListener('error', (e) => { const m = $('loadmsg'); if (m) m.textContent = `Something went wrong: ${e.message}`; });
 main().catch((err) => {
   console.error(err);
