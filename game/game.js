@@ -134,7 +134,7 @@ const WEAPONS = {
   my_dawn: { type: 'ranged', name: 'Dawnbreaker', dmg: 46, reach: 20, cd: 0.55, price: 0, unique: true, mythic: true, model: 'crossbow_2handed', tint: '#fff6d0' },
   // the Dark Blade: sold by the Chapter 1 smith for 250,000 gold (Callum, Nov 24). The best and fastest sword in the game,
   // extra long, with a wide reach and a clean violet slash beam.
-  my_dark: { type: 'melee', name: 'Dark Blade', dmg: 100, reach: 4.6, cd: 0.5, price: 250000, mythic: true, model: 'sword_2handed_color', tint: '#4a2a78', glow: '#a64dff', big: 1.3, beam: 'dark' },
+  my_dark: { type: 'melee', name: 'Dark Blade', dmg: 100, reach: 4.6, cd: 0.5, price: 250000, mythic: true, model: 'sword_2handed_color', tint: '#4a2a78', glow: '#a64dff', big: 1.3, beam: 'dark', custom: 'darkblade' },
   a_rattle: { type: 'ranged', name: "Rattlebones' Repeater", dmg: 12, reach: 14, cd: 0.55, price: 0, unique: true, model: 'crossbow_2handed', tint: '#9effa8' },
 };
 // Shields and armour add Defense on top of your Defense points.
@@ -2344,6 +2344,75 @@ function stretchBlade(m) {
   const ax = sz.x >= sz.y && sz.x >= sz.z ? 'x' : sz.y >= sz.z ? 'y' : 'z';
   for (const k of ['x', 'y', 'z']) m.scale[k] *= k === ax ? 1.28 : 1.08;
 }
+// ---------- the Dark Blade's own model ----------
+// Built here rather than tinting a stock sword: a long jagged obsidian blade with a hooked spur, a glowing violet
+// core and runes that pulse up the blade, swept-back guard wings around a violet eye gem, a wrapped grip and a gem pommel.
+// Built along +Y from the pommel (0) to the tip (L).
+function darkBladeModel(L) {
+  const g = new THREE.Group(), fx = [];
+  const metal = (c) => toon(c);
+  const mesh = (geo, mats, glow) => { const m = new THREE.Mesh(geo, glow ? mats : mats.std); if (!glow) registerMesh(m, mats); else { m.layers.set(1); m.userData.noGlow = true; } g.add(m); return m; };
+  const glowMat = (c, op, add) => new THREE.MeshBasicMaterial({ color: c, transparent: true, opacity: op, depthWrite: false, fog: false, blending: add ? THREE.AdditiveBlending : THREE.NormalBlending, side: THREE.DoubleSide });
+  const b0 = 0.25 * L, w = 0.06 * L, th = 0.016 * L;
+  // the blade: wide at the guard, a slight flare, a hooked spur on one side, then a long sharp point
+  const sh = new THREE.Shape();
+  sh.moveTo(-w * 0.8, b0); sh.lineTo(-w * 1.15, b0 + 0.08 * L); sh.lineTo(-w * 0.75, b0 + 0.13 * L); sh.lineTo(-w * 1.0, b0 + 0.45 * L);
+  sh.lineTo(-w * 0.55, b0 + 0.66 * L); sh.lineTo(0, L); sh.lineTo(w * 0.6, b0 + 0.62 * L); sh.lineTo(w * 1.05, b0 + 0.38 * L);
+  sh.lineTo(w * 1.55, b0 + 0.2 * L); sh.lineTo(w * 0.85, b0 + 0.21 * L); sh.lineTo(w * 0.95, b0 + 0.06 * L); sh.lineTo(w * 0.8, b0);
+  const bg = new THREE.ExtrudeGeometry(sh, { depth: th, bevelEnabled: true, bevelThickness: th * 0.9, bevelSize: w * 0.22, bevelSegments: 1, curveSegments: 1 });
+  bg.translate(0, 0, -th / 2);
+  mesh(bg, metal('#2e1a4a'));
+  // a violet edge glow: a slightly bigger copy of the blade's outline sitting inside it, so only its rim shows
+  const eg = new THREE.ShapeGeometry(sh); eg.translate(0, -(b0 + 0.5 * (L - b0)), 0); eg.scale(1.32, 1.03, 1); eg.translate(0, b0 + 0.5 * (L - b0), 0);
+  const edge = mesh(eg, glowMat('#a64dff', 0.7, true), true); fx.push({ m: edge, base: 0.45, amp: 0.35, sp: 2.2, ph: 0.5 });
+  // the glowing core down the middle of the blade, on both faces
+  const core = new THREE.Shape(); core.moveTo(-w * 0.26, b0 + 0.03 * L); core.lineTo(0, b0 + 0.72 * L); core.lineTo(w * 0.26, b0 + 0.03 * L);
+  const cg = new THREE.ShapeGeometry(core);
+  for (const z of [th * 1.45, -th * 1.45]) { const c = mesh(cg, glowMat('#c48bff', 0.9), true); c.position.z = z; fx.push({ m: c, base: 0.75, amp: 0.25, sp: 2.2, ph: 0 }); }
+  // runes: small diamonds that light up one after another, climbing the blade
+  const rg = new THREE.PlaneGeometry(w * 0.34, w * 0.34); rg.rotateZ(Math.PI / 4);
+  for (let i = 0; i < 6; i++) for (const z of [th * 1.6, -th * 1.6]) { const r = mesh(rg, glowMat('#f2dcff', 0.8), true); r.position.set(0, b0 + (0.08 + i * 0.1) * L, z); fx.push({ m: r, base: 0.15, amp: 0.85, sp: 3, ph: -i * 0.9, rune: true }); }
+  // guard: a heavy centre block with two swept-back wings and a violet eye gem
+  const gd = mesh(new THREE.BoxGeometry(w * 2.4, 0.035 * L, th * 4.5), metal('#1a0d28')); gd.position.y = b0 - 0.012 * L;
+  for (const sd of [-1, 1]) {
+    const wg = new THREE.ConeGeometry(w * 0.32, w * 2.6, 4); const m = mesh(wg, metal('#2e1846'));
+    m.position.set(sd * w * 2.1, b0 + 0.02 * L, 0); m.rotation.z = -sd * 1.05;
+    const tip = mesh(new THREE.OctahedronGeometry(w * 0.2), glowMat('#c78cff', 0.9), true); tip.position.set(sd * w * 3.05, b0 + 0.07 * L, 0); fx.push({ m: tip, base: 0.6, amp: 0.4, sp: 2.2, ph: sd });
+  }
+  const eye = mesh(new THREE.OctahedronGeometry(w * 0.42), glowMat('#d9a6ff', 1), true); eye.position.y = b0 - 0.01 * L; eye.scale.z = 1.5; fx.push({ m: eye, base: 0.75, amp: 0.25, sp: 3.4, ph: 0, spin: true });
+  // grip with wrap rings, and a gem pommel
+  const grip = mesh(new THREE.CylinderGeometry(w * 0.36, w * 0.42, 0.19 * L, 8), metal('#140a1e')); grip.position.y = 0.135 * L;
+  for (let i = 0; i < 4; i++) { const ring = mesh(new THREE.TorusGeometry(w * 0.42, w * 0.08, 4, 10), metal('#4a2a78')); ring.rotation.x = Math.PI / 2; ring.position.y = (0.06 + i * 0.05) * L; }
+  const cap = mesh(new THREE.CylinderGeometry(w * 0.55, w * 0.4, 0.025 * L, 8), metal('#2e1846')); cap.position.y = 0.035 * L;
+  const pom = mesh(new THREE.OctahedronGeometry(w * 0.5), glowMat('#b56cff', 0.95), true); pom.position.y = 0.005 * L; pom.scale.y = 1.4; fx.push({ m: pom, base: 0.7, amp: 0.3, sp: 2.2, ph: 1 });
+  // the light breathes and the runes climb; driven from the render itself, so it needs no game tick
+  {
+    const drive = fx[0].m;
+    drive.onBeforeRender = () => {
+      const t = performance.now() / 1000;
+      for (const f of fx) {
+        const v = f.rune ? Math.max(0, Math.sin(t * f.sp + f.ph)) ** 3 : 0.5 + 0.5 * Math.sin(t * f.sp + f.ph);
+        f.m.material.opacity = f.base + f.amp * v;
+        if (f.spin) f.m.rotation.y = t * 1.5;
+      }
+    };
+  }
+  return g;
+}
+// put the custom model where the stock sword was: same length, same axis, pommel at the hand end
+function fitCustomBlade(m, item) {
+  const box = new THREE.Box3(), sz = new THREE.Vector3(), mid = new THREE.Vector3();
+  m.updateMatrixWorld(true);
+  const inv = new THREE.Matrix4().copy(m.matrixWorld).invert();
+  m.traverse((o) => { if (o.isMesh && o.geometry) { o.geometry.computeBoundingBox(); box.union(o.geometry.boundingBox.clone().applyMatrix4(new THREE.Matrix4().multiplyMatrices(inv, o.matrixWorld))); o.visible = false; } });
+  box.getSize(sz); box.getCenter(mid);
+  const ax = sz.x >= sz.y && sz.x >= sz.z ? 'x' : sz.y >= sz.z ? 'y' : 'z';
+  const up = Math.abs(box.max[ax]) >= Math.abs(box.min[ax]) ? 1 : -1, L = sz[ax];
+  const blade = darkBladeModel(L), dir = new THREE.Vector3(); dir[ax] = up;
+  blade.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir).multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), Math.PI / 2)); // flat of the blade faces out
+  blade.position.copy(mid); blade.position[ax] = up > 0 ? box.min[ax] : box.max[ax];
+  m.add(blade);
+}
 function equipGear() {
   if (!player) return;
   const w = W(), sh = ARMOUR[S.equip.shield] || ARMOUR.sh_badge;
@@ -2358,7 +2427,8 @@ function equipGear() {
     if (!item.model) { if (base) player.weapons.push(base); return; }
     if (!lib[item.model]) return;
     const m = lib[item.model].clone(true); stylize(m);
-    if (item.tint) tinted(m, item.tint);
+    if (item.custom === 'darkblade') fitCustomBlade(m, item);
+    else if (item.tint) tinted(m, item.tint);
     addSilhouette(m, '#ffe9a0');
     const slot = handSlot(side);
     if (side === 'l') m.scale.multiplyScalar(0.64);
@@ -2369,7 +2439,7 @@ function equipGear() {
   hold(w, player.base.weapon, 'r');
   hold(sh, player.base.shield, 'l');
   // higher tier weapons glow
-  const wm = player.customs.find((m) => player.weapons.includes(m)); if (wm && w.model) glowMesh(wm, w.glow || w.tint || '#ffe9a0', gearGlow(w, S.equip.weapon));
+  const wm = player.customs.find((m) => player.weapons.includes(m)); if (wm && w.model && !w.custom) glowMesh(wm, w.glow || w.tint || '#ffe9a0', gearGlow(w, S.equip.weapon));
   heroFlair();
   for (const g of player.weapons) g.visible = !player.task;
   // the ground wedge shows how far your weapon reaches
