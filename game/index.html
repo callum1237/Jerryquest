@@ -349,6 +349,13 @@
   .float.miss { color: #d8e6ff; font-size: 20px; }
   .float.big { font-size: 32px; color: #ffb03a; animation-name: popbig; }
   .float.kill { font-size: 34px; color: #ff7a3a; animation-name: popbig; }
+  #vignette { position: fixed; inset: 0; pointer-events: none; z-index: 5; opacity: 0; background: radial-gradient(ellipse closest-side at 50% 50%, transparent 62%, rgba(190, 20, 30, 0.75) 100%); }
+  #vignette.hit { animation: vighit 0.45s ease-out; }
+  #vignette.low { animation: viglow 1.6s ease-in-out infinite; }
+  #vignette.low.hit { animation: vighit 0.45s ease-out, viglow 1.6s ease-in-out 0.45s infinite; }
+  @keyframes vighit { 0% { opacity: 0.85; } 100% { opacity: 0; } }
+  @keyframes viglow { 0%, 100% { opacity: 0.4; } 50% { opacity: 0.85; } }
+  @media (prefers-reduced-motion: reduce) { #vignette.low { animation: none; opacity: 0.35; } }
   .float.crit { font-size: 36px; color: #ffe04a; animation-name: popbig; letter-spacing: 0.02em; }
   @keyframes popbig {
     0% { opacity: 0; transform: translate(-50%, -30%) scale(.4); }

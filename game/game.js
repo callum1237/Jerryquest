@@ -199,6 +199,7 @@ const NODES = {
   copper: { skill: 'mining', req: 1, xp: 18, item: 'copper_ore', name: 'Copper rock', verb: 'Mine', doing: 'Mining', deplete: 0.6, respawn: 10 },
   bogwood: { skill: 'woodcutting', req: 30, xp: 110, item: 'bogwood_logs', name: 'Bogwood tree', verb: 'Chop', doing: 'Chopping', deplete: 0.3, respawn: 26 },
   palm: { skill: 'woodcutting', req: 40, xp: 160, item: 'palm_logs', name: 'Desert palm', verb: 'Chop', doing: 'Chopping', deplete: 0.3, respawn: 28 },
+  magmarock: { skill: 'mining', req: 55, xp: 260, item: 'magma_shard', name: 'Magma rock', verb: 'Mine', doing: 'Mining', deplete: 0.7, respawn: 35 },
   sunstone: { skill: 'mining', req: 40, xp: 180, item: 'sunstone_ore', name: 'Sunstone rock', verb: 'Mine', doing: 'Mining', deplete: 0.75, respawn: 30, sun: true },
   mireiron: { skill: 'fishing', req: 30, xp: 120, item: 'mireiron_ore', name: 'Mireiron in the deep pool', verb: 'Fish', doing: 'Fishing up', deplete: 0, respawn: 0 },
   frostsilver: { skill: 'mining', req: 15, xp: 70, item: 'frostsilver_ore', name: 'Frostsilver rock', verb: 'Mine', doing: 'Mining', deplete: 0.75, respawn: 24 },
@@ -209,7 +210,7 @@ const NODES = {
   trout: { skill: 'fishing', req: 5, xp: 45, item: 'trout', name: 'Trout spot', verb: 'Fish', doing: 'Fishing', deplete: 0, respawn: 0 },
 };
 // How many hits of health each tree/rock has, and the size of its hitbox.
-const NODE_HP = { tree: 5, oak: 9, copper: 5, iron: 8, silver: 9, gold: 12, frostsilver: 11, bogwood: 14, palm: 16, sunstone: 16 };
+const NODE_HP = { tree: 5, oak: 9, copper: 5, iron: 8, silver: 9, gold: 12, frostsilver: 11, bogwood: 14, palm: 16, sunstone: 16, magmarock: 18 };
 const ENEMY_TYPES = {
   skel_minion: { name: 'Skeleton', hp: 12, maxHit: 3, weapon: 'Skeleton_Blade', xp: 15 },
   skel_warrior: { name: 'Skeleton Warrior', hp: 28, maxHit: 5, weapon: 'Skeleton_Blade', xp: 30 },
@@ -3055,7 +3056,7 @@ function hpNode(n) {
   document.body.appendChild(bar); n.bar = bar;
   return n;
 }
-const ORE_COL = { copper: ['#ff9b3d', '#5a2600'], iron: ['#a8c8f0', '#1b2f52'], silver: ['#eef3fa', '#4a5a6e'], gold: ['#ffe04a', '#7a5200'], frostsilver: ['#7fe8ff', '#1a5a70'], sunstone: ['#ffc84a', '#8a4a00'] };
+const ORE_COL = { copper: ['#ff9b3d', '#5a2600'], iron: ['#a8c8f0', '#1b2f52'], silver: ['#eef3fa', '#4a5a6e'], gold: ['#ffe04a', '#7a5200'], frostsilver: ['#7fe8ff', '#1a5a70'], sunstone: ['#ffc84a', '#8a4a00'], magmarock: ['#ff7a2a', '#b03000'] };
 function buildNodes() {
   const addTree = (x, z, kind) => {
     if (blocked(x, z) || !isFree(x, z, 2.5) || Math.hypot(x, z) < 12) return;
@@ -3067,7 +3068,8 @@ function buildNodes() {
   for (let i = 0; i < 60 && nodes.filter((n) => n.kind === 'oak').length < 8; i++) addTree(6 + rng() * 26, 30 + rng() * 14, 'oak');
 
   const addRock = (x, z, kind) => {
-    place(rng() > 0.5 ? 'rock_single_D' : 'rock_single_E', x, z, S_NATURE * 2.6, rng() * 6, { shrink: 0.5 });
+    const rk = place(rng() > 0.5 ? 'rock_single_D' : 'rock_single_E', x, z, S_NATURE * 2.6, rng() * 6, { shrink: 0.5 });
+    if (rk && kind === 'magmarock') rk.traverse((m) => { if (m.isMesh) tinted(m, '#4e4246'); }); // dark basalt, not valley grey
     const gems = new THREE.Group();
     const [col, glow] = ORE_COL[kind] || ORE_COL.iron, mats = toon(col, { emissive: glow });
     for (let i = 0; i < 4; i++) {
@@ -3107,6 +3109,9 @@ function buildNodes() {
     ring.rotation.x = -Math.PI / 2; ring.position.set(x, 0.09, z); ring.layers.set(1); scene.add(ring);
     nodes.push({ kind: 'mireiron', def: NODES.mireiron, x, z, full: ring, alive: true, reach: 3.6, ring });
   }
+  // v68.3 Magma Caverns: glowing magma rocks along the edge of the camp (Mining 55). Shards sell well.
+  const KL = LANDS.magma;
+  for (const [dx, dz] of [[-16, 14], [-20, 4], [17, 13], [21, 3], [-12, 22], [13, 22]]) { const x = KL.village.x + dx, z = KL.village.z + dz - 10; if (isFree(x, z, 2)) addRock(x, z, 'magmarock'); }
   // Brassbolt Sands: Sunstone rocks round the Sphinx (Mining 40, daylight only) and desert palms by the oasis road (Woodcutting 40)
   const SL = LANDS.sands;
   for (const [dx, dz] of [[14, 8], [18, -2], [10, 16], [-4, 18], [20, 12]]) { const x = SL.zones.sphinx.x + dx, z = SL.zones.sphinx.z + dz; if (isFree(x, z, 2)) addRock(x, z, 'sunstone'); }
@@ -3444,7 +3449,12 @@ function spawnEnemy(k, x, z) {
   e.play('Idle');
   if ((T.boss || T.tint) && !T.tintAll) e.root.traverse((o) => { if (o.isMesh && (T.town && !T.boss ? /Body/ : T.look ? (T.hide ? /Body|Arm|Leg|Cape/ : /Body/) : /Body|Head/).test(o.name)) tinted(o, T.tint || (k === 'boss_gloom' ? '#c8a8ff' : k === 'boss_crusher' ? '#ffd0a0' : '#c0ffc8')); });
   if (T.boss) addSilhouette(e.root, '#ff8a9a');
-  if (e.T.elite) { addSilhouette(e.root, '#ffd23f'); e.root.scale.multiplyScalar(1.15); }
+  if (e.T.elite) {
+    addSilhouette(e.root, '#ffd23f'); e.root.scale.multiplyScalar(1.15);
+    // a slowly turning golden ring at a Champion's feet, so you can spot one across a field
+    const ring = new THREE.Mesh(new THREE.RingGeometry(0.75, 0.95, 32), new THREE.MeshBasicMaterial({ color: '#ffd23f', transparent: true, opacity: 0.7, depthWrite: false, fog: false, side: THREE.DoubleSide }));
+    ring.rotation.x = -Math.PI / 2; ring.position.y = 0.06; ring.layers.set(1); e.root.add(ring);
+  }
   if ((T.model || k).startsWith('skel')) skeletonize(e, T);
   if (T.flame) flameUp(e);
   if (T.look) { const hat = e.root.getObjectByName('Mage_Hat'); if (hat) hat.visible = false; const helm = !T.look.hat && e.root.getObjectByName('Knight_Helmet'); if (helm) helm.visible = false; dressNpc(e, { ...NPC_BASE, ...T.look }); if (k === 'boss_frost') e.root.traverse((o) => { if (o.isBone && o.name === 'head') { const c = makeCrown(); c.traverse((m) => { if (m.isMesh) registerMesh(m, toon('#bfefff')); }); o.add(c); } }); }
@@ -5781,6 +5791,11 @@ function hurtEnemy(e, dmg, src = null, power = 1) {
   }
 }
 let lastHurt = -10;
+// v68.3: a soft red edge flashes when you're hit, and pulses gently while your health is low
+const vig = document.createElement('div'); vig.id = 'vignette'; document.body.appendChild(vig);
+function hurtFlash(dmg) { vig.classList.remove('hit'); void vig.offsetWidth; if (dmg >= maxHp() * 0.06) vig.classList.add('hit'); }
+let vigLow = false;
+function vigTick() { const low = !!player && !player.dead && S.hp > 0 && S.hp < maxHp() * 0.25; if (low !== vigLow) { vigLow = low; vig.classList.toggle('low', low); } }
 function hurtPlayer(dmg, from = null) {
   if (aimPeer) { sendNet('ea', { w: where, t: aimPeer.id, i: 1, ...hitMsg(dmg, aimPeer.big) }); return; } // a boss move aimed at a friend: the hit is theirs
   if (player.dead || creator.open) return;
@@ -5791,6 +5806,7 @@ function hurtPlayer(dmg, from = null) {
   dmg = Math.floor(d) + (rng() < d - Math.floor(d) ? 1 : 0);
   if (dmg === 0) { floatText(head, 'Blocked', 'miss'); burst(player.pos.clone().setY(1.5), '#bfe0ff', 8, 3); return; }
   S.hp -= dmg; lastHurt = now; player.hurtFace = now + 0.45; sfx('hurt');
+  hurtFlash(dmg);
   floatText(head, String(dmg), 'hurt');
   burst(player.pos.clone().setY(1.5), '#ff8a7a', 10, 4);
   if (S.hp <= 0) {
@@ -7560,7 +7576,7 @@ function tick() {
   gfxTick(rawDt); cullTick();
   // v68.2: one broken delayed effect can never stop the frame (that froze the game after charged attacks)
   for (let i = timers.length - 1; i >= 0; i--) { timers[i].t -= dt; if (timers[i].t <= 0) { const f = timers[i].f; timers.splice(i, 1); try { f(); } catch (err) { console.error(err); } } }
-  regionTick(); lightTick();
+  regionTick(); lightTick(); vigTick();
   if (player) { goldenTick(); tinyTick(dt); pompTick(dt); }
 
   if (player) { breathTick(); if (wolfOn && !player.wolf) wolfSet(player, true); wolfTick(player, dt, player.name); gulpTick(); lanternTick(dt); wingTick(); stormTick(dt); castleTick(dt); colossusTick(dt); cosTick(); wbTick(); bossSyncTick(); if (net.on) mobFlush(); weaponSparkle(); flairTick(player, dt, player.name === 'Running_A' || player.name === 'Walking_A' || (player.name || '').startsWith('Running')); }
