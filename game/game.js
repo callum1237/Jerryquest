@@ -3849,26 +3849,54 @@ function fxMesh(geo, col, opts = {}) {
 }
 function fade(m, dur, f, done) { tween(dur, (k) => { if (f) f(k); m.material.opacity = (m.userData.op ?? 0.9) * (1 - k); }, () => { scene.remove(m); m.geometry.dispose(); m.material.dispose(); if (done) done(); }); }
 const SPELL_FX = {
-  // common spells: simple and quick
+  // common spells: simple, quick and readable
   zap(x, z, ry, mine) {
-    const R = 13; let tx = x + Math.sin(ry) * R, tz = z + Math.cos(ry) * R;
+    // real lightning from your hand: a jagged, forking bolt that crackles a few times, then fades
+    const R = 13, fx = Math.sin(ry), fz = Math.cos(ry), from = new THREE.Vector3(x + fx * 0.7 + fz * 0.35, 1.55, z + fz * 0.7 - fx * 0.35);
     const near = foesIn(inCone(x, z, ry, R + 1, 0.3)).sort((a, b) => Math.hypot(a.pos.x - x, a.pos.z - z) - Math.hypot(b.pos.x - x, b.pos.z - z))[0];
-    if (near) { tx = near.pos.x; tz = near.pos.z; }
-    const pts = []; for (let i = 0; i <= 7; i++) pts.push(new THREE.Vector3(tx + (i && i < 7 ? (rng() - 0.5) * 1.2 : 0), 12 - i * 12 / 7, tz + (i && i < 7 ? (rng() - 0.5) * 1.2 : 0)));
-    // a plain jagged bolt: a few thin yellow sticks from the sky to the ground
-    const bolt = new THREE.Group(), mat = new THREE.MeshBasicMaterial({ color: '#fff27a', transparent: true, opacity: 1, fog: false, depthWrite: false });
-    for (let i = 0; i < pts.length - 1; i++) { const a = pts[i], b = pts[i + 1], len = a.distanceTo(b); const seg = new THREE.Mesh(new THREE.BoxGeometry(0.24, len, 0.24), mat); seg.position.copy(a).add(b).multiplyScalar(0.5); seg.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), b.clone().sub(a).normalize()); seg.layers.set(1); bolt.add(seg); }
-    bolt.layers.set(1); scene.add(bolt);
-    tween(0.45, (k) => { mat.opacity = k < 0.4 ? 1 : 1 - (k - 0.4) / 0.6; }, () => { scene.remove(bolt); bolt.traverse((o) => o.geometry && o.geometry.dispose()); mat.dispose(); });
-    burst(new THREE.Vector3(tx, 0.6, tz), '#ffe14a', 16, 5); sfx('hit');
-    if (mine) spellHit((px, pz) => Math.hypot(px - tx, pz - tz) < 1.9, SPELLS.zap.dmg, 0.8);
+    const to = near ? new THREE.Vector3(near.pos.x, 1.2, near.pos.z) : new THREE.Vector3(x + fx * R, 1.0, z + fz * R);
+    const jag = (a, b, rough, depth, out) => { if (depth === 0) { out.push(b); return; } const m = a.clone().add(b).multiplyScalar(0.5); const len = a.distanceTo(b); m.x += (rng() - 0.5) * len * rough; m.y += (rng() - 0.5) * len * rough * 0.6; m.z += (rng() - 0.5) * len * rough; jag(a, m, rough, depth - 1, out); jag(m, b, rough, depth - 1, out); };
+    const core = new THREE.MeshBasicMaterial({ color: '#ffffff', transparent: true, opacity: 1, fog: false, depthWrite: false });
+    const glow = new THREE.MeshBasicMaterial({ color: '#5ab0ff', transparent: true, opacity: 0.6, fog: false, depthWrite: false, blending: THREE.AdditiveBlending });
+    const bolt = new THREE.Group(); bolt.layers.set(1); scene.add(bolt);
+    const line = (pts, w) => { for (let i = 0; i < pts.length - 1; i++) { const a = pts[i], b = pts[i + 1], len = a.distanceTo(b); if (len < 0.01) continue; for (const [m, ww] of [[core, w], [glow, w * 3.2]]) { const seg = new THREE.Mesh(new THREE.BoxGeometry(ww, len, ww), m); seg.position.copy(a).add(b).multiplyScalar(0.5); seg.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), b.clone().sub(a).normalize()); seg.layers.set(1); bolt.add(seg); } } };
+    const draw = () => {
+      for (const c of [...bolt.children]) { bolt.remove(c); c.geometry.dispose(); }
+      const main = [from.clone()]; jag(from, to, 0.42, 4, main); line(main, 0.07);
+      // two or three thin forks splitting off the main bolt
+      for (let f = 0; f < 2 + (rng() < 0.5 ? 1 : 0); f++) { const at = main[2 + Math.floor(rng() * (main.length - 5))], end = at.clone().add(new THREE.Vector3((rng() - 0.5) * 3, (rng() - 0.6) * 1.5, (rng() - 0.5) * 3)); const br = [at.clone()]; jag(at, end, 0.5, 2, br); line(br, 0.04); }
+    };
+    draw(); later(0.07, draw); later(0.15, draw);
+    tween(0.4, (k) => { const fl = k < 0.5 ? (rng() < 0.25 ? 0.35 : 1) : 1 - (k - 0.5) / 0.5; core.opacity = fl; glow.opacity = 0.55 * fl; }, () => { scene.remove(bolt); bolt.traverse((o) => o.geometry && o.geometry.dispose()); core.dispose(); glow.dispose(); });
+    burst(from.clone(), '#dff4ff', 8, 3, 0.7); burst(to.clone(), '#bfe8ff', 18, 5); burst(to.clone().setY(0.3), '#ffffff', 8, 3); sfx('hit');
+    if (mine) {
+      // strikes the foe it reaches, or the first thing along its path
+      const dx = to.x - from.x, dz = to.z - from.z, L2 = dx * dx + dz * dz || 1;
+      spellHit((px, pz) => { const t = Math.max(0, Math.min(1, ((px - from.x) * dx + (pz - from.z) * dz) / L2)); return Math.hypot(px - (from.x + dx * t), pz - (from.z + dz * t)) < (t > 0.95 ? 1.8 : 1.0); }, SPELLS.zap.dmg, 0.8);
+    }
   },
   heal(x, z, ry, mine) {
-    burst(new THREE.Vector3(x, 1.6, z), '#7dff8a', 24, 3, 1.2); sfx('eat');
+    // a soft green ring at your feet and little glowing crosses floating up
+    const ring = fxMesh(new THREE.RingGeometry(0.85, 1, 40), '#7dff8a'); ring.rotation.x = -Math.PI / 2; ring.position.set(x, 0.1, z); ring.userData.op = 0.8;
+    fade(ring, 0.8, (k) => ring.scale.setScalar(0.6 + k * 1.6));
+    for (let i = 0; i < 7; i++) later(i * 0.06, () => {
+      const c = new THREE.Group(), a = rng() * 6.28, r = 0.3 + rng() * 0.8, mat = new THREE.MeshBasicMaterial({ color: '#9cffa8', transparent: true, opacity: 0.95, fog: false, depthWrite: false, blending: THREE.AdditiveBlending });
+      for (const [w, h] of [[0.36, 0.11], [0.11, 0.36]]) { const m = new THREE.Mesh(new THREE.PlaneGeometry(w, h), mat); m.layers.set(1); c.add(m); }
+      c.position.set(x + Math.cos(a) * r, 0.6, z + Math.sin(a) * r); c.lookAt(camera.position); c.layers.set(1); scene.add(c);
+      tween(0.9, (k) => { c.position.y = 0.6 + k * 2.6; mat.opacity = 0.95 * (1 - k); }, () => { scene.remove(c); c.children.forEach((m) => m.geometry.dispose()); mat.dispose(); });
+    });
+    sfx('eat');
     if (mine) { const h = Math.min(maxHp() - S.hp, Math.round(maxHp() * 0.25)); S.hp += h; floatText(player.pos.clone().setY(3.6), `+${h}`, 'gain'); refreshUI(); }
   },
   scorch(x, z, ry, mine) {
-    for (let i = 0; i < 6; i++) { const a = ry + (rng() - 0.5) * 1.0, r = 1.2 + rng() * 3.6; burst(new THREE.Vector3(x + Math.sin(a) * r, 0.8, z + Math.cos(a) * r), i % 2 ? '#ff7a2a' : '#ffd24a', 8, 3); }
+    // a short cone of flame puffs that roll forward and swell as they burn out
+    const fx = Math.sin(ry), fz = Math.cos(ry);
+    for (let i = 0; i < 14; i++) later(i * 0.025, () => {
+      const a = ry + (rng() - 0.5) * 0.9, sp = 7 + rng() * 4, hot = i % 3 === 0, col = hot ? '#ffcf3a' : rng() < 0.5 ? '#ff6a1a' : '#e8361a';
+      const f = fxMesh(new THREE.SphereGeometry(0.32, 10, 8), col, { dark: !hot, opacity: 0.9 }); f.userData.op = 0.9; f.position.set(x + fx * 0.8, 1.2, z + fz * 0.8);
+      fade(f, 0.5, (k) => { const d = 0.8 + k * sp * 0.55; f.position.set(x + Math.sin(a) * d, 1.2 + k * 0.7, z + Math.cos(a) * d); f.scale.setScalar(0.6 + k * 2.4); });
+    });
+    later(0.25, () => burst(new THREE.Vector3(x + fx * 4, 1, z + fz * 4), '#3a2a22', 8, 2, 0.8));
     sfx('dash');
     if (mine) spellHit(inCone(x, z, ry, 5.2, 0.55), SPELLS.scorch.dmg, 0.6, (e, n) => { e.poison = { left: 3, at: now + 1, dmg: Math.max(1, Math.round(n * 0.25)) }; });
   },
@@ -3920,22 +3948,42 @@ const SPELL_FX = {
     }, () => { scene.remove(wave); body.geometry.dispose(); foam.geometry.dispose(); crest.geometry.dispose(); });
   },
   shadow(x, z, ry, mine) {
-    sfx('special'); later(0.45, () => sfx('slam'));
-    const rune = fxMesh(new THREE.PlaneGeometry(1, 1), '#14061f', { dark: true, opacity: 0.85 }); rune.material.map = runeTex; rune.userData.op = 0.85;
+    // the legendary one: darkness gathers into your hands, then erupts as two black rings that tear through the
+    // ground, throwing up jagged obsidian spikes and leaving thin violet cracks behind them
+    sfx('special');
+    const spikeGeo = new THREE.ConeGeometry(0.32, 1, 5), spikeMat = toon('#0e0a12'), tipMat = new THREE.MeshBasicMaterial({ color: '#7a2aff', transparent: true, opacity: 0.9, fog: false, depthWrite: false, blending: THREE.AdditiveBlending });
+    // gather: dark motes pulled in towards you
+    for (let i = 0; i < 18; i++) { const a = rng() * 6.28, r = 3 + rng() * 2; const m = fxMesh(new THREE.SphereGeometry(0.14, 6, 5), '#0c0612', { dark: true, opacity: 0.95 }); m.userData.op = 0.95; fade(m, 0.4, (k) => m.position.set(x + Math.cos(a) * r * (1 - k), 0.6 + k * 1, z + Math.sin(a) * r * (1 - k))); }
+    const orb = fxMesh(new THREE.SphereGeometry(0.5, 16, 12), '#050208', { dark: true, opacity: 0.95 }); orb.userData.op = 0.95; orb.position.set(x, 1.6, z);
+    fade(orb, 0.45, (k) => orb.scale.setScalar(0.3 + k * 1.6));
+    const rune = fxMesh(new THREE.PlaneGeometry(1, 1), '#0a0410', { dark: true, opacity: 0.9 }); rune.material.map = runeTex; rune.userData.op = 0.9;
     rune.rotation.x = -Math.PI / 2; rune.position.set(x, 0.09, z);
-    fade(rune, 1.6, (k) => { rune.scale.setScalar(4 + k * 10); rune.rotation.z = k * 2; });
-    for (let w = 0; w < 2; w++) later(w * 0.45, () => {
-      const dark = fxMesh(new THREE.TorusGeometry(1, 0.35, 10, 48), '#12051c', { dark: true, opacity: 0.85 }); dark.userData.op = 0.85; dark.rotation.x = -Math.PI / 2; dark.position.set(x, 0.6, z);
-      const glow = fxMesh(new THREE.TorusGeometry(1, 0.12, 8, 48), '#b46aff'); glow.rotation.x = -Math.PI / 2; glow.position.set(x, 0.95, z);
-      const hit = new Set();
-      fade(dark, 0.9, (k) => {
-        const R = 1 + k * 12; dark.scale.set(R, R, 1 + k * 2); glow.scale.set(R, R, 1); glow.material.opacity = 0.9 * (1 - k);
-        for (let i = 0; i < 3; i++) { const a = rng() * 6.28; burst(new THREE.Vector3(x + Math.cos(a) * R, 0.6, z + Math.sin(a) * R), i ? '#2a0e40' : '#b46aff', 2, 3, 0.8); }
+    fade(rune, 2.0, (k) => { rune.scale.setScalar(3 + k * 12); rune.rotation.z = -k * 2.5; });
+    const spikesAt = (R) => {
+      const n = Math.max(8, Math.round(R * 2.2));
+      for (let i = 0; i < n; i++) {
+        const a = (i / n) * 6.28 + rng() * 0.2, rr = R + (rng() - 0.5) * 0.8, h = 1.2 + rng() * 1.6;
+        const sp = new THREE.Mesh(spikeGeo, spikeMat.std); registerMesh(sp, spikeMat); sp.layers.set(1);
+        const tip = new THREE.Mesh(spikeGeo, tipMat); tip.scale.setScalar(0.45); tip.position.y = 0.32; tip.layers.set(1); sp.add(tip);
+        sp.position.set(x + Math.cos(a) * rr, -h, z + Math.sin(a) * rr); sp.rotation.set((rng() - 0.5) * 0.5, rng() * 6, (rng() - 0.5) * 0.5); sp.scale.set(1, h, 1); scene.add(sp);
+        tween(0.75, (k) => { sp.position.y = k < 0.2 ? -h + (k / 0.2) * h * 1.05 : k < 0.6 ? h * 0.05 : h * 0.05 - ((k - 0.6) / 0.4) * h * 1.1; }, () => scene.remove(sp));
+      }
+      for (let c = 0; c < 3; c++) { const a = rng() * 6.28; burst(new THREE.Vector3(x + Math.cos(a) * R, 0.4, z + Math.sin(a) * R), '#1a0a24', 4, 3, 0.9); }
+    };
+    later(2.4, () => { spikeGeo.dispose(); tipMat.dispose(); });
+    for (let w = 0; w < 2; w++) later(0.42 + w * 0.42, () => {
+      if (w === 0) sfx('slam');
+      const dark = fxMesh(new THREE.TorusGeometry(1, 0.45, 10, 56), '#06030a', { dark: true, opacity: 0.92 }); dark.userData.op = 0.92; dark.rotation.x = -Math.PI / 2; dark.position.set(x, 0.5, z);
+      const edge = fxMesh(new THREE.RingGeometry(0.85, 1.15, 64), '#8a3aff'); edge.rotation.x = -Math.PI / 2; edge.position.set(x, 0.2, z);
+      const hit = new Set(); let lastR = 0;
+      fade(dark, 0.95, (k) => {
+        const R = 1 + k * 12; dark.scale.set(R, R, 1 + k * 2.5); edge.geometry.dispose(); edge.geometry = new THREE.RingGeometry(R + 0.35, R + 0.6, 64); edge.material.opacity = 0.85 * (1 - k); // a thin violet rim that stays thin as it grows
+        if (R - lastR > 2) { lastR = R; spikesAt(R); }
         if (!mine) return;
         const test = (px, pz) => Math.abs(Math.hypot(px - x, pz - z) - R) < 1.6;
         for (const e of foesIn(test)) { if (hit.has(e)) continue; hit.add(e); hurtEnemy(e, spellPower(SPELLS.shadow.dmg), new THREE.Vector3(x, 0, z), 1.5); if (e.hp > 0 && !e.T.boss) dizzy(e, 1.6); }
         if (net.on && !hit.has('peers') && hitPeers(test, spellPower(SPELLS.shadow.dmg))) hit.add('peers');
-      }, () => { scene.remove(glow); glow.geometry.dispose(); glow.material.dispose(); });
+      }, () => { scene.remove(edge); edge.geometry.dispose(); edge.material.dispose(); });
     });
   },
 };
