@@ -52,7 +52,7 @@ const AUTO_PER_LEVEL = 1, FREE_PER_LEVEL = 2;
 // Hero XP: bosses and quests give the most; hitting and beating monsters gives some;
 // chopping, mining and fishing give a little (this share of the skill XP).
 const GATHER_HERO_XP = 0.25, HIT_HERO_XP = 3;
-const ATK_MULT = 0.1, DEF_DIV = 0.1, HP_BASE = 50, HP_PER = 6;
+const ATK_MULT = 0.1, DEF_DIV = 0.1, HP_BASE = 50, HP_PER = 6, CRIT_CHANCE = 0.1;
 // How each kind of weapon attacks. The weapon itself sets damage, reach (or range) and swing time.
 const STYLES = {
   melee: { anim: '1H_Melee_Attack_Slice_Diagonal', heavy: '2H_Melee_Attack_Chop', hitAt: 0.32 },
@@ -3415,6 +3415,7 @@ Object.assign(ENEMY_TYPES, {
 Object.assign(MON_LV, { flame_minion: 56, flame_mage: 58, flame_warrior: 61, flame_knight: 66, magma_drake: 76, elder_dragon: 86 });
 MOB_SHAPE.dragon = [3, 1.35, 1.3];
 for (const [k, T] of Object.entries(ENEMY_TYPES)) toughen(T, k);
+const nidHash = (s) => { let h = 7; for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) >>> 0; return h; };
 function spawnEnemy(k, x, z) {
   const T = ENEMY_TYPES[k];
   const e = new Actor(G[T.model || k], { scale: T.scale || 1.3, hide: T.hide || [] });
@@ -3432,11 +3433,18 @@ function spawnEnemy(k, x, z) {
     e.T = { ...T, coins: T.coins ? T.coins.map((c) => Math.round(c * (1 + extra * 0.15))) : T.coins, name: extra >= 2 ? `Fierce ${T.name}` : T.name };
     setLevel(e.T, T.lv + extra);
   }
+  // v68.2: now and then a Champion: a few levels higher, tougher, glowing gold, with much better rewards.
+  // Which monsters are Champions comes from their spot on the map, so every player sees the same ones.
+  if (!T.boss && !T.town && !T.world && !T.dragon && e.T.lv && nidHash(e.nid) % 100 < 6) {
+    const B = e.T; e.T = { ...B, elite: true, name: `Champion ${B.name.replace(/^Fierce /, '')}`, coins: B.coins ? B.coins.map((c) => c * 3) : [20, 60] };
+    setLevel(e.T, B.lv + 3); e.T.hp = Math.round(e.T.hp * 1.5); e.T.xp *= 2;
+  }
   e.root.position.set(x, 0, z); e.root.rotation.y = rng() * 6;
   e.hp = T.hp; e.state = 'idle'; e.timer = rng() * 3; e.target = new THREE.Vector2(); e.nextHit = 0; e.swings = 0;
   e.play('Idle');
   if ((T.boss || T.tint) && !T.tintAll) e.root.traverse((o) => { if (o.isMesh && (T.town && !T.boss ? /Body/ : T.look ? (T.hide ? /Body|Arm|Leg|Cape/ : /Body/) : /Body|Head/).test(o.name)) tinted(o, T.tint || (k === 'boss_gloom' ? '#c8a8ff' : k === 'boss_crusher' ? '#ffd0a0' : '#c0ffc8')); });
   if (T.boss) addSilhouette(e.root, '#ff8a9a');
+  if (e.T.elite) { addSilhouette(e.root, '#ffd23f'); e.root.scale.multiplyScalar(1.15); }
   if ((T.model || k).startsWith('skel')) skeletonize(e, T);
   if (T.flame) flameUp(e);
   if (T.look) { const hat = e.root.getObjectByName('Mage_Hat'); if (hat) hat.visible = false; const helm = !T.look.hat && e.root.getObjectByName('Knight_Helmet'); if (helm) helm.visible = false; dressNpc(e, { ...NPC_BASE, ...T.look }); if (k === 'boss_frost') e.root.traverse((o) => { if (o.isBone && o.name === 'head') { const c = makeCrown(); c.traverse((m) => { if (m.isMesh) registerMesh(m, toon('#bfefff')); }); o.add(c); } }); }
@@ -3800,7 +3808,7 @@ function floatText(p, text, cls = '') {
 const npcName = (id) => npcs.find((n) => n.id === id).name;
 // how a monster's level compares to yours: grey = easy, white = fair, orange = tough, red = deadly
 function lvClass(L) { const d = L - heroLvl(); return d <= -5 ? 'easy' : d <= 2 ? 'fair' : d <= 9 ? 'tough' : 'deadly'; }
-function lvTagSet(el, L) { const c = lvClass(L); setText(el, `Lv ${L}`); if (el._c !== c) { if (el._c) el.classList.remove(el._c); el.classList.add(c); el._c = c; } }
+function lvTagSet(el, L, elite) { const c = lvClass(L); setText(el, elite ? `★ Champion · Lv ${L}` : `Lv ${L}`); if (!!elite !== !!el._e) { el._e = !!elite; el.classList.toggle('elite', !!elite); } if (el._c !== c) { if (el._c) el.classList.remove(el._c); el.classList.add(c); el._c = c; } }
 function bossUi() {
   if (!player) return;
   const b = $('sheet').hidden ? enemies.find((e) => e.T.boss && e.inside === where && e.hp > 0 && (e.state === 'chase' || e.state === 'slam') && Math.hypot(e.pos.x - player.pos.x, e.pos.z - player.pos.z) < 32) : null;
@@ -3928,6 +3936,8 @@ function rollLoot(e) {
     if (rng() < (e.type === 'skel_minion' ? 0.015 : 0.03)) give('silver_ring');
     if (rng() < (e.type === 'skel_minion' ? 0.003 : 0.0075)) { give('ruby'); toast('A ruby! That will sell for a lot.', ICONS.ruby, true); }
     cosDrop(e, at, false);
+    // Champions always drop something worth having
+    if (e.T.elite) { give('dark_essence', 2); give(rng() < 0.5 ? 'silver_ring' : 'ruby'); toast(`You beat a ${e.T.name}! Champions carry better loot.`, ICONS.star, true); }
     // v68: Magma Caverns treasures. Shards often, obsidian skulls now and then, and dragons carry their hearts
     if (e.inside === 'magma') {
       if (rng() < (e.T.dragon ? 1 : 0.45)) give('magma_shard', e.T.dragon ? 3 + Math.floor(rng() * 4) : 1);
@@ -4499,7 +4509,7 @@ const SPELL_FX = {
     // monsters it runs, so they land in the same place for everyone
     const fx = Math.sin(ry), fz = Math.cos(ry), test = inCone(x, z, ry, o.R || 10, o.half || 0.75), F = o.force || 90;
     for (const e of foesIn(test)) { if (!mine && netDriven(e)) continue; const m = e.mass || 1; e.kb.set(fx * F / Math.sqrt(m), fz * F / Math.sqrt(m)); if (m < 3 || o.big) { e.vy = (o.big ? 12 : 7) / Math.min(m, 3); e.lift = Math.max(e.lift, 0.01); } e.staggerUntil = now + 0.6; }
-    if (mine && net.on) for (const [id, p] of net.peers) if (p.where === where && test(p.x, p.z)) sendNet('push', { to: id, x: +(fx * (o.big ? 55 : 30)).toFixed(2), z: +(fz * (o.big ? 55 : 30)).toFixed(2) });
+    if (net.on) for (const [id, p] of net.peers) if (p.where === where && test(p.x, p.z)) sendNet('push', { to: id, x: +(fx * (o.big ? 55 : 30)).toFixed(2), z: +(fz * (o.big ? 55 : 30)).toFixed(2) });
   },
   // the admin-only gust: no cooldown, twice the reach, a far stronger blast and spinning wind funnels
   agust(x, z, ry, mine) { SPELL_FX.gust(x, z, ry, mine, { R: 18, half: 1.0, force: 150, arcs: 7, big: true }); },
@@ -5397,7 +5407,7 @@ function chargedAttack(k) {
     if (net.on) hitPeers((x, z) => inArc(x, z, 0.7, reach + 0.3, arc) >= 0, dmg());
     // ...and a crescent slash flies on ahead, cutting through everything in a short line
     const struck = new Set(enemies.filter((e) => e.hp > 0 && e.inside === where && inArc(e.pos.x, e.pos.z, 0.8, reach + 0.3, arc) >= 0));
-    if (mine && net.on) for (const [id, p] of net.peers) if (p.where === where && p.x !== undefined && inArc(p.x, p.z, 0.7, reach + 0.3, arc) >= 0) struck.add(id);
+    if (net.on) for (const [id, p] of net.peers) if (p.where === where && p.x !== undefined && inArc(p.x, p.z, 0.7, reach + 0.3, arc) >= 0) struck.add(id);
     const wave = Math.max(1, Math.round(dmg() * 0.75));
     shoot(player.pos.clone().setY(1.1).addScaledVector(fwd, 0.6), fwd, 'slash', 6 + 5 * k + w.reach, 'player',
       (e) => (e.isCrew ? hurtCrew(e, wave, player) : hurtEnemy(e, wave, null, 1.8)), { pierce: struck, size: (1 + 0.5 * k) * (w.beam ? 1.25 : 1), pdmg: wave, beam: w.beam });
@@ -5628,6 +5638,8 @@ function shoot(from, dir, kind, range, owner, onHit, opt = {}) {
   if (opt.pdmg) { pr.pdmg = opt.pdmg; pr.pseen = opt.pseen || null; } // damage to other heroes (PvP)
   projectiles.push(pr);
 }
+// a finished shot: take it out of the world and free its own materials (arrows share theirs, so they're kept)
+function dropShot(pr) { scene.remove(pr.mesh); if (pr.kind !== 'bolt') pr.mesh.traverse((o) => { if (o.isMesh && o.material && o.material.dispose) o.material.dispose(); }); }
 // Your damage: the weapon's base damage, multiplied by your Attack, with a little luck either way.
 function heroDamage() {
   if (rng() < 0.1) return 0;
@@ -5684,6 +5696,9 @@ function hurtEnemy(e, dmg, src = null, power = 1) {
   if (dmg === 0) { floatText(head, 'Miss', 'miss'); return; }
   // v68: a monster's defense (from its level) takes a little off every hit you land (remote hits arrive already reduced)
   if (e.T.def && !bossRemote && !mobRemote && !wbRemote && !poisonHit) dmg = Math.max(1, Math.round(dmg * 100 / (100 + e.T.def)));
+  // v68.2: critical hits. About one hit in ten lands extra hard (your own hits only)
+  let crit = false;
+  if (!crewHitting && !poisonHit && !bossRemote && !mobRemote && !wbRemote && dmg > 0 && rng() < CRIT_CHANCE) { dmg = Math.round(dmg * 1.75); crit = true; }
   if (!crewHitting && !poisonHit && !bossRemote && !mobRemote && !wbRemote) {
     const w = W();
     // marsh poison keeps hurting for a few seconds; the Fangblade drinks a little health back
@@ -5706,7 +5721,8 @@ function hurtEnemy(e, dmg, src = null, power = 1) {
   }
   phaseCheck(e);
   if (e.T.boss && !PHASE_LINES[e.type] && !e.lowSaid && e.hp > 0 && e.hp <= e.T.hp * 0.4) { e.lowSaid = true; bossShout(e); }
-  floatText(head, String(dmg), e.hp <= 0 ? 'kill' : dmg >= Math.max(8, W().dmg * 1.6) ? 'big' : '');
+  floatText(head, crit ? `${dmg}!` : String(dmg), crit ? 'crit' : e.hp <= 0 ? 'kill' : dmg >= Math.max(8, W().dmg * 1.6) ? 'big' : '');
+  if (crit) burst(head.clone().setY(2.4), '#ffe07a', 10, 4, 0.8);
   impact(e, dmg, src, power, e.hp <= 0);
   if (!crewHitting && !bossRemote && !mobRemote && !wbRemote) giveHeroXp(dmg * HIT_HERO_XP); // only your own hits earn hit XP
   if (e.hp <= 0) {
@@ -6942,6 +6958,40 @@ function slamTick(dt) {
   }
 }
 let shake = 0;
+// v68.2: signature moves for ordinary monsters. Each one is telegraphed on the floor so you can step out,
+// jump or dash through it: warriors cleave, casters drop a burning circle under you, slimes belly-flop, bats dive.
+const MOB_FX_COL = { frost: '#7fd8ff', marsh: '#8aff6a' };
+function mobKind(e) { const m = e.T.model || e.type; return m === 'skel_warrior' || m === 'knight' || m === 'barbarian' ? 'cleave' : m === 'skel_mage' || m === 'mage' ? 'circle' : m === 'slime' ? 'flop' : m === 'bat' ? 'dive' : null; }
+function mobSpecial(e) {
+  const k = mobKind(e); if (!k) return false;
+  const ep = e.pos, P = player.pos, toward = Math.atan2(P.x - ep.x, P.z - ep.z), col = MOB_FX_COL[e.inside] || null;
+  const hold = (t, anim) => { e.state = 'slam'; later(t, () => { if (e.hp > 0 && e.state === 'slam') { e.state = 'chase'; if (anim) e.play(anim, { once: true, fade: 0.08, onFinish: () => e.play('Idle_Combat') }); } }); };
+  e.face(P.x, P.z);
+  if (k === 'cleave') {
+    // a big overhead chop in a wide cone in front of it
+    e.play('Idle_Combat');
+    hazard({ x: ep.x, z: ep.z, R: 4.6 * (e.T.scale || 1.3) / 1.3, dir: toward + Math.PI, half: 0.75, dur: 0.85, dmg: bossDmg(e, 1.6), fire: false, col });
+    later(0.55, () => { if (e.hp > 0) e.play('2H_Melee_Attack_Chop', { once: true, fade: 0.06, onFinish: () => e.play('Idle_Combat') }); });
+    hold(1.1);
+  } else if (k === 'circle') {
+    // a burning circle right where you stand
+    e.play('Spellcasting', { once: true, fade: 0.1, onFinish: () => e.play('Idle_Combat') });
+    hazard({ x: P.x, z: P.z, R: 2.8, dur: 1.15, dmg: bossDmg(e, 1.4), col });
+    hold(0.9);
+  } else if (k === 'flop') {
+    // it squashes down, springs up and lands with a splat all round it
+    hazard({ x: ep.x, z: ep.z, R: 3.4 * (e.T.scale || 0.8) / 0.8, dur: 0.9, dmg: bossDmg(e, 1.5), fire: false, col: e.T.tintAll || '#9fe07a' });
+    later(0.3, () => { if (e.hp > 0) e.vy = 7; });
+    hold(1.0, '1H_Melee_Attack_Chop');
+  } else if (k === 'dive') {
+    // a fast swoop along a line, so step to the side
+    const len = 7, tx = ep.x + Math.sin(toward) * len, tz = ep.z + Math.cos(toward) * len;
+    hazard({ x: ep.x, z: ep.z, R: len + 0.6, dir: toward + Math.PI, half: 0.2, dur: 0.75, dmg: bossDmg(e, 1.4), fire: false, col: '#d0b8ff' });
+    later(0.75, () => { if (e.hp > 0 && !colliders.some((c) => c.r > 1.5 && Math.hypot(c.x - tx, c.z - tz) < c.r)) { burst(ep.clone().setY(1.5), '#d0b8ff', 10, 3); ep.x = tx; ep.z = tz; } });
+    hold(1.0, '1H_Melee_Attack_Chop');
+  }
+  return true;
+}
 function enemyTick(e, dt) {
   const ep = e.pos;
   knockTick(e, dt);
@@ -6984,6 +7034,8 @@ function enemyTick(e, dt) {
       if (BOSS_AI[e.type] && aim(() => BOSS_AI[e.type](e, toP))) return;
       if (e.T.dragon) { aim(() => dragonAttack(e, toP)); return; }
       if (big && ++e.swings % 3 === 0) { bossSlam(e); return; }
+      // v68.2: most ordinary monsters have a signature move every third attack, shown on the floor first
+      if (!big && !foe && ++e.swings % 3 === 0 && aim(() => mobSpecial(e))) return;
       if (tgtPeer) { attackPeer(e, tgtPeer, dmg); return; }
       if (e.T.ranged) {
         e.play('Spellcast_Shoot', { once: true, fade: 0.08, onFinish: () => e.play('Idle_Combat') });
@@ -7506,7 +7558,8 @@ function tick() {
   now = clock.elapsedTime;
   const rawDt = clock.getDelta(), dt = Math.min(rawDt, 0.05) * (now < hitStopUntil ? 0.3 : 1);
   gfxTick(rawDt); cullTick();
-  for (let i = timers.length - 1; i >= 0; i--) { timers[i].t -= dt; if (timers[i].t <= 0) { const f = timers[i].f; timers.splice(i, 1); f(); } }
+  // v68.2: one broken delayed effect can never stop the frame (that froze the game after charged attacks)
+  for (let i = timers.length - 1; i >= 0; i--) { timers[i].t -= dt; if (timers[i].t <= 0) { const f = timers[i].f; timers.splice(i, 1); try { f(); } catch (err) { console.error(err); } } }
   regionTick(); lightTick();
   if (player) { goldenTick(); tinyTick(dt); pompTick(dt); }
 
@@ -7648,7 +7701,7 @@ function tick() {
       pr.mesh.scale.set(wide * sz, 1, (0.8 + 0.2 * open) * sz);
       pr.mesh.children.forEach((m) => { m.material.opacity = m.userData.op * Math.min(1, life * 2.5); });
       if (!pr.clean && rng() < 0.7) burst(pp.clone().addScaledVector(pr.dir, 0.4), '#ffe9a8', 1, 1.5);
-      if (pr.left <= 0) { scene.remove(pr.mesh); projectiles.splice(i, 1); }
+      if (pr.left <= 0) { dropShot(pr); projectiles.splice(i, 1); }
       continue;
     }
     if (pr.owner === 'player' || pr.owner === 'ally') {
@@ -7661,7 +7714,7 @@ function tick() {
     if (!hitSomething) for (const c of colliders) if (c.r > 0.9 && Math.hypot(c.x - pp.x, c.z - pp.z) < c.r * 0.8) { hitSomething = true; break; }
     if (hitSomething || pr.left <= 0) {
       burst(pp, pr.kind === 'dark' ? '#d6a8ff' : pr.kind === 'bolt' ? '#fff2c0' : '#8ff7ff', hitSomething ? 20 : 8, hitSomething ? 5 : 2);
-      scene.remove(pr.mesh); projectiles.splice(i, 1); continue;
+      dropShot(pr); projectiles.splice(i, 1); continue;
     }
     if (pr.kind !== 'bolt' && rng() < 0.6) burst(pp, pr.kind === 'dark' ? '#d6a8ff' : '#bffaff', 1, 1);
   }
@@ -7698,7 +7751,7 @@ function tick() {
       let tag = show;
       if (!tag && e.hp > 0 && e.state !== 'rising' && e.state !== 'dead' && e.inside === where && player && Math.hypot(e.pos.x - player.pos.x, e.pos.z - player.pos.z) < 13) { v = tmpV.copy(e.pos).setY(3.3).project(camera); tag = v.z <= 1; }
       setShown(e.lvTag, tag);
-      if (tag) { pin(e.lvTag, v); lvTagSet(e.lvTag, e.T.lv); }
+      if (tag) { pin(e.lvTag, v); lvTagSet(e.lvTag, e.T.lv, e.T.elite); }
     }
   }
 
@@ -9080,7 +9133,7 @@ for (const [id, c] of Object.entries(COS.outfit)) c.id = id;
 const COS_ODDS = { magma: [8, 20, 30, 27, 12, 3], out: [70, 24, 5, 1, 0, 0], frost: [50, 32, 13, 4.5, 0.5, 0], marsh: [35, 33, 20, 10, 1.8, 0.2], sands: [22, 30, 25, 17, 5.2, 0.8] };
 function cosDrop(e, at, boss) {
   const land = ['frost', 'marsh', 'sands', 'magma'].includes(e.inside) ? e.inside : 'out';
-  if (rng() > (boss ? 0.3 : e.temp ? 0.001 : land === 'magma' ? (e.T.dragon ? 0.12 : 0.02) : 0.006)) return;
+  if (rng() > (boss ? 0.3 : e.temp ? 0.001 : e.T.elite ? 0.1 : land === 'magma' ? (e.T.dragon ? 0.12 : 0.02) : 0.006)) return;
   const odds = COS_ODDS[land].slice(); if (boss) { odds[0] *= 0.4; odds[3] *= 1.6; odds[4] *= 2; odds[5] *= 2; }
   let roll = rng() * odds.reduce((a, b) => a + b, 0), r = 0;
   while (r < 5 && roll > odds[r]) { roll -= odds[r]; r++; }
