@@ -132,6 +132,9 @@ const WEAPONS = {
   my_star: { type: 'melee', name: 'Starfall Blade', dmg: 92, reach: 3.7, cd: 0.95, price: 0, unique: true, mythic: true, model: 'sword_2handed_color', tint: '#ff6ab0', heavy: true },
   my_root: { type: 'magic', name: 'Worldroot Staff', dmg: 80, reach: 19, cd: 0.95, price: 0, unique: true, mythic: true, model: 'staff', tint: '#7affc8' },
   my_dawn: { type: 'ranged', name: 'Dawnbreaker', dmg: 46, reach: 20, cd: 0.55, price: 0, unique: true, mythic: true, model: 'crossbow_2handed', tint: '#fff6d0' },
+  // the Dark Blade: sold by the Chapter 1 smith for 250,000 gold (Callum, Nov 24). The best and fastest sword in the game,
+  // extra long, with a wide reach and a clean violet slash beam.
+  my_dark: { type: 'melee', name: 'Dark Blade', dmg: 100, reach: 4.6, cd: 0.5, price: 250000, mythic: true, model: 'sword_2handed_color', tint: '#4a2a78', glow: '#a64dff', big: 1.3, beam: 'dark' },
   a_rattle: { type: 'ranged', name: "Rattlebones' Repeater", dmg: 12, reach: 14, cd: 0.55, price: 0, unique: true, model: 'crossbow_2handed', tint: '#9effa8' },
 };
 // Shields and armour add Defense on top of your Defense points.
@@ -2323,14 +2326,14 @@ function equipGear() {
     addSilhouette(m, '#ffe9a0');
     const slot = handSlot(side);
     if (side === 'l') m.scale.multiplyScalar(0.64);
-    else if (item.type !== 'ranged') stretchBlade(m);
+    else if (item.type !== 'ranged') { stretchBlade(m); if (item.big) m.scale.multiplyScalar(item.big); }
     if (slot) slot.add(m);
     player.customs.push(m); player.weapons.push(m);
   };
   hold(w, player.base.weapon, 'r');
   hold(sh, player.base.shield, 'l');
   // higher tier weapons glow
-  const wm = player.customs.find((m) => player.weapons.includes(m)); if (wm && w.model) glowMesh(wm, w.tint || '#ffe9a0', gearGlow(w, S.equip.weapon));
+  const wm = player.customs.find((m) => player.weapons.includes(m)); if (wm && w.model) glowMesh(wm, w.glow || w.tint || '#ffe9a0', gearGlow(w, S.equip.weapon));
   heroFlair();
   for (const g of player.weapons) g.visible = !player.task;
   // the ground wedge shows how far your weapon reaches
@@ -3170,7 +3173,7 @@ function rollLoot(e) {
     if (rng() < 0.06) { give('dark_omen'); toast('A DARK OMEN! Take it to a freed town to call the monsters back.', ICONS.dark_omen, true); }
     if (rng() < 0.12) { give('golden_crown'); toast('A tiny golden crown! Marta will pay a fortune for that.', ICONS.golden_crown, true); }
     // mythic: about one in a hundred Chapter 4 boss kills, one in two hundred world bosses
-    const myth = Object.keys(WEAPONS).filter((k) => WEAPONS[k].mythic && !S.owned.includes(k));
+    const myth = Object.keys(WEAPONS).filter((k) => WEAPONS[k].mythic && !WEAPONS[k].price && !S.owned.includes(k)); // shop mythics (Dark Blade) never drop
     const mChance = e.T.world ? 0.005 : e.inside === 'sands' ? 0.01 : 0;
     if (myth.length && rng() < mChance) { const mk = myth[Math.floor(rng() * myth.length)]; S.owned.push(mk); popLoot(at, 'chest', 0.8); toast(`MYTHIC DROP!!! ${WEAPONS[mk].name}! Almost nobody has one of these.`, gearIcon(WEAPONS[mk]), true); burst(at.clone().setY(2), '#ff3a7a', 80, 9, 1.8); if (net.on) sendChat(`I just found a MYTHIC ${WEAPONS[mk].name}!`); }
     cosDrop(e, at, true);
@@ -4511,10 +4514,10 @@ function chargedAttack(k) {
   later(0.08, () => {
     if (player.dead) return;
     // a golden shockwave fan in front of you shows how far the blow reached
-    const m = new THREE.Mesh(new THREE.CircleGeometry(1, 32, Math.PI / 2 - arc, arc * 2), new THREE.MeshBasicMaterial({ color: '#ffd23f', transparent: true, opacity: 0.55, depthWrite: false, fog: false, side: THREE.DoubleSide }));
+    const m = new THREE.Mesh(new THREE.CircleGeometry(1, 32, Math.PI / 2 - arc, arc * 2), new THREE.MeshBasicMaterial({ color: w.beam ? '#8a3aff' : '#ffd23f', transparent: true, opacity: 0.55, depthWrite: false, fog: false, side: THREE.DoubleSide }));
     m.rotation.x = -Math.PI / 2; m.rotation.z = player.root.rotation.y + Math.PI; m.position.set(player.pos.x, 0.2, player.pos.z); m.layers.set(1); scene.add(m);
     fx.push({ m, t: 0, dur: 0.35, R: reach + 0.3 });
-    burst(player.pos.clone().setY(1.2).addScaledVector(fwd, reach * 0.6), '#ffd27a', 40, 8, 1.3);
+    burst(player.pos.clone().setY(1.2).addScaledVector(fwd, reach * 0.6), w.beam ? '#c99aff' : '#ffd27a', 40, 8, 1.3);
     for (const e of enemies) if (e.hp > 0 && e.state !== 'rising' && e.state !== 'gone' && e.inside === where && inArc(e.pos.x, e.pos.z, 0.8, reach + 0.3, arc) >= 0) hurtEnemy(e, dmg(), null, 2.6);
     for (const c of crew) if (isRival(c) && crewUp(c) && c.inside === where && inArc(c.pos.x, c.pos.z, 0.7, reach + 0.3, arc) >= 0) hurtCrew(c, dmg(), player);
     if (net.on) hitPeers((x, z) => inArc(x, z, 0.7, reach + 0.3, arc) >= 0, dmg());
@@ -4523,7 +4526,7 @@ function chargedAttack(k) {
     if (net.on) for (const [id, p] of net.peers) if (p.where === where && p.x !== undefined && inArc(p.x, p.z, 0.7, reach + 0.3, arc) >= 0) struck.add(id);
     const wave = Math.max(1, Math.round(dmg() * 0.75));
     shoot(player.pos.clone().setY(1.1).addScaledVector(fwd, 0.6), fwd, 'slash', 6 + 5 * k + w.reach, 'player',
-      (e) => (e.isCrew ? hurtCrew(e, wave, player) : hurtEnemy(e, wave, null, 1.8)), { pierce: struck, size: 1 + 0.5 * k, pdmg: wave });
+      (e) => (e.isCrew ? hurtCrew(e, wave, player) : hurtEnemy(e, wave, null, 1.8)), { pierce: struck, size: (1 + 0.5 * k) * (w.beam ? 1.25 : 1), pdmg: wave, beam: w.beam });
   });
 }
 // three moves per weapon style: anim, when it lands, damage, knockback, reach and arc
@@ -4724,8 +4727,10 @@ function shoot(from, dir, kind, range, owner, onHit, opt = {}) {
     // a crisp, thin sword-beam crescent: glowing edge, white-hot core and a few fading after-images behind it
     mesh = new THREE.Group();
     const mat = (col, op, add) => new THREE.MeshBasicMaterial({ color: col, transparent: true, opacity: op, depthWrite: false, fog: false, side: THREE.DoubleSide, blending: add ? THREE.AdditiveBlending : THREE.NormalBlending });
-    const parts = [[slashGeoA, '#ffd86a', 0.95, true, 0], [slashGeoB, '#ffffff', 1, false, 0.01]];
-    for (const [k, op] of [[1, 0.45], [2, 0.25], [3, 0.12]]) parts.push([slashGeoA, '#ffe9a8', op, true, -0.01 * k, -0.55 * k, 1 - 0.08 * k]);
+    // the Dark Blade's beam is cleaner: a crisp violet edge round a white core, one soft shadow and no sparkle trail
+    const parts = opt.beam === 'dark' ? [[slashGeoA, '#9a3cff', 1, true, 0], [slashGeoA, '#2a0a4a', 0.55, false, -0.02, 0, 1.06], [slashGeoB, '#ffffff', 1, false, 0.01]]
+      : [[slashGeoA, '#ffd86a', 0.95, true, 0], [slashGeoB, '#ffffff', 1, false, 0.01]];
+    if (opt.beam !== 'dark') for (const [k, op] of [[1, 0.45], [2, 0.25], [3, 0.12]]) parts.push([slashGeoA, '#ffe9a8', op, true, -0.01 * k, -0.55 * k, 1 - 0.08 * k]);
     for (const [g, col, op, add, y, z = 0, sc = 1] of parts) { const m = new THREE.Mesh(g, mat(col, op, add)); m.position.set(0, y, z); m.scale.set(sc, 1, sc); m.userData.op = op; m.layers.set(1); m.renderOrder = 5; mesh.add(m); }
     mesh.userData.size = opt.size || 1; mesh.scale.set(0.5 * mesh.userData.size, 1, 0.8 * mesh.userData.size);
   } else if (kind === 'bolt') {
@@ -4741,6 +4746,7 @@ function shoot(from, dir, kind, range, owner, onHit, opt = {}) {
   scene.add(mesh);
   const pr = { mesh, dir: dir.clone().setY(0).normalize(), kind, owner, onHit, speed: kind === 'bolt' ? 26 : kind === 'slash' ? 20 : kind === 'dark' ? 11 : 17, left: range + 1 };
   if (opt.pierce) { pr.pierce = opt.pierce; pr.R = 1.9 * (opt.size || 1); pr.range = range + 1; }
+  if (opt.beam) pr.clean = true;
   if (opt.pdmg) { pr.pdmg = opt.pdmg; pr.pseen = opt.pseen || null; } // damage to other heroes (PvP)
   projectiles.push(pr);
 }
@@ -6625,7 +6631,7 @@ function tick() {
       const open = Math.min(1, age * 6), wide = 0.5 + 0.7 * (1 - Math.pow(1 - open, 3)) + age * 0.25;
       pr.mesh.scale.set(wide * sz, 1, (0.8 + 0.2 * open) * sz);
       pr.mesh.children.forEach((m) => { m.material.opacity = m.userData.op * Math.min(1, life * 2.5); });
-      if (rng() < 0.7) burst(pp.clone().addScaledVector(pr.dir, 0.4), '#ffe9a8', 1, 1.5);
+      if (!pr.clean && rng() < 0.7) burst(pp.clone().addScaledVector(pr.dir, 0.4), '#ffe9a8', 1, 1.5);
       if (pr.left <= 0) { scene.remove(pr.mesh); projectiles.splice(i, 1); }
       continue;
     }
@@ -8259,7 +8265,7 @@ function heroFlair() {
 // glowing weapons: brighter for higher tiers, boss uniques and smith upgrades
 function gearGlow(g, k) {
   if (!g) return 0;
-  return Math.min(0.75, (g.unique ? 0.55 : g.tier === 4 ? 0.5 : g.tier === 3 ? 0.32 : g.tier === 2 ? 0.16 : 0) + plusOf(k) * 0.04);
+  return Math.min(0.75, (g.mythic ? 0.7 : g.unique ? 0.55 : g.tier === 4 ? 0.5 : g.tier === 3 ? 0.32 : g.tier === 2 ? 0.16 : 0) + plusOf(k) * 0.04);
 }
 function glowMesh(m, col, k) {
   if (k <= 0) return;
@@ -8952,7 +8958,7 @@ function makeGagronFriend() {
   npcs.push(gagronFriend);
 }
 
-window.__jq = { toast, parseAmount, hitPeers, shotHitsPeer, showKeysNote, castSpell, learnSpell, spellCd, SPELLS, goonSneeze, goonDrips, goonFlop, setSlotBox, showSlots, get slotBox() { return slotBox; }, get guide() { return guide; }, bossNet, safeSpot, get PVP_LVL() { return PVP_LVL; }, goldNode, wbInfo, wbTick, get wb() { return wb; }, WB_SPOTS, tradeOpen, tradeNet, offerKey, get trade() { return trade; }, adv(s) { for (let t = 0; t < s; t += 0.05) { for (let i = timers.length - 1; i >= 0; i--) { timers[i].t -= 0.05; if (timers[i].t <= 0) { const f = timers[i].f; timers.splice(i, 1); f(); } } bossFxTick(0.05); } }, get party() { return party; }, BOSS_AI, PHASE_SETUP, get gulped() { return gulped; }, wriggle, toggleBigMap, spawnEnemy, openPathChoice, choosePath, startLanternNight, get lanterns() { return lanterns; }, duelOffer, duelPrize, onNet, chatCommand, canFight, openUpgrade, openBoard, boardToday, queueLetter, makeGagronFriend, net, peerActors, runeTick, bossFx, renderer, scene, openMayor, darkOmen, netWorth, liberateTown, setGolden, goldenCaught, pompArrive, get goldenE() { return goldenE; }, spinWheel, dayTick, get bossIntro() { return bossIntro; }, bossSkip, startBossScene, sailTo, regions, closeSheet, renderHotbar, crew, setCrewMode, TOWNS, liberateTown, chests, openChest, stopRoulette, enemies, startBossIntro, closeDialog, advanceDialog, dash, attackPress, craft, CRAFTS, openCreator, closeCreator, creator, rebuildHero, setZoom: (z) => { zoom = zoomGoal = z; }, hurtEnemy, goThrough, get where() { return where; }, INTERIORS, equipGear, spendPoint, giveHeroXp, heroLvl, stat, maxHp, defDiv, openWeaponShop, openKing, jump, eat, eatBest, openShop, swing, swingTarget, hitNode, projectiles, timers, get S() { return S; }, get player() { return player; }, enemies, nodes, npcs, startTask, doAction, giveXp, save, openSheet, openDialog };
+window.__jq = { toast, chargedAttack, parseAmount, hitPeers, shotHitsPeer, showKeysNote, castSpell, learnSpell, spellCd, SPELLS, goonSneeze, goonDrips, goonFlop, setSlotBox, showSlots, get slotBox() { return slotBox; }, get guide() { return guide; }, bossNet, safeSpot, get PVP_LVL() { return PVP_LVL; }, goldNode, wbInfo, wbTick, get wb() { return wb; }, WB_SPOTS, tradeOpen, tradeNet, offerKey, get trade() { return trade; }, adv(s) { for (let t = 0; t < s; t += 0.05) { for (let i = timers.length - 1; i >= 0; i--) { timers[i].t -= 0.05; if (timers[i].t <= 0) { const f = timers[i].f; timers.splice(i, 1); f(); } } bossFxTick(0.05); } }, get party() { return party; }, BOSS_AI, PHASE_SETUP, get gulped() { return gulped; }, wriggle, toggleBigMap, spawnEnemy, openPathChoice, choosePath, startLanternNight, get lanterns() { return lanterns; }, duelOffer, duelPrize, onNet, chatCommand, canFight, openUpgrade, openBoard, boardToday, queueLetter, makeGagronFriend, net, peerActors, runeTick, bossFx, renderer, scene, openMayor, darkOmen, netWorth, liberateTown, setGolden, goldenCaught, pompArrive, get goldenE() { return goldenE; }, spinWheel, dayTick, get bossIntro() { return bossIntro; }, bossSkip, startBossScene, sailTo, regions, closeSheet, renderHotbar, crew, setCrewMode, TOWNS, liberateTown, chests, openChest, stopRoulette, enemies, startBossIntro, closeDialog, advanceDialog, dash, attackPress, craft, CRAFTS, openCreator, closeCreator, creator, rebuildHero, setZoom: (z) => { zoom = zoomGoal = z; }, hurtEnemy, goThrough, get where() { return where; }, INTERIORS, equipGear, spendPoint, giveHeroXp, heroLvl, stat, maxHp, defDiv, openWeaponShop, openKing, jump, eat, eatBest, openShop, swing, swingTarget, hitNode, projectiles, timers, get S() { return S; }, get player() { return player; }, enemies, nodes, npcs, startTask, doAction, giveXp, save, openSheet, openDialog };
 window.addEventListener('error', (e) => { const m = $('loadmsg'); if (m) m.textContent = `Something went wrong: ${e.message}`; });
 main().catch((err) => {
   console.error(err);
