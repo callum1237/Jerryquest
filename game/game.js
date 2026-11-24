@@ -3909,8 +3909,8 @@ function checkDoors() {
   }
 }
 // v65: a new hero's screen starts simple. Extra buttons appear as you level up (nothing is taken away for good):
-//   level 3: special attack button and chat; level 4: the Crew menu and the rest of the hotbar.
-function hudUnlocks() { return [[3, 'gate-special', 'New: your special attack! Press R (or the star button).'], [3, 'gate-chat', 'New: chat. Say hello to other players!'], [4, 'gate-crew', 'New: the Crew menu. Team up with the valley adventurers.']]; }
+//   level 3: special attack button (chat is open from the start); level 4: the Crew menu and the rest of the hotbar.
+function hudUnlocks() { return [[3, 'gate-special', 'New: your special attack! Press R (or the star button).'], [4, 'gate-crew', 'New: the Crew menu. Team up with the valley adventurers.']]; }
 function hudGate() {
   const L = heroLvl();
   for (const [lv, cls] of hudUnlocks()) document.body.classList.toggle(cls, L < lv);
