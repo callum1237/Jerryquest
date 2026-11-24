@@ -61,14 +61,19 @@ const STYLES = {
   ranged: { anim: '1H_Ranged_Shoot', hitAt: 0.22, proj: 'bolt' },
 };
 const STYLE_NAME = { melee: 'Melee', magic: 'Magic', ranged: 'Ranged' };
-// Every weapon also has a special attack (R, or the Special button): usually an area attack, on a cooldown.
-const SPECIALS = {
-  whirl: { name: 'Whirlwind', desc: 'Spin and hit everything around you', cd: 6, mult: 1.5 },
-  quake: { name: 'Ground Slam', desc: 'Leap and smash the ground in a wide ring', cd: 8, mult: 2.0 },
-  nova: { name: 'Starburst', desc: 'A magic circle bursts where you aim', cd: 7, mult: 1.8 },
-  volley: { name: 'Volley', desc: 'Fire a fan of five bolts', cd: 6, mult: 1.0 },
+// v77 (Callum): four weapon kinds, each with its own combo and charged attack. The old R specials are gone.
+// Axes are anything built on an axe model (great axes, cleavers, greataxes); daggers and swords are swords.
+const wKind = (w) => (w.fist ? 'fist' : w.type === 'magic' ? 'staff' : w.type === 'ranged' ? 'bow' : /^axe/.test(w.model || '') ? 'axe' : 'sword');
+const KIND_NAME = { sword: 'Sword', axe: 'Axe', bow: 'Bow', staff: 'Staff', fist: 'Fists' };
+// the charged attack (hold K, or hold the star button) for each kind
+const CHARGED = {
+  sword: { name: 'Sword Wave', desc: 'a slash that flies through every monster in a line' },
+  axe: { name: 'Whirling Cleave', desc: 'a full circle slash that hits everything around you' },
+  bow: { name: 'Piercing Shot', desc: 'a heavy arrow that goes through every monster in a long line' },
+  staff: { name: 'Arcane Burst', desc: 'a big slow orb that explodes where it lands' },
+  fist: { name: 'Haymaker', desc: 'a big punch' },
 };
-const specialOf = (w) => (w.type === 'magic' ? 'nova' : w.type === 'ranged' ? 'volley' : w.heavy ? 'quake' : 'whirl');
+const wIcon = (w) => (wKind(w) === 'axe' ? ICONS.woodcutting : ICONS[w.type]);
 const ITEMS = {
   logs: 'Logs', oak_logs: 'Oak logs', copper_ore: 'Copper ore', iron_ore: 'Iron ore', frostsilver_ore: 'Frostsilver ore', silver_ore: 'Silver ore', gold_ore: 'Gold ore', shrimp: 'Raw shrimp', trout: 'Raw trout', bones: 'Bones',
   bread: 'Bread', pie: 'Apple pie', stew: 'Hearty stew', grilled_shrimp: 'Grilled shrimp', grilled_trout: 'Grilled trout', fish_pie: 'Fish pie',
@@ -106,7 +111,7 @@ const WEAPONS = {
   k_flame: { type: 'melee', name: "Gagron's Flamebrand", dmg: 14, reach: 3.0, cd: 0.9, price: 0, unique: true, model: 'sword_2handed_color', tint: '#ff8a3a', heavy: true },
   // Chapter 2: Frostsilver, sold by Frida in Snowdrop
   f_blade: { type: 'melee', tier: 2, name: 'Frostsilver blade', dmg: 17, reach: 2.9, cd: 0.85, price: 1400, model: 'sword_1handed', tint: '#9fe6ff' },
-  f_maul: { type: 'melee', tier: 2, name: 'Glacier maul', dmg: 24, reach: 3.3, cd: 1.3, price: 2200, model: 'axe_2handed', tint: '#bfefff', heavy: true },
+  f_maul: { type: 'melee', tier: 2, name: 'Glacier greataxe', dmg: 24, reach: 3.3, cd: 1.3, price: 2200, model: 'axe_2handed', tint: '#bfefff', heavy: true },
   f_rime: { type: 'magic', tier: 2, name: 'Rime staff', dmg: 17, reach: 14, cd: 1.1, price: 1500, model: 'staff', tint: '#9fe6ff' },
   f_bow: { type: 'ranged', tier: 2, name: 'Icicle crossbow', dmg: 16, reach: 15, cd: 0.75, price: 1500, model: 'crossbow_1handed', tint: '#9fe6ff' },
   a_twin: { type: 'ranged', name: 'Avalanche Twinbow', dmg: 20, reach: 15, cd: 0.6, price: 0, unique: true, model: 'crossbow_2handed', tint: '#e0f4ff' },
@@ -122,7 +127,7 @@ const WEAPONS = {
   k_tongue: { type: 'melee', name: "Gobbler's Tongue", dmg: 36, reach: 4.4, cd: 0.95, price: 0, unique: true, model: 'sword_1handed', tint: '#ff7aa8', poison: true },
   // Chapter 4: Sunsteel, forged by Professor Tinkerwell at Oasis Rest from Sunstone. It burns brighter by day (+15% damage).
   s_sword: { type: 'melee', tier: 4, name: 'Sunsteel sword', dmg: 40, reach: 3.1, cd: 0.8, price: 9000, model: 'sword_1handed', tint: '#ffcf5a', sun: true },
-  s_hammer: { type: 'melee', tier: 4, name: 'Sunsteel warhammer', dmg: 58, reach: 3.5, cd: 1.3, price: 11000, model: 'axe_2handed', tint: '#ffb347', heavy: true, sun: true },
+  s_hammer: { type: 'melee', tier: 4, name: 'Sunsteel greataxe', dmg: 58, reach: 3.5, cd: 1.3, price: 11000, model: 'axe_2handed', tint: '#ffb347', heavy: true, sun: true },
   s_staff: { type: 'magic', tier: 4, name: 'Sunburst staff', dmg: 40, reach: 16, cd: 1.05, price: 9500, model: 'staff', tint: '#ffe27a', sun: true },
   s_bow: { type: 'ranged', tier: 4, name: 'Brassbolt crossbow', dmg: 38, reach: 17, cd: 0.7, price: 9500, model: 'crossbow_1handed', tint: '#d8a850', sun: true },
   p_night: { type: 'melee', tier: 4, path: 'vampire', name: 'Nightfang', dmg: 46, reach: 3.0, cd: 0.65, price: 15000, model: 'dagger', tint: '#8a0a2a', drain: 0.08 },
@@ -182,11 +187,11 @@ function gearRarIx(g) {
 }
 // shop gear always sells for less than it costs (half, up to three quarters for the rarest), so buying to sell never pays
 const gearValue = (g) => Math.floor(g.unique ? [100, 200, 400, 1500, 6000, 40000][gearRarIx(g)] : g.price * [0.5, 0.55, 0.6, 0.65, 0.7, 0.75][gearRarIx(g)]);
-const gearIcon = (g) => (g.slot === 'weapon' ? ICONS[g.type] : ICONS[g.slot]);
+const gearIcon = (g) => (g.slot === 'weapon' ? wIcon(g) : ICONS[g.slot]);
 let gearKeyOf = null; // gear object -> its key, so stats can include smith upgrades
 const gearStats = (g) => { if (!gearKeyOf) gearKeyOf = new Map(Object.entries(GEAR).map(([k, v]) => [v, k])); const k = gearKeyOf.get(g), p = k ? plusOf(k) : 0; return gearStatsRaw(g, p ? (WEAPONS[k] ? upDmg(k, p) : upDef(k, p)) : null); };
 const gearStatsRaw = (g, up) => (g.slot === 'weapon'
-  ? `${up ?? g.dmg} dmg · ${g.type === 'melee' ? 'reach' : 'range'} ${g.reach} · ${g.cd}s · ${SPECIALS[specialOf(g)].name}${g.sun ? ' · +15% by day' : ''}`
+  ? `${up ?? g.dmg} dmg · ${g.type === 'melee' ? 'reach' : 'range'} ${g.reach} · ${g.cd}s · ${KIND_NAME[wKind(g)]}: ${CHARGED[wKind(g)].name}${g.sun ? ' · +15% by day' : ''}`
   : g.slot === 'gadget' ? g.desc : `+${up ?? g.def} defense`);
 // the equipped gadget's bonus for one stat (dmg, def, hp or speed), as a multiplier
 const gadgetMult = (k) => 1 + (((ARMOUR[S.equip.gadget] || {}).bonus || {})[k] || 0);
@@ -565,9 +570,12 @@ const petBonus = (k) => { const id = S.cos && S.cos.eq && S.cos.eq.pet, P = PETS
 const JOURNAL_AT = [25, 100, 500];
 const journalTier = (t) => { const n = (S.journal || {})[t] || 0; return JOURNAL_AT.filter((x) => n >= x).length; };
 // v72: weapon mastery. Every monster you beat with a kind of weapon (blades, bows, staffs) makes you better with that kind
-const MASTERY = { melee: 'Blade', ranged: 'Bow', magic: 'Staff' };
+const MASTERY = { melee: 'Sword', axe: 'Axe', ranged: 'Bow', magic: 'Staff' };
+// which mastery a weapon trains: axes have their own since v77 (swords keep the old 'melee' count)
+const mKey = (w) => (/^axe/.test(w.model || '') && w.type === 'melee' ? 'axe' : w.type);
+const mIcon = (t) => (t === 'axe' ? ICONS.woodcutting : ICONS[t]);
 const masteryLv = (t) => Math.min(10, Math.floor(Math.sqrt(((S.mastery || {})[t] || 0) / 8)));
-const dmgMult = () => (1 + ATK_MULT * stat('atk')) * renown() * (together ? 1.1 : 1) * (1 + petBonus('dmg')) * (1 + 0.015 * masteryLv(W().type));
+const dmgMult = () => (1 + ATK_MULT * stat('atk')) * renown() * (together ? 1.1 : 1) * (1 + petBonus('dmg')) * (1 + 0.015 * masteryLv(mKey(W())));
 const defDiv = () => (1 + DEF_DIV * totalDef()) * pathDef() * (1 + petBonus('def'));
 const maxHp = () => Math.round((HP_BASE + HP_PER * stat('hp')) * pathHp() * renown() * (1 + petBonus('hp')));
 
@@ -3239,7 +3247,7 @@ function renderHotbar() {
 }
 function buildGearBar() {
   const w = W(), free = freePoints();
-  $('classes').innerHTML = `<div class="classchip"><img src="${ICONS[w.type]}" alt="">${w.name}<small>${STYLE_NAME[w.type]}</small></div>`
+  $('classes').innerHTML = `<div class="classchip"><img src="${wIcon(w)}" alt="">${w.name}<small>${KIND_NAME[wKind(w)]}</small></div>`
     + (free > 0 ? `<button id="spendpts" class="spend"><img src="${ICONS.star}" alt="">${free} stat point${free > 1 ? 's' : ''} to spend</button>` : '');
   if (free > 0) $('spendpts').onclick = () => openSheet('skills');
 }
@@ -3405,7 +3413,7 @@ function buildNpcs() {
     { id: 'pip', name: 'Granny Pip', model: 'mage', x: ZONES.meadow.x - 6, z: ZONES.meadow.z + 1, hide: [], tint: '#ffc0d8',
       lines: ['Back in my day, skeletons said please before they stabbed you.', 'Have you tried my apple pie? Marta in the village sells it. I taught her!', 'The windmill squeaks a little song at night. Listen closely.'] },
     { id: 'crier', name: 'Bertram the Town Crier', model: 'knight', x: -6 * VS, z: 5 * VS, hide: ['Knight_Helmet'], tint: '#ffd08a',
-      lines: ['Hear ye! Four lands lie beyond the woods: Glimmerwood to the east, Grumble Crags to the west, Honeymeadow to the south and Haunted Hollow to the north!', 'Hear ye! Each land has a fearsome boss. Watch for the red glow on the ground and get out of the way!', 'Hear ye! Hold Shift to sprint, press C (or tap any direction twice) to dash in any direction, J or click to attack, R for your special attack, and M for the map. Hear ye!', 'Hear ye! Coins in the bank are safe. Coins in your pocket? Half of them fall out when you get knocked out!', 'Hear ye! Adventurers wander the valley. Talk to them or open the Crew menu to make them allies, leave them be, or make them your rivals!', 'Hear ye! Monsters have taken Thornbury, Mossbrook and Cinderholt! Defeat each town\'s tyrant to free it, and the townsfolk will send you coins.'] },
+      lines: ['Hear ye! Four lands lie beyond the woods: Glimmerwood to the east, Grumble Crags to the west, Honeymeadow to the south and Haunted Hollow to the north!', 'Hear ye! Each land has a fearsome boss. Watch for the red glow on the ground and get out of the way!', 'Hear ye! Hold Shift to sprint, press C (or tap any direction twice) to dash in any direction, J or click to attack, hold K for a charged attack, and M for the map. Hear ye!', 'Hear ye! Coins in the bank are safe. Coins in your pocket? Half of them fall out when you get knocked out!', 'Hear ye! Adventurers wander the valley. Talk to them or open the Crew menu to make them allies, leave them be, or make them your rivals!', 'Hear ye! Monsters have taken Thornbury, Mossbrook and Cinderholt! Defeat each town\'s tyrant to free it, and the townsfolk will send you coins.'] },
     { id: 'lumi', name: 'Lumi the Wisp-keeper', model: 'mage', x: ZONES.glimmer.x - 22, z: ZONES.glimmer.z + 8, hide: [], tint: '#9ff0ff',
       lines: ['Harold the Grotesque stole the colour from half my mushrooms. The rest glow twice as bright out of spite!', 'Glimmerwood hums at night. Can you hear it? No? Try humming back.'] },
     { id: 'dot', name: 'Prospector Dot', model: 'heroine', x: ZONES.crags.x + 23, z: ZONES.crags.z + 6, hide: [], tint: '#e8b080',
@@ -4428,8 +4436,8 @@ function checkDoors() {
   }
 }
 // v65: a new hero's screen starts simple. Extra buttons appear as you level up (nothing is taken away for good):
-//   level 3: special attack button (chat is open from the start); level 4: the Crew menu and the rest of the hotbar.
-function hudUnlocks() { return [[3, 'gate-special', 'New: your special attack! Press R (or the star button).'], [4, 'gate-crew', 'New: the Crew menu. Team up with the valley adventurers.']]; }
+//   level 3: the charged attack button (chat is open from the start); level 4: the Crew menu and the rest of the hotbar.
+function hudUnlocks() { return [[3, 'gate-special', `New: your charged attack button! Hold ${keyOf('charge')} (or hold the star button), then let go.`], [4, 'gate-crew', 'New: the Crew menu. Team up with the valley adventurers.']]; }
 function hudGate() {
   const L = heroLvl();
   for (const [lv, cls] of hudUnlocks()) document.body.classList.toggle(cls, L < lv);
@@ -5324,7 +5332,7 @@ const BIND_ACTIONS = [
   ['up', 'Move up', ['KeyW', 'ArrowUp']], ['down', 'Move down', ['KeyS', 'ArrowDown']],
   ['left', 'Move left', ['KeyA', 'ArrowLeft']], ['right', 'Move right', ['KeyD', 'ArrowRight']],
   ['sprint', 'Sprint', ['ShiftLeft', 'ShiftRight']], ['attack', 'Attack', ['KeyJ', '']], ['charge', 'Charged attack (hold)', ['KeyK', '']],
-  ['special', 'Special move', ['KeyR', '']], ['dash', 'Dash', ['KeyC', 'KeyZ']],
+  ['dash', 'Dash', ['KeyC', 'KeyZ']],
   ['jump', 'Jump', ['Space', '']], ['interact', 'Talk / use / skip', ['KeyE', 'KeyF']],
   ['eat', 'Eat best food', ['KeyH', '']], ['map', 'Map', ['KeyM', '']],
   ['hero', 'Hero sheet', ['KeyP', '']], ['card', 'Hero card (your worth and towns)', ['Tab', '']], ['bag', 'Bag', ['KeyI', 'KeyB']], ['quests', 'Quests', ['KeyQ', '']],
@@ -5389,7 +5397,6 @@ addEventListener('keydown', (e) => {
   if (act === 'attack') attackPress(true);
   else if (act === 'charge') chargeStart();
   else if (act === 'dash') dash();
-  else if (act === 'special') special();
   // spamming E through a conversation: the extra presses after it ends don't start it all over again
   else if (act === 'interact') { if (!e.repeat && (talking || performance.now() - dlgClosedAt > 700)) { held = true; const t = !talking && swingTarget(), rc = !talking && (!t || t.type === 'attack') && nearCrew(5); if (rc && !uiLock() && !player.dead) openCrewTalk(rc); else doAction(); } }
   else if (act === 'jump') jump();
@@ -5624,18 +5631,26 @@ function swing() {
   // the wind-up is skipped so the blow lands right on the keystroke
   player.nextHit = now + w.cd * (fin ? 0.6 : 0.34);
   const lead = 0.06 * spd, from = Math.max(0, C.hitAt - lead);
-  const dur = player.play(C.anim, { once: true, fade: 0.04, speed: spd, from });
+  const dur = player.play(C.anim, { once: true, fade: 0.04, speed: spd, from }) || player.play(C.alt || C.anim, { once: true, fade: 0.04, speed: spd, from });
+  if (C.spin) { let n = 0; const sp = () => { n++; player.root.rotation.y += Math.PI / 4; if (n < 8) later(0.03, sp); }; later(Math.max(0, (C.hitAt - from) / spd - 0.12), sp); }
   player.busyUntil = now + Math.min(dur * 0.4, w.cd * 0.25);
-  if (fin) { const fw = fwdOf(player); dashLunge = { x: fw.x, z: fw.z, left: A.proj ? 0 : 0.6 }; }
+  if (fin && !C.spin) { const fw = fwdOf(player); dashLunge = { x: fw.x, z: fw.z, left: A.proj ? 0 : 0.6 }; }
   later((C.hitAt - from) / spd, () => {
     if (player.dead) return;
     const fwd = fwdOf(player), dmg = () => Math.max(1, Math.round(heroDamage() * C.mult * 0.8)); // faster swings, slightly lighter hits
     if (A.proj) {
-      const shots = fin && A.proj === 'bolt' ? [-0.12, 0.12] : [0];
-      for (const a of shots) {
-        const d = fwd.clone().applyAxisAngle(new THREE.Vector3(0, 1, 0), a);
-        shoot(player.pos.clone().add(new THREE.Vector3(0, 1.8, 0)).addScaledVector(d, 0.8), d, A.proj, w.reach, 'player', (e) => (e.isCrew ? hurtCrew(e, dmg(), player) : hurtEnemy(e, dmg(), null, C.power)), { pdmg: dmg() });
-      }
+      // Bows: Long Shot, +30% damage on anything hit far away (keep your distance!). The finisher pierces.
+      // Staffs: the orbs curve gently onto nearby monsters, and the finisher chains a spark onwards.
+      const bow = A.proj === 'bolt', from0 = player.pos.clone();
+      const hitFoe = (e) => {
+        let n = dmg();
+        if (bow && Math.hypot(e.pos.x - from0.x, e.pos.z - from0.z) > w.reach * 0.62) { n = Math.round(n * 1.3); if (!e.isCrew) floatText(e.pos.clone().setY(3.4), 'Long shot!', 'gain'); }
+        if (e.isCrew) return hurtCrew(e, n, player);
+        hurtEnemy(e, n, null, C.power);
+        if (C.chain) chainSpark(e, n);
+      };
+      shoot(player.pos.clone().add(new THREE.Vector3(0, 1.8, 0)).addScaledVector(fwd, 0.8), fwd, A.proj, w.reach, 'player', hitFoe,
+        C.pierce ? { pierce: new Set(), size: 0.45, pdmg: dmg() } : { pdmg: dmg(), seek: !bow });
       if (fin) burst(player.pos.clone().setY(1.8).addScaledVector(fwd, 1), A.proj === 'orb' ? '#bff6ff' : '#ffe9a8', 18, 4);
       return;
     }
@@ -5678,60 +5693,111 @@ function chargeRelease() {
   chargedAttack(Math.min(1, (t - CHARGE_MIN) / (chargeFull() - CHARGE_MIN)));
 }
 function chargedAttack(k) {
-  const w = W(), A = STYLES[w.type];
+  const w = W(), A = STYLES[w.type], kind = wKind(w);
   if (now - aim.at < 2.5) { player.face(aim.x, aim.z); aim.at = -99; }
   if (player.task) cancelTask();
   const mult = 1.7 + 1.1 * k, reachK = 1.45 + 0.45 * k;
   player.nextHit = now + Math.max(0.35, w.cd * 0.6); comboStep = 0;
   showGear(null); sfx('slam');
-  player.play(A.proj ? (A.proj === 'orb' ? 'Spellcast_Shoot' : '1H_Ranged_Shoot') : w.heavy ? '2H_Melee_Attack_Chop' : '1H_Melee_Attack_Chop', { once: true, fade: 0.04, speed: 1.9 });
   player.busyUntil = now + 0.22;
-  const fwd = fwdOf(player), dmg = () => Math.max(1, Math.round(heroDamage() * mult));
-  if (A.proj) {
-    // a fan of five shots: the first one to reach a foe hits in full, extra shots on the same foe only graze,
-    // so a big boss doesn't soak up all five for a one-button wipe
-    const struck = new Set(), part = (e) => { const f = struck.has(e) ? 0.25 : 1; struck.add(e); return Math.max(1, Math.round(dmg() * f)); };
-    for (const a of [-0.24, -0.12, 0, 0.12, 0.24]) {
-      const d = fwd.clone().applyAxisAngle(new THREE.Vector3(0, 1, 0), a);
-      shoot(player.pos.clone().add(new THREE.Vector3(0, 1.8, 0)).addScaledVector(d, 0.8), d, A.proj, w.reach * 1.35, 'player', (e) => (e.isCrew ? hurtCrew(e, part(e), player) : hurtEnemy(e, part(e), null, 2)), { pdmg: dmg(), pseen: struck });
+  const fwd = fwdOf(player), pp = player.pos, dmg = () => Math.max(1, Math.round(heroDamage() * mult));
+  floatText(pp.clone().setY(4.2), CHARGED[kind].name + '!', 'gain');
+  rankFlourish(pp.x, pp.z, (cx, cz, R, col) => { const m = new THREE.Mesh(new THREE.RingGeometry(0.7, 1, 48), new THREE.MeshBasicMaterial({ color: col, transparent: true, opacity: 0.85, depthWrite: false, fog: false, side: THREE.DoubleSide })); m.rotation.x = -Math.PI / 2; m.position.set(cx, 0.2, cz); m.layers.set(1); scene.add(m); fx.push({ m, t: 0, dur: 0.45, R }); });
+  if (kind === 'bow') {
+    // Piercing Shot: a big heavy arrow that goes through everything in a long line. Fully drawn, three of them.
+    player.play('1H_Ranged_Shoot', { once: true, fade: 0.04, speed: 1.6 });
+    const struck = new Set(), angs = k >= 1 ? [-0.1, 0, 0.1] : [0];
+    for (const a of angs) {
+      const d = fwd.clone().applyAxisAngle(new THREE.Vector3(0, 1, 0), a), seen = new Set();
+      shoot(pp.clone().add(new THREE.Vector3(0, 1.8, 0)).addScaledVector(d, 0.8), d, 'bolt', w.reach * 1.8, 'player',
+        (e) => { const f = struck.has(e) ? 0.3 : 1; struck.add(e); const n = Math.max(1, Math.round(dmg() * f)); return e.isCrew ? hurtCrew(e, n, player) : hurtEnemy(e, n, null, 1.8); },
+        { pierce: seen, size: 0.6, pdmg: dmg(), heavy: true });
     }
-    burst(player.pos.clone().setY(1.8).addScaledVector(fwd, 1.2), A.proj === 'orb' ? '#bff6ff' : '#ffe9a8', 30, 6);
+    burst(pp.clone().setY(1.8).addScaledVector(fwd, 1.2), '#ffe9a8', 30, 6);
     return;
   }
+  if (kind === 'staff') {
+    // Arcane Burst: a big, slow orb that bursts in a wide circle on the first monster it touches (or at the end)
+    player.play('Spellcasting', { once: true, fade: 0.04, speed: 1.6 });
+    const R = 3 + 2.2 * k;
+    shoot(pp.clone().add(new THREE.Vector3(0, 1.8, 0)).addScaledVector(fwd, 0.9), fwd, 'orb', w.reach, 'player', () => {}, {
+      orbSize: 2.4 + 1.2 * k, speed: 12,
+      onEnd: (at) => {
+        const ring = new THREE.Mesh(new THREE.RingGeometry(0.7, 1, 48), new THREE.MeshBasicMaterial({ color: '#9ff0ff', transparent: true, opacity: 0.85, depthWrite: false, fog: false, side: THREE.DoubleSide }));
+        ring.rotation.x = -Math.PI / 2; ring.position.set(at.x, 0.2, at.z); ring.layers.set(1); scene.add(ring); fx.push({ m: ring, t: 0, dur: 0.45, R });
+        burst(at.clone().setY(1), '#bff6ff', 60, 8, 1.4); burst(at.clone().setY(1), '#ffe07a', 20, 6); sfx('special');
+        for (const e of enemies) if (e.hp > 0 && e.state !== 'rising' && e.state !== 'gone' && e.inside === where && Math.hypot(e.pos.x - at.x, e.pos.z - at.z) < R + (e.T.boss ? 1.2 : 0.5)) hurtEnemy(e, dmg(), { x: at.x, z: at.z }, 2);
+        for (const c of crew) if (isRival(c) && crewUp(c) && c.inside === where && Math.hypot(c.pos.x - at.x, c.pos.z - at.z) < R) hurtCrew(c, dmg(), player);
+        if (net.on) hitPeers((x, z) => Math.hypot(x - at.x, z - at.z) < R, dmg());
+      } });
+    burst(pp.clone().setY(1.8).addScaledVector(fwd, 1.2), '#bff6ff', 30, 6);
+    return;
+  }
+  if (kind === 'axe') {
+    // Whirling Cleave: spin right round and cut a full circle, flinging everything away from you
+    const R = (w.reach + 1.2) * (1.25 + 0.4 * k);
+    if (!player.play('2H_Melee_Attack_Spin', { once: true, fade: 0.04, speed: 1.7 })) player.play('2H_Melee_Attack_Slice', { once: true, fade: 0.04, speed: 1.7 });
+    player.busyUntil = now + 0.4;
+    let spin = 0; const spinT = () => { spin += 1; player.root.rotation.y += Math.PI / 4; if (spin < 8) later(0.035, spinT); }; spinT();
+    later(0.12, () => {
+      if (player.dead) return;
+      // a golden circle slash sweeps round you, then a soft shockwave ring
+      const arcM = new THREE.Mesh(new THREE.RingGeometry(0.72, 1, 64, 1, 0, Math.PI * 1.6), new THREE.MeshBasicMaterial({ color: '#ffd23f', transparent: true, opacity: 0.85, depthWrite: false, fog: false, side: THREE.DoubleSide }));
+      arcM.rotation.x = -Math.PI / 2; arcM.position.set(pp.x, 0.9, pp.z); arcM.scale.setScalar(R); arcM.layers.set(1); scene.add(arcM);
+      fx.push({ m: arcM, t: 0, dur: 0.4, spin: true, spinSp: 16 });
+      const ring = new THREE.Mesh(new THREE.RingGeometry(0.85, 1, 64), new THREE.MeshBasicMaterial({ color: '#fff2a8', transparent: true, opacity: 0.8, depthWrite: false, fog: false, side: THREE.DoubleSide }));
+      ring.rotation.x = -Math.PI / 2; ring.position.set(pp.x, 0.2, pp.z); ring.layers.set(1); scene.add(ring); fx.push({ m: ring, t: 0, dur: 0.45, R: R + 0.3 });
+      burst(pp.clone().setY(1.2), '#ffd27a', 50, 9, 1.3);
+      const inR = (x, z, pad) => Math.hypot(x - pp.x, z - pp.z) < R + pad;
+      for (const e of enemies) if (e.hp > 0 && e.state !== 'rising' && e.state !== 'gone' && e.inside === where && inR(e.pos.x, e.pos.z, e.T.boss ? 1.2 : 0.5)) hurtEnemy(e, dmg(), { x: pp.x, z: pp.z }, 2.8);
+      for (const c of crew) if (isRival(c) && crewUp(c) && c.inside === where && inR(c.pos.x, c.pos.z, 0.4)) hurtCrew(c, dmg(), player);
+      if (net.on) hitPeers((x, z) => inR(x, z, 0.4), dmg());
+    });
+    return;
+  }
+  // swords (and fists): a big forward blow, then a crescent slash flies on ahead
+  player.play(w.heavy ? '2H_Melee_Attack_Chop' : '1H_Melee_Attack_Chop', { once: true, fade: 0.04, speed: 1.9 });
   const reach = w.reach * reachK, arc = 1.35;
   dashLunge = { x: fwd.x, z: fwd.z, left: 0.5 };
   later(0.08, () => {
     if (player.dead) return;
     // a golden shockwave fan in front of you shows how far the blow reached
-    const m = new THREE.Mesh(new THREE.CircleGeometry(1, 32, Math.PI / 2 - arc, arc * 2), new THREE.MeshBasicMaterial({ color: w.beam ? '#5a0a12' : '#ffd23f', transparent: true, opacity: 0.55, depthWrite: false, fog: false, side: THREE.DoubleSide }));
+    // the Dark Blade's blow is steel-white and soft, not a big gold fan (Callum)
+    const steel = !!w.custom, m = new THREE.Mesh(new THREE.CircleGeometry(1, 32, Math.PI / 2 - arc, arc * 2), new THREE.MeshBasicMaterial({ color: steel ? '#e6ecf4' : '#ffd23f', transparent: true, opacity: steel ? 0.22 : 0.55, depthWrite: false, fog: false, side: THREE.DoubleSide }));
     m.rotation.x = -Math.PI / 2; m.rotation.z = player.root.rotation.y + Math.PI; m.position.set(player.pos.x, 0.2, player.pos.z); m.layers.set(1); scene.add(m);
     fx.push({ m, t: 0, dur: 0.35, R: reach + 0.3 });
-    burst(player.pos.clone().setY(1.2).addScaledVector(fwd, reach * 0.6), w.beam ? '#a01828' : '#ffd27a', 40, 8, 1.3);
+    burst(player.pos.clone().setY(1.2).addScaledVector(fwd, reach * 0.6), steel ? '#eef3fa' : '#ffd27a', 40, 8, 1.3);
     for (const e of enemies) if (e.hp > 0 && e.state !== 'rising' && e.state !== 'gone' && e.inside === where && inArc(e.pos.x, e.pos.z, 0.8, reach + 0.3, arc) >= 0) hurtEnemy(e, dmg(), null, 2.6);
     for (const c of crew) if (isRival(c) && crewUp(c) && c.inside === where && inArc(c.pos.x, c.pos.z, 0.7, reach + 0.3, arc) >= 0) hurtCrew(c, dmg(), player);
     if (net.on) hitPeers((x, z) => inArc(x, z, 0.7, reach + 0.3, arc) >= 0, dmg());
-    // ...and a crescent slash flies on ahead, cutting through everything in a short line
     const struck = new Set(enemies.filter((e) => e.hp > 0 && e.inside === where && inArc(e.pos.x, e.pos.z, 0.8, reach + 0.3, arc) >= 0));
     if (net.on) for (const [id, p] of net.peers) if (p.where === where && p.x !== undefined && inArc(p.x, p.z, 0.7, reach + 0.3, arc) >= 0) struck.add(id);
     const wave = Math.max(1, Math.round(dmg() * 0.75));
     shoot(player.pos.clone().setY(1.1).addScaledVector(fwd, 0.6), fwd, 'slash', 6 + 5 * k + w.reach, 'player',
-      (e) => (e.isCrew ? hurtCrew(e, wave, player) : hurtEnemy(e, wave, null, 1.8)), { pierce: struck, size: (1 + 0.5 * k) * (w.beam ? 1.25 : 1), pdmg: wave, beam: w.beam });
+      (e) => (e.isCrew ? hurtCrew(e, wave, player) : hurtEnemy(e, wave, null, 1.8)), { pierce: struck, size: (1 + 0.5 * k) * (steel ? 1.7 : 1), pdmg: wave, beam: steel ? 'steel' : undefined });
   });
 }
-// three moves per weapon style: anim, when it lands, damage, knockback, reach and arc
+// three moves per weapon kind: anim, when it lands, damage, knockback, reach and arc.
+// Bows: the third shot pierces. Staffs: the third orb chains a spark to two more monsters.
+// Axes: a heavy overhead chop, a wide sweep, then a spinning cleave that hits all the way round you.
 function comboOf(w) {
   if (w.fist) return [
     { anim: '1H_Melee_Attack_Stab', hitAt: 0.4, mult: 1, power: 0.6, speed: 1.5, reach: 1, arc: 0.8 },
     { anim: '1H_Melee_Attack_Stab', hitAt: 0.4, mult: 1, power: 0.6, speed: 1.7, reach: 1, arc: 0.8 },
     { anim: 'Unarmed_Melee_Attack_Kick', hitAt: 0.35, mult: 1.4, power: 1.2, speed: 1.3, reach: 1.15, arc: 0.8 }];
-  if (w.type === 'magic') return [
+  const kind = wKind(w);
+  if (kind === 'staff') return [
     { anim: 'Spellcast_Shoot', hitAt: 0.35, mult: 1, power: 1, speed: 1 },
     { anim: 'Spellcast_Shoot', hitAt: 0.3, mult: 1, power: 1, speed: 1.15 },
-    { anim: 'Spellcasting', hitAt: 0.3, mult: 1.6, power: 2.2, speed: 1.1 }];
-  if (w.type === 'ranged') return [
+    { anim: 'Spellcasting', hitAt: 0.3, mult: 1.4, power: 1.6, speed: 1.1, chain: true }];
+  if (kind === 'bow') return [
     { anim: '1H_Ranged_Shoot', hitAt: 0.22, mult: 1, power: 1, speed: 1 },
     { anim: '1H_Ranged_Shoot', hitAt: 0.2, mult: 1, power: 1, speed: 1.15 },
-    { anim: '1H_Ranged_Shoot', hitAt: 0.24, mult: 1.15, power: 1.8, speed: 0.95 }];
+    { anim: '1H_Ranged_Shoot', hitAt: 0.24, mult: 1.25, power: 1.8, speed: 0.95, pierce: true }];
+  if (kind === 'axe') return [
+    { anim: '2H_Melee_Attack_Chop', hitAt: 0.5, mult: 1.25, power: 1.6, speed: 1.15, reach: 1.05, arc: 0.6 },
+    { anim: '2H_Melee_Attack_Slice', hitAt: 0.36, mult: 1, power: 1.3, speed: 1.1, reach: 1, arc: 1.5 },
+    { anim: '2H_Melee_Attack_Spin', alt: '2H_Melee_Attack_Slice', hitAt: 0.35, mult: 1.5, power: 2.6, speed: 1.3, reach: 1.1, arc: Math.PI, spin: true }];
   if (w.heavy) return [
     { anim: '2H_Melee_Attack_Slice', hitAt: 0.36, mult: 1, power: 1.1, speed: 1.1, reach: 1, arc: 0.95 },
     { anim: '2H_Melee_Attack_Chop', hitAt: 0.5, mult: 1.1, power: 1.2, speed: 1.15, reach: 1, arc: 0.85 },
@@ -5741,50 +5807,19 @@ function comboOf(w) {
     { anim: '1H_Melee_Attack_Slice_Horizontal', hitAt: 0.34, mult: 1, power: 1.1, speed: 1.1, reach: 1.05, arc: 1.15 },
     { anim: '1H_Melee_Attack_Stab', hitAt: 0.5, mult: 1.5, power: 2.3, speed: 1.4, reach: 1.25, arc: 0.6 }];
 }
-let specialReady = 0;
-function special() {
-  if (!player || player.dead || uiLock() || where === 'castle' || where === 'tavern') return;
-  if (now < specialReady) return; // v65: the button already counts down, no extra note
-  if (talking) closeDialog();
-  if (player.task) cancelTask();
-  if (now - aim.at < 2.5) { player.face(aim.x, aim.z); aim.at = -99; }
-  const w = W(), key = specialOf(w), SP = SPECIALS[key];
-  specialReady = now + SP.cd; player.nextHit = now + 0.6; sfx('special');
-  const big = (w.unique ? 1.25 : 1) * (1 + 0.05 * rankOf(heroLvl()));
-  const fwd = fwdOf(player), pp = player.pos;
-  const hitIn = (cx, cz, R, mult) => { let n = 0; for (const e of enemies) if (e.hp > 0 && e.state !== 'rising' && e.inside === where && Math.hypot(e.pos.x - cx, e.pos.z - cz) < R + (e.T.boss ? 1.2 : 0.5)) { hurtEnemy(e, Math.round(heroDamage() * mult) || 1, { x: cx, z: cz }, 1.7); n++; } if (net.on) n += hitPeers((x, z) => Math.hypot(x - cx, z - cz) < R + 0.5, Math.round(heroDamage() * mult) || 1); return n; };
-  const ring = (cx, cz, R, col) => {
-    const m = new THREE.Mesh(new THREE.RingGeometry(0.7, 1, 48), new THREE.MeshBasicMaterial({ color: col, transparent: true, opacity: 0.85, depthWrite: false, fog: false, side: THREE.DoubleSide }));
-    m.rotation.x = -Math.PI / 2; m.position.set(cx, 0.2, cz); m.layers.set(1); scene.add(m);
-    fx.push({ m, t: 0, dur: 0.45, R });
-  };
-  floatText(pp.clone().setY(4.2), SP.name + '!', 'gain');
-  rankFlourish(pp.x, pp.z, ring);
-  if (key === 'whirl') {
-    const R = (w.reach + 1.4) * big;
-    player.play('1H_Melee_Attack_Slice_Diagonal', { once: true, fade: 0.05, speed: 1.6 }); player.busyUntil = now + 0.45;
-    let spin = 0; const spinT = () => { spin += 1; player.root.rotation.y += Math.PI / 3; if (spin < 6) later(0.05, spinT); }; spinT();
-    later(0.2, () => { ring(pp.x, pp.z, R, '#fff2a8'); burst(pp.clone().setY(1.2), '#fff2a8', 30, 7); hitIn(pp.x, pp.z, R, SP.mult); });
-  } else if (key === 'quake') {
-    const R = 4.6 * big;
-    player.air = true; player.vy = 12; player.play(player.clips.Jump_Full_Short ? 'Jump_Full_Short' : 'Cheer', { once: true, fade: 0.06, speed: 1.3 });
-    later(0.62, () => { player.play('2H_Melee_Attack_Chop', { once: true, fade: 0.05, speed: 1.6 }); });
-    later(0.75, () => { ring(pp.x, pp.z, R, '#ffd08a'); burst(pp.clone().setY(0.4), '#ffd08a', 60, 9, 1.4); shake = 0.45; hitIn(pp.x, pp.z, R, SP.mult); });
-  } else if (key === 'nova') {
-    const dist = Math.min(w.reach * 0.6, 7), cx = pp.x + fwd.x * dist, cz = pp.z + fwd.z * dist, R = 3.6 * big;
-    player.play('Spellcasting', { once: true, fade: 0.06, speed: 1.4 }); player.busyUntil = now + 0.5;
-    const rune = new THREE.Mesh(new THREE.RingGeometry(0.8, 1, 6), new THREE.MeshBasicMaterial({ color: '#9ff0ff', transparent: true, opacity: 0.8, depthWrite: false, fog: false, side: THREE.DoubleSide }));
-    rune.rotation.x = -Math.PI / 2; rune.position.set(cx, 0.2, cz); rune.scale.setScalar(R); rune.layers.set(1); scene.add(rune);
-    fx.push({ m: rune, t: 0, dur: 0.55, spin: true });
-    later(0.5, () => { ring(cx, cz, R, '#9ff0ff'); burst(new THREE.Vector3(cx, 1, cz), '#bff6ff', 60, 8, 1.4); burst(new THREE.Vector3(cx, 1, cz), '#ffe07a', 24, 6); hitIn(cx, cz, R, SP.mult); });
-  } else {
-    player.play('1H_Ranged_Shoot', { once: true, fade: 0.06, speed: 1.5 }); player.busyUntil = now + 0.4;
-    later(0.2, () => {
-      for (const a of [-0.36, -0.18, 0, 0.18, 0.36]) {
-        const d = fwd.clone().applyAxisAngle(new THREE.Vector3(0, 1, 0), a * big);
-        shoot(pp.clone().add(new THREE.Vector3(0, 1.8, 0)).addScaledVector(d, 0.8), d, 'bolt', w.reach, 'player', (e) => hurtEnemy(e, Math.round(heroDamage() * SP.mult), null, 1.2), { pdmg: Math.round(heroDamage() * SP.mult) });
-      }
-    });
+// Staff combo finisher: a spark leaps from the struck monster to up to two more close by
+function chainSpark(from, dmg) {
+  let last = from; const hit = new Set([from]);
+  for (let j = 0; j < 2; j++) {
+    let best = null, bd = 7;
+    for (const e of enemies) if (!hit.has(e) && e.hp > 0 && e.state !== 'rising' && e.state !== 'gone' && e.inside === where) { const d = Math.hypot(e.pos.x - last.pos.x, e.pos.z - last.pos.z); if (d < bd) { bd = d; best = e; } }
+    if (!best) break;
+    const a = last.pos.clone().setY(1.4), b = best.pos.clone().setY(1.4), seg = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.12, a.distanceTo(b)), new THREE.MeshBasicMaterial({ color: '#bff6ff', fog: false }));
+    seg.position.copy(a).add(b).multiplyScalar(0.5); seg.lookAt(b); seg.layers.set(1); scene.add(seg);
+    later(0.14, () => { scene.remove(seg); seg.geometry.dispose(); seg.material.dispose(); });
+    burst(b, '#bff6ff', 12, 4); hit.add(best);
+    const target = best; later(0.05 * (j + 1), () => { if (target.hp > 0) hurtEnemy(target, Math.max(1, Math.round(dmg * 0.6)), null, 0.8); });
+    last = best;
   }
 }
 const fx = [];
@@ -5792,16 +5827,14 @@ function fxTick(dt) {
   for (let i = fx.length - 1; i >= 0; i--) {
     const f = fx[i]; f.t += dt; const k = f.t / f.dur;
     if (f.R) f.m.scale.setScalar(f.R * (0.3 + 0.7 * k));
-    if (f.spin) f.m.rotation.z += dt * 4;
+    if (f.spin) f.m.rotation.z += dt * (f.spinSp || 4);
     f.m.material.opacity = 0.85 * (1 - k);
     if (k >= 1) { scene.remove(f.m); f.m.geometry.dispose(); f.m.material.dispose(); fx.splice(i, 1); }
   }
   const el = $('specialbtn');
   if (el && player) {
-    const left = Math.max(0, specialReady - now), SP = SPECIALS[specialOf(W())];
-    el.style.setProperty('--cd', String(left / SP.cd));
-    el.classList.toggle('cooling', left > 0);
-    const lbl = left > 0 ? `${Math.ceil(left)}s` : SP.name;
+    const lbl = CHARGED[wKind(W())].name, ch = charge ? Math.min(1, (now - charge.at) / chargeFull()) : 1;
+    el.style.setProperty('--cd', String(1 - ch)); el.classList.toggle('cooling', !!charge && ch < 1);
     if (el.dataset.lbl !== lbl) { el.dataset.lbl = lbl; el.querySelector('span').textContent = lbl; }
   }
 }
@@ -5920,24 +5953,30 @@ function shoot(from, dir, kind, range, owner, onHit, opt = {}) {
     // a crisp, thin sword-beam crescent: glowing edge, white-hot core and a few fading after-images behind it
     mesh = new THREE.Group();
     const mat = (col, op, add) => new THREE.MeshBasicMaterial({ color: col, transparent: true, opacity: op, depthWrite: false, fog: false, side: THREE.DoubleSide, blending: add ? THREE.AdditiveBlending : THREE.NormalBlending });
-    // the Dark Blade's beam is cleaner: a black crescent with a thin dark red rim and no sparkle trail
-    const parts = opt.beam === 'dark' ? [[slashGeoA, '#9a1020', 0.95, false, -0.01, 0, 1.08], [slashGeoA, '#1c1a20', 1, false, 0], [slashGeoB, '#4a4650', 1, false, 0.01]]
+    // the Dark Blade's wave is a big pale steel crescent with a white core and cool silver after-images
+    const st = opt.beam === 'steel', parts = st ? [[slashGeoA, '#c8d2de', 0.9, true, 0], [slashGeoB, '#ffffff', 1, false, 0.01]]
       : [[slashGeoA, '#ffd86a', 0.95, true, 0], [slashGeoB, '#ffffff', 1, false, 0.01]];
-    if (opt.beam !== 'dark') for (const [k, op] of [[1, 0.45], [2, 0.25], [3, 0.12]]) parts.push([slashGeoA, '#ffe9a8', op, true, -0.01 * k, -0.55 * k, 1 - 0.08 * k]);
+    for (const [k, op] of [[1, 0.45], [2, 0.25], [3, 0.12]]) parts.push([slashGeoA, st ? '#dfe6ef' : '#ffe9a8', op, true, -0.01 * k, -0.55 * k, 1 - 0.08 * k]);
     for (const [g, col, op, add, y, z = 0, sc = 1] of parts) { const m = new THREE.Mesh(g, mat(col, op, add)); m.position.set(0, y, z); m.scale.set(sc, 1, sc); m.userData.op = op; m.layers.set(1); m.renderOrder = 5; mesh.add(m); }
     mesh.userData.size = opt.size || 1; mesh.scale.set(0.5 * mesh.userData.size, 1, 0.8 * mesh.userData.size);
   } else if (kind === 'bolt') {
     // the arrow model stands upright, so lay it along the flight line (lookAt aims +Z)
-    const a = lib.arrow.clone(true); stylize(a); a.rotation.x = -Math.PI / 2; a.scale.setScalar(2.6);
+    const a = lib.arrow.clone(true); stylize(a); a.rotation.x = -Math.PI / 2; a.scale.setScalar(opt.heavy ? 4.2 : 2.6);
     mesh = new THREE.Group(); mesh.add(a);
+    if (opt.pierce) { // a piercing arrow leaves a pale streak so you can see it cut through
+      const tr = new THREE.Mesh(new THREE.PlaneGeometry(0.22, 2.4), new THREE.MeshBasicMaterial({ color: '#fff2c0', transparent: true, opacity: 0.6, depthWrite: false, fog: false, side: THREE.DoubleSide }));
+      tr.rotation.x = -Math.PI / 2; tr.position.z = -1.2; tr.layers.set(1); mesh.add(tr);
+    }
   } else {
     mesh = new THREE.Mesh(orbGeo, new THREE.MeshBasicMaterial({ color: kind === 'dark' ? '#c58bff' : '#8ff7ff', fog: false }));
-    mesh.layers.set(1);
+    mesh.layers.set(1); if (opt.orbSize) mesh.scale.setScalar(opt.orbSize);
   }
   mesh.position.copy(from);
   mesh.lookAt(from.clone().add(dir));
   scene.add(mesh);
-  const pr = { mesh, dir: dir.clone().setY(0).normalize(), kind, owner, onHit, speed: kind === 'bolt' ? 26 : kind === 'slash' ? 20 : kind === 'dark' ? 11 : 17, left: range + 1 };
+  const pr = { mesh, dir: dir.clone().setY(0).normalize(), kind, owner, onHit, speed: opt.speed || (kind === 'bolt' ? 26 : kind === 'slash' ? 20 : kind === 'dark' ? 11 : 17), left: range + 1 };
+  if (opt.onEnd) pr.onEnd = opt.onEnd;
+  if (opt.seek) pr.seek = true;
   if (opt.pierce) { pr.pierce = opt.pierce; pr.R = 1.9 * (opt.size || 1); pr.range = range + 1; }
   if (opt.beam) pr.clean = true;
   if (opt.pdmg) { pr.pdmg = opt.pdmg; pr.pseen = opt.pseen || null; } // damage to other heroes (PvP)
@@ -6194,7 +6233,7 @@ function masteryKill(t) {
   const was = masteryLv(t);
   S.mastery = { ...(S.mastery || {}), [t]: ((S.mastery || {})[t] || 0) + 1 };
   const lv = masteryLv(t);
-  if (lv > was) { toast(`${MASTERY[t]} mastery ${lv}! +${(lv * 1.5).toFixed(1).replace(/\.0$/, '')}% damage with ${t === 'melee' ? 'blades and hammers' : t === 'ranged' ? 'bows' : 'staffs and wands'}.`, ICONS[t] || ICONS.star, true); floatText(player.pos.clone().setY(4.4), `${MASTERY[t]} mastery ${lv}!`, 'crit'); }
+  if (lv > was) { toast(`${MASTERY[t]} mastery ${lv}! +${(lv * 1.5).toFixed(1).replace(/\.0$/, '')}% damage with ${t === 'melee' ? 'swords' : t === 'axe' ? 'axes' : t === 'ranged' ? 'bows' : 'staffs and wands'}.`, mIcon(t) || ICONS.star, true); floatText(player.pos.clone().setY(4.4), `${MASTERY[t]} mastery ${lv}!`, 'crit'); }
 }
 function chipsTick() {
   if (!player) return;
@@ -6304,7 +6343,7 @@ function hurtEnemy(e, dmg, src = null, power = 1) {
     floatText(e.pos.clone().setY(2.4), `+${coins} coins`, 'gain');
     if (e.golden) goldenCaught(e);
     if (e.T.elite) { S.champKills = (S.champKills || 0) + 1; const bd = boardToday(); bd.champs = (bd.champs || 0) + 1; }
-    if (!crewHitting && !W().fist && MASTERY[W().type]) masteryKill(W().type);
+    if (!crewHitting && !W().fist && MASTERY[mKey(W())]) masteryKill(mKey(W()));
     if (!e.T.boss && !e.temp) journalKill(e);
     if (!e.temp) petKill();
     if (e.T.boss && !e.temp) bossFirstWin(e, coins);
@@ -7791,7 +7830,8 @@ function toggleBigMap(force) {
 mini.addEventListener('click', () => toggleBigMap(true));
 $('jumpbtn').addEventListener('pointerdown', (e) => { e.preventDefault(); jump(); });
 $('dashr').addEventListener('pointerdown', (e) => { e.preventDefault(); dash(); });
-$('specialbtn').addEventListener('pointerdown', (e) => { e.preventDefault(); special(); });
+$('specialbtn').addEventListener('pointerdown', (e) => { e.preventDefault(); try { $('specialbtn').setPointerCapture(e.pointerId); } catch {} chargeStart(); });
+for (const ev of ['pointerup', 'pointercancel']) $('specialbtn').addEventListener(ev, (e) => { e.preventDefault(); chargeRelease(); });
 $('sprintbtn').addEventListener('pointerdown', (e) => { e.preventDefault(); sprintToggle = !sprintToggle; $('sprintbtn').setAttribute('aria-pressed', String(sprintToggle)); });
 bigMap.addEventListener('click', () => toggleBigMap(false));
 $('bosstalk').addEventListener('pointerdown', (e) => { e.preventDefault(); e.stopPropagation(); bossSkip(); });
@@ -8271,20 +8311,30 @@ function tick() {
     const step = pr.speed * dt;
     pr.mesh.position.addScaledVector(pr.dir, step); pr.left -= step;
     const pp = pr.mesh.position;
+    // distance from a point to the stretch this shot just flew, so a fast frame can't skip past a monster
+    const segD = (x, z) => { const ax = pp.x - pr.dir.x * step, az = pp.z - pr.dir.z * step, t = Math.max(0, Math.min(step, (x - ax) * pr.dir.x + (z - az) * pr.dir.z)); return Math.hypot(x - ax - pr.dir.x * t, z - az - pr.dir.z * t); };
     let hitSomething = false;
     if (pr.pierce) {
       // the slash wave cuts through: each foe is struck once, and it fades as it flies
-      for (const e of enemies) if (e.hp > 0 && !pr.pierce.has(e) && e.state !== 'rising' && e.state !== 'gone' && e.inside === where && Math.hypot(e.pos.x - pp.x, e.pos.z - pp.z) < pr.R + (e.T.boss ? 1.2 : 0.3)) { pr.pierce.add(e); pr.onHit(e); }
+      for (const e of enemies) if (e.hp > 0 && !pr.pierce.has(e) && e.state !== 'rising' && e.state !== 'gone' && e.inside === where && segD(e.pos.x, e.pos.z) < pr.R + (e.T.boss ? 1.2 : 0.3)) { pr.pierce.add(e); pr.onHit(e); }
       for (const c of crew) if (!pr.pierce.has(c) && isRival(c) && crewUp(c) && c.inside === where && Math.hypot(c.pos.x - pp.x, c.pos.z - pp.z) < pr.R) { pr.pierce.add(c); pr.onHit(c); }
       if (pr.pdmg) shotHitsPeer(pp, pr.R, pr.pdmg, null, pr.pierce);
       // it snaps open wide right after launch, then thins and fades as it runs out
-      const life = Math.max(0, pr.left / pr.range), age = 1 - life, sz = pr.mesh.userData.size || 1;
-      const open = Math.min(1, age * 6), wide = 0.5 + 0.7 * (1 - Math.pow(1 - open, 3)) + age * 0.25;
-      pr.mesh.scale.set(wide * sz, 1, (0.8 + 0.2 * open) * sz);
-      pr.mesh.children.forEach((m) => { m.material.opacity = m.userData.op * Math.min(1, life * 2.5); });
-      if (!pr.clean && rng() < 0.7) burst(pp.clone().addScaledVector(pr.dir, 0.4), '#ffe9a8', 1, 1.5);
+      if (pr.kind === 'slash') {
+        const life = Math.max(0, pr.left / pr.range), age = 1 - life, sz = pr.mesh.userData.size || 1;
+        const open = Math.min(1, age * 6), wide = 0.5 + 0.7 * (1 - Math.pow(1 - open, 3)) + age * 0.25;
+        pr.mesh.scale.set(wide * sz, 1, (0.8 + 0.2 * open) * sz);
+        pr.mesh.children.forEach((m) => { m.material.opacity = m.userData.op * Math.min(1, life * 2.5); });
+        if (!pr.clean && rng() < 0.7) burst(pp.clone().addScaledVector(pr.dir, 0.4), '#ffe9a8', 1, 1.5);
+      } else if (rng() < 0.5) burst(pp.clone(), '#fff2c0', 1, 1);
       if (pr.left <= 0) { dropShot(pr); projectiles.splice(i, 1); }
       continue;
+    }
+    if (pr.seek) {
+      // staff orbs curve gently towards the closest monster ahead of them
+      let best = null, bd = 7;
+      for (const e of enemies) if (e.hp > 0 && e.state !== 'rising' && e.state !== 'gone' && e.inside === where) { const dx = e.pos.x - pp.x, dz = e.pos.z - pp.z, d = Math.hypot(dx, dz); if (d < bd && (dx * pr.dir.x + dz * pr.dir.z) / (d || 1) > 0.5) { bd = d; best = e; } }
+      if (best) { const want = tmpV.set(best.pos.x - pp.x, 0, best.pos.z - pp.z).normalize(); pr.dir.lerp(want, Math.min(1, dt * 5)).normalize(); }
     }
     if (pr.owner === 'player' || pr.owner === 'ally') {
       for (const e of enemies) if (e.hp > 0 && e.state !== 'rising' && e.state !== 'gone' && e.inside === where && Math.hypot(e.pos.x - pp.x, e.pos.z - pp.z) < 0.95) { pr.onHit(e); hitSomething = true; break; }
@@ -8295,6 +8345,7 @@ function tick() {
     } else if (player && !player.dead && Math.abs(player.pos.y + 1.6 - pp.y) < 1.4 && Math.hypot(player.pos.x - pp.x, player.pos.z - pp.z) < 0.8) { pr.onHit(); hitSomething = true; }
     if (!hitSomething) for (const c of colliders) if (c.r > 0.9 && Math.hypot(c.x - pp.x, c.z - pp.z) < c.r * 0.8) { hitSomething = true; break; }
     if (hitSomething || pr.left <= 0) {
+      if (pr.onEnd) pr.onEnd(pp.clone());
       burst(pp, pr.kind === 'dark' ? '#d6a8ff' : pr.kind === 'bolt' ? '#fff2c0' : '#8ff7ff', hitSomething ? 20 : 8, hitSomething ? 5 : 2);
       dropShot(pr); projectiles.splice(i, 1); continue;
     }
@@ -8834,11 +8885,11 @@ function showKeysNote() {
   el.innerHTML = `<div class="panel knote" role="dialog" aria-labelledby="kn-h">
     <h3 id="kn-h">How to play</h3>
     <div class="kbig"><div><kbd class="kk">${keyOf('attack')}</kbd><b>Attack</b><small>Tap to swing. Keep tapping for a combo.</small></div>
-      <div><kbd class="kk">${keyOf('charge')}</kbd><b>Charged attack</b><small>Hold, then let go to send a slash flying.</small></div></div>
+      <div><kbd class="kk">${keyOf('charge')}</kbd><b>Charged attack</b><small>Hold, then let go. Every kind of weapon has its own.</small></div></div>
     <ul class="klist">
       ${row(`${k('up')}${k('left')}${k('down')}${k('right')}`, 'Move')}
       ${row(k('sprint'), 'Sprint')}${row(k('jump'), 'Jump')}
-      ${row(k('dash'), 'Dash')}${row(k('special'), 'Special move')}
+      ${row(k('dash'), 'Dash')}
       ${row(k('interact'), 'Talk / use')}${row(k('bag'), 'Bag')}
       ${row(k('quests'), 'Quests')}${row(k('map'), 'Map')}
       ${row(k('card'), 'Your hero')}${row(k('eat'), 'Eat food')}
@@ -10268,7 +10319,7 @@ function renderBag(el) {
     const total = Object.values(COS).reduce((a, s) => a + Object.keys(s).length, 0), have = Object.keys(C.got).length;
     body = `<button id="b-appear" class="primary">Change appearance (face, hair, body)</button><h4 class="sub">Title <small>shown over your name</small></h4><div class="titles">${T.map((t) => `<button class="titlebtn${t.ok ? '' : ' locked'}" data-title="${t.id}" aria-pressed="${cur && cur.id === t.id}" ${t.ok ? '' : 'disabled'} style="--tc:${t.col}" title="${t.how}">${t.name}${t.ok ? '' : `<small>${t.how}</small>`}</button>`).join('')}</div>
       <h4 class="sub">Looks <small>${have} of ${total} found</small></h4><div class="cosgrid">${Object.entries(COS_SLOTS).map(([sl, nm]) => { const c = C.eq[sl] && COS[sl][C.eq[sl]]; return `<button class="dslot cos ${c ? RARITY[c.r || 0].id : 'empty'}" data-dslot="cos:${sl}"><span class="swatch" style="--sw:${c ? c.col || c.body || '#e8a93a' : '#d8c8a8'}"></span><small>${nm}</small></button>`; }).join('')}</div>
-      <p class="hint">Ranks: ${RANKS.map((r) => `<b style="color:${r.col}">${r.name}</b> (${r.min})`).join(' · ')}. Every rank gives +5% damage and health, a bigger aura and flashier specials.</p>`;
+      <p class="hint">Ranks: ${RANKS.map((r) => `<b style="color:${r.col}">${r.name}</b> (${r.min})`).join(' · ')}. Every rank gives +5% damage and health, a bigger aura and flashier charged attacks.</p>`;
   }
   el.innerHTML = `<h3>Inventory <small>${fmt(S.coins)} coins${S.bank ? ` · ${fmt(S.bank)} banked` : ''}</small></h3><div class="bagtabs">${Object.entries(tabs).map(([k, n]) => `<button data-btab="${k}" aria-pressed="${bagTab === k}">${n}</button>`).join('')}</div>${body}`;
   previewMount();
@@ -10383,7 +10434,7 @@ function heroStatsHtml() {
   return `<h4 class="sub">Stats ${free > 0 ? `<small><b>${free} point${free > 1 ? 's' : ''} to spend</b></small>` : ''}</h4>
       <div class="stats">${Object.entries(STATS).map(([k, [nm, ic]]) => `<div class="stat"><img src="${ICONS[ic]}" alt=""><span class="nm">${nm}</span><span class="lv">${stat(k)}</span><small>${effect[k]}</small>${free > 0 ? `<button class="plus" data-stat="${k}" aria-label="Add a point to ${nm}">+</button>` : ''}</div>`).join('')}</div>
       <p class="hint">You get ${FREE_PER_LEVEL} more points each level.</p>
-      <h4 class="sub">Weapon mastery</h4><div class="stats">${Object.entries(MASTERY).map(([t, nm]) => { const l = masteryLv(t), k = (S.mastery || {})[t] || 0, next = l < 10 ? 8 * (l + 1) ** 2 : 0; return `<div class="stat"><img src="${ICONS[t]}" alt=""><span class="nm">${nm}</span><span class="lv">${l}</span><small>${l ? `+${(l * 1.5).toFixed(1).replace(/\.0$/, '')}% damage · ` : ''}${next ? `${fmt(k)} / ${fmt(next)} monsters` : 'Mastered!'}</small></div>`; }).join('')}</div>
+      <h4 class="sub">Weapon mastery</h4><div class="stats">${Object.entries(MASTERY).map(([t, nm]) => { const l = masteryLv(t), k = (S.mastery || {})[t] || 0, next = l < 10 ? 8 * (l + 1) ** 2 : 0; return `<div class="stat"><img src="${mIcon(t)}" alt=""><span class="nm">${nm}</span><span class="lv">${l}</span><small>${l ? `+${(l * 1.5).toFixed(1).replace(/\.0$/, '')}% damage · ` : ''}${next ? `${fmt(k)} / ${fmt(next)} monsters` : 'Mastered!'}</small></div>`; }).join('')}</div>
       <p class="hint">Beat monsters with a kind of weapon to master it, up to +15% damage.</p>
       <h4 class="sub">Monster journal <small>${Object.keys(S.journal || {}).length} kinds beaten</small></h4>${Object.keys(S.journal || {}).length ? `<div class="journal">${Object.entries(S.journal).sort((a, b) => b[1] - a[1]).map(([t, n]) => { const tr = journalTier(t), nx = JOURNAL_AT[tr]; return `<div class="jrow"><b>${esc((ENEMY_TYPES[t] || { name: t }).name)}</b><span class="jstars">${'★'.repeat(tr)}${'☆'.repeat(3 - tr)}</span><small>${fmt(n)}${nx ? ` / ${fmt(nx)}` : ''}</small></div>`; }).join('')}</div>` : ''}
       <p class="hint">Beat 25, 100 and 500 of a kind of monster to become its Hunter: +3% damage against it per star, plus a reward.</p>
