@@ -172,6 +172,12 @@ export const ICONS = {
     shape(g, '#8fd8ff', () => { g.moveTo(0, -30); g.lineTo(12, -16); g.lineTo(0, -4); g.lineTo(-12, -16); g.closePath(); });
     shine(g, -3, -20, 3);
   }),
+  treasure_map: make((g) => {
+    g.rotate(-0.12);
+    shape(g, '#f4dca0', () => { g.moveTo(-32, -24); g.lineTo(-10, -28); g.lineTo(10, -22); g.lineTo(32, -26); g.lineTo(32, 24); g.lineTo(10, 28); g.lineTo(-10, 22); g.lineTo(-32, 26); g.closePath(); });
+    g.save(); g.lineWidth = 2.5; g.strokeStyle = 'rgba(58,32,16,.55)'; g.setLineDash([4, 5]); g.beginPath(); g.moveTo(-22, 14); g.quadraticCurveTo(-8, -10, 8, 4); g.quadraticCurveTo(14, 8, 16, -6); g.stroke(); g.restore();
+    g.save(); g.lineWidth = 6; g.strokeStyle = '#d8281e'; g.beginPath(); g.moveTo(12, -16); g.lineTo(24, -4); g.moveTo(24, -16); g.lineTo(12, -4); g.stroke(); g.restore();
+  }),
   ruby: make((g) => {
     shape(g, '#ff3b5c', () => { g.moveTo(-18, -22); g.lineTo(18, -22); g.lineTo(32, -6); g.lineTo(0, 30); g.lineTo(-32, -6); g.closePath(); });
     g.save(); g.lineWidth = 3; g.beginPath(); g.moveTo(-32, -6); g.lineTo(32, -6); g.moveTo(-8, -22); g.lineTo(-12, -6); g.lineTo(0, 30); g.lineTo(12, -6); g.lineTo(8, -22); g.stroke(); g.restore();

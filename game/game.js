@@ -73,7 +73,7 @@ const ITEMS = {
   logs: 'Logs', oak_logs: 'Oak logs', copper_ore: 'Copper ore', iron_ore: 'Iron ore', frostsilver_ore: 'Frostsilver ore', silver_ore: 'Silver ore', gold_ore: 'Gold ore', shrimp: 'Raw shrimp', trout: 'Raw trout', bones: 'Bones',
   bread: 'Bread', pie: 'Apple pie', stew: 'Hearty stew', grilled_shrimp: 'Grilled shrimp', grilled_trout: 'Grilled trout', fish_pie: 'Fish pie',
   bone_dust: 'Bone dust', dark_essence: 'Dark essence',
-  dragon_scale: "Gagron's fire scale", silver_ring: 'Silver ring', ruby: 'Ruby', golden_crown: 'Tiny golden crown', frost_gem: 'Frost gem',
+  dragon_scale: "Gagron's fire scale", silver_ring: 'Silver ring', treasure_map: 'Treasure map', ruby: 'Ruby', golden_crown: 'Tiny golden crown', frost_gem: 'Frost gem',
   lucky_sock: "Bonecrusher's lucky sock", frost_crown: "Queen Frostwhisker's ice crown", gloom_hat: "Harold's droopy grey hat", rattle_tooth: "Rattlebones' gold tooth",
   dark_omen: 'Dark Omen',
   bogwood_logs: 'Bogwood logs', mireiron_ore: 'Mireiron ore', mire_charm: "Mother Mire's charm", rusty_helm: "Sir Soggington's rusty helm", gobbler_tooth: "The Gobbler's tooth", goon_hanky: "Goonshoe's giant hanky",
@@ -195,7 +195,7 @@ const gadgetMult = (k) => 1 + (((ARMOUR[S.equip.gadget] || {}).bonus || {})[k] |
 const BOSS_WEAPON = { boss_gagron: 'k_flame', boss_crusher: 'k_cleaver', boss_gloom: 'm_gloom', boss_rattle: 'a_rattle', boss_twin_a: 'a_twin', boss_gobbler: 'k_tongue', boss_colossus: 'k_colossus', boss_pomp: 'a_pomp' };
 const DARK_KING = 'Morgoth the Menacing'; // working name, change it here
 // Everything can be sold. Treasures (rings, rubies, crowns) are rare drops worth a lot.
-const SELL = { magma_shard: 220, obsidian_skull: 1200, dragon_heart: 6500, goon_hanky: 650, palm_logs: 22, sunstone_ore: 70, sphinx_coin: 600, pomp_monocle: 900, colossus_core: 1500, bogwood_logs: 14, mireiron_ore: 40, mire_charm: 500, rusty_helm: 500, gobbler_tooth: 800, grilled_shrimp: 5, grilled_trout: 12, fish_pie: 26, dragon_scale: 90, bread: 4, pie: 10, stew: 20, silver_ring: 40, ruby: 120, golden_crown: 400, frost_gem: 260, bone_dust: 3, dark_essence: 15, lucky_sock: 60, frost_crown: 300, gloom_hat: 60, rattle_tooth: 60, dark_omen: 500, logs: 3, oak_logs: 6, copper_ore: 4, iron_ore: 8, silver_ore: 15, gold_ore: 30, frostsilver_ore: 22, shrimp: 3, trout: 8, bones: 2 };
+const SELL = { treasure_map: 150, magma_shard: 220, obsidian_skull: 1200, dragon_heart: 6500, goon_hanky: 650, palm_logs: 22, sunstone_ore: 70, sphinx_coin: 600, pomp_monocle: 900, colossus_core: 1500, bogwood_logs: 14, mireiron_ore: 40, mire_charm: 500, rusty_helm: 500, gobbler_tooth: 800, grilled_shrimp: 5, grilled_trout: 12, fish_pie: 26, dragon_scale: 90, bread: 4, pie: 10, stew: 20, silver_ring: 40, ruby: 120, golden_crown: 400, frost_gem: 260, bone_dust: 3, dark_essence: 15, lucky_sock: 60, frost_crown: 300, gloom_hat: 60, rattle_tooth: 60, dark_omen: 500, logs: 3, oak_logs: 6, copper_ore: 4, iron_ore: 8, silver_ore: 15, gold_ore: 30, frostsilver_ore: 22, shrimp: 3, trout: 8, bones: 2 };
 const NODES = {
   tree: { skill: 'woodcutting', req: 1, xp: 25, item: 'logs', name: 'Tree', verb: 'Chop', doing: 'Chopping', deplete: 0.3, respawn: 14 },
   oak: { skill: 'woodcutting', req: 5, xp: 40, item: 'oak_logs', name: 'Oak tree', verb: 'Chop', doing: 'Chopping', deplete: 0.22, respawn: 20 },
@@ -4116,6 +4116,7 @@ function rollLoot(e) {
   if (e.T.boss) {
     give('dark_essence', 3);
     if (rng() < 0.4) give('ruby');
+    if (rng() < 0.2) give('treasure_map');
     if (rng() < 0.06) { give('dark_omen'); toast('A DARK OMEN! Take it to a freed town to call the monsters back.', ICONS.dark_omen, true); }
     if (rng() < 0.12) { give('golden_crown'); toast('A tiny golden crown! Marta will pay a fortune for that.', ICONS.golden_crown, true); }
     // mythic: about one in a hundred Chapter 4 boss kills, one in two hundred world bosses
@@ -4135,6 +4136,8 @@ function rollLoot(e) {
     if (rng() < (e.type === 'skel_minion' ? 0.003 : 0.0075)) { give('ruby'); toast('A ruby! That will sell for a lot.', ICONS.ruby, true); }
     cosDrop(e, at, false);
     // Champions always drop something worth having
+    if (e.T.elite && rng() < 0.25) give('treasure_map');
+    else if (!e.temp && rng() < 0.004) give('treasure_map');
     if (e.T.elite) { give('dark_essence', 2); give(rng() < 0.5 ? 'silver_ring' : 'ruby'); toast(`You beat a ${e.T.name}! Champions carry better loot.`, ICONS.star, true); }
     // v68: Magma Caverns treasures. Shards often, obsidian skulls now and then, and dragons carry their hearts
     if (e.inside === 'magma') {
@@ -4553,7 +4556,7 @@ const SPELLS = {
   agust: { name: 'Admin Gust', icon: 'gust', r: 5, cd: 0.12, price: 0, admin: true, col: '#c9b8ff', desc: 'Admin only. A huge whirlwind blast with spinning wind funnels that throws everything far away. No cooldown.' },
   gust: { name: 'Gust', r: 2, cd: 10, price: 4000, sold: 'frost', col: '#e8f6ff', desc: 'No damage, but blows monsters and other players away in the direction you face.' },
   bigheal: { name: 'Big Heal', r: 2, cd: 40, price: 6500, sold: 'frost', col: '#ffe9a0', desc: 'Heals most of your health in a column of golden light.' },
-  breath: { name: 'Fire Breath', r: 3, cd: 12, price: 14000, sold: 'marsh', charge: true, col: '#ff5a1a', desc: 'Hold to take a deep breath (embers swirl in), then let go to roar a long jet of fire. The longer you hold, the longer and hotter the flame. Burns.', dmg: 16 },
+  breath: { name: 'Fire Breath', r: 3, cd: 12, price: 14000, sold: 'marsh', charge: true, col: '#ff5a1a', desc: 'Hold to take a deep breath (embers swirl in), then let go to pour out a long, roaring stream of fire that follows where you face. The longer you hold, the further and longer it burns. Burns.', dmg: 16 },
   tidal: { name: 'Tidal Wave', r: 3, cd: 20, price: 30000, sold: 'marsh', col: '#3ab0ff', desc: 'Summons a huge wave that rolls forward, smashing and knocking back everything in its path.', dmg: 22 },
   shadow: { name: 'Shadow Wave', r: 4, cd: 28, price: 150000, sold: 'sands', col: '#8a3aff', desc: 'Two rings of living shadow burst out around you, hurting and dazing every foe they touch.', dmg: 36 },
 };
@@ -4659,30 +4662,37 @@ const SPELL_FX = {
   },
   // Fire Breath: a long roaring jet of fire from the mouth that rolls forward; c is how full the breath was (0.2 to 1)
   breath(x, z, ry, mine, c = 1) {
+    // v72.4 (Callum: "a lot further, long and continuous and bigger"): a long rolling jet of fire that keeps pouring out
+    // for 1.4 to 2.6 seconds. Your own breath follows where you face, so you can sweep it across a crowd.
     c = Math.max(0.2, Math.min(1, +c || 1));
-    const fx = Math.sin(ry), fz = Math.cos(ry), L = 7 + 11 * c, mouth = new THREE.Vector3(x + fx * 0.75, 2.25, z + fz * 0.75);
-    sfx('special'); sfx('dash'); later(0.2, () => sfx('dash'));
-    const n = Math.round(40 + 50 * c), geo = new THREE.IcosahedronGeometry(0.3, 1);
-    for (let i = 0; i < n; i++) later(i * (0.6 / n), () => {
-      // a tight white-hot core near the mouth that spreads into rolling orange and red flame, then dark smoke at the tip
-      const hot = i % 3 === 0, a = ry + (rng() - 0.5) * (hot ? 0.08 : 0.3), sp = L * (hot ? 0.55 + rng() * 0.2 : 0.8 + rng() * 0.3);
-      const col = hot ? (rng() < 0.5 ? '#fff6c0' : '#ffd23a') : rng() < 0.5 ? '#ff7a1a' : rng() < 0.7 ? '#f0461a' : '#b8281a';
-      const f = fxMesh(geo, col, { dark: !hot, opacity: hot ? 0.9 : 0.8 }); f.userData.op = hot ? 0.9 : 0.8; f.position.copy(mouth); f.rotation.set(rng() * 6, rng() * 6, 0);
-      const dur = 0.38 + rng() * 0.14, drop = 1.3 + rng() * 0.25, grow = hot ? 0.9 + 0.6 * c : 1.4 + 1.4 * c, wob = rng() * 6;
-      fade(f, dur, (k) => { const d = 0.2 + k * sp; f.position.set(mouth.x + Math.sin(a) * d - fx * 0.3, mouth.y - k * drop + Math.sin(k * 5 + wob) * 0.18 * k, mouth.z + Math.cos(a) * d - fz * 0.3); f.scale.setScalar(0.35 + k * grow); f.rotation.x += 0.15; });
-      if (i % 4 === 0) later(dur * 0.9, () => burst(new THREE.Vector3(mouth.x + Math.sin(a) * sp, 0.8, mouth.z + Math.cos(a) * sp), i % 8 ? '#ffb347' : '#4a3328', 5, 3, 0.9));
+    const L = 16 + 18 * c, dur = 1.4 + 1.2 * c, step = 0.022, n = Math.round(dur / step), geo = new THREE.IcosahedronGeometry(0.42, 1);
+    const aim = () => (mine && player && !player.dead ? { x: player.pos.x, z: player.pos.z, ry: player.root.rotation.y } : { x, z, ry });
+    sfx('special'); sfx('dash');
+    for (let t = 0.25; t < dur; t += 0.25) later(t, () => sfx('dash'));
+    for (let i = 0; i < n; i++) later(i * step, () => {
+      const A = aim(), fx = Math.sin(A.ry), fz = Math.cos(A.ry), mouth = new THREE.Vector3(A.x + fx * 0.75, 2.25, A.z + fz * 0.75);
+      for (let j = 0; j < 2; j++) {
+        // a white-hot core near the mouth that rolls out into big orange and red flame, with dark smoke at the far end
+        const hot = j === 0 && i % 2 === 0, a = A.ry + (rng() - 0.5) * (hot ? 0.06 : 0.22), sp = L * (hot ? 0.45 + rng() * 0.2 : 0.85 + rng() * 0.2);
+        const col = hot ? (rng() < 0.5 ? '#fff6c0' : '#ffd23a') : rng() < 0.5 ? '#ff7a1a' : rng() < 0.7 ? '#f0461a' : '#b8281a';
+        const f = fxMesh(geo, col, { dark: !hot, opacity: hot ? 0.9 : 0.8 }); f.userData.op = hot ? 0.9 : 0.8; f.position.copy(mouth); f.rotation.set(rng() * 6, rng() * 6, 0);
+        const life = 0.5 + rng() * 0.15, drop = 1.4 + rng() * 0.3, grow = hot ? 1.2 + 0.8 * c : 2.4 + 2.2 * c, wob = rng() * 6;
+        fade(f, life, (k) => { const d = 0.2 + k * sp; f.position.set(mouth.x + Math.sin(a) * d - fx * 0.3, mouth.y - k * drop + Math.sin(k * 5 + wob) * 0.22 * k, mouth.z + Math.cos(a) * d - fz * 0.3); f.scale.setScalar(0.4 + k * grow); f.rotation.x += 0.15; });
+        if (!hot && i % 5 === 0) later(life * 0.9, () => burst(new THREE.Vector3(mouth.x + Math.sin(a) * sp, 0.8, mouth.z + Math.cos(a) * sp), i % 10 ? '#ffb347' : '#4a3328', 4, 3, 0.9));
+      }
     });
-    // a hot glow sweeps along the ground under the flame
-    const glow = fxMesh(new THREE.CircleGeometry(1, 30, Math.PI / 2 - 0.3, 0.6), '#ff8a2a', { opacity: 0.5 }); glow.rotation.x = -Math.PI / 2; glow.rotation.z = ry + Math.PI; glow.position.set(x, 0.12, z); glow.userData.op = 0.5;
-    fade(glow, 0.9, (k) => glow.scale.setScalar(1 + Math.min(1, k * 1.8) * L));
-    burst(mouth.clone(), '#fff1a0', 14, 4, 0.9);
+    // a hot glow along the ground under the flame, following the jet
+    const glow = fxMesh(new THREE.CircleGeometry(1, 30, Math.PI / 2 - 0.2, 0.4), '#ff8a2a', { opacity: 0.45 }); glow.rotation.x = -Math.PI / 2; glow.position.set(x, 0.12, z); glow.userData.op = 0.45;
+    fade(glow, dur + 0.4, (k) => { const A = aim(); glow.position.set(A.x, 0.12, A.z); glow.rotation.z = A.ry + Math.PI; glow.scale.setScalar(1 + Math.min(1, k * 4) * L * (k > 0.85 ? (1 - k) / 0.15 : 1)); });
+    burst(new THREE.Vector3(x + Math.sin(ry) * 0.75, 2.25, z + Math.cos(ry) * 0.75), '#fff1a0', 18, 4, 1);
     if (mine) {
-      // it burns forward: closer things catch first, then the flame reaches further
-      const hit = new Set();
-      for (let s2 = 1; s2 <= 3; s2++) later(s2 * 0.12, () => {
-        const R = L * s2 / 3;
-        spellHit((px, pz) => { const ok = inCone(x, z, ry, R, 0.3)(px, pz); if (!ok) return false; const id = `${Math.round(px * 2)},${Math.round(pz * 2)}`; return true; }, SPELLS.breath.dmg * (0.45 + c) / 3, 0.7,
-          (e, dmg) => { if (!hit.has(e)) { hit.add(e); e.poison = { left: 4, at: now + 1, dmg: Math.max(1, Math.round(dmg * 0.6)) }; } });
+      // it keeps burning everything in the jet, a little every fifth of a second; anything caught keeps burning for a bit
+      player.busyUntil = Math.max(player.busyUntil, now + dur);
+      const hit = new Set(), ticks = Math.round(dur / 0.2);
+      for (let s2 = 1; s2 <= ticks; s2++) later(s2 * 0.2, () => {
+        const A = aim(), R = Math.min(L, L * s2 / 3);
+        spellHit(inCone(A.x, A.z, A.ry, R, 0.26), SPELLS.breath.dmg * (0.45 + c) * 1.5 / ticks, 0.25,
+          (e, dmg) => { if (!hit.has(e)) { hit.add(e); e.poison = { left: 4, at: now + 1, dmg: Math.max(1, Math.round(dmg * 1.5)) }; } });
       });
     }
   },
@@ -5983,6 +5993,65 @@ function dailyGift() {
   toast(`Daily gift, day ${D.streak} of 7: +${fmt(coins)} coins${D.streak === 7 ? ', 3 dark essence and a ruby!' : '. Come back tomorrow for a bigger one!'}`, ICONS.coins, true);
   refreshUI(); save();
 }
+// ---------- v73: treasure maps ----------
+// Champions (and now and then any monster or boss) drop treasure maps. A map unrolls by itself: a red X appears
+// somewhere in the land you're in, on the ground (with a faint red beam) and on your maps. Walk onto it to dig up the loot.
+let tmapFx = null;
+const TM_ARROWS = ['↑', '↗', '→', '↘', '↓', '↙', '←', '↖'];
+function tmapSpot() {
+  const L = LANDS[where];
+  for (let i = 0; i < 60; i++) {
+    let x, z;
+    if (L) { const a = rng() * 6.283, r = 12 + rng() * (L.r - 24); x = L.x + Math.cos(a) * r; z = L.z + Math.sin(a) * r; if (z - L.z > 48) continue; }
+    else { const a = rng() * 6.283, r = 22 + rng() * (WORLD_R - 40); x = Math.cos(a) * r; z = Math.sin(a) * r; if (Math.hypot(x - LAKE.x, z - LAKE.z) < LAKE.r + 5) continue; }
+    if (Math.hypot(x - player.pos.x, z - player.pos.z) < 25 || !isFree(x, z, 1.6)) continue;
+    if (enemies.some((e) => e.T.boss && e.home && Math.hypot(e.home.x - x, e.home.y - z) < 30)) continue; // never inside a boss arena
+    return { w: where, x: Math.round(x * 10) / 10, z: Math.round(z * 10) / 10 };
+  }
+  return null;
+}
+function tmapFxSet(on) {
+  if (!on) { if (tmapFx) { scene.remove(tmapFx); tmapFx.traverse((o) => { if (o.material) o.material.dispose(); }); tmapFx = null; } return; }
+  if (tmapFx) return;
+  const g = new THREE.Group(), red = new THREE.MeshBasicMaterial({ color: '#e8302a', transparent: true, opacity: 0.9, depthWrite: false, fog: false });
+  for (const r of [0.785, -0.785]) { const m = new THREE.Mesh(new THREE.PlaneGeometry(2.6, 0.5), red); m.rotation.x = -Math.PI / 2; m.rotation.z = r; m.position.y = 0.13; g.add(m); }
+  const beam = new THREE.Mesh(beamGeo, new THREE.MeshBasicMaterial({ color: '#ff5a3a', transparent: true, opacity: 0.22, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide, fog: false }));
+  g.add(beam); g.traverse((o) => o.layers.set(1)); g.position.set(S.tmap.x, 0, S.tmap.z); scene.add(g); tmapFx = g;
+}
+function tmapTick() {
+  if (!player || player.dead) return null;
+  const outdoors = where === 'out' || !!LANDS[where];
+  if (!S.tmap && outdoors && (S.inv.treasure_map || 0) > 0 && !uiLock()) {
+    const spot = tmapSpot();
+    if (spot) { takeItem('treasure_map', 1); S.tmap = spot; toast('You unrolled a treasure map! Find the red X: it\'s on your map too.', ICONS.treasure_map || ICONS.star, true); save(); }
+  }
+  if (!S.tmap) { tmapFxSet(false); return null; }
+  const T = S.tmap;
+  if (T.w !== where) { tmapFxSet(false); return `Treasure map: the X is in ${T.w === 'out' ? 'Jerry Valley' : (LANDS[T.w] && LANDS[T.w].name) || 'another land'}`; }
+  tmapFxSet(true);
+  if (tmapFx) tmapFx.children[2].material.opacity = 0.16 + Math.sin(now * 3) * 0.06;
+  const dx = T.x - player.pos.x, dz = T.z - player.pos.z, d = Math.hypot(dx, dz);
+  if (d < 1.8) { tmapDig(); return null; }
+  // screen directions: up the screen is -z
+  const ang = Math.atan2(dx, -dz), arrow = TM_ARROWS[((Math.round(ang / (Math.PI / 4)) % 8) + 8) % 8];
+  return `Treasure ${arrow} ${Math.round(d)}m`;
+}
+function tmapDig() {
+  const at = new THREE.Vector3(S.tmap.x, 0.5, S.tmap.z); S.tmap = null; tmapFxSet(false);
+  player.play('Interact', { once: true, fade: 0.08, onFinish: () => player.play('Idle') }); player.busyUntil = now + 0.8;
+  burst(at.clone().setY(0.6), '#b0844a', 30, 4, 1.1); sfx('coin');
+  const coins = Math.round((150 + heroLvl() * 30) * (1 + rng())); S.coins += coins;
+  const got = [`${fmt(coins)} coins`];
+  const give = (k, n = 1) => { addItem(k, n); got.push(n > 1 ? `${n} × ${ITEMS[k].toLowerCase()}` : ITEMS[k].toLowerCase()); popLoot(at, k, got.length * 0.15); };
+  give(rng() < 0.35 ? 'ruby' : 'silver_ring');
+  if (rng() < 0.5) give('dark_essence', 2 + Math.floor(rng() * 3));
+  if (rng() < 0.12) give('golden_crown');
+  if (rng() < 0.1) give('treasure_map'); // a map that leads to another map!
+  cosDrop({ inside: where, T: {}, temp: false }, at, true);
+  lootBeam(at, 3);
+  toast(`You dug up buried treasure: ${got.join(', ')}!`, ICONS.treasure_map || ICONS.coins, true);
+  S.mapsDug = (S.mapsDug || 0) + 1; refreshUI(); save();
+}
 // ---------- v72: weapon mastery ----------
 function masteryKill(t) {
   const was = masteryLv(t);
@@ -5996,8 +6065,9 @@ function chipsTick() {
   if (together && !togetherWas && !S.seenTogether) { S.seenTogether = true; toast('Fighting beside your party: +10% damage and +10% XP from kills.', ICONS.star, true); }
   togetherWas = together;
   const left = STREAK_T - (now - streakAt), rampage = streak >= 3 && left > 0;
-  if (!chipsEl) { chipsEl = document.createElement('div'); chipsEl.id = 'chips'; chipsEl.innerHTML = '<span class="chip rampage" hidden><b></b><i></i></span><span class="chip together" hidden><b>Together +10%</b></span><span class="chip rampage helping" hidden><b></b><i></i></span>'; document.body.appendChild(chipsEl); }
-  const [r, t, hp] = chipsEl.children;
+  if (!chipsEl) { chipsEl = document.createElement('div'); chipsEl.id = 'chips'; chipsEl.innerHTML = '<span class="chip rampage" hidden><b></b><i></i></span><span class="chip together" hidden><b>Together +10%</b></span><span class="chip rampage helping" hidden><b></b><i></i></span><span class="chip treasure" hidden><b></b></span>'; document.body.appendChild(chipsEl); }
+  const [r, t, hp, tr] = chipsEl.children;
+  const tl = tmapTick(); setShown(tr, !!tl); if (tl) setText(tr.firstChild, tl);
   setShown(t, together);
   const h = reviveTick(); setShown(hp, !!h);
   if (h) { setText(hp.firstChild, `Helping ${h.name} up...`); hp.lastChild.style.transform = `scaleX(${h.k.toFixed(3)})`; }
@@ -6094,7 +6164,7 @@ function hurtEnemy(e, dmg, src = null, power = 1) {
     }
     floatText(e.pos.clone().setY(2.4), `+${coins} coins`, 'gain');
     if (e.golden) goldenCaught(e);
-    if (e.T.elite) S.champKills = (S.champKills || 0) + 1;
+    if (e.T.elite) { S.champKills = (S.champKills || 0) + 1; const bd = boardToday(); bd.champs = (bd.champs || 0) + 1; }
     if (!crewHitting && !W().fist && MASTERY[W().type]) masteryKill(W().type);
     if (streak > (S.bestStreak || 0)) S.bestStreak = streak;
     for (const k of Object.keys(QUESTS)) if (S.quests[k].state === 'active' && QUESTS[k].need.kills !== undefined && (!QUESTS[k].land || QUESTS[k].land === e.inside)) S.quests[k].kills++;
@@ -7615,7 +7685,8 @@ function drawMap(cv, full) {
   const chestIcon = (x, z) => { const [u, v] = toPx(x, z), w = 7 * S1; g.fillStyle = '#ffd23f'; g.strokeStyle = '#3a2010'; g.lineWidth = 1.5 * S1; g.beginPath(); g.roundRect(u - w, v - w * 0.7, w * 2, w * 1.4, 2 * S1); g.fill(); g.stroke(); g.beginPath(); g.moveTo(u - w, v - w * 0.1); g.lineTo(u + w, v - w * 0.1); g.stroke(); };
   for (const c of chests) if (!c.open) chestIcon(c.x, c.z);
   // v65: the big map stays clean (places, bosses, quests); ordinary monsters only show on the little corner map
-  for (const e of enemies) if (e.hp > 0 && e.state !== 'rising' && e.state !== 'gone' && e.inside === where) { if (e.T.boss) skull(e.pos.x, e.pos.z, 8); else if (!full) dot(e.pos.x, e.pos.z, 3.5, '#ff5a4a'); }
+  for (const e of enemies) if (e.hp > 0 && e.state !== 'rising' && e.state !== 'gone' && e.inside === where) { if (e.T.boss) skull(e.pos.x, e.pos.z, 8); else if (e.T.elite) dot(e.pos.x, e.pos.z, full ? 5 : 5, '#ffd23f'); else if (!full) dot(e.pos.x, e.pos.z, 3.5, '#ff5a4a'); }
+  if (S.tmap && S.tmap.w === where) { const [u, v] = toPx(S.tmap.x, S.tmap.z), q = (full ? 7 : 5) * dpr; g.lineWidth = 4 * dpr; g.strokeStyle = '#3a2010'; g.beginPath(); g.moveTo(u - q, v - q); g.lineTo(u + q, v + q); g.moveTo(u + q, v - q); g.lineTo(u - q, v + q); g.stroke(); g.lineWidth = 2.2 * dpr; g.strokeStyle = '#ff3a3a'; g.stroke(); }
   if (party) for (const m of party.members) { const p = net.peers.get(m.id); if (p && p.where === where && m.id !== myId()) { dot(p.x, p.z, full ? 6 : 5.5, '#4fc3ff'); if (full) { const [u, v] = toPx(p.x, p.z); g.font = `800 ${11 * dpr}px Fredoka, sans-serif`; g.textAlign = 'center'; g.lineWidth = 3 * dpr; g.strokeStyle = '#3a2010'; g.strokeText(m.name, u, v - 9 * dpr); g.fillStyle = '#bfe9ff'; g.fillText(m.name, u, v - 9 * dpr); } } }
   for (const c of crew) if (c.inside === where && !full) dot(c.x, c.z, full ? 3.5 : 4, crewCfg(c).mode === 'ally' ? '#5ad87a' : crewCfg(c).mode === 'rival' ? '#ff7a3a' : '#c8a8ff');
   for (const T of TOWNS) if ((T.land || null) === (Lm ? Lm.id : null)) flag(T.x - 5, T.z - 3, townFree(T.id) ? '#3a8fe8' : '#d8324a');
@@ -9628,6 +9699,7 @@ function titleList() {
     ['mayor', 'The Mayor', 'Free a monster town', Object.keys(S.towns || {}).length > 0], ['tycoon', 'Tycoon', 'Be worth 100,000 coins', S.started && netWorth() >= 100000],
     ['worldbreaker', 'Worldbreaker', 'Helped beat King Wobblegut (retired)', (S.wbKills || 0) > 0],
     ['slayer', 'Champion Slayer', 'Defeat 25 Champions', (S.champKills || 0) >= 25], ['rampage', 'Unstoppable', 'Reach a Rampage of 10 kills', (S.bestStreak || 0) >= 10],
+    ['digger', 'Treasure Hunter', 'Dig up 10 treasure maps', (S.mapsDug || 0) >= 10],
     ['gatherer', 'Master Gatherer', 'Reach level 50 in any gathering skill', SKILLS.some(([k]) => lvl(k) >= 50)],
   ];
   for (const [id, name, how, ok] of extra) T.push({ id, name, how, ok: !!ok, col: '#e8a93a' });
@@ -10423,6 +10495,8 @@ const ORDER_POOL = [
   { k: 'trout', n: 4, say: 'Trout for the royal supper', skill: 'fishing' },
   { k: 'kills', n: 10, say: 'Clear skeletons off the roads', skill: 'hero' },
   { k: 'bones', n: 8, say: 'Bones for Fenwick\'s potions', skill: 'hero' },
+  { k: 'champs', n: 1, say: 'Hunt down a gold Champion', skill: 'hero', coins: 400, xp: 900 },
+  { k: 'champs', n: 3, say: 'Champion bounty: three of them!', skill: 'hero', coins: 1500, xp: 3000 },
 ];
 function boardToday() {
   const day = Math.floor(S.gameDays || 0);
@@ -10434,14 +10508,14 @@ function boardToday() {
   }
   return S.board;
 }
-const orderReward = (o) => ({ coins: 20 * o.n + 40, xp: o.skill === 'hero' ? 300 : 40 * o.n });
-const orderHave = (o, b) => (o.k === 'kills' ? b.kills : S.inv[o.k] || 0);
+const orderReward = (o) => (o.coins ? { coins: o.coins, xp: o.xp } : { coins: 20 * o.n + 40, xp: o.skill === 'hero' ? 300 : 40 * o.n });
+const orderHave = (o, b) => (o.k === 'kills' ? b.kills : o.k === 'champs' ? b.champs || 0 : S.inv[o.k] || 0);
 function openBoard(npc) {
   talking = npc;
   const b = boardToday(), d = $('dialog');
   const rows = b.orders.map((i) => {
     const o = ORDER_POOL[i], r = orderReward(o), done = b.done.includes(i), have = Math.min(orderHave(o, b), o.n);
-    const what = o.k === 'kills' ? `Defeat ${o.n} monsters` : `${o.n} ${ITEMS[o.k].toLowerCase()}`;
+    const what = o.k === 'kills' ? `Defeat ${o.n} monsters` : o.k === 'champs' ? `Beat ${o.n} Champion${o.n > 1 ? 's' : ''} (gold dots on your map)` : `${o.n} ${ITEMS[o.k].toLowerCase()}`;
     return `<button class="order ${done ? 'done' : ''}" data-ord="${i}" ${done || have < o.n ? 'disabled' : ''}><b>${o.say}</b><span>${what} · ${done ? 'Done!' : `${have} / ${o.n}`}</span><em>${fmt(r.coins)} coins, ${r.xp} ${o.skill === 'hero' ? 'hero' : SKILL_NAME[o.skill]} XP</em></button>`;
   }).join('');
   d.innerHTML = `<h3>${npc.name}</h3><p>Fresh requests every game day! Finish all three for a spin of the prize wheel.</p>
@@ -10450,7 +10524,7 @@ function openBoard(npc) {
   d.querySelectorAll('[data-ord]').forEach((btn) => { btn.onclick = () => {
     const i = +btn.dataset.ord, o = ORDER_POOL[i], r = orderReward(o);
     if (b.done.includes(i) || orderHave(o, b) < o.n) return;
-    if (o.k !== 'kills') takeItem(o.k, o.n);
+    if (o.k !== 'kills' && o.k !== 'champs') takeItem(o.k, o.n);
     b.done.push(i); S.coins += r.coins;
     if (o.skill === 'hero') giveHeroXp(r.xp); else giveXp(o.skill, r.xp);
     sfx('coin'); toast(`Request done: ${o.say}! +${fmt(r.coins)} coins`, ICONS.coins);
@@ -10526,7 +10600,7 @@ function makeGagronFriend() {
   npcs.push(gagronFriend);
 }
 
-window.__jq = { adminHuman, humanSet, get humanOn() { return humanOn; }, helpedUp, dailyGift, masteryLv, reviveTick, affixFx, partySet, get streak() { return streak; }, get together() { return together; }, dragonAttack, dodgedFx, popLoot, toast, wolfSet, get wolfOn() { return wolfOn; }, set wolfOn(v) { wolfOn = v; }, mobNet, netHeroesTick, esNet, enemyAttackNet, hzNet, bfxNet, pickTarget, heroesNear, get hazards() { return hazards; }, get netDrive() { return netDrive; }, shrinkMe, showStoryIntro, hurtPlayer, koSitOut, wakeUp, showLook, removeThing, giveThing, COS, ITEMS, GEAR, parseGive, chargedAttack, parseAmount, hitPeers, shotHitsPeer, showKeysNote, castSpell, learnSpell, spellCd, SPELLS, goonSneeze, goonDrips, goonFlop, setSlotBox, showSlots, get slotBox() { return slotBox; }, get guide() { return guide; }, bossNet, safeSpot, get PVP_LVL() { return PVP_LVL; }, goldNode, wbInfo, wbTick, get wb() { return wb; }, WB_SPOTS, tradeOpen, tradeNet, offerKey, get trade() { return trade; }, adv(s) { for (let t = 0; t < s; t += 0.05) { for (let i = timers.length - 1; i >= 0; i--) { timers[i].t -= 0.05; if (timers[i].t <= 0) { const f = timers[i].f; timers.splice(i, 1); f(); } } bossFxTick(0.05); } }, get party() { return party; }, BOSS_AI, PHASE_SETUP, get gulped() { return gulped; }, wriggle, toggleBigMap, spawnEnemy, openPathChoice, choosePath, startLanternNight, get lanterns() { return lanterns; }, duelOffer, duelPrize, onNet, chatCommand, canFight, openUpgrade, openBoard, boardToday, queueLetter, makeGagronFriend, net, peerActors, runeTick, bossFx, renderer, scene, openMayor, darkOmen, netWorth, liberateTown, setGolden, goldenCaught, pompArrive, get goldenE() { return goldenE; }, spinWheel, dayTick, get bossIntro() { return bossIntro; }, bossSkip, startBossScene, sailTo, regions, closeSheet, renderHotbar, crew, setCrewMode, TOWNS, liberateTown, chests, openChest, stopRoulette, enemies, startBossIntro, closeDialog, advanceDialog, dash, attackPress, craft, CRAFTS, openCreator, closeCreator, creator, rebuildHero, setZoom: (z) => { zoom = zoomGoal = z; }, hurtEnemy, goThrough, get where() { return where; }, INTERIORS, equipGear, spendPoint, giveHeroXp, heroLvl, stat, maxHp, defDiv, openWeaponShop, openKing, jump, eat, eatBest, openShop, swing, swingTarget, hitNode, projectiles, timers, get S() { return S; }, get player() { return player; }, enemies, nodes, npcs, startTask, doAction, giveXp, save, openSheet, openDialog };
+window.__jq = { SPELL_FX, adminHuman, humanSet, get humanOn() { return humanOn; }, helpedUp, dailyGift, masteryLv, reviveTick, affixFx, partySet, get streak() { return streak; }, get together() { return together; }, dragonAttack, dodgedFx, popLoot, toast, wolfSet, get wolfOn() { return wolfOn; }, set wolfOn(v) { wolfOn = v; }, mobNet, netHeroesTick, esNet, enemyAttackNet, hzNet, bfxNet, pickTarget, heroesNear, get hazards() { return hazards; }, get netDrive() { return netDrive; }, shrinkMe, showStoryIntro, hurtPlayer, koSitOut, wakeUp, showLook, removeThing, giveThing, COS, ITEMS, GEAR, parseGive, chargedAttack, parseAmount, hitPeers, shotHitsPeer, showKeysNote, castSpell, learnSpell, spellCd, SPELLS, goonSneeze, goonDrips, goonFlop, setSlotBox, showSlots, get slotBox() { return slotBox; }, get guide() { return guide; }, bossNet, safeSpot, get PVP_LVL() { return PVP_LVL; }, goldNode, wbInfo, wbTick, get wb() { return wb; }, WB_SPOTS, tradeOpen, tradeNet, offerKey, get trade() { return trade; }, adv(s) { for (let t = 0; t < s; t += 0.05) { for (let i = timers.length - 1; i >= 0; i--) { timers[i].t -= 0.05; if (timers[i].t <= 0) { const f = timers[i].f; timers.splice(i, 1); f(); } } bossFxTick(0.05); } }, get party() { return party; }, BOSS_AI, PHASE_SETUP, get gulped() { return gulped; }, wriggle, toggleBigMap, spawnEnemy, openPathChoice, choosePath, startLanternNight, get lanterns() { return lanterns; }, duelOffer, duelPrize, onNet, chatCommand, canFight, openUpgrade, openBoard, boardToday, queueLetter, makeGagronFriend, net, peerActors, runeTick, bossFx, renderer, scene, openMayor, darkOmen, netWorth, liberateTown, setGolden, goldenCaught, pompArrive, get goldenE() { return goldenE; }, spinWheel, dayTick, get bossIntro() { return bossIntro; }, bossSkip, startBossScene, sailTo, regions, closeSheet, renderHotbar, crew, setCrewMode, TOWNS, liberateTown, chests, openChest, stopRoulette, enemies, startBossIntro, closeDialog, advanceDialog, dash, attackPress, craft, CRAFTS, openCreator, closeCreator, creator, rebuildHero, setZoom: (z) => { zoom = zoomGoal = z; }, hurtEnemy, goThrough, get where() { return where; }, INTERIORS, equipGear, spendPoint, giveHeroXp, heroLvl, stat, maxHp, defDiv, openWeaponShop, openKing, jump, eat, eatBest, openShop, swing, swingTarget, hitNode, projectiles, timers, get S() { return S; }, get player() { return player; }, enemies, nodes, npcs, startTask, doAction, giveXp, save, openSheet, openDialog };
 window.addEventListener('error', (e) => { const m = $('loadmsg'); if (m) m.textContent = `Something went wrong: ${e.message}`; });
 main().catch((err) => {
   console.error(err);
