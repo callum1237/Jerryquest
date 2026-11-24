@@ -833,7 +833,10 @@ function makePeer(id, p) {
   if (cos.cape && COS.cape[cos.cape]) capeColour(a, COS.cape[cos.cape].col, COS.cape[cos.cape].glow);
   a.root.position.set(p.x || 0, 0, p.z || 0);
   a.play('Idle');
-  const tag = document.createElement('div'); tag.className = 'herotag peer'; tag.innerHTML = '<b></b><s class="tagbar"><u></u></s>'; document.body.appendChild(tag);
+  const tag = document.createElement('div'); tag.className = 'herotag peer'; tag.innerHTML = '<b title="Trade or invite"></b><s class="tagbar"><u></u></s>'; document.body.appendChild(tag);
+  // click a friend's name to trade with them or invite them to your party
+  const nameEl = tag.querySelector('b');
+  nameEl.addEventListener('pointerdown', (ev) => { ev.preventDefault(); ev.stopPropagation(); peerMenu(id, nameEl); });
   const pa = { a, tag, key: JSON.stringify(look), anim: 'Idle' };
   peerActors.set(id, pa);
   return pa;
@@ -848,6 +851,7 @@ function dropPeer(id) {
 const ONE_SHOT = /Attack|Hit_|Death|Jump|Dodge|Use_Item|Interact|Cheer|Spellcast|Block/;
 function peersTick(dt) {
   if (!net.on || !player) return;
+  if (trade && !net.peers.has(trade.with)) tradeClose(`${trade.name} left, so the trade was cancelled. Nothing was swapped.`);
   sendPos(player.pos.x, player.pos.z, player.root.rotation.y, player.name || 'Idle', where, `${Math.max(0, Math.round(S.hp))}/${maxHp()}`);
   shrinkEase(player, shrinkUntil > Date.now(), dt);
   const key = `${wolfOn ? 'w' : ''}${shrinkUntil > Date.now() ? 's' : ''}|${heroName()}|${heroLvl()}|${JSON.stringify(S.look)}|${S.path || ''}|${JSON.stringify(cosState().eq)}|${S.title || ''}`;
@@ -1679,7 +1683,7 @@ function enemyAttackNet(m) {
   const e = m.n ? enemies.find((x) => x.nid === m.n && x.inside === where && x.hp > 0) : null;
   const mine = m.t === myId(), d = hitFrom(m);
   // a hit that already landed on the sender's screen (a boss move): take it now
-  if (m.i) { if (!mine || player.dead) return; if (dodging()) floatText(player.pos.clone().setY(3.6), 'Dodged!', 'miss'); else hurtPlayer(d); return; }
+  if (m.i) { if (!mine || player.dead) return; if (dodging()) dodgedFx(); else hurtPlayer(d); return; }
   const tgt = mine ? player.pos : (net.peers.get(m.t) || {})._v;
   if (e) {
     if (tgt) e.face(tgt.x, tgt.z);
@@ -1694,7 +1698,7 @@ function enemyAttackNet(m) {
   } else if (mine) {
     later(0.4, () => {
       if (player.dead || Math.hypot(player.pos.x - src.x, player.pos.z - src.z) > (+m.R || 2.4) + 1.6) return;
-      if (dodging()) { floatText(player.pos.clone().setY(3.6), 'Dodged!', 'miss'); return; }
+      if (dodging()) { dodgedFx(); return; }
       hurtPlayer(d);
     });
   }
@@ -1724,7 +1728,7 @@ function bfxNet(m) {
       const R = Math.min(8, +m.R || 3.6), tick = Math.max(0.3, +m.tick || 0.5), d = hitFrom(m); let at = 0;
       tween(Math.min(6, +m.dur || 3), () => {
         if (e.hp <= 0 || player.dead || where !== e.inside || now < at) return;
-        if (Math.hypot(player.pos.x - e.pos.x, player.pos.z - e.pos.z) < R) { at = now + tick; if (dodging()) floatText(player.pos.clone().setY(3.6), 'Dodged!', 'miss'); else hurtPlayer(d); }
+        if (Math.hypot(player.pos.x - e.pos.x, player.pos.z - e.pos.z) < R) { at = now + tick; if (dodging()) dodgedFx(); else hurtPlayer(d); }
       });
     } else if (m.k === 'flame' && e.T.drake) { e.face(e.pos.x + Math.sin(+m.d || 0), e.pos.z + Math.cos(+m.d || 0)); e.play('Spellcast_Shoot', { once: true, fade: 0.1 }); dragonFlame(e, +m.d || 0, 12);
     } else if (m.k === 'ring') { toast('Its knees are glowing! Jump the laser (Space)!', ICONS.star); laserRing(e, +m.x, +m.z, hitFrom(m)); }
@@ -1858,15 +1862,34 @@ const tradeAsked = new Map();
 const emptyOffer = () => ({ coins: 0, items: {}, gear: [] });
 const offerKey = (o) => JSON.stringify([o.coins | 0, Object.entries(o.items || {}).filter(([, n]) => n > 0).sort(), [...(o.gear || [])].sort()]);
 const spareGear = () => S.owned.filter((k) => GEAR[k] && !Object.values(S.equip).includes(k) && k !== STARTER.weapon && k !== STARTER.armour);
+let peerMenuEl = null;
+function peerMenu(id, anchor) {
+  if (peerMenuEl) peerMenuEl.remove();
+  const p = net.peers.get(id); if (!p) return;
+  const el = peerMenuEl = document.createElement('div'); el.className = 'peermenu panel';
+  el.innerHTML = `<b></b><button type="button" data-a="trade">Trade</button><button type="button" data-a="party">Invite to party</button><button type="button" data-a="x">Close</button>`;
+  el.querySelector('b').textContent = `${p.name || 'Friend'} · Lv ${p.lvl || 1}`;
+  const r = anchor.getBoundingClientRect();
+  el.style.left = `${Math.max(8, Math.min(innerWidth - 180, r.left + r.width / 2 - 85))}px`; el.style.top = `${Math.max(8, r.top - 128)}px`;
+  el.addEventListener('pointerdown', (ev) => ev.stopPropagation());
+  el.onclick = (ev) => {
+    const a = ev.target.dataset && ev.target.dataset.a; if (!a) return;
+    el.remove(); peerMenuEl = null;
+    if (a === 'trade') tradeInvite(p.name || '');
+    if (a === 'party') chatCommand(`/p ${p.name || ''}`);
+  };
+  document.body.appendChild(el);
+  setTimeout(() => { if (peerMenuEl === el) { el.remove(); peerMenuEl = null; } }, 8000);
+}
 function tradeInvite(arg) {
   if (!net.on) { sys('Trading needs the game server.'); return; }
   const found = peerByName(arg);
   if (!found) { sys(`Nobody called "${arg}" is online right now.`); return; }
   const [id, p] = found;
   if (trade) { sys('Finish your current trade first.'); return; }
-  if (p.where !== where || Math.hypot(player.pos.x - p.x, player.pos.z - p.z) > 20) { sys(`Walk closer to ${p.name} to trade.`); return; }
+  if (p.where !== where || Math.hypot(player.pos.x - p.x, player.pos.z - p.z) > 20) { sys(`Walk closer to ${p.name} to trade.`); toast(`Walk closer to ${p.name} to trade.`, ICONS.coins); return; }
   tradeAsked.set(id, now); sendNet('ti', { to: id, name: heroName() });
-  sys(`Trade request sent to ${p.name}.`);
+  sys(`Trade request sent to ${p.name}.`); toast(`Trade request sent to ${p.name}. They have to accept.`, ICONS.coins);
 }
 function tradePrompt(from, name) {
   if (trade) return;
@@ -1910,7 +1933,7 @@ function tradeRender() {
     <div><h4>They give${T.theirReady ? ' <b class="rdy">Ready</b>' : ''}</h4><div class="toffer">${offerHtml(T.theirs, false)}</div></div></div>
     <div class="tadd"><label>Coins <input type="text" inputmode="decimal" autocomplete="off" value="${T.mine.coins || ''}" placeholder="0 (try 90k)"></label>
     <div class="tbag">${bag.map(([k, n]) => `<button type="button" data-add="${k}" title="${esc(ITEMS[k])}"><img src="${ICONS[k]}" alt=""><small>${n - (T.mine.items[k] || 0)}</small></button>`).join('')}${gear.map((k) => `<button type="button" data-addg="${k}" title="${esc(GEAR[k].name)}" class="g"><img src="${gearIcon(GEAR[k])}" alt=""></button>`).join('')}</div>
-    <p class="hint">Tap things in your bag to add them. Tap them in "You give" to take them back. Worn gear can't be traded.</p></div>
+    <p class="hint">Tap things in your bag to add them. Tap them in "You give" to take them back. Worn gear can't be traded. Nothing swaps until you BOTH press Ready on the same deal, and any change un-readies you both.</p></div>
     <div class="row"><button type="button" class="primary" id="tready">${T.ready ? 'Waiting for them...' : 'Ready'}</button><button type="button" id="tcancel">Cancel</button></div>`;
   el.querySelector('h3 span').textContent = T.name;
   const inp = el.querySelector('input');
@@ -3738,6 +3761,16 @@ function questTarget(id) {
   for (const n of nodes) if (n.def.item === missing) { const d = Math.hypot(n.x - P.x, n.z - P.z) + (landOf(n.x) === where ? 0 : 5000) + (n.alive === false ? 60 : 0); if (d < bd) { bd = d; best = n; } }
   return best ? { x: best.x, z: best.z, inside: landOf(best.x) } : npcAt(q.giver);
 }
+// The name of the place a quest is taking you (a valley zone or town, a land's area, or a building), for the arrow's sign.
+function placeOf(t) {
+  if (!t) return '';
+  if (INTERIORS[t.inside]) return INTERIORS[t.inside].name.replace(/^The /, '');
+  const near = (list) => list.find((Z) => Z && Z.name && Math.hypot(t.x - Z.x, t.z - Z.z) < (Z.r || 10) + 6);
+  if (t.inside === 'out') { const z = near(Object.values(ZONES)) || near(TOWNS); return z ? z.name : Math.hypot(t.x - CAMP.x, t.z - CAMP.z) < 16 ? 'Skeleton camp' : ''; }
+  const L = LANDS[t.inside]; if (!L) return '';
+  const z = near(Object.values(L.zones || {}));
+  return z ? z.name : '';
+}
 let guide = null;
 function buildGuide() {
   // a chunky golden arrow that circles the hero's feet, and a bouncing star over the spot
@@ -3775,6 +3808,7 @@ function guideTick() {
   // it steps aside during a boss fight, so the floor warnings are the only things on the ground
   const id = trackedQuest(), show = S.guideOn !== false && id && !uiLock() && !talking && $('bossbar').hidden;
   let t = show && questTarget(id), via = '';
+  const goalAt = t;
   if (t && t.inside !== where) {
     // the goal is in another place: lead to the door first
     if (LANDS[where]) { const C = LANDS[where].captain; t = { x: C.x, z: C.z, inside: where }; via = 'the ship'; }
@@ -3801,7 +3835,8 @@ function guideTick() {
   if (d > 4.5 && !creator.open) {
     const q = QUESTS[id], st = S.quests[id];
     const goal = st.state !== 'active' || questReady(id) ? `Talk to ${npcName(q.giver)}` : q.name;
-    const txt = `➤ ${via ? `To ${via} · ` : ''}${goal} · ${Math.round(d)}m`;
+    const pl = goalAt && st.state === 'active' && !questReady(id) ? placeOf(goalAt) : '';
+    const txt = `➤ ${via ? `To ${via} · ` : ''}${goal}${pl && !goal.includes(pl) ? ` · ${pl}` : ''} · ${Math.round(d)}m`;
     if (L.textContent !== txt) L.textContent = txt;
     const v = tmpV.copy(player.pos).setY(0).project(camera);
     setShown(L, v.z <= 1);
@@ -3959,7 +3994,18 @@ function pileTick(dt) {
 const lootPops = [];
 const iconTex = {};
 // A little item picture pops out of a beaten monster and floats up, so you can see what dropped.
-function popLoot(pos, item, delay = 0) {
+// Epic, Legendary and Mythic drops shoot up a pillar of light in their rarity colour, so you never miss them.
+const beamGeo = new THREE.CylinderGeometry(0.22, 0.45, 9, 12, 1, true).translate(0, 4.5, 0);
+function lootBeam(pos, rar) {
+  const col = rar >= 5 ? '#ff3a4a' : RARITY[rar].col;
+  const m = new THREE.Mesh(beamGeo, new THREE.MeshBasicMaterial({ color: col, transparent: true, opacity: 0.42, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide, fog: false }));
+  m.position.set(pos.x, 0, pos.z); m.layers.set(1); scene.add(m);
+  burst(pos.clone().setY(1.2), col, 30, 4, 1.4);
+  if (rar >= 4) sfx('win');
+  tween(3, (k) => { m.material.opacity = 0.42 * (k < 0.15 ? k / 0.15 : 1 - (k - 0.15) / 0.85); m.scale.set(1 + k * 0.5, 0.3 + Math.min(1, k * 4) * 0.7, 1 + k * 0.5); }, () => { scene.remove(m); m.material.dispose(); });
+}
+function popLoot(pos, item, delay = 0, rar = item === 'chest' ? 0 : itemRarIx(item)) {
+  if (rar >= 3) later(delay, () => lootBeam(pos, rar));
   later(delay, () => {
     if (!iconTex[item]) { const t = new THREE.TextureLoader().load(ICONS[item]); t.colorSpace = THREE.SRGBColorSpace; iconTex[item] = t; }
     const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: iconTex[item], depthTest: false, fog: false, transparent: true }));
@@ -3979,7 +4025,7 @@ function rollLoot(e) {
     // mythic: about one in a hundred Chapter 4 boss kills, one in two hundred world bosses
     const myth = Object.keys(WEAPONS).filter((k) => WEAPONS[k].mythic && !WEAPONS[k].price && !S.owned.includes(k)); // shop mythics (Dark Blade) never drop
     const mChance = e.T.world ? 0.005 : e.inside === 'magma' ? 0.06 : e.inside === 'sands' ? 0.01 : 0;
-    if (myth.length && rng() < mChance) { const mk = myth[Math.floor(rng() * myth.length)]; S.owned.push(mk); popLoot(at, 'chest', 0.8); toast(`MYTHIC DROP!!! ${WEAPONS[mk].name}! Almost nobody has one of these.`, gearIcon(WEAPONS[mk]), true); burst(at.clone().setY(2), '#b0182a', 80, 9, 1.8); if (net.on) sendChat(`I just found a MYTHIC ${WEAPONS[mk].name}!`); }
+    if (myth.length && rng() < mChance) { const mk = myth[Math.floor(rng() * myth.length)]; S.owned.push(mk); popLoot(at, 'chest', 0.8, 5); toast(`MYTHIC DROP!!! ${WEAPONS[mk].name}! Almost nobody has one of these.`, gearIcon(WEAPONS[mk]), true); burst(at.clone().setY(2), '#b0182a', 80, 9, 1.8); if (net.on) sendChat(`I just found a MYTHIC ${WEAPONS[mk].name}!`); }
     cosDrop(e, at, true);
     const wk = BOSS_WEAPON[e.type];
     if (wk && !S.owned.includes(wk) && rng() < 0.35) { S.owned.push(wk); popLoot(at, 'chest', 0.6); toast(`${gearRarity(WEAPONS[wk])[1].toUpperCase()} DROP: ${WEAPONS[wk].name} (${gearStats(WEAPONS[wk])})! Equip it from your bag.`, ICONS[WEAPONS[wk].type], true); }
@@ -4000,7 +4046,7 @@ function rollLoot(e) {
       if (!e.T.dragon && rng() < 0.04) { give('obsidian_skull'); toast('An obsidian skull! Traders pay well for those.', ICONS.obsidian_skull, true); }
       if (e.T.dragon && rng() < (e.T.lv >= 80 ? 0.35 : 0.2)) { give('dragon_heart'); toast('A DRAGON HEART! It is still warm... and worth a fortune.', ICONS.dragon_heart, true); }
       const myth = Object.keys(WEAPONS).filter((k) => WEAPONS[k].mythic && !WEAPONS[k].price && !S.owned.includes(k));
-      if (e.T.dragon && myth.length && rng() < (e.T.lv >= 80 ? 0.012 : 0.006)) { const mk = myth[Math.floor(rng() * myth.length)]; S.owned.push(mk); popLoot(at, 'chest', 0.8); toast(`MYTHIC DROP!!! ${WEAPONS[mk].name}! Almost nobody has one of these.`, gearIcon(WEAPONS[mk]), true); burst(at.clone().setY(2), '#b0182a', 80, 9, 1.8); if (net.on) sendChat(`I just found a MYTHIC ${WEAPONS[mk].name}!`); }
+      if (e.T.dragon && myth.length && rng() < (e.T.lv >= 80 ? 0.012 : 0.006)) { const mk = myth[Math.floor(rng() * myth.length)]; S.owned.push(mk); popLoot(at, 'chest', 0.8, 5); toast(`MYTHIC DROP!!! ${WEAPONS[mk].name}! Almost nobody has one of these.`, gearIcon(WEAPONS[mk]), true); burst(at.clone().setY(2), '#b0182a', 80, 9, 1.8); if (net.on) sendChat(`I just found a MYTHIC ${WEAPONS[mk].name}!`); }
     }
     // very rare: a shop weapon you don't own yet
     if (rng() < 0.012) {
@@ -5291,6 +5337,12 @@ const GRAV = 50;
 // Dash: a quick sidestep to the left or right of the screen. Brief dodge window, short cooldown.
 let dashUntil = 0, dashReady = 0, dashDir = { x: 0, z: 0 }, dashLeft = 0;
 const dodging = () => player.pos.y > 0.7 || now < dashUntil + 0.08 || dashLeft > 0;
+// v70: dodge an attack (dash or jump through it) and your next hit within 1.5s is a guaranteed Counter crit.
+let counterUntil = 0;
+function dodgedFx() {
+  floatText(player.pos.clone().setY(3.6), 'Dodged!', 'miss');
+  if (now > counterUntil) { counterUntil = now + 1.5; burst(player.pos.clone().setY(1.4), '#9fe8ff', 14, 3.5, 0.8); sfx('special'); if (!S.seenCounter) { S.seenCounter = true; toast('Nice dodge! Hit back quickly for a Counter: double damage.', ICONS.star, true); } }
+}
 // dir: [x, z] on screen. Left out, you dash the way you are moving, or the way you face when standing still.
 function dash(dir) {
   if (!player || player.dead || uiLock() || now < dashReady || stamina < 12) return;
@@ -5758,7 +5810,9 @@ function hurtEnemy(e, dmg, src = null, power = 1) {
   if (e.T.def && !bossRemote && !mobRemote && !wbRemote && !poisonHit) dmg = Math.max(1, Math.round(dmg * 100 / (100 + e.T.def)));
   // v68.2: critical hits. About one hit in ten lands extra hard (your own hits only)
   let crit = false;
-  if (!crewHitting && !poisonHit && !bossRemote && !mobRemote && !wbRemote && dmg > 0 && rng() < CRIT_CHANCE) { dmg = Math.round(dmg * 1.75); crit = true; }
+  let counter = false;
+  if (!crewHitting && !poisonHit && !bossRemote && !mobRemote && !wbRemote && dmg > 0 && now < counterUntil) { counterUntil = 0; counter = true; dmg = Math.round(dmg * 2); crit = true; }
+  else if (!crewHitting && !poisonHit && !bossRemote && !mobRemote && !wbRemote && dmg > 0 && rng() < CRIT_CHANCE) { dmg = Math.round(dmg * 1.75); crit = true; }
   if (!crewHitting && !poisonHit && !bossRemote && !mobRemote && !wbRemote) {
     const w = W();
     // marsh poison keeps hurting for a few seconds; the Fangblade drinks a little health back
@@ -5781,6 +5835,7 @@ function hurtEnemy(e, dmg, src = null, power = 1) {
   }
   phaseCheck(e);
   if (e.T.boss && !PHASE_LINES[e.type] && !e.lowSaid && e.hp > 0 && e.hp <= e.T.hp * 0.4) { e.lowSaid = true; bossShout(e); }
+  if (counter) floatText(head.clone().setY(head.y + 0.9), 'Counter!', 'crit');
   floatText(head, crit ? `${dmg}!` : String(dmg), crit ? 'crit' : e.hp <= 0 ? 'kill' : dmg >= Math.max(8, W().dmg * 1.6) ? 'big' : '');
   if (crit) burst(head.clone().setY(2.4), '#ffe07a', 10, 4, 0.8);
   impact(e, dmg, src, power, e.hp <= 0);
@@ -5972,7 +6027,7 @@ function hazardTick(dt) {
       }
       shake = Math.max(shake, 0.3);
       if (!player.dead && inHazard(h)) {
-        if (dodging()) floatText(player.pos.clone().setY(3.6), 'Dodged!', 'miss');
+        if (dodging()) dodgedFx();
         else hurtPlayer(h.dmg);
       }
       scene.remove(h.m, h.edge); if (h.m.userData.inEdge) scene.remove(h.m.userData.inEdge); h.m.material.dispose(); hazards.splice(i, 1);
@@ -6011,7 +6066,7 @@ function dragonAttack(e, toP) {
     e.play('1H_Melee_Attack_Chop', { once: true, fade: 0.08, onFinish: () => e.play('Idle_Combat') });
     later(0.55, () => {
       if (e.hp <= 0 || Math.hypot(player.pos.x - ep.x, player.pos.z - ep.z) > 5.5) return;
-      if (dodging()) { floatText(player.pos.clone().setY(3.6), 'Dodged!', 'miss'); return; }
+      if (dodging()) { dodgedFx(); return; }
       hurtPlayer(bossDmg(e, 0.7 + rng() * 0.5));
     });
   } else {
@@ -6223,7 +6278,7 @@ function axeSpin(e) {
     if (dt2 > 0.5) { e.pos.x += (dx / dt2) * 2.6 * dt; e.pos.z += (dz / dt2) * 2.6 * dt; }
     const d = Math.hypot(player.pos.x - e.pos.x, player.pos.z - e.pos.z);
     if (rng() < dt * 10) burst(e.pos.clone().setY(1.2), '#ffd08a', 4, 5, 0.5);
-    if (d < 3.6 && now > hitAt && !player.dead) { hitAt = now + 0.5; if (dodging()) floatText(player.pos.clone().setY(3.6), 'Dodged!', 'miss'); else hurtPlayer(bossDmg(e, 0.8)); }
+    if (d < 3.6 && now > hitAt && !player.dead) { hitAt = now + 0.5; if (dodging()) dodgedFx(); else hurtPlayer(bossDmg(e, 0.8)); }
   }, () => { if (e.hp > 0) { bossSay(e, 'So... dizzy...'); dizzy(e, 2.6); } });
 }
 // Harold the Grotesque: crystal runes shield him in phase 2. Stand on the glowing rune to shatter it.
@@ -7032,7 +7087,7 @@ function slamTick(dt) {
       burst(e.pos.clone().setY(0.5), '#ffd08a', 60, 9, 1.4);
       shake = 0.5;
       if (e.hp > 0 && !player.dead && where === e.inside && Math.hypot(player.pos.x - e.pos.x, player.pos.z - e.pos.z) < s2.R) {
-        if (dodging()) floatText(player.pos.clone().setY(3.6), 'Dodged!', 'miss');
+        if (dodging()) dodgedFx();
         else hurtPlayer(bossDmg(e, 1.6));
       }
       if (e.hp > 0) { e.state = 'chase'; e.play('Idle_Combat'); if (e.T.stuck) { bossSay(e, e.T.stuckLine || 'Stuck!'); dizzy(e, e.T.stuck); } }
@@ -7141,7 +7196,7 @@ function enemyTick(e, dt) {
           const tq = tgt ? tgt.pos : player.pos;
           if (e.hp <= 0 || Math.hypot(tq.x - ep.x, tq.z - ep.z) >= reach + 1) return;
           if (tgt) { hurtCrew(tgt, dmg, e); return; }
-          if (dodging()) { floatText(player.pos.clone().setY(3.6), 'Dodged!', 'miss'); return; }
+          if (dodging()) { dodgedFx(); return; }
           hurtPlayer(dmg);
         });
       }
@@ -8788,7 +8843,7 @@ let crewHitting = false;
 // a crew member lands a blow on t (a monster, a rival, or you)
 function crewStrike(c, t) {
   const dmg = crewDmg(c);
-  if (t === player) { const d = Math.round(dmg * 0.6); if (dodging()) { floatText(player.pos.clone().setY(3.6), 'Dodged!', 'miss'); return; } hurtPlayer(d); return; }
+  if (t === player) { const d = Math.round(dmg * 0.6); if (dodging()) { dodgedFx(); return; } hurtPlayer(d); return; }
   if (t.isCrew) { hurtCrew(t, dmg, c); return; }
   const hs = hitStopUntil; crewHitting = true;
   hurtEnemy(t, dmg, c.pos, c.def.heavy ? 1.3 : 1);
@@ -10180,7 +10235,7 @@ function makeGagronFriend() {
   npcs.push(gagronFriend);
 }
 
-window.__jq = { dragonAttack, toast, wolfSet, get wolfOn() { return wolfOn; }, set wolfOn(v) { wolfOn = v; }, mobNet, netHeroesTick, esNet, enemyAttackNet, hzNet, bfxNet, pickTarget, heroesNear, get hazards() { return hazards; }, get netDrive() { return netDrive; }, shrinkMe, showStoryIntro, hurtPlayer, koSitOut, wakeUp, showLook, removeThing, giveThing, COS, ITEMS, GEAR, parseGive, chargedAttack, parseAmount, hitPeers, shotHitsPeer, showKeysNote, castSpell, learnSpell, spellCd, SPELLS, goonSneeze, goonDrips, goonFlop, setSlotBox, showSlots, get slotBox() { return slotBox; }, get guide() { return guide; }, bossNet, safeSpot, get PVP_LVL() { return PVP_LVL; }, goldNode, wbInfo, wbTick, get wb() { return wb; }, WB_SPOTS, tradeOpen, tradeNet, offerKey, get trade() { return trade; }, adv(s) { for (let t = 0; t < s; t += 0.05) { for (let i = timers.length - 1; i >= 0; i--) { timers[i].t -= 0.05; if (timers[i].t <= 0) { const f = timers[i].f; timers.splice(i, 1); f(); } } bossFxTick(0.05); } }, get party() { return party; }, BOSS_AI, PHASE_SETUP, get gulped() { return gulped; }, wriggle, toggleBigMap, spawnEnemy, openPathChoice, choosePath, startLanternNight, get lanterns() { return lanterns; }, duelOffer, duelPrize, onNet, chatCommand, canFight, openUpgrade, openBoard, boardToday, queueLetter, makeGagronFriend, net, peerActors, runeTick, bossFx, renderer, scene, openMayor, darkOmen, netWorth, liberateTown, setGolden, goldenCaught, pompArrive, get goldenE() { return goldenE; }, spinWheel, dayTick, get bossIntro() { return bossIntro; }, bossSkip, startBossScene, sailTo, regions, closeSheet, renderHotbar, crew, setCrewMode, TOWNS, liberateTown, chests, openChest, stopRoulette, enemies, startBossIntro, closeDialog, advanceDialog, dash, attackPress, craft, CRAFTS, openCreator, closeCreator, creator, rebuildHero, setZoom: (z) => { zoom = zoomGoal = z; }, hurtEnemy, goThrough, get where() { return where; }, INTERIORS, equipGear, spendPoint, giveHeroXp, heroLvl, stat, maxHp, defDiv, openWeaponShop, openKing, jump, eat, eatBest, openShop, swing, swingTarget, hitNode, projectiles, timers, get S() { return S; }, get player() { return player; }, enemies, nodes, npcs, startTask, doAction, giveXp, save, openSheet, openDialog };
+window.__jq = { dragonAttack, dodgedFx, popLoot, toast, wolfSet, get wolfOn() { return wolfOn; }, set wolfOn(v) { wolfOn = v; }, mobNet, netHeroesTick, esNet, enemyAttackNet, hzNet, bfxNet, pickTarget, heroesNear, get hazards() { return hazards; }, get netDrive() { return netDrive; }, shrinkMe, showStoryIntro, hurtPlayer, koSitOut, wakeUp, showLook, removeThing, giveThing, COS, ITEMS, GEAR, parseGive, chargedAttack, parseAmount, hitPeers, shotHitsPeer, showKeysNote, castSpell, learnSpell, spellCd, SPELLS, goonSneeze, goonDrips, goonFlop, setSlotBox, showSlots, get slotBox() { return slotBox; }, get guide() { return guide; }, bossNet, safeSpot, get PVP_LVL() { return PVP_LVL; }, goldNode, wbInfo, wbTick, get wb() { return wb; }, WB_SPOTS, tradeOpen, tradeNet, offerKey, get trade() { return trade; }, adv(s) { for (let t = 0; t < s; t += 0.05) { for (let i = timers.length - 1; i >= 0; i--) { timers[i].t -= 0.05; if (timers[i].t <= 0) { const f = timers[i].f; timers.splice(i, 1); f(); } } bossFxTick(0.05); } }, get party() { return party; }, BOSS_AI, PHASE_SETUP, get gulped() { return gulped; }, wriggle, toggleBigMap, spawnEnemy, openPathChoice, choosePath, startLanternNight, get lanterns() { return lanterns; }, duelOffer, duelPrize, onNet, chatCommand, canFight, openUpgrade, openBoard, boardToday, queueLetter, makeGagronFriend, net, peerActors, runeTick, bossFx, renderer, scene, openMayor, darkOmen, netWorth, liberateTown, setGolden, goldenCaught, pompArrive, get goldenE() { return goldenE; }, spinWheel, dayTick, get bossIntro() { return bossIntro; }, bossSkip, startBossScene, sailTo, regions, closeSheet, renderHotbar, crew, setCrewMode, TOWNS, liberateTown, chests, openChest, stopRoulette, enemies, startBossIntro, closeDialog, advanceDialog, dash, attackPress, craft, CRAFTS, openCreator, closeCreator, creator, rebuildHero, setZoom: (z) => { zoom = zoomGoal = z; }, hurtEnemy, goThrough, get where() { return where; }, INTERIORS, equipGear, spendPoint, giveHeroXp, heroLvl, stat, maxHp, defDiv, openWeaponShop, openKing, jump, eat, eatBest, openShop, swing, swingTarget, hitNode, projectiles, timers, get S() { return S; }, get player() { return player; }, enemies, nodes, npcs, startTask, doAction, giveXp, save, openSheet, openDialog };
 window.addEventListener('error', (e) => { const m = $('loadmsg'); if (m) m.textContent = `Something went wrong: ${e.message}`; });
 main().catch((err) => {
   console.error(err);
