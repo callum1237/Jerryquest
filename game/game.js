@@ -912,7 +912,7 @@ function partySet(p, why) {
 // picks the action up from there, so nobody can fake one by sending a message.
 // typed amounts: "90k" = 90,000, "2.5m" = 2,500,000, "1b" = a billion; commas and spaces are ignored. NaN if it isn't a number.
 const parseAmount = (t) => { const m = String(t ?? '').replace(/[,\s_]/g, '').toLowerCase().match(/^(\d+(?:\.\d+)?|\.\d+)([kmb])?$/); return m ? Math.floor(parseFloat(m[1]) * ({ k: 1e3, m: 1e6, b: 1e9 }[m[2]] || 1)) : NaN; };
-const ADMIN_HELP = 'Admin: /give [player] thing [amount]. Things: coins, xp (or exp), any item, gear, look or spell by name (like /give prism aura or /give Bob dark blade), or an id like outfit:id, aura:id, hat:id, cape:id, trail:id, spell:id, or "all-looks". /give find skins (or auras, hats, capes, trails, spells, gear, items) lists names; /give find word searches. /kick player (30 seconds). /remove player thing [amount]. /look player shows their hero and bag. /shrink player makes them tiny for 30 seconds. /wolf and /unwolf turn you into a giant wolf and back. /azap gives you Admin Zap (admin only, no cooldown).';
+const ADMIN_HELP = 'Admin: /give [player] thing [amount]. Things: coins, xp (or exp), any item, gear, look or spell by name (like /give prism aura or /give Bob dark blade), or an id like outfit:id, aura:id, hat:id, cape:id, trail:id, spell:id, or "all-looks". /give find skins (or auras, hats, capes, trails, spells, gear, items) lists names; /give find word searches. /kick player (30 seconds). /remove player thing [amount]. /look player shows their hero and bag. /shrink player makes them tiny for 30 seconds. /wolf and /unwolf turn you into a giant wolf and back. /azap and /agust give you Admin Zap and Admin Gust (admin only, no cooldown).';
 function giveThing(what, n) {
   if (what === 'coins' || what === 'gold') { S.coins += n; refreshUI(); return `${fmt(n)} coins`; }
   if (what === 'xp' || what === 'exp') { giveHeroXp(n); return `${fmt(n)} hero XP`; }
@@ -1229,7 +1229,11 @@ function chatCommand(line) {
   if (/^kick$/i.test(cmd)) { adminKick(rest); return; }
   if (/^shrink$/i.test(cmd)) { adminShrink(rest); return; }
   if (/^wolf$/i.test(cmd)) { adminWolf(true); return; }
-  if (/^azap$/i.test(cmd)) { (async () => { if (!(await isAdmin())) { sys(net.on ? 'Only admins can use that command.' : 'Admin commands need you to be signed in and online.'); return; } learnSpell('azap'); sys('Admin Zap is on your hotbar. No cooldown: go wild.'); toast('You learned Admin Zap!', spellIcon('azap'), true); })(); return; }
+  if (/^agust$/i.test(cmd)) { (async () => { if (!(await isAdmin())) { sys(net.on ? 'Only admins can use that command.' : 'Admin commands need you to be signed in and online.'); return; } learnSpell('agust'); sys('Admin Gust is on your hotbar. No cooldown: blow them all away.'); toast('You learned Admin Gust!', spellIcon('agust'), true); })(); return; }
+  if (/^azap$/i.test(cmd)) { (async () => { if (!(await isAdmin())) { sys(net.on ? 'Only admins can use that command.' : 'Admin commands need you to be signed in and online.'); return; }
+    // /azap damage 50: Admin Zap hits for that percent of its full power (saved with your hero)
+    if (/^(damage|dmg)$/i.test(rest[0] || '')) { const v = parseFloat(rest[1]); if (!(v >= 0)) { sys(`Admin Zap damage is ${S.azapPct ?? 100}%. Change it with /azap damage 50 (any percent from 0 up to 1000).`); return; } S.azapPct = Math.min(1000, v); save(); sys(`Admin Zap now hits for ${S.azapPct}% damage.`); return; }
+    learnSpell('azap'); sys('Admin Zap is on your hotbar. No cooldown: go wild.'); toast('You learned Admin Zap!', spellIcon('azap'), true); })(); return; }
   if (/^unwolf$/i.test(cmd)) { adminWolf(false); return; }
   if (/^remove$/i.test(cmd)) { adminRemove(rest); return; }
   if (/^look$/i.test(cmd)) { adminLook(rest); return; }
@@ -4158,6 +4162,7 @@ const SPELLS = {
   zap: { name: 'Zap', r: 0, cd: 2.5, price: 350, sold: 'magic', col: '#ffe14a', desc: 'A bolt of lightning strikes the ground ahead of you. Long range.', dmg: 10 },
   heal: { name: 'Heal', r: 0, cd: 22, price: 300, sold: 'magic', col: '#7dff8a', desc: 'Heals a quarter of your health.' },
   scorch: { name: 'Scorch', r: 1, cd: 8, price: 900, sold: 'magic', col: '#ff7a2a', desc: 'A short burst of fire in front of you. Burns foes for a few seconds.', dmg: 7 },
+  agust: { name: 'Admin Gust', icon: 'gust', r: 5, cd: 0.12, price: 0, admin: true, col: '#c9b8ff', desc: 'Admin only. A huge whirlwind blast with spinning wind funnels that throws everything far away. No cooldown.' },
   gust: { name: 'Gust', r: 2, cd: 10, price: 4000, sold: 'frost', col: '#e8f6ff', desc: 'No damage, but blows monsters and other players away in the direction you face.' },
   bigheal: { name: 'Big Heal', r: 2, cd: 40, price: 6500, sold: 'frost', col: '#ffe9a0', desc: 'Heals most of your health in a column of golden light.' },
   tidal: { name: 'Tidal Wave', r: 3, cd: 20, price: 30000, sold: 'marsh', col: '#3ab0ff', desc: 'Summons a huge wave that rolls forward, smashing and knocking back everything in its path.', dmg: 22 },
@@ -4232,7 +4237,7 @@ const SPELL_FX = {
   },
   // the admin-only zap: no cooldown, much longer reach, thick violet-white bolts that chain to up to three foes
   azap(x, z, ry, mine) {
-    const o = { R: 22, w: 0.17, glow: '#9a6bff', dmg: 60, power: 1.4, big: true };
+    const pct = (S.azapPct ?? 100) / 100, o = { R: 22, w: 0.17, glow: '#9a6bff', dmg: Math.max(0.01, 60 * pct), power: 1.4 * Math.min(1, pct + 0.2), big: true };
     const foes = foesIn(inCone(x, z, ry, 23, 0.55)).sort((a, b) => Math.hypot(a.pos.x - x, a.pos.z - z) - Math.hypot(b.pos.x - x, b.pos.z - z)).slice(0, 3);
     if (!foes.length) { SPELL_FX.zap(x, z, ry, mine, o); return; }
     for (const e of foes) SPELL_FX.zap(x, z, ry, mine, { ...o, tgt: e });
@@ -4263,19 +4268,30 @@ const SPELL_FX = {
     if (mine) spellHit(inCone(x, z, ry, 5.2, 0.55), SPELLS.scorch.dmg, 0.6, (e, n) => { e.poison = { left: 3, at: now + 1, dmg: Math.max(1, Math.round(n * 0.25)) }; });
   },
   // rarer spells: properly flashy
-  gust(x, z, ry, mine) {
+  gust(x, z, ry, mine, o = {}) {
     sfx('dash');
-    for (let i = 0; i < 4; i++) later(i * 0.08, () => {
-      const arc = fxMesh(new THREE.RingGeometry(0.9, 1, 32, 1, Math.PI / 2 - 0.6, 1.2), '#e8f6ff'); arc.userData.op = 0.8;
-      arc.rotation.x = -Math.PI / 2; arc.rotation.z = ry; arc.position.set(x, 1 + i * 0.25, z);
-      fade(arc, 0.55, (k) => { const s = 1.2 + k * 9; arc.scale.set(s, s, s); });
+    if (o.big) {
+      // three spinning wind funnels race forward along the blast
+      for (let t = 0; t < 3; t++) {
+        const side = (t - 1) * 0.35, tw = new THREE.Group(); tw.position.set(x, 0, z); scene.add(tw);
+        for (let r = 0; r < 5; r++) { const ring = fxMesh(new THREE.TorusGeometry(0.5 + r * 0.32, 0.05, 6, 24), r % 2 ? '#c9b8ff' : '#f0fbff'); ring.rotation.x = Math.PI / 2; ring.position.y = 0.4 + r * 0.7; scene.remove(ring); tw.add(ring); }
+        tween(0.9, (k) => { const d = k * (o.R || 18), a = ry + side; tw.position.set(x + Math.sin(a) * d, 0, z + Math.cos(a) * d); tw.rotation.y += 0.5; tw.children.forEach((c) => { c.material.opacity = 0.85 * (1 - k); }); if (rng() < 0.5) burst(tw.position.clone().setY(0.5), '#ffffff', 2, 3, 0.5); },
+          () => { scene.remove(tw); tw.children.forEach((c) => { c.geometry.dispose(); c.material.dispose(); }); });
+      }
+    }
+    for (let i = 0; i < (o.arcs || 4); i++) later(i * 0.08, () => {
+      const arc = fxMesh(new THREE.RingGeometry(0.9, 1, 32, 1, Math.PI / 2 - 0.6, 1.2), o.big && i % 2 ? '#b9a8ff' : '#e8f6ff'); arc.userData.op = 0.8;
+      arc.rotation.x = -Math.PI / 2; arc.rotation.z = ry + Math.PI; arc.position.set(x, 1 + i * 0.25, z); // (the arcs used to point backwards)
+      fade(arc, 0.55, (k) => { const s = 1.2 + k * (o.R ? o.R - 1 : 9); arc.scale.set(s, s, s); });
     });
-    for (let i = 0; i < 10; i++) { const a = ry + (rng() - 0.5) * 1.1, r = 1 + rng() * 6; burst(new THREE.Vector3(x + Math.sin(a) * r, 0.6 + rng(), z + Math.cos(a) * r), '#ffffff', 3, 4, 0.6); }
+    for (let i = 0; i < (o.big ? 26 : 10); i++) { const a = ry + (rng() - 0.5) * 1.1, r = 1 + rng() * (o.big ? 13 : 6); burst(new THREE.Vector3(x + Math.sin(a) * r, 0.6 + rng(), z + Math.cos(a) * r), '#ffffff', 3, 4, 0.6); }
     if (!mine) return;
-    const fx = Math.sin(ry), fz = Math.cos(ry), test = inCone(x, z, ry, 10, 0.75);
-    for (const e of foesIn(test)) { const m = e.mass || 1; e.kb.set(fx * 26 / Math.sqrt(m), fz * 26 / Math.sqrt(m)); if (m < 3) { e.vy = 7 / m; e.lift = Math.max(e.lift, 0.01); } e.staggerUntil = now + 0.6; }
-    if (net.on) for (const [id, p] of net.peers) if (p.where === where && test(p.x, p.z)) sendNet('push', { to: id, x: +(fx * 9).toFixed(2), z: +(fz * 9).toFixed(2) });
+    const fx = Math.sin(ry), fz = Math.cos(ry), test = inCone(x, z, ry, o.R || 10, o.half || 0.75), F = o.force || 26;
+    for (const e of foesIn(test)) { const m = e.mass || 1; e.kb.set(fx * F / Math.sqrt(m), fz * F / Math.sqrt(m)); if (m < 3 || o.big) { e.vy = (o.big ? 12 : 7) / Math.min(m, 3); e.lift = Math.max(e.lift, 0.01); } e.staggerUntil = now + 0.6; }
+    if (net.on) for (const [id, p] of net.peers) if (p.where === where && test(p.x, p.z)) sendNet('push', { to: id, x: +(fx * (o.big ? 12 : 9)).toFixed(2), z: +(fz * (o.big ? 12 : 9)).toFixed(2) });
   },
+  // the admin-only gust: no cooldown, twice the reach, a far stronger blast and spinning wind funnels
+  agust(x, z, ry, mine) { SPELL_FX.gust(x, z, ry, mine, { R: 18, half: 1.0, force: 52, arcs: 7, big: true }); },
   bigheal(x, z, ry, mine) {
     sfx('levelup');
     const col = fxMesh(new THREE.CylinderGeometry(1.2, 1.6, 8, 28, 1, true), '#ffe9a0'); col.userData.op = 0.55; col.position.set(x, 4, z);
