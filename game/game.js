@@ -182,9 +182,11 @@ function gearRarIx(g) {
 // shop gear always sells for less than it costs (half, up to three quarters for the rarest), so buying to sell never pays
 const gearValue = (g) => Math.floor(g.unique ? [100, 200, 400, 1500, 6000, 40000][gearRarIx(g)] : g.price * [0.5, 0.55, 0.6, 0.65, 0.7, 0.75][gearRarIx(g)]);
 const gearIcon = (g) => (g.slot === 'weapon' ? ICONS[g.type] : ICONS[g.slot]);
-const gearStats = (g) => (g.slot === 'weapon'
-  ? `${g.dmg} dmg · ${g.type === 'melee' ? 'reach' : 'range'} ${g.reach} · ${g.cd}s · ${SPECIALS[specialOf(g)].name}${g.sun ? ' · +15% by day' : ''}`
-  : g.slot === 'gadget' ? g.desc : `+${g.def} defense`);
+let gearKeyOf = null; // gear object -> its key, so stats can include smith upgrades
+const gearStats = (g) => { if (!gearKeyOf) gearKeyOf = new Map(Object.entries(GEAR).map(([k, v]) => [v, k])); const k = gearKeyOf.get(g), p = k ? plusOf(k) : 0; return gearStatsRaw(g, p ? (WEAPONS[k] ? upDmg(k, p) : upDef(k, p)) : null); };
+const gearStatsRaw = (g, up) => (g.slot === 'weapon'
+  ? `${up ?? g.dmg} dmg · ${g.type === 'melee' ? 'reach' : 'range'} ${g.reach} · ${g.cd}s · ${SPECIALS[specialOf(g)].name}${g.sun ? ' · +15% by day' : ''}`
+  : g.slot === 'gadget' ? g.desc : `+${up ?? g.def} defense`);
 // the equipped gadget's bonus for one stat (dmg, def, hp or speed), as a multiplier
 const gadgetMult = (k) => 1 + (((ARMOUR[S.equip.gadget] || {}).bonus || {})[k] || 0);
 
@@ -546,10 +548,10 @@ const W = () => {
   if (unarmed) return FISTS;
   const k = WEAPONS[S.equip.weapon] ? S.equip.weapon : 'k_sword', p = plusOf(k);
   if (!p) return WEAPONS[k];
-  if (wCache.k !== k || wCache.p !== p) { const w = WEAPONS[k]; wCache.k = k; wCache.p = p; wCache.w = { ...w, dmg: Math.round(w.dmg * plusMult(k) * 10) / 10, name: plusName(k) }; }
+  if (wCache.k !== k || wCache.p !== p) { const w = WEAPONS[k]; wCache.k = k; wCache.p = p; wCache.w = { ...w, dmg: upDmg(k, p), name: plusName(k) }; }
   return wCache.w;
 };
-const gearDef = () => ['shield', 'armour'].reduce((a, sl) => a + (ARMOUR[S.equip[sl]] ? Math.round(ARMOUR[S.equip[sl]].def * plusMult(S.equip[sl]) * 10) / 10 : 0), 0);
+const gearDef = () => ['shield', 'armour'].reduce((a, sl) => a + (ARMOUR[S.equip[sl]] ? upDef(S.equip[sl], plusOf(S.equip[sl])) : 0), 0);
 const totalDef = () => stat('def') + gearDef();
 const dmgMult = () => (1 + ATK_MULT * stat('atk')) * renown();
 const defDiv = () => (1 + DEF_DIV * totalDef()) * pathDef();
@@ -9969,27 +9971,36 @@ function worthHtml() {
 
 
 // ---------- smith upgrades ----------
-// Brom can upgrade any weapon, shield or armour from +1 to +5. Each step adds 8% to its stats,
-// costs coins and ore, and never fails. A +5 old sword keeps up with a plain sword from the next chapter.
-const PLUS_MAX = 5, PLUS_STEP = 0.08;
+// Any smith can upgrade ANY weapon, shield or armour you own from +1 to +10, using iron ore and coins.
+// Each step adds 8% to its stats (armour also gets +0.5 Defense a step, so even a cloth tunic improves).
+// Costs rise each step and with the gear's chapter tier. It never fails, and you see the change first.
+const PLUS_MAX = 10, PLUS_STEP = 0.08;
 const plusOf = (k) => (S.plus && S.plus[k]) || 0;
 const plusMult = (k) => 1 + PLUS_STEP * plusOf(k);
 const plusName = (k) => `${GEAR[k].name}${plusOf(k) ? ` +${plusOf(k)}` : ''}`;
+function upDmg(k, p) { return Math.round(WEAPONS[k].dmg * (1 + PLUS_STEP * p) * 10) / 10; }
+function upDef(k, p) { return Math.round((ARMOUR[k].def * (1 + PLUS_STEP * p) + 0.5 * p) * 10) / 10; }
 function gearUpCost(k) {
-  const n = plusOf(k) + 1, g = GEAR[k], base = g.price || (g.unique ? 600 : 120);
-  return { coins: Math.round(base * 0.2 * n + 30 * n * n), ore: g.tier === 4 ? 'sunstone_ore' : g.tier === 3 ? 'mireiron_ore' : g.tier === 2 ? 'frostsilver_ore' : n <= 2 ? 'copper_ore' : 'iron_ore', count: 2 * n };
+  const n = plusOf(k) + 1, g = GEAR[k], base = g.price || (g.unique ? 600 : 120), tier = g.tier || 1;
+  return { coins: Math.round(base * 0.2 * n + 30 * n * n), ore: 'iron_ore', count: Math.round((2 + 2 * n) * (1 + (tier - 1) * 0.75)) };
+}
+function upStat(k, p) {
+  return WEAPONS[k] ? ['Damage', upDmg(k, p)] : ['Defense', upDef(k, p)];
 }
 function openUpgrade(npc) {
   talking = npc;
   const d = $('dialog');
-  const rows = ['weapon', 'shield', 'armour'].map((sl) => S.equip[sl]).filter((k) => GEAR[k]).map((k) => {
-    const g = GEAR[k], p = plusOf(k);
-    if (p >= PLUS_MAX) return `<div class="upg"><img src="${gearIcon(g)}" alt=""><b>${plusName(k)}</b><span>Fully upgraded!</span><em>Max</em></div>`;
-    const c = gearUpCost(k), have = S.inv[c.ore] || 0, ok = S.coins >= c.coins && have >= c.count;
-    return `<button class="upg" data-up="${k}" ${ok ? '' : 'disabled'}><img src="${gearIcon(g)}" alt=""><b>${plusName(k)} → +${p + 1}</b><span>${fmt(c.coins)} coins and ${c.count} ${ITEMS[c.ore].toLowerCase()} (you have ${have})</span><em>Upgrade</em></button>`;
+  const eq = ['weapon', 'shield', 'armour'].map((sl) => S.equip[sl]).filter((k) => GEAR[k]);
+  const all = [...eq, ...S.owned.filter((k) => (WEAPONS[k] || (ARMOUR[k] && ARMOUR[k].slot !== 'gadget')) && !eq.includes(k))];
+  const rows = all.map((k) => {
+    const g = GEAR[k], p = plusOf(k), worn = eq.includes(k) ? ' <small class="worn">equipped</small>' : '';
+    const [lab, now] = upStat(k, p);
+    if (p >= PLUS_MAX) return `<div class="upg"><img src="${gearIcon(g)}" alt=""><b>${plusName(k)}${worn}</b><span>${lab} ${now}. Fully upgraded!</span><em>Max</em></div>`;
+    const c = gearUpCost(k), have = S.inv[c.ore] || 0, ok = S.coins >= c.coins && have >= c.count, nxt = upStat(k, p + 1)[1];
+    return `<button class="upg" data-up="${k}" ${ok ? '' : 'disabled'}><img src="${gearIcon(g)}" alt=""><b>${plusName(k)} → +${p + 1}${worn}</b><span>${lab} ${now} → <strong class="upnew">${nxt}</strong> · ${c.count} iron ore (have ${have}) · ${fmt(c.coins)} coins</span><em>${ok ? 'Upgrade' : have < c.count ? 'Need iron' : 'Need coins'}</em></button>`;
   }).join('');
-  d.innerHTML = `<h3>${npc.name}</h3><p>Bring me ore and coin and I'll hammer your gear stronger. Each upgrade adds 8%, up to +5. My hammer never slips, I promise!</p>
-    <div class="upgs">${rows}</div><p class="hint">Upgrades go on the gear you have equipped. Copper ore for +1 and +2, iron ore after that.</p>
+  d.innerHTML = `<h3>${npc.name}</h3><p>Bring me iron ore and coin and I'll hammer any of your gear stronger, all the way to +10. My hammer never slips, I promise!</p>
+    <div class="upgs">${rows}</div><p class="hint">Mine iron ore from iron rocks (Mining 6). Better gear and higher upgrades need more iron.</p>
     <div class="row"><button id="ubk">Back to the shop</button><button id="ubye">Goodbye</button></div>`;
   d.querySelectorAll('[data-up]').forEach((b) => { b.onclick = () => {
     const k = b.dataset.up, c = gearUpCost(k);

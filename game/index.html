@@ -422,6 +422,9 @@
   body.blizzard #stage::after { content: ''; position: fixed; inset: 0; pointer-events: none; background: radial-gradient(ellipse at 50% 50%, transparent 35%, rgb(220 240 255 / .55) 100%); animation: blizz 2s ease-in-out infinite alternate; }
   @keyframes blizz { to { opacity: .7; } }
   .upgs, .orders { display: grid; gap: 8px; margin: 10px 0; }
+  .upgs { max-height: min(52vh, 420px); overflow-y: auto; padding-right: 4px; }
+  .upg .worn { font: 800 10.5px/1 var(--body, sans-serif); color: var(--plum); margin-left: 6px; text-transform: uppercase; letter-spacing: .04em; }
+  .upg .upnew { color: #2f8a3a; }
   .upg, .order { display: grid; grid-template-columns: 44px 1fr auto; align-items: center; gap: 2px 10px; text-align: left; padding: 8px 10px; font-size: 14px; }
   .order { grid-template-columns: 1fr auto; }
   .upg img { width: 44px; height: 44px; grid-row: span 2; }
