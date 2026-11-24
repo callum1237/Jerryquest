@@ -4,7 +4,7 @@ import { THREE, scene, camera, renderer, sun, sky, PRESETS, env, applyPreset, bl
 import * as SkeletonUtils from 'three/addons/utils/SkeletonUtils.js';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { buildWorld, buildFlowers, place, tentAt, S_PROP, S_BUILD, colliders, clouds, dynamic, LAKE, CAMP, MINE, S_NATURE, blocked, isFree, ZONES, WORLD_R, VS, TOWNS, ROADS, townFacing, VALLEY_ARENAS } from './world.js';
-import { LANDS, VALLEY_DOCK, buildLands, makeSnow, makeEmbers, MAGMA_FX, landRoads, coastOf, SANDS_FX, palmNode, roundNode } from './lands.js';
+import { LANDS, landPt, VALLEY_DOCK, buildLands, makeSnow, makeEmbers, MAGMA_FX, landRoads, coastOf, SANDS_FX, palmNode, roundNode } from './lands.js';
 import { ICONS } from './icons.js';
 import { HUMAN_ALIAS, HUMAN_LOOPS, makeHumanHair } from './human.js';
 import { buildInteriors, INTERIORS, lavaPools } from './interiors.js';
@@ -3771,10 +3771,10 @@ function skeletonize(e, T) {
 function buildEnemies() {
   for (const [k, dx, dz] of [['skel_warrior', -3, -4], ['skel_minion', -6, 3], ['skel_mage', 2, 6], ['skel_minion', 5, -1], ['skel_minion', -1, 9]]) spawnEnemy(k, CAMP.x + dx, CAMP.z + dz);
   const ring = (Z, list, r) => list.forEach((k, i) => { const a = (i / list.length) * Math.PI * 2 + 0.4; spawnEnemy(k, Z.x + Math.cos(a) * r, Z.z + Math.sin(a) * r); });
-  ring(ZONES.crags, ['skel_warrior', 'skel_minion', 'skel_warrior', 'skel_minion'], 27);
-  ring(ZONES.glimmer, ['skel_mage', 'mint_slime', 'skel_mage', 'mint_slime', 'jelly_slime'], 28);
-  ring(ZONES.hollow, ['skel_minion', 'hollow_bat', 'skel_warrior', 'hollow_bat', 'skel_mage', 'hollow_bat'], 24);
-  ring(ZONES.meadow, ['honey_slime', 'jelly_slime', 'honey_slime', 'jelly_slime', 'honey_slime'], 14);
+  ring(ZONES.crags, ['skel_warrior', 'skel_minion', 'skel_warrior', 'skel_minion'], 34);
+  ring(ZONES.glimmer, ['skel_mage', 'mint_slime', 'skel_mage', 'mint_slime', 'jelly_slime'], 35);
+  ring(ZONES.hollow, ['skel_minion', 'hollow_bat', 'skel_warrior', 'hollow_bat', 'skel_mage', 'hollow_bat'], 31);
+  ring(ZONES.meadow, ['honey_slime', 'jelly_slime', 'honey_slime', 'jelly_slime', 'honey_slime'], 18);
   // a few soft starter critters on the roads near the village
   for (const [x, z] of [[30, 34], [-34, 40], [44, -30]]) spawnEnemy('jelly_slime', x, z);
   spawnEnemy('boss_crusher', ZONES.crags.x, ZONES.crags.z);
@@ -3783,7 +3783,8 @@ function buildEnemies() {
   spawnEnemy('boss_gagron', INTERIORS.cave.lair.x, INTERIORS.cave.lair.z);
   buildTownMonsters();
   const FZs = LANDS.frost.zones;
-  const fring = (Z, list, r) => list.forEach((k, i) => { const a = (i / list.length) * Math.PI * 2 + 0.7; spawnEnemy(k, Z.x + Math.cos(a) * r, Z.z + Math.sin(a) * r); });
+  // v78: land packs spread out more (1.5x the old spacing) so they have room to roam
+  const fring = (Z, list, r) => list.forEach((k, i) => { const a = (i / list.length) * Math.PI * 2 + 0.7, rr = r * 1.5; spawnEnemy(k, Z.x + Math.cos(a) * rr, Z.z + Math.sin(a) * rr); });
   fring(FZs.woods, ['frost_minion', 'frost_warrior', 'frost_minion', 'frost_mage', 'frost_minion'], 11);
   fring(FZs.hills, ['frost_mage', 'frost_minion', 'frost_warrior', 'frost_minion'], 6);
   fring({ x: FZs.palace.x + 16, z: FZs.palace.z + 18 }, ['frost_warrior', 'frost_mage', 'frost_warrior'], 5);
@@ -3822,7 +3823,7 @@ function buildEnemies() {
   spawnEnemy('boss_pomp', DZs.workshop.x, DZs.workshop.z);
   spawnEnemy('boss_colossus', DZs.colossus.x, DZs.colossus.z - 2);
   // v76: the bigger maps' outskirts have their own roaming packs (they come out Fierce, being so far from home)
-  const pack = (land, x, z, list) => { const L = land ? LANDS[land] : { x: 0, z: 0 }; fring({ x: L.x + x, z: L.z + z }, list, 5); };
+  const pack = (land, x, z, list) => { const [px, pz] = land ? landPt(LANDS[land], x, z) : [x, z]; fring({ x: px, z: pz }, list, 5); };
   pack(null, 120, -130, ['skel_warrior', 'skel_mage', 'skel_minion', 'skel_warrior']);
   pack(null, -176, -20, ['skel_warrior', 'skel_minion', 'skel_warrior']);
   pack(null, 135, 122, ['honey_slime', 'mint_slime', 'jelly_slime', 'honey_slime']);
@@ -7641,7 +7642,7 @@ function enemyTick(e, dt) {
     && (!big || (!otherBossBusy(e) && !bossLocked(e))) && (big || enemies.filter((o) => o.state === 'chase' && !o.T.boss).length < 3 + 2 * heroesNear.length)) e.state = 'chase';
   if (e.state === 'slam') return;
   if (e.state === 'chase') {
-    if (fromHome > (big ? bossLeash(e) : 20)) { e.state = 'return'; return; }
+    if (fromHome > (big ? bossLeash(e) : 26)) { e.state = 'return'; return; }
     e.face(tp.x, tp.z);
     if (big && !foe && !e.T.world && toHero < 30 && now > (e.nextSpecial ??= now + 3) && now > (e.dizzyUntil || 0) && now > (e.staggerUntil || 0) && aim(() => bossSpecial(e))) return;
     if (toP > reach) {
@@ -7694,7 +7695,7 @@ function enemyTick(e, dt) {
     e.timer -= dt;
     if (e.timer < 0) {
       e.timer = 2 + rng() * 4;
-      const a = rng() * 6.28, r = rng() * 5;
+      const a = rng() * 6.28, r = rng() * (big ? 6 : 11); // v78: more room to roam
       e.target.set(e.home.x + Math.cos(a) * r, e.home.y + Math.sin(a) * r);
       e.state = 'walk'; e.walkAt = now;
     }
@@ -8486,18 +8487,18 @@ let bossIntro = null;
 // A chapter's last boss stays behind a shimmering seal until you've beaten the one before it.
 const BOSS_GATES = {
   // Chapter 1: the three shard guardians wake only once Gagron is beaten
-  boss_crusher: { quest: 'st_dragon', beat: 'boss_gagron', who: 'Gagron the Hideous', r: 21 },
-  boss_gloom: { all: [['st_crags', 'boss_crusher'], ['st_hollow', 'boss_rattle']], who: 'Bonecrusher and Captain Rattlebones', r: 21 },
-  boss_rattle: { quest: 'st_dragon', beat: 'boss_gagron', who: 'Gagron the Hideous', r: 19 },
+  boss_crusher: { quest: 'st_dragon', beat: 'boss_gagron', who: 'Gagron the Hideous', r: 28 },
+  boss_gloom: { all: [['st_crags', 'boss_crusher'], ['st_hollow', 'boss_rattle']], who: 'Bonecrusher and Captain Rattlebones', r: 28 },
+  boss_rattle: { quest: 'st_dragon', beat: 'boss_gagron', who: 'Gagron the Hideous', r: 26 },
   boss_colossus: { quest: 'st_pomp', beat: 'boss_pomp', who: 'Sir Percival Pompington' },
   boss_frost: { quest: 'st_twins', beat: 'boss_twin_a', who: 'the Avalanche Twins' },
   boss_gobbler: { quest: 'st_lantern', who: 'Lantern Night', finish: true },
-  boss_goon: { quest: 'st_sogg', beat: 'boss_sogg', who: 'Sir Soggington', r: 19 },
+  boss_goon: { quest: 'st_sogg', beat: 'boss_sogg', who: 'Sir Soggington', r: 26 },
 };
 // a friend already inside the seal (so they've unlocked it) lets you in to help them
 const friendInside = (e, g) => { if (!net.on) return false; const R = (g.r || SEAL_R) + 2; for (const p of net.peers.values()) if (p.where === e.inside && p.x !== undefined && Math.hypot(p.x - e.home.x, p.z - e.home.y) < R) return true; return false; };
 const bossLocked = (e) => { const g = e && BOSS_GATES[e.type]; if (!g) return false; if (friendInside(e, g)) return false; const B = S.beat || {}, Q = (q) => S.quests[q] && S.quests[q].state === 'done'; if (g.all) return !(B[e.type] || g.all.every(([q, b]) => Q(q) || B[b])); if ((S.beat || {})[e.type] || (S.quests[g.quest] && S.quests[g.quest].state === 'done') || (g.beat && (S.beat || {})[g.beat])) return false; return true; };
-const SEAL_R = 21;
+const SEAL_R = 27; // v78: boss stages are bigger
 let sealSaid = 0;
 function bossGateTick() {
   if (!player || player.dead) return;

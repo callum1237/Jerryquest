@@ -10,7 +10,7 @@ export const LANDS = {
   // Chapter 2. Towns sit either side of the village; Icicle Woods (west) and Snowman Hills (east) are hunting
   // grounds; the Ogre's Pass (north-west), the Twins' Ridge (north-east) and the Ice Palace (north) are boss stages.
   frost: {
-    id: 'frost', name: 'Frostwhisker Peaks', x: FX, z: FZ, r: 125, coast: 66,
+    id: 'frost', name: 'Frostwhisker Peaks', x: FX, z: FZ, r: 150, coast: 66,
     arrive: { x: FX, z: FZ + 71 }, captain: { x: FX + 4, z: FZ + 73 },
     village: { x: FX, z: FZ + 50 }, elder: { x: FX - 4, z: FZ + 48 },
     pond: { x: FX - 26, z: FZ - 14, r: 8 },
@@ -24,7 +24,7 @@ export const LANDS = {
   // Chapter 3. Mire Hollow (west), the Sunken Ruins (east) and Gobbler's Pool (north) are each a boss's own
   // big stage, far apart; the bog's monsters roam the ground between them, off the boardwalks.
   marsh: {
-    id: 'marsh', name: 'Gobbler Marsh', x: MX, z: MZ, r: 125, coast: 66, villageName: 'Lilypad Landing',
+    id: 'marsh', name: 'Gobbler Marsh', x: MX, z: MZ, r: 150, coast: 66, villageName: 'Lilypad Landing',
     arrive: { x: MX, z: MZ + 71 }, captain: { x: MX + 4, z: MZ + 73 },
     village: { x: MX, z: MZ + 50 }, elder: { x: MX - 4, z: MZ + 47 },
     pond: { x: MX + 24, z: MZ + 16, r: 8, name: 'Deep Pool' },
@@ -41,7 +41,7 @@ export const LANDS = {
   },
 };
 LANDS.sands = {
-  id: 'sands', name: 'Brassbolt Sands', x: DX, z: DZ, r: 100, villageName: 'Oasis Rest',
+  id: 'sands', name: 'Brassbolt Sands', x: DX, z: DZ, r: 135, villageName: 'Oasis Rest',
   arrive: { x: DX, z: DZ + 49 }, captain: { x: DX + 4, z: DZ + 51 },
   village: { x: DX, z: DZ + 30 }, elder: { x: DX - 4, z: DZ + 27 },
   pond: { x: DX + 9, z: DZ + 22, r: 5, name: 'The Oasis' },
@@ -68,7 +68,7 @@ LANDS.marsh.boss = 'gobbler';
 // v68: Magma Caverns, an optional land (not part of the story) full of flaming skeletons and dragons.
 // Its monsters are far above Chapter 4, so it is the place to go once you are strong.
 LANDS.magma = {
-  id: 'magma', name: 'Magma Caverns', x: KX, z: KZ, r: 96, villageName: 'Cinder Camp', optional: true,
+  id: 'magma', name: 'Magma Caverns', x: KX, z: KZ, r: 115, villageName: 'Cinder Camp', optional: true,
   arrive: { x: KX, z: KZ + 49 }, captain: { x: KX + 4, z: KZ + 51 },
   village: { x: KX, z: KZ + 30 }, elder: { x: KX - 4, z: KZ + 27 },
   pond: { x: KX + 2, z: KZ - 8, r: 7, name: 'Lava Lake' },
@@ -82,6 +82,20 @@ LANDS.magma = {
   map: { bg: '#3a2622', sea: '#2a4250', ground: '#5a463e', zone: '#6a4e42', boss: '#8a4a30', pond: '#ff7a2a', tree: '#2a1e1e', treeHi: '#ff9a4a', town: '#7a5a4a' },
   lava: [],
 };
+// v78 (Callum: "maps a good deal bigger, boss areas bigger, more room to roam"): everything north of the
+// crossroads and out to the sides spreads 1.35x further from the middle, and every hunting ground, boss stage and
+// monster camp gets bigger. The harbour, village and crossroads stay put, so the south (the bay) is unchanged.
+export const LAND_SPREAD = 1.35, STAGE_GROW = 1.4;
+export const landPt = (L, dx, dz) => [L.x + dx * LAND_SPREAD, L.z + (dz < 0 ? dz * LAND_SPREAD : dz)];
+for (const L of Object.values(LANDS)) {
+  const mv = (o, grow) => { const [x, z] = landPt(L, o.x - L.x, o.z - L.z); o.x = x; o.z = z; if (grow && o.r) o.r = Math.round(o.r * grow); };
+  for (const Z of Object.values(L.zones)) mv(Z, STAGE_GROW);
+  for (const A of Object.values(L.arenas || {})) mv(A, STAGE_GROW);
+  for (const C of L.camps || []) mv(C, 1.6);
+  if (L.pond) mv(L.pond);
+  if (L.lookout) mv(L.lookout);
+  for (const T of TOWNS) if (T.land === L.id) mv(T);
+}
 const coastOf = (L) => L.coast ?? 44;
 export { coastOf };
 // roads, shared by the land builder and the map. The two big lands have a hand-laid network;
@@ -244,6 +258,7 @@ function edgeBelt(L, tries, place2, nearPath, free, dens = 0.55) {
     const a = rng() * Math.PI * 2, rr = R - 44 + rng() * 64, x = L.x + Math.cos(a) * rr, z = L.z + Math.sin(a) * rr;
     if (z - L.z > C - 6 && Math.abs(x - L.x) < 40) continue;
     if (rng() > (rr < R - 14 ? dens * 0.3 : dens) || nearPath(x, z) || !free(x, z, 1.4)) continue;
+    if ([...Object.values(L.zones), ...Object.values(L.arenas || {}), ...(L.camps || [])].some((q) => Math.hypot(q.x - x, q.z - z) < q.r + 3)) continue;
     place2(x, z);
   }
 }
