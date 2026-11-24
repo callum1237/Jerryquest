@@ -167,7 +167,11 @@ export async function connect(profile) {
   channel.on('broadcast', { event: 'p' }, ({ payload: p }) => {
     const peer = net.peers.get(p.id);
     if (!peer) return;
-    Object.assign(peer, { where: p.w, gx: p.x, gz: p.z, ry: p.r, a: p.a, h: p.h, t: performance.now() });
+    // remember how fast they were moving, so their hero can glide smoothly between updates
+    const t = performance.now(), dt = (t - (peer.t || 0)) / 1000;
+    let vx = 0, vz = 0;
+    if (peer.gx !== undefined && dt > 0.05 && dt < 0.6 && p.w === peer.where) { vx = (p.x - peer.gx) / dt; vz = (p.z - peer.gz) / dt; if (Math.hypot(vx, vz) > 20) vx = vz = 0; }
+    Object.assign(peer, { where: p.w, gx: p.x, gz: p.z, vx, vz, ry: p.r, a: p.a, h: p.h, t });
     if (peer.x === undefined) { peer.x = p.x; peer.z = p.z; }
   });
   channel.on('broadcast', { event: 'c' }, ({ payload: m }) => {
@@ -182,7 +186,7 @@ export async function connect(profile) {
       if (id === net.user.id || !metas[0]) continue;
       seen.add(id);
       const m = metas[0], peer = net.peers.get(id) || { x: m.x, z: m.z, gx: m.x, gz: m.z, ry: 0, a: 'Idle', where: m.w };
-      Object.assign(peer, { name: m.name, lvl: m.lvl, look: m.look, ver: m.ver, sm: m.sm });
+      Object.assign(peer, { name: m.name, lvl: m.lvl, look: m.look, ver: m.ver, sm: m.sm, wf: m.wf });
       net.peers.set(id, peer);
     }
     for (const id of [...net.peers.keys()]) if (!seen.has(id)) { if (net.onPeerGone) net.onPeerGone(id); net.peers.delete(id); }
@@ -191,7 +195,7 @@ export async function connect(profile) {
 }
 // ---------- player-to-player messages ----------
 // Parties (invite, accept, state, leave), duels (hit, knock-out, the winner's prize) and shared party XP.
-const NET_EVENTS = ['pi', 'pa', 'ps', 'pl', 'hit', 'ko', 'loot', 'px', 'ti', 'ta', 'to', 'tx', 'wb', 'bh', 'bs', 'spell', 'push', 'adm', 'mh'];
+const NET_EVENTS = ['pi', 'pa', 'ps', 'pl', 'hit', 'ko', 'loot', 'px', 'ti', 'ta', 'to', 'tx', 'wb', 'bh', 'bs', 'spell', 'push', 'adm', 'mh', 'es', 'ea', 'hz', 'bfx'];
 export function sendNet(ev, payload = {}) {
   if (!channel || !net.on || !NET_EVENTS.includes(ev)) return;
   channel.send({ type: 'broadcast', event: ev, payload: { ...payload, id: net.user.id } });

@@ -800,7 +800,7 @@ function titleCam() {
   camera.lookAt(0, 3, -4);
 }
 let profileKey = '';
-function profile() { const C = cosState(), t = heroTitle(); return { sm: shrinkUntil > Date.now() ? 1 : 0, name: heroName(), lvl: heroLvl(), look: { ...S.look, path: S.path || '', cos: { ...C.eq }, ti: t ? t.name : '', tc: t ? t.col : '' }, w: where, x: player ? player.pos.x : 0, z: player ? player.pos.z : 0 }; }
+function profile() { const C = cosState(), t = heroTitle(); return { sm: shrinkUntil > Date.now() ? 1 : 0, wf: wolfOn ? 1 : 0, name: heroName(), lvl: heroLvl(), look: { ...S.look, path: S.path || '', cos: { ...C.eq }, ti: t ? t.name : '', tc: t ? t.col : '' }, w: where, x: player ? player.pos.x : 0, z: player ? player.pos.z : 0 }; }
 function goOnline() {
   net.onTowns = syncTowns;
   net.onPeerGone = (id) => { dropPeer(id); partyPeerGone(id); if (trade && trade.with === id) tradeClose('Your trade partner left.'); };
@@ -833,6 +833,7 @@ function dropPeer(id) {
   const pa = peerActors.get(id);
   if (!pa) return;
   if (pa.a.flair) auraKit(pa.a, null);
+  if (pa.a.wolf) wolfSet(pa.a, false);
   scene.remove(pa.a.root); pa.tag.remove(); peerActors.delete(id);
 }
 const ONE_SHOT = /Attack|Hit_|Death|Jump|Dodge|Use_Item|Interact|Cheer|Spellcast|Block/;
@@ -840,7 +841,7 @@ function peersTick(dt) {
   if (!net.on || !player) return;
   sendPos(player.pos.x, player.pos.z, player.root.rotation.y, player.name || 'Idle', where, `${Math.max(0, Math.round(S.hp))}/${maxHp()}`);
   shrinkEase(player, shrinkUntil > Date.now(), dt);
-  const key = `${shrinkUntil > Date.now() ? 's' : ''}|${heroName()}|${heroLvl()}|${JSON.stringify(S.look)}|${S.path || ''}|${JSON.stringify(cosState().eq)}|${S.title || ''}`;
+  const key = `${wolfOn ? 'w' : ''}${shrinkUntil > Date.now() ? 's' : ''}|${heroName()}|${heroLvl()}|${JSON.stringify(S.look)}|${S.path || ''}|${JSON.stringify(cosState().eq)}|${S.title || ''}`;
   if (key !== profileKey) { profileKey = key; updateProfile(profile()); }
   for (const [id, p] of net.peers) {
     let pa = peerActors.get(id);
@@ -848,20 +849,24 @@ function peersTick(dt) {
     if (!pa) pa = makePeer(id, p);
     const here = p.where === where && !creator.open;
     pa.a.root.visible = here;
+    if (pa.a.wolf) pa.a.wolf.visible = here;
     if (!here) { setShown(pa.tag, false); continue; }
-    // glide towards the last position they sent
-    const k = Math.min(1, dt * 10);
-    p.x += (p.gx - p.x) * k; p.z += (p.gz - p.z) * k;
-    if (Math.hypot(p.gx - p.x, p.gz - p.z) > 12) { p.x = p.gx; p.z = p.gz; }
+    // glide towards where they are now: their last update, nudged on by how fast they were moving
+    const k = Math.min(1, dt * 12), still = !/Running|Walking|Dodge|Jump/.test(p.a || '');
+    const ahead = still ? 0 : Math.min(0.2, (performance.now() - (p.t || 0)) / 1000);
+    const tx = p.gx + (p.vx || 0) * ahead, tz = p.gz + (p.vz || 0) * ahead;
+    p.x += (tx - p.x) * k; p.z += (tz - p.z) * k;
+    if (Math.hypot(tx - p.x, tz - p.z) > 12) { p.x = tx; p.z = tz; }
     pa.a.root.position.set(p.x, 0, p.z);
     let dr = (p.ry || 0) - pa.a.root.rotation.y; dr = Math.atan2(Math.sin(dr), Math.cos(dr));
-    pa.a.root.rotation.y += dr * k;
+    pa.a.root.rotation.y += dr * Math.min(1, dt * 14);
     if (p.a && p.a !== pa.anim) { if (/Death/.test(p.a) && !/Death/.test(pa.anim || '')) deathFx(p.x, p.z); pa.anim = p.a; pa.a.play(p.a, { once: ONE_SHOT.test(p.a), clamp: /Death/.test(p.a) }); }
     shrinkEase(pa.a, !!p.sm, dt);
+    wolfSet(pa.a, !!p.wf); wolfTick(pa.a, dt, pa.anim);
     pa.a.mixer.update(dt); headPose(pa.a);
     flairTick(pa.a, dt, /Running|Walking/.test(pa.anim));
     if (pa.shimAt === undefined || now > pa.shimAt) { pa.shimAt = now + 0.1; shimmerTick(pa.a, p.look && p.look.cos); }
-    const v = tmpV.set(p.x, 0.6 + 3.8 * (pa.a.shrinkK || 1), p.z).project(camera);
+    const v = tmpV.set(p.x, pa.a.wolf ? 7.4 : 0.6 + 3.8 * (pa.a.shrinkK || 1), p.z).project(camera);
     if (v.z > 1 || bossIntro) { setShown(pa.tag, false); continue; }
     setShown(pa.tag, true);
     pin(pa.tag, v);
@@ -1089,6 +1094,90 @@ function shrinkMe(secs) {
   toast(`Poof! You've been shrunk for ${secs} seconds!`, ICONS.star, true);
   setTimeout(() => { profileKey = ''; if (player) burst(player.pos.clone().setY(1), '#c8a0ff', 20, 3); }, secs * 1000 + 50);
 }
+// ---------- /wolf ----------
+// Admins can turn into a giant wolf with /wolf until /unwolf. The wolf is built here from simple shapes in the
+// same storybook style (ink outlines come from the renderer), so it's original and free. Everyone sees it.
+let wolfOn = false;
+function makeWolf() {
+  const g = new THREE.Group(), parts = {};
+  const M = (c) => toon(c);
+  const fur = M('#8d939e'), dark = M('#5b616c'), pale = M('#e4e2dc'), black = M('#1d1c22'), eyeW = M('#fff6d8'), eyeC = M('#f2b632');
+  const add = (geo, mats, x, y, z, parent = g) => { const m = new THREE.Mesh(geo, mats.std); registerMesh(m, mats); m.castShadow = true; m.position.set(x, y, z); parent.add(m); return m; };
+  const body = new THREE.Group(); body.position.y = 1.55; g.add(body); parts.body = body;
+  const torso = add(new THREE.CapsuleGeometry(0.62, 1.5, 6, 14), fur, 0, 0, -0.1, body); torso.rotation.x = Math.PI / 2; torso.scale.set(1, 1, 0.9);
+  add(new THREE.SphereGeometry(0.5, 14, 10), pale, 0, -0.25, 0.25, body).scale.set(1, 0.75, 1.6); // belly
+  add(new THREE.SphereGeometry(0.72, 16, 12), fur, 0, 0.25, 0.75, body).scale.set(1, 1.05, 0.9); // chest ruff
+  add(new THREE.SphereGeometry(0.5, 14, 10), pale, 0, -0.05, 1.18, body).scale.set(0.9, 1, 0.55);
+  add(new THREE.SphereGeometry(0.45, 12, 8), dark, 0, 0.5, -0.2, body).scale.set(1.15, 0.55, 2.2); // dark saddle
+  // head: a big chibi head with a snout, pointed ears and bright anime eyes
+  const head = new THREE.Group(); head.position.set(0, 0.85, 1.35); body.add(head); parts.head = head;
+  add(new THREE.SphereGeometry(0.62, 18, 14), fur, 0, 0, 0, head).scale.set(1.05, 0.95, 1);
+  add(new THREE.SphereGeometry(0.42, 14, 10), pale, 0, -0.22, 0.32, head).scale.set(1.1, 0.7, 0.9); // cheeks
+  const snout = add(new THREE.CylinderGeometry(0.19, 0.3, 0.75, 12), fur, 0, -0.1, 0.8, head); snout.rotation.x = Math.PI / 2; snout.scale.z = 0.8;
+  add(new THREE.SphereGeometry(0.24, 12, 8), pale, 0, -0.27, 0.78, head).scale.set(0.95, 0.5, 1.5); // muzzle underside
+  add(new THREE.SphereGeometry(0.13, 10, 8), black, 0, -0.02, 1.17, head).scale.set(1.2, 0.85, 0.9); // nose
+  add(new THREE.BoxGeometry(0.26, 0.03, 0.03), black, 0, -0.33, 1.02, head); // little mouth line
+  for (const s of [-1, 1]) {
+    const ear = add(new THREE.ConeGeometry(0.2, 0.55, 4), dark, s * 0.33, 0.6, -0.05, head); ear.rotation.set(-0.15, 0, -s * 0.25);
+    add(new THREE.ConeGeometry(0.1, 0.3, 4), pale, s * 0.33, 0.55, 0.03, head).rotation.set(-0.15, 0, -s * 0.25);
+    const ew = add(new THREE.SphereGeometry(0.15, 12, 10), eyeW, s * 0.25, 0.1, 0.5, head); ew.scale.set(1, 1.2, 0.5);
+    add(new THREE.SphereGeometry(0.1, 10, 8), eyeC, s * 0.25, 0.09, 0.56, head).scale.set(1, 1.2, 0.5);
+    add(new THREE.SphereGeometry(0.055, 8, 6), black, s * 0.25, 0.09, 0.6, head).scale.set(0.8, 1.3, 0.5);
+    add(new THREE.SphereGeometry(0.03, 6, 4), eyeW, s * 0.22, 0.15, 0.63, head);
+    add(new THREE.BoxGeometry(0.2, 0.05, 0.05), black, s * 0.25, 0.32, 0.5, head).rotation.z = s * 0.25; // brows
+  }
+  // legs swing from the hips
+  parts.legs = [];
+  for (const [x, z] of [[-0.38, 0.75], [0.38, 0.75], [-0.38, -0.85], [0.38, -0.85]]) {
+    const hip = new THREE.Group(); hip.position.set(x, 1.45, z); g.add(hip);
+    add(new THREE.CapsuleGeometry(0.17, 0.85, 4, 8), fur, 0, -0.6, 0, hip);
+    add(new THREE.SphereGeometry(0.22, 10, 8), pale, 0, -1.22, 0.07, hip).scale.set(1, 0.6, 1.3);
+    parts.legs.push(hip);
+  }
+  // a big bushy tail
+  const tail = new THREE.Group(); tail.position.set(0, 1.85, -1.15); g.add(tail); parts.tail = tail;
+  const t1 = add(new THREE.SphereGeometry(0.3, 12, 10), fur, 0, 0.15, -0.45, tail); t1.scale.set(1, 1, 2.1);
+  add(new THREE.SphereGeometry(0.22, 10, 8), pale, 0, 0.3, -1.05, tail).scale.set(1, 1, 1.4);
+  tail.rotation.x = -0.5;
+  g.userData.parts = parts; g.userData.t = 0;
+  g.scale.setScalar(2.1);
+  scene.add(g);
+  return g;
+}
+// swap an actor's body for a wolf (or back), and keep the wolf moving with them
+function wolfSet(a, on) {
+  if (!!a.wolf === on) return;
+  if (on) {
+    a.wolf = makeWolf(); a.wolfHid = [];
+    a.root.traverse((o) => { if (o.isMesh && o.visible) { o.visible = false; a.wolfHid.push(o); } });
+    burst(a.root.position.clone().setY(2), '#c8ccd6', 40, 6, 1.4);
+  } else {
+    scene.remove(a.wolf); a.wolf.traverse((o) => { if (o.geometry) o.geometry.dispose(); }); a.wolf = null;
+    for (const o of a.wolfHid || []) o.visible = true; a.wolfHid = null;
+    burst(a.root.position.clone().setY(2), '#c8ccd6', 30, 5, 1.2);
+  }
+}
+function wolfTick(a, dt, anim) {
+  const w = a.wolf; if (!w) return;
+  if (now > (a.wolfHideAt || 0)) { a.wolfHideAt = now + 0.5; a.root.traverse((o) => { if (o.isMesh && o.visible) { o.visible = false; a.wolfHid.push(o); } }); }
+  w.visible = a.root.visible;
+  w.position.copy(a.root.position); w.rotation.y = a.root.rotation.y;
+  const P = w.userData.parts, run = /Running|Walking|Dodge/.test(anim || ''), hit = /Attack|Spellcast/.test(anim || '');
+  w.userData.t += dt * (run ? 11 : 2.2); const t = w.userData.t;
+  P.legs.forEach((l, i) => { l.rotation.x = run ? Math.sin(t + (i === 0 || i === 3 ? 0 : Math.PI)) * 0.7 : l.rotation.x * 0.8; });
+  P.body.position.y = 1.55 + (run ? Math.abs(Math.sin(t)) * 0.12 : Math.sin(t) * 0.03);
+  P.tail.rotation.y = Math.sin(t * (run ? 0.5 : 2.5)) * 0.45;
+  P.head.rotation.x += ((hit ? 0.35 : run ? 0.1 : -0.05) - P.head.rotation.x) * Math.min(1, dt * 10);
+  P.head.position.z += ((hit ? 1.6 : 1.35) - P.head.position.z) * Math.min(1, dt * 12);
+  if (/Death/.test(anim || '')) w.rotation.z = Math.min(Math.PI / 2, (w.rotation.z || 0) + dt * 4); else w.rotation.z = 0;
+}
+async function adminWolf(on) {
+  if (!(await isAdmin())) { sys(net.on ? 'Only admins can use that command.' : 'Admin commands need you to be signed in and online.'); return; }
+  if (on === wolfOn) { sys(on ? 'You are already a wolf! Type /unwolf to change back.' : 'You are not a wolf right now.'); return; }
+  wolfOn = on; profileKey = ''; wolfSet(player, on); sfx('special');
+  if (on) { toast('AWOOOO! You are a giant wolf. Type /unwolf to change back.', ICONS.star, true); sys('You turned into a giant wolf. Type /unwolf to change back.'); }
+  else sys('You are yourself again.');
+}
 async function adminKick(rest) {
   if (!(await isAdmin())) { sys(net.on ? 'Only admins can use that command.' : 'Admin commands need you to be signed in and online.'); return; }
   const t = peerByName(rest[0]);
@@ -1127,6 +1216,8 @@ function chatCommand(line) {
   if (/^give$/i.test(cmd)) { adminGive(rest); return; }
   if (/^kick$/i.test(cmd)) { adminKick(rest); return; }
   if (/^shrink$/i.test(cmd)) { adminShrink(rest); return; }
+  if (/^wolf$/i.test(cmd)) { adminWolf(true); return; }
+  if (/^unwolf$/i.test(cmd)) { adminWolf(false); return; }
   if (/^remove$/i.test(cmd)) { adminRemove(rest); return; }
   if (/^look$/i.test(cmd)) { adminLook(rest); return; }
   if (/^(who|online)$/i.test(cmd)) {
@@ -1223,6 +1314,10 @@ function onNet(ev, m) {
   if (ev === 'wb') { wbNet(m); return; }
   if (ev === 'bh' || ev === 'bs') { bossNet(ev, m); return; }
   if (ev === 'mh') { mobNet(m); return; }
+  if (ev === 'es') { esNet(m); return; }
+  if (ev === 'ea') { enemyAttackNet(m); return; }
+  if (ev === 'hz') { hzNet(m); return; }
+  if (ev === 'bfx') { bfxNet(m); return; }
   if (ev === 'pi') { if (peer) invitePrompt(from, (peer && peer.name) || m.name || 'Someone'); return; }
   if (ev === 'pa') {
     if (!invites.has(from) || now - invites.get(from) > 60) return;
@@ -1474,6 +1569,7 @@ function mobFlush() {
 }
 function mobNet(m) {
   if (!player || m.w !== where || !Array.isArray(m.h)) return;
+  mobAggro(m);
   for (const [n, f, k] of m.h) {
     const e = enemies.find((x) => x.nid === n && x.inside === where && x.hp > 0 && x.state !== 'dead' && x.state !== 'rising'); if (!e) continue;
     if (e.T.boss && !k) continue; // boss health already travels on its own channel
@@ -1484,6 +1580,182 @@ function mobNet(m) {
     if (e.T.boss) bossRemote = true; else mobRemote = true;
     fxMute.on = quiet;
     try { hurtEnemy(e, Math.ceil(e.hp) + 1); } finally { bossRemote = false; mobRemote = false; fxMute.on = false; }
+  }
+}
+// ---------- shared monsters: one hero runs each fight (v67) ----------
+// Every monster is run by one hero's game: the hero with the lowest id among the heroes near it (within 55).
+// That game moves it, picks who it chases (any hero nearby, not just its own) and decides its attacks.
+// Four times a second it sends where its monsters are, which way they face, what they're doing and their health.
+// Everyone else's copy glides there instead of thinking for itself. If those updates stop (the hero walked away
+// or left), your own game takes over smoothly from where the monster was.
+// An attack on another hero is sent to that hero, who takes the hit on their own screen, so dodging still works.
+// Boss danger zones, slams and helpers are sent to everyone too, and everyone takes damage from what they stand in.
+const heroesNear = []; // other living heroes in this area: { id, pos, dead }
+let netDrive = false, esAt = 0, netFxIn = false, aimPeer = null;
+const r2 = (v) => Math.round((+v || 0) * 100) / 100;
+const hitUnit = () => maxHp() * 0.075 * defDiv(); // boss hits are measured against each hero's own health and defense
+const netDriven = (e) => now - (e.netAt || -9) < 1.2;
+function netHeroesTick() {
+  heroesNear.length = 0; netDrive = false;
+  if (!net.on || !player) return;
+  for (const [id, p] of net.peers) {
+    if (p.where !== where || p.x === undefined) continue;
+    p._v ||= new THREE.Vector3(); p._v.set(p.x, 0, p.z);
+    heroesNear.push({ id, pos: p._v, dead: /Death/.test(p.a || '') || /^0\//.test(p.h || '') });
+  }
+  netDrive = heroesNear.length > 0;
+}
+// is a hero with a lower id than mine close enough to this monster to be running it?
+function lowerHeroNear(e) { const me = myId(); return heroesNear.some((h) => h.id < me && Math.hypot(h.pos.x - e.pos.x, h.pos.z - e.pos.z) < 55); }
+// who should this monster go after? null means me
+function pickTarget(e) {
+  if (!netDrive) return null;
+  const big = !!e.T.boss, meOk = !player.dead && !uiLock() && where === e.inside;
+  const ok = (h) => h && !h.dead && Math.hypot(h.pos.x - e.pos.x, h.pos.z - e.pos.z) < (big ? 34 : 22);
+  if (now < (e.tgtAt || 0)) {
+    if (e.tgtId === '' && meOk) return null;
+    const h = heroesNear.find((x) => x.id === e.tgtId); if (ok(h)) return h;
+  }
+  const cand = [];
+  if (meOk) cand.push({ h: null, d: Math.hypot(player.pos.x - e.pos.x, player.pos.z - e.pos.z) });
+  for (const h of heroesNear) if (ok(h)) cand.push({ h, d: Math.hypot(h.pos.x - e.pos.x, h.pos.z - e.pos.z) });
+  if (!cand.length) return null;
+  cand.sort((a, b) => a.d - b.d);
+  // bosses spread their attention around everyone close by; small monsters go for the nearest hero
+  const close = big ? cand.filter((c) => c.d < 14) : [];
+  const pick = close.length > 1 ? close[Math.floor(rng() * close.length)] : cand[0];
+  e.tgtId = pick.h ? pick.h.id : ''; e.tgtAt = now + (big ? 4 + rng() * 2 : 1.5);
+  return pick.h;
+}
+// run a boss move aimed at another hero: for that instant the move "sees" them where you stand
+function aimAt(h, e, fn) {
+  if (!h) return fn();
+  const P = player.pos, sx = P.x, sz = P.z;
+  aimPeer = { id: h.id, big: !!e.T.boss }; P.x = h.pos.x; P.z = h.pos.z;
+  try { return fn(); } finally { P.x = sx; P.z = sz; aimPeer = null; }
+}
+function hitMsg(dmg, big) { return big ? { b: +(dmg / hitUnit()).toFixed(3) } : { d: Math.round(dmg) }; }
+function hitFrom(m) { return m.b ? Math.max(1, Math.round(m.b * hitUnit())) : Math.max(0, m.d | 0); }
+// a basic swing or shot at another hero
+function attackPeer(e, h, dmg) {
+  const ranged = !!e.T.ranged;
+  e.play(ranged ? 'Spellcast_Shoot' : '1H_Melee_Attack_Chop', { once: true, fade: 0.08, onFinish: () => e.play('Idle_Combat') });
+  sendNet('ea', { w: where, n: e.nid, t: h.id, r: ranged ? (e.T.spread ? 3 : 1) : 0, x: r2(e.pos.x), z: r2(e.pos.z), R: e.T.boss ? 3.6 : 2.4, ...hitMsg(dmg, e.T.boss) });
+  if (ranged) later(0.35, () => { if (e.hp > 0) enemyShotFx(e, h.pos, e.T.spread, null); });
+}
+function enemyShotFx(e, tq, spread, onHit) {
+  const big = e.T.boss, dir = new THREE.Vector3(tq.x - e.pos.x, 0, tq.z - e.pos.z);
+  for (const sp of spread ? [-0.3, 0, 0.3] : [0]) {
+    const d2 = dir.clone().applyAxisAngle(new THREE.Vector3(0, 1, 0), sp);
+    shoot(e.pos.clone().setY(big ? 3 : 1.8).addScaledVector(d2.clone().normalize(), big ? 1.4 : 0.6), d2, 'dark', big ? 15 : 12, 'enemy', onHit || (() => {}));
+  }
+}
+function enemyAttackNet(m) {
+  if (!player || m.w !== where) return;
+  const e = m.n ? enemies.find((x) => x.nid === m.n && x.inside === where && x.hp > 0) : null;
+  const mine = m.t === myId(), d = hitFrom(m);
+  // a hit that already landed on the sender's screen (a boss move): take it now
+  if (m.i) { if (!mine || player.dead) return; if (dodging()) floatText(player.pos.clone().setY(3.6), 'Dodged!', 'miss'); else hurtPlayer(d); return; }
+  const tgt = mine ? player.pos : (net.peers.get(m.t) || {})._v;
+  if (e) {
+    if (tgt) e.face(tgt.x, tgt.z);
+    e.play(m.r ? 'Spellcast_Shoot' : '1H_Melee_Attack_Chop', { once: true, fade: 0.08, onFinish: () => e.play('Idle_Combat') });
+    e.netAnim = m.r ? 'Spellcast_Shoot' : '1H_Melee_Attack_Chop';
+  }
+  const src = e ? e.pos : new THREE.Vector3(+m.x || 0, 0, +m.z || 0);
+  if (m.r) {
+    if (!tgt) return;
+    const fake = e || { pos: src, T: { boss: m.R > 3 } };
+    later(0.35, () => enemyShotFx(fake, mine ? player.pos : tgt, m.r === 3, mine ? () => hurtPlayer(d) : null));
+  } else if (mine) {
+    later(0.4, () => {
+      if (player.dead || Math.hypot(player.pos.x - src.x, player.pos.z - src.z) > (+m.R || 2.4) + 1.6) return;
+      if (dodging()) { floatText(player.pos.clone().setY(3.6), 'Dodged!', 'miss'); return; }
+      hurtPlayer(d);
+    });
+  }
+}
+// boss danger zones go to everyone nearby (unless another hero is running the boss here)
+function hzShare(o) {
+  if (netFxIn || !netDrive || !player) return;
+  if (!heroesNear.some((h) => Math.hypot(h.pos.x - o.x, h.pos.z - o.z) < 45)) return;
+  if (enemies.some((e) => e.T.boss && netDriven(e) && e.inside === where && Math.hypot(e.pos.x - o.x, e.pos.z - o.z) < 60)) return;
+  sendNet('hz', { w: where, x: r2(o.x), z: r2(o.z), R: r2(o.R), dir: r2(o.dir || 0), half: r2(o.half ?? Math.PI), dur: r2(o.dur ?? 1.1), fire: o.fire === false ? 0 : 1, col: o.col || '', inner: r2(o.inner || 0), b: o.dmg ? +(o.dmg / hitUnit()).toFixed(3) : 0 });
+}
+function hzNet(m) {
+  if (!player || m.w !== where || !(m.R > 0) || m.R > 40) return;
+  netFxIn = true;
+  try { hazard({ x: +m.x, z: +m.z, R: +m.R, dir: +m.dir || 0, half: Math.min(Math.PI, +m.half || Math.PI), dur: Math.max(0.2, Math.min(4, +m.dur || 1.1)), fire: !!m.fire, col: m.col || null, inner: +m.inner || 0, dmg: m.b ? Math.max(1, Math.round(m.b * hitUnit())) : 0 }); } finally { netFxIn = false; }
+}
+function bfxShare(k, e, extra = {}) { if (!netFxIn && netDrive && e && e.nid && !netDriven(e)) sendNet('bfx', { w: where, k, n: e.nid, ...extra }); }
+function bfxNet(m) {
+  if (!player || m.w !== where) return;
+  const e = enemies.find((x) => x.nid === m.n && x.inside === where && x.hp > 0); if (!e) return;
+  netFxIn = true;
+  try {
+    if (m.k === 'slam' && e.T.slam) bossSlam(e);
+    else if (m.k === 'add' && ENEMY_TYPES[m.t] && !enemies.some((a) => a.nid === `${m.t}@${(+m.x).toFixed(1)},${(+m.z).toFixed(1)}` && a.hp > 0)) bossAdd(e, m.t, +m.x, +m.z);
+  } finally { netFxIn = false; }
+}
+// four times a second: where my monsters are, for the heroes near them
+function esTick() {
+  if (!netDrive || now < esAt) return; esAt = now + 0.25;
+  const out = [];
+  for (const e of enemies) {
+    if (!e.nid || e.T.world || (e.temp && !e.boss) || e.inside !== where || e.hp <= 0 || ['dead', 'gone', 'rising'].includes(e.state) || netDriven(e)) continue;
+    if (!heroesNear.some((h) => Math.hypot(h.pos.x - e.pos.x, h.pos.z - e.pos.z) < 55)) continue;
+    const row = [e.nid, Math.round(e.pos.x * 10), Math.round(e.pos.z * 10), Math.round(e.root.rotation.y * 100), e.name || '', e.state, Math.max(1, Math.round((e.hp / e.T.hp) * 1000))];
+    const key = row.join();
+    if (key === e.esKey && now - (e.esSent || 0) < 0.9) continue;
+    e.esKey = key; e.esSent = now; out.push(row);
+    if (out.length >= 40) break;
+  }
+  if (out.length) sendNet('es', { w: where, e: out });
+}
+function esNet(m) {
+  if (!player || m.w !== where || !Array.isArray(m.e)) return;
+  const me = myId(), lower = m.id < me;
+  for (const r of m.e) {
+    if (!Array.isArray(r) || r.length < 7) continue;
+    const e = enemies.find((x) => x.nid === r[0] && x.inside === where); if (!e || e.hp <= 0 || ['dead', 'gone', 'rising'].includes(e.state)) continue;
+    // two heroes both think they run it: the lower id wins
+    if (!lower && !netDriven(e) && Math.hypot(player.pos.x - e.pos.x, player.pos.z - e.pos.z) < 55) continue;
+    const x = r[1] / 10, z = r[2] / 10, n = e.net, t = now;
+    let vx = 0, vz = 0;
+    if (n && t - n.t > 0.05 && t - n.t < 0.8) { vx = (x - n.x) / (t - n.t); vz = (z - n.z) / (t - n.t); if (Math.hypot(vx, vz) > 25) vx = vz = 0; }
+    e.net = { x, z, ry: r[3] / 100, a: String(r[4] || ''), s: String(r[5] || ''), f: r[6] / 1000, t, vx, vz };
+    if (!netDriven(e)) { e.nextHit = now + 1; e.foe = null; }
+    e.netAt = now;
+    // health: only ever comes down, except when the monster went home and healed
+    const hp = Math.max(1, e.net.f * e.T.hp);
+    if (e.net.s === 'idle' && e.net.f >= 1) e.hp = e.T.hp; else if (hp < e.hp - 0.5) { e.hp = hp; if (e.T.boss && e.state !== 'idle') phaseCheck(e); }
+  }
+}
+// a monster someone else runs: glide to where they say it is, a little ahead so it doesn't lag behind
+function netMobTick(e, dt) {
+  const n = e.net; if (!n) return;
+  const ahead = Math.min(0.25, now - n.t), tx = n.x + n.vx * ahead, tz = n.z + n.vz * ahead;
+  // your own hit's knockback plays out first, so hits feel instant even on a monster someone else runs
+  const k = Math.abs(e.kb.x) + Math.abs(e.kb.y) > 0.3 ? 0 : Math.min(1, dt * 10), ep = e.pos;
+  if (Math.hypot(tx - ep.x, tz - ep.z) > 10) { ep.x = tx; ep.z = tz; } else { ep.x += (tx - ep.x) * k; ep.z += (tz - ep.z) * k; }
+  let dr = n.ry - e.root.rotation.y; dr = Math.atan2(Math.sin(dr), Math.cos(dr)); e.root.rotation.y += dr * Math.min(1, dt * 12);
+  const was = e.state;
+  if (n.s && was !== n.s && !(was === 'slam' && n.s === 'chase')) {
+    e.state = n.s;
+    if (e.T.boss && n.s === 'idle' && was !== 'idle') { e.hp = e.T.hp; e.swings = 0; bossCleanup(e, true); }
+  }
+  if (n.a && n.a !== e.netAnim) {
+    e.netAnim = n.a;
+    if (e.name !== n.a) e.play(n.a, ONE_SHOT.test(n.a) ? { once: true, fade: 0.1, onFinish: () => e.play(e.state === 'idle' || e.state === 'walk' ? 'Idle' : 'Idle_Combat') } : { fade: 0.15 });
+  }
+}
+// your hit on a monster someone else runs makes it come after you on their screen too
+function mobAggro(m) {
+  if (!Array.isArray(m.h) || !m.id) return;
+  const h = heroesNear.find((x) => x.id === m.id); if (!h) return;
+  for (const [n] of m.h) {
+    const e = enemies.find((x) => x.nid === n && x.inside === where && x.hp > 0); if (!e || netDriven(e)) continue;
+    if (e.state === 'idle' || e.state === 'walk') { e.state = 'chase'; e.tgtId = h.id; e.tgtAt = now + 3; }
   }
 }
 function bossShare(e, dmg) {
@@ -3246,7 +3518,7 @@ function guideTick() {
   const want = Math.atan2(t.x - P.x, t.z - P.z) + Math.PI;
   let diff = want - guide.pivot.rotation.y; diff = Math.atan2(Math.sin(diff), Math.cos(diff));
   guide.pivot.rotation.y += diff * 0.2;
-  guide.arrow.position.z = -4.6 - Math.sin(now * 5) * 0.35;
+  guide.arrow.position.z = -(player.wolf ? 7.6 : 4.6) - Math.sin(now * 5) * 0.35;
   guide.star.position.set(t.x, 5.2 + Math.sin(now * 3) * 0.3, t.z);
   guide.star.rotation.y = now * 2;
   if (d > 4.5 && !creator.open) {
@@ -5082,7 +5354,8 @@ function impact(e, dmg, src, power, killed) {
   e.staggerUntil = now + Math.min(0.45, 0.35 / Math.sqrt(m)) * (killed ? 0 : 1);
   e.flashT = now + 0.13;
   sfx(killed ? 'kill' : power > 1.4 || w.heavy ? 'bighit' : 'hit');
-  hitStopUntil = now + (killed ? 0.12 : w.heavy || power > 1.4 ? 0.08 : 0.05) * (e.T.boss ? 0.7 : 1);
+  // v67: a much lighter freeze (it used to slow everything, which felt like lag), and never for other heroes' hits
+  if (!mobRemote && !bossRemote && !wbRemote && !poisonHit) hitStopUntil = now + (killed ? 0.06 : w.heavy || power > 1.4 ? 0.04 : 0.025) * (e.T.boss ? 0.7 : 1);
   const at = e.pos.clone().setY(e.T.boss ? 2.6 : 1.5);
   const col = w.type === 'magic' ? '#bff6ff' : w.type === 'ranged' ? '#ffe9a8' : '#fff4d0';
   burst(at, col, killed ? 34 : 20, killed ? 8 : 6, killed ? 1.3 : 1);
@@ -5198,6 +5471,7 @@ function hurtEnemy(e, dmg, src = null, power = 1) {
 }
 let lastHurt = -10;
 function hurtPlayer(dmg, from = null) {
+  if (aimPeer) { sendNet('ea', { w: where, t: aimPeer.id, i: 1, ...hitMsg(dmg, aimPeer.big) }); return; } // a boss move aimed at a friend: the hit is theirs
   if (player.dead || creator.open) return;
   const head = player.pos.clone().setY(3.6);
   if (dmg === 0) { floatText(head, 'Miss', 'miss'); return; }
@@ -5292,6 +5566,7 @@ function wakeUp() {
 const hazards = [];
 const hazardMat = () => new THREE.MeshBasicMaterial({ color: '#ff6a1f', transparent: true, opacity: 0.25, depthWrite: false, fog: false, side: THREE.DoubleSide });
 function hazard({ x, z, R, dir = 0, half = Math.PI, dur = 1.1, dmg, fire = true, col = null, inner = 0 }) {
+  hzShare({ x, z, R, dir, half, dur, dmg, fire, col, inner });
   const geo = inner > 0 ? new THREE.RingGeometry(inner / R, 1, 48) : half >= Math.PI ? new THREE.CircleGeometry(1, 40) : new THREE.CircleGeometry(1, 30, Math.PI / 2 - half, half * 2);
   const m = new THREE.Mesh(geo, hazardMat()); if (col) m.material.color.set(col); m.rotation.x = -Math.PI / 2; m.rotation.z = dir; m.position.set(x, 0.14, z); m.layers.set(1); m.scale.setScalar(R * 0.1); scene.add(m);
   const edge = new THREE.Mesh(inner > 0 ? new THREE.RingGeometry(0.95, 1, 48) : half >= Math.PI ? new THREE.RingGeometry(0.95, 1, 48) : new THREE.RingGeometry(0.96, 1, 30, 1, Math.PI / 2 - half, half * 2), new THREE.MeshBasicMaterial({ color: '#ffd23f', transparent: true, opacity: 0.9, depthWrite: false, fog: false, side: THREE.DoubleSide }));
@@ -5399,6 +5674,7 @@ function dizzyTick(e, dt) {
 }
 // adds that a boss calls in: they vanish when the fight ends and never respawn
 function bossAdd(boss, k, x, z) {
+  bfxShare('add', boss, { t: k, x, z });
   const a = spawnEnemy(k, x, z);
   a.temp = true; a.inside = boss.inside; a.state = 'rising'; a.boss = boss;
   boss.adds = boss.adds || []; boss.adds.push(a);
@@ -6352,6 +6628,7 @@ function pathArrive() {
 const slamGeo = new THREE.CircleGeometry(1, 40);
 function bossSlam(e) {
   const R = e.T.slam;
+  bfxShare('slam', e);
   e.state = 'slam';
   const m = new THREE.Mesh(slamGeo, new THREE.MeshBasicMaterial({ color: '#ff3b2f', transparent: true, opacity: 0.35, depthWrite: false, fog: false }));
   m.rotation.x = -Math.PI / 2; m.position.set(e.pos.x, 0.12, e.pos.z); m.layers.set(1); m.scale.setScalar(0.1); scene.add(m);
@@ -6395,20 +6672,24 @@ function enemyTick(e, dt) {
   // a crew member who hit it gets its attention instead of you
   let foe = e.foe;
   if (foe && (e.T.boss || !crewUp(foe) || foe.inside !== e.inside || Math.hypot(foe.pos.x - ep.x, foe.pos.z - ep.z) > 12)) foe = e.foe = null;
-  const tp = foe ? foe.pos : player.pos;
-  const toP = Math.hypot(tp.x - ep.x, tp.z - ep.z), toHero = Math.hypot(player.pos.x - ep.x, player.pos.z - ep.z);
+  // with friends around, it goes after whichever hero suits it (see pickTarget)
+  const tgtPeer = foe ? null : pickTarget(e), hp0 = tgtPeer ? tgtPeer.pos : player.pos;
+  const tp = foe ? foe.pos : hp0;
+  const toP = Math.hypot(tp.x - ep.x, tp.z - ep.z), toHero = Math.hypot(hp0.x - ep.x, hp0.z - ep.z);
+  const heroOk = tgtPeer ? !tgtPeer.dead : !player.dead && !uiLock() && where === e.inside;
+  const aim = (fn) => aimAt(tgtPeer, e, fn);
   const fromHome = Math.hypot(ep.x - e.home.x, ep.z - e.home.y);
   const big = e.T.boss, reach = e.T.ranged ? (big ? 10 : 8) : big ? 3.6 : 2.4;
-  if (player.dead && (e.state === 'chase') && !foe) e.state = 'return';
-  if (where !== e.inside && e.state === 'chase' && !foe) e.state = 'return';
+  if (player.dead && (e.state === 'chase') && !foe && !tgtPeer) e.state = 'return';
+  if (where !== e.inside && e.state === 'chase' && !foe && !tgtPeer) e.state = 'return';
   if ((e.state === 'idle' || e.state === 'walk') && foe) e.state = 'chase';
-  if ((e.state === 'idle' || e.state === 'walk') && toHero < (big ? 11 : 6.5) && !player.dead && !uiLock() && where === e.inside
-    && (!big || (!otherBossBusy(e) && !bossLocked(e))) && (big || enemies.filter((o) => o.state === 'chase' && !o.T.boss).length < 3)) e.state = 'chase';
+  if ((e.state === 'idle' || e.state === 'walk') && toHero < (big ? 11 : 6.5) && heroOk
+    && (!big || (!otherBossBusy(e) && !bossLocked(e))) && (big || enemies.filter((o) => o.state === 'chase' && !o.T.boss).length < 3 + 2 * heroesNear.length)) e.state = 'chase';
   if (e.state === 'slam') return;
   if (e.state === 'chase') {
     if (fromHome > (big ? bossLeash(e) : 20)) { e.state = 'return'; return; }
     e.face(tp.x, tp.z);
-    if (big && !foe && !e.T.world && toHero < 30 && now > (e.nextSpecial ??= now + 3) && now > (e.dizzyUntil || 0) && now > (e.staggerUntil || 0) && bossSpecial(e)) return;
+    if (big && !foe && !e.T.world && toHero < 30 && now > (e.nextSpecial ??= now + 3) && now > (e.dizzyUntil || 0) && now > (e.staggerUntil || 0) && aim(() => bossSpecial(e))) return;
     if (toP > reach) {
       const dx = tp.x - ep.x, dz = tp.z - ep.z;
       const sp = 4.2 * (e.T.fast || 1); ep.x += (dx / toP) * sp * dt; ep.z += (dz / toP) * sp * dt;
@@ -6416,9 +6697,10 @@ function enemyTick(e, dt) {
     } else if (now > e.nextHit) {
       e.nextHit = now + (big ? 1.5 / (e.T.fast || 1) : 1.9) + rng() * (big && e.T.fast ? 0.4 : 0.6);
       const dmg = big ? bossDmg(e, 0.65 + rng() * 0.45) : rng() < 0.3 ? 0 : 1 + Math.floor(rng() * e.T.maxHit);
-      if (BOSS_AI[e.type] && BOSS_AI[e.type](e, toP)) return;
-      if (e.T.dragon) { dragonAttack(e, toP); return; }
+      if (BOSS_AI[e.type] && aim(() => BOSS_AI[e.type](e, toP))) return;
+      if (e.T.dragon) { aim(() => dragonAttack(e, toP)); return; }
       if (big && ++e.swings % 3 === 0) { bossSlam(e); return; }
+      if (tgtPeer) { attackPeer(e, tgtPeer, dmg); return; }
       if (e.T.ranged) {
         e.play('Spellcast_Shoot', { once: true, fade: 0.08, onFinish: () => e.play('Idle_Combat') });
         const tgt = foe;
@@ -6858,12 +7140,12 @@ function lightTick() {
 
 function tick() {
   now = clock.elapsedTime;
-  const dt = Math.min(clock.getDelta(), 0.05) * (now < hitStopUntil ? 0.08 : 1);
+  const dt = Math.min(clock.getDelta(), 0.05) * (now < hitStopUntil ? 0.3 : 1);
   for (let i = timers.length - 1; i >= 0; i--) { timers[i].t -= dt; if (timers[i].t <= 0) { const f = timers[i].f; timers.splice(i, 1); f(); } }
   regionTick(); lightTick();
   if (player) { goldenTick(); tinyTick(dt); pompTick(dt); }
 
-  if (player) { gulpTick(); lanternTick(dt); wingTick(); stormTick(dt); castleTick(dt); colossusTick(dt); cosTick(); wbTick(); bossSyncTick(); if (net.on) mobFlush(); weaponSparkle(); flairTick(player, dt, player.name === 'Running_A' || player.name === 'Walking_A' || (player.name || '').startsWith('Running')); }
+  if (player) { if (wolfOn && !player.wolf) wolfSet(player, true); wolfTick(player, dt, player.name); gulpTick(); lanternTick(dt); wingTick(); stormTick(dt); castleTick(dt); colossusTick(dt); cosTick(); wbTick(); bossSyncTick(); if (net.on) mobFlush(); weaponSparkle(); flairTick(player, dt, player.name === 'Running_A' || player.name === 'Walking_A' || (player.name || '').startsWith('Running')); }
   if (player && !player.dead && !uiLock() && !gulped) {
     const busy = now < player.busyUntil;
     let mx = 0, mz = 0;
@@ -6939,9 +7221,11 @@ function tick() {
   }
   if (marker.visible) { marker.scale.setScalar(Math.max(1, marker.scale.x - dt * 2)); marker.material.opacity = 0.6 + 0.3 * Math.sin(now * 8); }
 
+  if (player) { netHeroesTick(); if (net.on) esTick(); }
   for (const e of enemies) {
     const near = !player || Math.hypot(e.pos.x - player.pos.x, e.pos.z - player.pos.z) < 55;
-    if (player && (near || e.state !== 'idle') && !bossIntro) enemyTick(e, dt);
+    if (player && !bossIntro && netDriven(e) && e.hp > 0 && !['dead', 'gone', 'rising'].includes(e.state)) { knockTick(e, dt); netMobTick(e, dt); }
+    else if (player && (near || e.state !== 'idle') && !bossIntro) enemyTick(e, dt);
     if (near) e.mixer.update(dt);
   }
   slamTick(dt);
@@ -8174,7 +8458,7 @@ function heroTag() {
   if (!heroTagEl) { heroTagEl = document.createElement('div'); heroTagEl.className = 'herotag'; heroTagEl.innerHTML = '<b></b><s class="tagbar"><u></u></s>'; document.body.appendChild(heroTagEl); }
   const show = player && S.started && !player.dead && !creator.open && !bossIntro && S.nameTag !== false;
   if (!show) { setShown(heroTagEl, false); return; }
-  const v = tmpV.set(player.pos.x, player.pos.y + 0.6 + 3.8 * (player.shrinkK || 1), player.pos.z).project(camera);
+  const v = tmpV.set(player.pos.x, player.pos.y + (player.wolf ? 7.4 : 0.6 + 3.8 * (player.shrinkK || 1)), player.pos.z).project(camera);
   if (v.z > 1) { setShown(heroTagEl, false); return; }
   setShown(heroTagEl, true);
   pin(heroTagEl, v);
@@ -9355,7 +9639,7 @@ function makeGagronFriend() {
   npcs.push(gagronFriend);
 }
 
-window.__jq = { toast, mobNet, shrinkMe, showStoryIntro, hurtPlayer, koSitOut, wakeUp, showLook, removeThing, giveThing, COS, ITEMS, GEAR, parseGive, chargedAttack, parseAmount, hitPeers, shotHitsPeer, showKeysNote, castSpell, learnSpell, spellCd, SPELLS, goonSneeze, goonDrips, goonFlop, setSlotBox, showSlots, get slotBox() { return slotBox; }, get guide() { return guide; }, bossNet, safeSpot, get PVP_LVL() { return PVP_LVL; }, goldNode, wbInfo, wbTick, get wb() { return wb; }, WB_SPOTS, tradeOpen, tradeNet, offerKey, get trade() { return trade; }, adv(s) { for (let t = 0; t < s; t += 0.05) { for (let i = timers.length - 1; i >= 0; i--) { timers[i].t -= 0.05; if (timers[i].t <= 0) { const f = timers[i].f; timers.splice(i, 1); f(); } } bossFxTick(0.05); } }, get party() { return party; }, BOSS_AI, PHASE_SETUP, get gulped() { return gulped; }, wriggle, toggleBigMap, spawnEnemy, openPathChoice, choosePath, startLanternNight, get lanterns() { return lanterns; }, duelOffer, duelPrize, onNet, chatCommand, canFight, openUpgrade, openBoard, boardToday, queueLetter, makeGagronFriend, net, peerActors, runeTick, bossFx, renderer, scene, openMayor, darkOmen, netWorth, liberateTown, setGolden, goldenCaught, pompArrive, get goldenE() { return goldenE; }, spinWheel, dayTick, get bossIntro() { return bossIntro; }, bossSkip, startBossScene, sailTo, regions, closeSheet, renderHotbar, crew, setCrewMode, TOWNS, liberateTown, chests, openChest, stopRoulette, enemies, startBossIntro, closeDialog, advanceDialog, dash, attackPress, craft, CRAFTS, openCreator, closeCreator, creator, rebuildHero, setZoom: (z) => { zoom = zoomGoal = z; }, hurtEnemy, goThrough, get where() { return where; }, INTERIORS, equipGear, spendPoint, giveHeroXp, heroLvl, stat, maxHp, defDiv, openWeaponShop, openKing, jump, eat, eatBest, openShop, swing, swingTarget, hitNode, projectiles, timers, get S() { return S; }, get player() { return player; }, enemies, nodes, npcs, startTask, doAction, giveXp, save, openSheet, openDialog };
+window.__jq = { toast, wolfSet, get wolfOn() { return wolfOn; }, set wolfOn(v) { wolfOn = v; }, mobNet, netHeroesTick, esNet, enemyAttackNet, hzNet, bfxNet, pickTarget, heroesNear, get hazards() { return hazards; }, get netDrive() { return netDrive; }, shrinkMe, showStoryIntro, hurtPlayer, koSitOut, wakeUp, showLook, removeThing, giveThing, COS, ITEMS, GEAR, parseGive, chargedAttack, parseAmount, hitPeers, shotHitsPeer, showKeysNote, castSpell, learnSpell, spellCd, SPELLS, goonSneeze, goonDrips, goonFlop, setSlotBox, showSlots, get slotBox() { return slotBox; }, get guide() { return guide; }, bossNet, safeSpot, get PVP_LVL() { return PVP_LVL; }, goldNode, wbInfo, wbTick, get wb() { return wb; }, WB_SPOTS, tradeOpen, tradeNet, offerKey, get trade() { return trade; }, adv(s) { for (let t = 0; t < s; t += 0.05) { for (let i = timers.length - 1; i >= 0; i--) { timers[i].t -= 0.05; if (timers[i].t <= 0) { const f = timers[i].f; timers.splice(i, 1); f(); } } bossFxTick(0.05); } }, get party() { return party; }, BOSS_AI, PHASE_SETUP, get gulped() { return gulped; }, wriggle, toggleBigMap, spawnEnemy, openPathChoice, choosePath, startLanternNight, get lanterns() { return lanterns; }, duelOffer, duelPrize, onNet, chatCommand, canFight, openUpgrade, openBoard, boardToday, queueLetter, makeGagronFriend, net, peerActors, runeTick, bossFx, renderer, scene, openMayor, darkOmen, netWorth, liberateTown, setGolden, goldenCaught, pompArrive, get goldenE() { return goldenE; }, spinWheel, dayTick, get bossIntro() { return bossIntro; }, bossSkip, startBossScene, sailTo, regions, closeSheet, renderHotbar, crew, setCrewMode, TOWNS, liberateTown, chests, openChest, stopRoulette, enemies, startBossIntro, closeDialog, advanceDialog, dash, attackPress, craft, CRAFTS, openCreator, closeCreator, creator, rebuildHero, setZoom: (z) => { zoom = zoomGoal = z; }, hurtEnemy, goThrough, get where() { return where; }, INTERIORS, equipGear, spendPoint, giveHeroXp, heroLvl, stat, maxHp, defDiv, openWeaponShop, openKing, jump, eat, eatBest, openShop, swing, swingTarget, hitNode, projectiles, timers, get S() { return S; }, get player() { return player; }, enemies, nodes, npcs, startTask, doAction, giveXp, save, openSheet, openDialog };
 window.addEventListener('error', (e) => { const m = $('loadmsg'); if (m) m.textContent = `Something went wrong: ${e.message}`; });
 main().catch((err) => {
   console.error(err);
