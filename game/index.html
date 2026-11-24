@@ -262,6 +262,10 @@
   .sh-card { position: relative; display: grid; justify-items: center; gap: 3px; padding: 10px 8px 8px; text-align: center; background: #f6e6c4; border: 3px solid #2a160a; border-radius: 14px; box-shadow: 0 3px 0 #2a160a, inset 0 0 0 2px color-mix(in srgb, var(--rc) 60%, transparent); }
   .sh-card:hover { transform: translateY(-2px); }
   .sh-card.on { background: #fff6dc; box-shadow: 0 3px 0 #2a160a, 0 0 0 3px #ffd84a; }
+  .sh-card.picked { background: #fff6dc; box-shadow: 0 3px 0 #2a160a, 0 0 0 3px #5ad65a; }
+  .sh-tick { position: absolute; top: 6px; left: 6px; width: 22px; height: 22px; border: 2.5px solid #2a160a; border-radius: 7px; background: #fff8e6; font: 900 14px/17px system-ui, sans-serif; font-style: normal; color: #fff; text-align: center; }
+  .sh-card.picked .sh-tick { background: #3aa84a; }
+  .sh-multi { display: flex; gap: 6px; flex-wrap: wrap; } .sh-multi button { padding: 6px 12px; }
   .sh-card.dim { opacity: .62; }
   .sh-cimg { width: 58px; height: 58px; border-radius: 50%; display: grid; place-items: center; background: radial-gradient(circle at 40% 35%, color-mix(in srgb, var(--rc) 30%, #fff), color-mix(in srgb, var(--rc) 70%, #3a2010)); border: 3px solid #2a160a; }
   .sh-cimg img { width: 40px; height: 40px; }

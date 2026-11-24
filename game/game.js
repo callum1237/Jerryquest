@@ -900,7 +900,7 @@ function partySet(p, why) {
 // picks the action up from there, so nobody can fake one by sending a message.
 // typed amounts: "90k" = 90,000, "2.5m" = 2,500,000, "1b" = a billion; commas and spaces are ignored. NaN if it isn't a number.
 const parseAmount = (t) => { const m = String(t ?? '').replace(/[,\s_]/g, '').toLowerCase().match(/^(\d+(?:\.\d+)?|\.\d+)([kmb])?$/); return m ? Math.floor(parseFloat(m[1]) * ({ k: 1e3, m: 1e6, b: 1e9 }[m[2]] || 1)) : NaN; };
-const ADMIN_HELP = 'Admin: /give [player] thing [amount]. Things: coins, xp (or exp), any item, gear, look or spell by name (like /give prism aura or /give Bob dark blade), or an id like outfit:id, aura:id, hat:id, cape:id, trail:id, spell:id, or "all-looks". /give find word searches ids. /kick player (30 seconds).';
+const ADMIN_HELP = 'Admin: /give [player] thing [amount]. Things: coins, xp (or exp), any item, gear, look or spell by name (like /give prism aura or /give Bob dark blade), or an id like outfit:id, aura:id, hat:id, cape:id, trail:id, spell:id, or "all-looks". /give find skins (or auras, hats, capes, trails, spells, gear, items) lists names; /give find word searches. /kick player (30 seconds).';
 function giveThing(what, n) {
   if (what === 'coins' || what === 'gold') { S.coins += n; refreshUI(); return `${fmt(n)} coins`; }
   if (what === 'xp' || what === 'exp') { giveHeroXp(n); return `${fmt(n)} hero XP`; }
@@ -952,13 +952,19 @@ async function adminGive(rest) {
   if (!(await isAdmin())) { sys('Unknown command. Type /p for party commands or /who to see who is online.'); return; }
   let args = rest.filter(Boolean);
   if (!args.length || args[0].toLowerCase() === 'help') { sys(ADMIN_HELP); return; }
-  if (args[0].toLowerCase() === 'find') {
+  if (args[0].toLowerCase() === 'find' || args[0].toLowerCase() === 'list') {
+    // "/give find skins" (or outfits, auras, hats, capes, trails, spells, weapons) lists everything of that kind by name
+    const kind = normName(args.slice(1).join(' ')), slotOf = { skin: 'outfit', skins: 'outfit', outfit: 'outfit', outfits: 'outfit', aura: 'aura', auras: 'aura', hat: 'hat', hats: 'hat', cape: 'cape', capes: 'cape', trail: 'trail', trails: 'trail', looks: '*', cosmetics: '*' };
+    if (slotOf[kind]) { const sls = slotOf[kind] === '*' ? Object.keys(COS) : [slotOf[kind]]; for (const sl of sls) if (COS[sl]) sys(`${COS_SLOTS[sl] || sl}: ${Object.entries(COS[sl]).map(([k, c]) => c.name || k).join(', ')}`); sys('Give one with /give name, like /give ' + (Object.values(COS[sls[0]] || {})[0] || {}).name + '.'); return; }
+    if (/^spells?$/.test(kind)) { sys(`Spells: ${Object.values(SPELLS).map((sp) => sp.name).join(', ')}`); return; }
+    if (/^(weapons?|gear|armou?r)$/.test(kind)) { sys(`Gear: ${Object.values(GEAR).map((g) => g.name).join(', ')}`); return; }
+    if (/^items?$/.test(kind)) { sys(`Items: ${Object.values(ITEMS).join(', ')}`); return; }
     const q = (args[1] || '').toLowerCase(), hits = [];
     for (const [k, v] of Object.entries(ITEMS)) if (k.includes(q) || String(v).toLowerCase().includes(q)) hits.push(k);
     for (const [k, g] of Object.entries(GEAR)) if (k.includes(q) || (g.name || '').toLowerCase().includes(q)) hits.push(k);
     for (const [slot, list] of Object.entries(COS)) for (const [k, c] of Object.entries(list)) if (k.includes(q) || (c.name || '').toLowerCase().includes(q)) hits.push(`${slot}:${k}`);
     for (const [k, sp] of Object.entries(SPELLS)) if (k.includes(q) || sp.name.toLowerCase().includes(q)) hits.push(`spell:${k}`);
-    sys(hits.length ? `Found: ${hits.slice(0, 40).join(', ')}${hits.length > 40 ? '...' : ''}` : 'Nothing found.'); return;
+    sys(hits.length ? `Found: ${[...new Set(hits.slice(0, 40).map(thingLabel))].join(', ')}${hits.length > 40 ? '...' : ''}` : 'Nothing found. Try /give find skins, auras, hats, capes, trails, spells, gear or items.'); return;
   }
   // "/give Bob coins 500" gives to Bob; "/give coins 500" (or "/give me ...") gives to you
   let target = null, g = null;
@@ -3860,7 +3866,7 @@ let shopState = null;
 function openShopScreen(npc, cfg) {
   talking = npc;
   const tab0 = (shopState && shopState.npc === npc && cfg.tabs.some((t) => t.id === shopState.tab)) ? shopState.tab : cfg.tabs[0].id;
-  shopState = { npc, cfg, tab: tab0, pick: shopState && shopState.npc === npc ? shopState.pick : null };
+  shopState = { npc, cfg, tab: tab0, pick: shopState && shopState.npc === npc ? shopState.pick : null, sel: new Set() };
   renderShopScreen();
   npc.actor.face(player.pos.x, player.pos.z);
 }
@@ -3869,6 +3875,7 @@ function renderShopScreen() {
   const { npc, cfg } = st, d = $('dialog'), tab = cfg.tabs.find((t) => t.id === st.tab) || cfg.tabs[0];
   const goods = tab.goods ? tab.goods() : [];
   if (st.pick && !goods.some((g) => g.key === st.pick)) st.pick = null;
+  if (!st.sel) st.sel = new Set(); for (const k of [...st.sel]) if (!goods.some((g) => g.key === k)) st.sel.delete(k);
   const sel = goods.find((g) => g.key === st.pick) || null;
   const face = npc.look ? `<img class="sh-face" src="${portrait(npc.look)}" alt="">` : `<div class="sh-face none"><img src="${ICONS[tab.icon] || ICONS.coins}" alt=""></div>`;
   d.innerHTML = `<div class="sh-top"><div class="sh-gold"><img src="${ICONS.coins}" alt=""><b>${fmt(S.coins)}</b><small>gold</small></div><button class="sh-x" id="sh-x" aria-label="Leave">✕</button></div>
@@ -3878,21 +3885,21 @@ function renderShopScreen() {
       <div class="sh-main">
         <div class="sh-keeper">${face}<div class="sh-say"><b class="sh-name">${npc.name}</b><p class="sh-line"></p></div></div>
         ${tab.top ? `<div class="sh-topline">${tab.top()}</div>` : ''}
-        ${goods.length ? `<div class="sh-grid">${goods.map((g) => `<button class="sh-card${g.key === st.pick ? ' on' : ''}${g.dim ? ' dim' : ''}" data-good="${g.key}" style="--rc:${RARITY[g.r || 0].col}">
+        ${goods.length ? `<div class="sh-grid">${goods.map((g) => `<button class="sh-card${g.key === st.pick ? ' on' : ''}${g.dim ? ' dim' : ''}${tab.multi && st.sel.has(g.key) ? ' picked' : ''}" data-good="${g.key}" style="--rc:${RARITY[g.r || 0].col}">${tab.multi ? `<i class="sh-tick">${st.sel.has(g.key) ? '✓' : ''}</i>` : ''}
             <span class="sh-cimg"><img src="${g.icon}" alt=""></span><b>${g.name}</b><small>${g.short || ''}</small><em class="${g.tagCls || ''}">${g.tag}</em></button>`).join('')}</div>`
         : `<p class="sh-empty">${tab.empty || 'Nothing here right now.'}</p>`}
         <div class="sh-detail" ${sel ? '' : 'hidden'}>${sel ? `<span class="sh-dimg" style="--rc:${RARITY[sel.r || 0].col}"><img src="${sel.icon}" alt=""></span>
           <div class="sh-dtext"><b>${sel.name}</b> ${RAR_CHIP(sel.r || 0)}<p>${sel.desc || ''}</p>${sel.stats ? `<div class="sh-stats">${sel.stats}</div>` : ''}</div>
           <div class="sh-dact">${sel.actions.map((a, i) => `<button class="${i === 0 ? 'primary' : ''}" data-act="${i}" ${a.off ? 'disabled' : ''}>${a.label}</button>`).join('')}</div>` : ''}</div>
         <div class="sellpick" hidden></div>
-        ${tab.foot ? `<div class="sh-foot">${tab.foot()}</div>` : ''}
+        ${tab.foot ? `<div class="sh-foot">${tab.foot(goods, st)}</div>` : ''}
       </div>
     </div>`;
   d.querySelector('.sh-line').textContent = sel && sel.say ? sel.say : tab.say || cfg.greet;
-  d.querySelectorAll('[data-tab]').forEach((b) => { b.onclick = () => { sfx('click'); st.tab = b.dataset.tab; st.pick = null; const t = cfg.tabs.find((x) => x.id === st.tab); if (t.go) { t.go(); return; } renderShopScreen(); }; });
-  d.querySelectorAll('[data-good]').forEach((b) => { b.onclick = () => { sfx('click'); st.pick = st.pick === b.dataset.good ? null : b.dataset.good; renderShopScreen(); const det = d.querySelector('.sh-detail'); if (det && !det.hidden) det.scrollIntoView({ block: 'nearest' }); }; });
+  d.querySelectorAll('[data-tab]').forEach((b) => { b.onclick = () => { sfx('click'); st.tab = b.dataset.tab; st.pick = null; st.sel.clear(); const t = cfg.tabs.find((x) => x.id === st.tab); if (t.go) { t.go(); return; } renderShopScreen(); }; });
+  d.querySelectorAll('[data-good]').forEach((b) => { b.onclick = () => { sfx('click'); const gk = b.dataset.good; if (tab.multi) { if (st.sel.has(gk)) st.sel.delete(gk); else st.sel.add(gk); st.pick = st.sel.has(gk) ? gk : null; } else st.pick = st.pick === gk ? null : gk; renderShopScreen(); const det = d.querySelector('.sh-detail'); if (det && !det.hidden) det.scrollIntoView({ block: 'nearest' }); }; });
   if (sel) d.querySelectorAll('[data-act]').forEach((b) => { b.onclick = () => sel.actions[+b.dataset.act].run(b); });
-  if (tab.wire) tab.wire(d);
+  if (tab.wire) tab.wire(d, goods, st);
   $('sh-x').onclick = closeDialog; $('sh-leave').onclick = closeDialog;
   d.classList.add('shopmode');
   showDialog(d, { shop: true });
@@ -3916,11 +3923,13 @@ function sellTab(npc) {
     goods: () => {
       const L = lists();
       return [
-        ...L.mats.map(([k, n]) => ({ key: k, icon: ICONS[k], name: ITEMS[k], r: TREAS.includes(k) ? 2 : 0, short: `You have ${n}${L.keep[k] ? ` (+${L.keep[k]} kept)` : ''}`, tag: `${SELL[k]} each`, tagCls: 'sellp',
+        ...L.mats.map(([k, n]) => ({ key: k, icon: ICONS[k], name: ITEMS[k], r: TREAS.includes(k) ? 2 : 0, value: SELL[k] * n, mat: !FOOD[k] && !TREAS.includes(k),
+          sell: () => { const c = Math.min(n, (S.inv[k] || 0) - (L.keep[k] || 0)); if (c > 0) { takeItem(k, c); S.coins += SELL[k] * c; return SELL[k] * c; } return 0; }, short: `You have ${n}${L.keep[k] ? ` (+${L.keep[k]} kept)` : ''}`, tag: `${SELL[k]} each`, tagCls: 'sellp',
           desc: L.keep[k] ? `I'll leave you ${L.keep[k]} for your quest.` : 'Choose how many to sell.', stats: `<span>Price: <b>${SELL[k]} gold each</b></span><span>You can sell: <b>${n}</b></span>`,
           actions: [{ label: 'Choose how many…', run: () => sellPicker($('dialog').querySelector('.sellpick'), k, n, SELL[k], (c) => { takeItem(k, c); S.coins += SELL[k] * c; sfx('coin'); toast(`Sold ${c} × ${ITEMS[k].toLowerCase()} for ${fmt(SELL[k] * c)} gold.`, ICONS.coins); shopRefresh(); }) },
             { label: `Sell all ${n} (+${fmt(SELL[k] * n)})`, run: () => { takeItem(k, n); S.coins += SELL[k] * n; sfx('coin'); toast(`Sold ${n} × ${ITEMS[k].toLowerCase()} for ${fmt(SELL[k] * n)} gold.`, ICONS.coins); shopRefresh(); } }] })),
-        ...L.gear.map((k) => { const g = GEAR[k], v = gearValue(g), ri = gearRarIx(g); return { key: k, icon: gearIcon(g), name: g.name, r: ri, short: gearStats(g), tag: `+${fmt(v)}`, tagCls: 'sellp',
+        ...L.gear.map((k) => { const g = GEAR[k], v = gearValue(g), ri = gearRarIx(g); return { key: k, icon: gearIcon(g), name: g.name, r: ri, short: gearStats(g), tag: `+${fmt(v)}`, tagCls: 'sellp', value: v,
+          sell: () => { if (!S.owned.includes(k) || Object.values(S.equip).includes(k)) return 0; S.owned = S.owned.filter((x) => x !== k); S.hotbar = (S.hotbar || []).map((x) => (x === k ? null : x)); if (S.plus) delete S.plus[k]; S.coins += v; return v; },
           desc: 'Spare gear you are not wearing.', stats: gearStats(g),
           actions: [{ label: `Sell for ${fmt(v)} gold`, run: (b) => {
             if (ri >= 2 && b.dataset.sure !== '1') { b.dataset.sure = '1'; b.textContent = `Really sell it? (${fmt(v)})`; return; }
@@ -3929,8 +3938,26 @@ function sellTab(npc) {
             S.coins += v; sfx('coin'); renderHotbar(); toast(`Sold ${g.name} for ${fmt(v)} gold.`, ICONS.coins, v >= 1000); shopRefresh(); } }] }; }),
       ];
     },
-    foot: () => { const L = lists(); return L.worth ? `<button class="primary" id="sh-sellall"><img src="${ICONS.coins}" alt="">Sell all materials (+${fmt(L.worth)})</button><small>Food and treasures are kept.</small>` : ''; },
-    wire: (d) => { const b = d.querySelector('#sh-sellall'); if (b) b.onclick = () => { const L = lists(); for (const [k, n] of L.bulk) takeItem(k, n); S.coins += L.worth; sfx('coin'); toast(`Sold your materials for ${fmt(L.worth)} gold.`, ICONS.coins); shopRefresh(); }; },
+    multi: true,
+    // tap cards to tick them, then sell the lot in one go. Epic and better asks once more before it goes.
+    foot: (goods, st) => {
+      const picked = goods.filter((g) => st.sel.has(g.key)), total = picked.reduce((a, g) => a + g.value, 0), big = picked.some((g) => (g.r || 0) >= 3);
+      return `<div class="sh-multi"><button id="sh-selall">Select all</button><button id="sh-selmat">Select materials</button>${picked.length ? '<button id="sh-selnone">Clear</button>' : ''}</div>
+        <button class="primary" id="sh-sellsel" ${picked.length ? '' : 'disabled'}><img src="${ICONS.coins}" alt="">${picked.length ? `Sell ${picked.length} selected (+${fmt(total)})` : 'Tap items to select them'}</button>${big ? '<small>Includes Epic or better gear. You\'ll be asked to confirm.</small>' : '<small>Equipped gear and quest items are never sold.</small>'}`;
+    },
+    wire: (d, goods, st) => {
+      const on = (id, f) => { const b = d.querySelector(id); if (b) b.onclick = f; };
+      on('#sh-selall', () => { sfx('click'); for (const g of goods) st.sel.add(g.key); renderShopScreen(); });
+      on('#sh-selmat', () => { sfx('click'); st.sel.clear(); for (const g of goods) if (g.mat) st.sel.add(g.key); renderShopScreen(); });
+      on('#sh-selnone', () => { sfx('click'); st.sel.clear(); renderShopScreen(); });
+      on('#sh-sellsel', function () {
+        const picked = goods.filter((g) => st.sel.has(g.key)); if (!picked.length) return;
+        if (picked.some((g) => (g.r || 0) >= 3) && this.dataset.sure !== '1') { this.dataset.sure = '1'; this.innerHTML = `Really sell ${picked.length} things, Epic gear included? (+${fmt(picked.reduce((a, g) => a + g.value, 0))})`; return; }
+        let got = 0; for (const g of picked) got += g.sell();
+        st.sel.clear(); st.pick = null; sfx('coin'); renderHotbar();
+        toast(`Sold ${picked.length} thing${picked.length > 1 ? 's' : ''} for ${fmt(got)} gold.`, ICONS.coins, got >= 1000); shopRefresh();
+      });
+    },
   };
 }
 function spellGood(k) {
@@ -9064,7 +9091,7 @@ function makeGagronFriend() {
   npcs.push(gagronFriend);
 }
 
-window.__jq = { toast, parseGive, chargedAttack, parseAmount, hitPeers, shotHitsPeer, showKeysNote, castSpell, learnSpell, spellCd, SPELLS, goonSneeze, goonDrips, goonFlop, setSlotBox, showSlots, get slotBox() { return slotBox; }, get guide() { return guide; }, bossNet, safeSpot, get PVP_LVL() { return PVP_LVL; }, goldNode, wbInfo, wbTick, get wb() { return wb; }, WB_SPOTS, tradeOpen, tradeNet, offerKey, get trade() { return trade; }, adv(s) { for (let t = 0; t < s; t += 0.05) { for (let i = timers.length - 1; i >= 0; i--) { timers[i].t -= 0.05; if (timers[i].t <= 0) { const f = timers[i].f; timers.splice(i, 1); f(); } } bossFxTick(0.05); } }, get party() { return party; }, BOSS_AI, PHASE_SETUP, get gulped() { return gulped; }, wriggle, toggleBigMap, spawnEnemy, openPathChoice, choosePath, startLanternNight, get lanterns() { return lanterns; }, duelOffer, duelPrize, onNet, chatCommand, canFight, openUpgrade, openBoard, boardToday, queueLetter, makeGagronFriend, net, peerActors, runeTick, bossFx, renderer, scene, openMayor, darkOmen, netWorth, liberateTown, setGolden, goldenCaught, pompArrive, get goldenE() { return goldenE; }, spinWheel, dayTick, get bossIntro() { return bossIntro; }, bossSkip, startBossScene, sailTo, regions, closeSheet, renderHotbar, crew, setCrewMode, TOWNS, liberateTown, chests, openChest, stopRoulette, enemies, startBossIntro, closeDialog, advanceDialog, dash, attackPress, craft, CRAFTS, openCreator, closeCreator, creator, rebuildHero, setZoom: (z) => { zoom = zoomGoal = z; }, hurtEnemy, goThrough, get where() { return where; }, INTERIORS, equipGear, spendPoint, giveHeroXp, heroLvl, stat, maxHp, defDiv, openWeaponShop, openKing, jump, eat, eatBest, openShop, swing, swingTarget, hitNode, projectiles, timers, get S() { return S; }, get player() { return player; }, enemies, nodes, npcs, startTask, doAction, giveXp, save, openSheet, openDialog };
+window.__jq = { toast, COS, ITEMS, GEAR, parseGive, chargedAttack, parseAmount, hitPeers, shotHitsPeer, showKeysNote, castSpell, learnSpell, spellCd, SPELLS, goonSneeze, goonDrips, goonFlop, setSlotBox, showSlots, get slotBox() { return slotBox; }, get guide() { return guide; }, bossNet, safeSpot, get PVP_LVL() { return PVP_LVL; }, goldNode, wbInfo, wbTick, get wb() { return wb; }, WB_SPOTS, tradeOpen, tradeNet, offerKey, get trade() { return trade; }, adv(s) { for (let t = 0; t < s; t += 0.05) { for (let i = timers.length - 1; i >= 0; i--) { timers[i].t -= 0.05; if (timers[i].t <= 0) { const f = timers[i].f; timers.splice(i, 1); f(); } } bossFxTick(0.05); } }, get party() { return party; }, BOSS_AI, PHASE_SETUP, get gulped() { return gulped; }, wriggle, toggleBigMap, spawnEnemy, openPathChoice, choosePath, startLanternNight, get lanterns() { return lanterns; }, duelOffer, duelPrize, onNet, chatCommand, canFight, openUpgrade, openBoard, boardToday, queueLetter, makeGagronFriend, net, peerActors, runeTick, bossFx, renderer, scene, openMayor, darkOmen, netWorth, liberateTown, setGolden, goldenCaught, pompArrive, get goldenE() { return goldenE; }, spinWheel, dayTick, get bossIntro() { return bossIntro; }, bossSkip, startBossScene, sailTo, regions, closeSheet, renderHotbar, crew, setCrewMode, TOWNS, liberateTown, chests, openChest, stopRoulette, enemies, startBossIntro, closeDialog, advanceDialog, dash, attackPress, craft, CRAFTS, openCreator, closeCreator, creator, rebuildHero, setZoom: (z) => { zoom = zoomGoal = z; }, hurtEnemy, goThrough, get where() { return where; }, INTERIORS, equipGear, spendPoint, giveHeroXp, heroLvl, stat, maxHp, defDiv, openWeaponShop, openKing, jump, eat, eatBest, openShop, swing, swingTarget, hitNode, projectiles, timers, get S() { return S; }, get player() { return player; }, enemies, nodes, npcs, startTask, doAction, giveXp, save, openSheet, openDialog };
 window.addEventListener('error', (e) => { const m = $('loadmsg'); if (m) m.textContent = `Something went wrong: ${e.message}`; });
 main().catch((err) => {
   console.error(err);
