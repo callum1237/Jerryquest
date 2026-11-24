@@ -3,7 +3,7 @@ import { THREE, scene, camera, renderer, sun, sky, PRESETS, env, applyPreset, bl
   loadModel, burst, updateParticles, render, rng, setQuality } from './engine.js';
 import * as SkeletonUtils from 'three/addons/utils/SkeletonUtils.js';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
-import { buildWorld, buildFlowers, buildMeadow, place, tentAt, S_PROP, S_BUILD, colliders, clouds, dynamic, LAKE, CAMP, MINE, S_NATURE, blocked, isFree, ZONES, WORLD_R, VS, TOWNS, ROADS, townFacing, VALLEY_ARENAS } from './world.js';
+import { terrainH, buildWorld, buildFlowers, buildMeadow, place, tentAt, S_PROP, S_BUILD, colliders, clouds, dynamic, LAKE, CAMP, MINE, S_NATURE, blocked, isFree, ZONES, WORLD_R, VS, TOWNS, ROADS, townFacing, VALLEY_ARENAS } from './world.js';
 import { LANDS, landPt, VALLEY_DOCK, buildLands, makeSnow, makeEmbers, MAGMA_FX, landRoads, coastOf, SANDS_FX, palmNode, roundNode } from './lands.js';
 import { ICONS } from './icons.js';
 import { HUMAN_ALIAS, HUMAN_LOOPS, makeHumanHair } from './human.js';
@@ -2377,8 +2377,10 @@ const heroScale = (L) => 1.3 * 1.05 * (1 + Math.max(-1, Math.min(1, +(L && L.hei
 // heroes stand a little taller than the chunky models: still chibi, a bit closer to regular people.
 // The head is scaled back so it stays round.
 // v82 (Callum: "a bit taller and less chunky"): taller and slimmer bodies, the big round head is kept as it was.
-const TALL = 1.22, SLIM = 0.9;
-function setHeroScale(a, s) { a.tall = TALL; a.slim = SLIM; a.s0 = s; const k = s * (a.shrinkK || 1) * SLIM; a.root.scale.set(k, s * TALL * (a.shrinkK || 1), k); }
+// v84: the height now comes mostly from longer legs and a longer body (bone by bone), not from stretching the whole figure,
+// so heroes read clearly taller and leaner while the big round chibi head stays the same
+const TALL = 1.1, SLIM = 0.86, SHIN = 1.35, LEG = 1.6, BODY = 1.4, ARM = 0.84, ARM_LEN = 1.3;
+function setHeroScale(a, s) { a.tall = TALL; a.slim = SLIM; a.lanky = true; a.s0 = s; const k = s * (a.shrinkK || 1) * SLIM; a.root.scale.set(k, s * TALL * (a.shrinkK || 1), k); }
 // /shrink: an admin can make a hero tiny for a while. The size eases down and back up again.
 let shrinkUntil = 0;
 function shrinkEase(a, small, dt) { const goal = small ? 0.35 : 1, k = a.shrinkK || 1; if (Math.abs(goal - k) < 0.002 && k === goal) return; a.shrinkK = Math.abs(goal - k) < 0.01 ? goal : k + (goal - k) * Math.min(1, dt * 5); if (a.s0) setHeroScale(a, a.s0); }
@@ -2563,11 +2565,55 @@ function headParts(a = player) {
 // The big chibi head sits low on the shoulders, so there is no long bare neck.
 // Animations may or may not move the head bone, so only lower it when the mixer has just set it.
 const NECK_DROP = 0.2;
+// v84: smaller heads (storybook-adventurer proportions, not chibi); the Head size choice still scales from here
+const HEAD_K = 0.52;
+// v84: the valley has rolling hills. Game logic stays flat (every position keeps y as before); just for drawing,
+// everything standing in the open (heroes, monsters, props, effects) and the camera ride up onto the hills.
+const _lifted = [];
+function hillLift(dir) {
+  if (dir > 0) {
+    _lifted.length = 0;
+    for (const o of scene.children) {
+      if (o.isLight || o === sky || o.userData.noLift) continue;
+      const p = o.position, u = o.userData;
+      if (u.hx !== p.x || u.hz !== p.z) { u.hx = p.x; u.hz = p.z; u.hh = terrainH(p.x, p.z); }
+      if (u.hh > 0.001) { p.y += u.hh; _lifted.push(o); }
+    }
+    const fh = player ? terrainH(player.pos.x, player.pos.z) : 0; camera.position.y += fh; camera.userData.hh = fh; camera.updateMatrixWorld();
+  } else {
+    for (const o of _lifted) o.position.y -= o.userData.hh;
+    camera.position.y -= camera.userData.hh || 0; camera.updateMatrixWorld();
+  }
+}
 function headPose(a) {
   if (!a || !a.headInfo || !a.headScale) return;
-  const b = a.headInfo.bone; b.scale.setScalar(a.headScale); if (a.tall) b.scale.y /= a.tall; if (a.slim) { b.scale.x /= a.slim; b.scale.z /= a.slim; }
+  const b = a.headInfo.bone; b.scale.setScalar(a.headScale * HEAD_K); if (a.tall) b.scale.y /= a.tall; if (a.slim) { b.scale.x /= a.slim; b.scale.z /= a.slim; }
   if (b.position.y !== a.headY) a.headBase = b.position.y;
-  b.position.y = a.headBase - NECK_DROP * a.headScale; a.headY = b.position.y;
+  b.position.y = a.headBase - NECK_DROP * a.headScale * HEAD_K; a.headY = b.position.y;
+  if (a.lanky === undefined) a.lanky = true; // v84: NPCs get the longer build too
+  if (a.lanky) lankyPose(a, b);
+}
+// v84: longer legs and body, slimmer arms, set after the animation each frame (like the head)
+function lankyPose(a, head) {
+  let L = a.limbs;
+  if (!L) {
+    const n = {}; a.root.traverse((o) => { if (o.isBone) n[o.name] = o; });
+    if (!n.hips || !n.upperlegl || !n.upperlegr || !n.spine) { a.lanky = false; return; }
+    L = a.limbs = n;
+    L.lift = (n.lowerlegl ? n.lowerlegl.position.length() : 0) * (LEG - 1) + (n.footl ? n.footl.position.length() : 0) * (LEG * SHIN - 1);
+  }
+  for (const k of ['upperlegl', 'upperlegr']) { const o = L[k]; o.scale.set(0.9, LEG, 0.9); }
+  for (const k of ['lowerlegl', 'lowerlegr']) { const o = L[k]; if (o) o.scale.set(1, SHIN, 1); }
+  for (const k of ['footl', 'footr']) { const o = L[k]; if (o) o.scale.set(1 / 0.9, 1 / (LEG * SHIN), 1 / 0.9); }
+  L.spine.scale.set(0.94, BODY, 0.94);
+  for (const k of ['upperarml', 'upperarmr']) { const o = L[k]; if (o) o.scale.set(ARM, ARM_LEN / BODY, ARM); }
+  for (const k of ['handl', 'handr']) { const o = L[k]; if (o) o.scale.set(1 / ARM, BODY / ARM_LEN, 1 / ARM); }
+  // the head sits on the (longer) body; undo the body's stretch on it so it stays round
+  head.scale.y /= BODY; head.scale.x /= 0.94; head.scale.z /= 0.94;
+  // stand on the longer legs (only when the animation has just set the hips, so it never creeps)
+  const h = L.hips;
+  if (h.position.y !== a.hipsY) a.hipsBase = h.position.y;
+  h.position.y = a.hipsBase + L.lift; a.hipsY = h.position.y;
 }
 const headGeo = (() => {
   const g = new THREE.SphereGeometry(1, 56, 40), p = g.attributes.position, v = new THREE.Vector3();
@@ -3388,7 +3434,7 @@ function buildNodes() {
     cut.visible = false;
     nodes.push(hpNode({ kind, def: NODES[kind], x, z, full, cut, alive: true, respawnAt: 0, reach: 2.6, r: 1.1 }));
   };
-  for (let i = 0; i < 80 && nodes.length < 18; i++) { const a = rng() * Math.PI * 2, r = 18 + rng() * 24; addTree(Math.cos(a) * r, Math.sin(a) * r, 'tree'); }
+  for (let i = 0; i < 80 && nodes.length < 18; i++) { const a = rng() * Math.PI * 2, r = 24 + rng() * 30; /* v84: further out, so the spawn is roomier */ addTree(Math.cos(a) * r, Math.sin(a) * r, 'tree'); }
   for (let i = 0; i < 60 && nodes.filter((n) => n.kind === 'oak').length < 8; i++) addTree(6 + rng() * 26, 30 + rng() * 14, 'oak');
 
   const addRock = (x, z, kind) => {
@@ -7600,7 +7646,7 @@ function startSandstorm() {
 }
 let storm = null;
 function makeStorm() {
-  const N = 600, geo = new THREE.BufferGeometry(), p = new Float32Array(N * 3);
+  const N = 300, geo = new THREE.BufferGeometry(), p = new Float32Array(N * 3);
   for (let i = 0; i < N; i++) { p[i * 3] = (Math.random() - 0.5) * 70; p[i * 3 + 1] = Math.random() * 12; p[i * 3 + 2] = (Math.random() - 0.5) * 70; }
   geo.setAttribute('position', new THREE.BufferAttribute(p, 3));
   const pts = new THREE.Points(geo, new THREE.PointsMaterial({ color: '#e8c890', size: 0.3, transparent: true, opacity: 0.8, depthWrite: false, fog: false }));
@@ -8721,7 +8767,9 @@ function tick() {
   sun.position.set(focus.x + sd[0], sd[1], focus.z + sd[2]);
   sun.target.position.set(focus.x, 0, focus.z);
   cullActors();
+  hillLift(1);
   render();
+  hillLift(-1);
   previewTick();
   for (const r of culled) r.visible = true;
   culled.length = 0;
@@ -9227,13 +9275,17 @@ function talkCam(dt) {
   const w = innerWidth, h = innerHeight;
   camera.setViewOffset(w, h, 0, h * (phone ? 0.2 : 0.15), w, h);
 }
+const _ccHead = new THREE.Vector3();
 function creatorCam(dt) {
   const p = player.pos, phone = innerWidth < 760;
   if (!creator.drag && now > creator.idleAt) creator.yaw += (Math.sin(now * 0.5) * 0.45 - creator.yaw) * Math.min(1, dt * 1.2);
   player.root.rotation.y = creator.yaw;
   const headY = 2.5 * (player.headScale || 1) ** 0.3;
   const hs = player.headScale || 1;
-  const ty = creator.close ? headY + (hs - 1) * 0.4 - NECK_DROP * hs - 0.1 : 1.3 + (hs - 1) * 0.4, dist = (creator.close ? 4.9 * hs : 8.2 + (hs - 1) * 3) * (phone ? (creator.close ? 1.9 : 2.4) : 1);
+  // v84: aim at where the head really is (heroes are taller now, with smaller heads)
+  let headW = headY; const hb = player.headInfo && player.headInfo.bone;
+  if (hb) { hb.getWorldPosition(_ccHead); headW = _ccHead.y + 0.25 * hs; }
+  const ty = creator.close ? headW : headW * 0.55, dist = (creator.close ? 3.4 * hs : 7.6) * (phone ? (creator.close ? 1.9 : 2.4) : 1);
   const want = tmpV.set(p.x, ty + (creator.close ? 0.5 : 1.6), p.z + dist);
   // clip away anything standing between the camera and the hero (bushes, fences)
   const near = Math.max(0.1, dist - 2.2);
@@ -10303,12 +10355,12 @@ function auraKit(a, c) {
   const blend = { transparent: true, depthWrite: false, fog: false, blending: THREE.AdditiveBlending };
   // a dark aura can't be made of light: its rune, smoke and wisps are drawn as shadow, with a thin violet glow
   const shadow = { transparent: true, depthWrite: false, fog: false };
-  const disc = add(new THREE.Mesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshBasicMaterial({ map: runeTex, color: c.dark ? '#14061f' : c.col, opacity: c.dark ? 0.85 : 0.55 + r * 0.06, side: THREE.DoubleSide, ...(c.dark ? shadow : blend) })));
-  disc.rotation.x = -Math.PI / 2; disc.position.y = 0.07; disc.scale.setScalar(2.6 + r * 0.25);
+  const disc = add(new THREE.Mesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshBasicMaterial({ map: runeTex, color: c.dark ? '#14061f' : c.col, opacity: c.dark ? 0.6 : 0.3 + r * 0.03, side: THREE.DoubleSide, ...(c.dark ? shadow : blend) })));
+  disc.rotation.x = -Math.PI / 2; disc.position.y = 0.07; disc.scale.setScalar(1.55 + r * 0.1); // v84: smaller, subtler auras
   const motes = [];
-  for (let i = 0; i < 4 + r * 3 + (c.dark ? 6 : 0); i++) { const m = add(new THREE.Mesh(moteGeo, c.dark && i % 3 ? new THREE.MeshBasicMaterial({ color: i % 2 ? '#12051c' : '#2a0e40', opacity: 0.8, ...shadow }) : new THREE.MeshBasicMaterial({ color: c.dark ? '#b46aff' : i % 3 ? c.col : '#ffffff', opacity: 0.9, ...blend }))); m.userData.o = { ph: i / (4 + r * 3), sp: 0.35 + rng() * 0.25, rad: 0.8 + rng() * 0.5, s: 0.7 + rng() * 0.8 }; motes.push(m); }
+  for (let i = 0; i < 2 + r + (c.dark ? 2 : 0); i++) { const m = add(new THREE.Mesh(moteGeo, c.dark && i % 3 ? new THREE.MeshBasicMaterial({ color: i % 2 ? '#12051c' : '#2a0e40', opacity: 0.8, ...shadow }) : new THREE.MeshBasicMaterial({ color: c.dark ? '#b46aff' : i % 3 ? c.col : '#ffffff', opacity: 0.9, ...blend }))); m.userData.o = { ph: i / (4 + r * 3), sp: 0.35 + rng() * 0.25, rad: 0.8 + rng() * 0.5, s: 0.7 + rng() * 0.8 }; motes.push(m); }
   let pillar = null;
-  if (r >= 3) { pillar = add(new THREE.Mesh(new THREE.CylinderGeometry(1.0, 1.15, 3.4, 24, 1, true), new THREE.MeshBasicMaterial({ map: pillarTex, color: c.col, opacity: 0.18 + (r - 3) * 0.08, side: THREE.DoubleSide, ...blend }))); pillar.position.y = 1.7; }
+  if (r >= 5) { pillar = add(new THREE.Mesh(new THREE.CylinderGeometry(1.0, 1.15, 3.4, 24, 1, true), new THREE.MeshBasicMaterial({ map: pillarTex, color: c.col, opacity: 0.18 + (r - 3) * 0.08, side: THREE.DoubleSide, ...blend }))); pillar.position.y = 1.7; }
   if (c.dark) {
     if (pillar) { pillar.material.blending = THREE.NormalBlending; pillar.material.color.set('#1a0828'); pillar.material.needsUpdate = true; }
     const glow = add(new THREE.Mesh(new THREE.RingGeometry(0.86, 1, 48), new THREE.MeshBasicMaterial({ color: c.col, opacity: 0.75, side: THREE.DoubleSide, ...blend })));
@@ -10320,16 +10372,16 @@ function auraKit(a, c) {
 function auraKitTick(F) {
   const P = F.kitParts; if (!P) return;
   P.disc.rotation.z = now * (0.4 + P.r * 0.08);
-  P.disc.material.opacity = (0.5 + P.r * 0.06) * (0.85 + 0.15 * Math.sin(now * 3));
+  P.disc.material.opacity = (0.26 + P.r * 0.03) * (0.85 + 0.15 * Math.sin(now * 3));
   if (P.shimmer) { _shim.setHSL((now * 0.15) % 1, 0.85, 0.62); P.disc.material.color.copy(_shim); if (P.pillar) P.pillar.material.color.copy(_shim); }
   for (const m of P.motes) {
     const o = m.userData.o, t = (now * o.sp + o.ph) % 1, ang = o.ph * 6.283 + now * (0.8 + o.sp);
-    m.position.set(Math.cos(ang) * o.rad * (1 - t * 0.35), 0.15 + t * 2.6, Math.sin(ang) * o.rad * (1 - t * 0.35));
-    m.scale.setScalar(o.s * (t < 0.15 ? t / 0.15 : 1 - (t - 0.15) / 0.85));
+    m.position.set(Math.cos(ang) * o.rad * 0.7 * (1 - t * 0.35), 0.15 + t * 1.5, Math.sin(ang) * o.rad * 0.7 * (1 - t * 0.35));
+    m.scale.setScalar(0.7 * o.s * (t < 0.15 ? t / 0.15 : 1 - (t - 0.15) / 0.85));
     if (P.shimmer) m.material.color.setHSL((now * 0.15 + o.ph) % 1, 0.85, 0.65);
   }
-  if (P.pillar) P.pillar.material.opacity = (P.dark ? 0.6 : 0.16 + (P.r - 3) * 0.08) * (0.8 + 0.2 * Math.sin(now * 2));
-  if (P.dark) P.disc.material.opacity = 0.88 + 0.1 * Math.sin(now * 2.2);
+  if (P.pillar) P.pillar.material.opacity = (P.dark ? 0.35 : 0.1 + (P.r - 3) * 0.04) * (0.8 + 0.2 * Math.sin(now * 2));
+  if (P.dark) P.disc.material.opacity = 0.6 + 0.08 * Math.sin(now * 2.2);
 }
 function setFlair(a, { rank = 0, aura = null, trail = null, hat = null, helmet = false } = {}) {
   const F = a.flair || (a.flair = {});
@@ -10341,7 +10393,7 @@ function setFlair(a, { rank = 0, aura = null, trail = null, hat = null, helmet =
     F.ring.rotation.x = -Math.PI / 2; F.ring.position.y = 0.06; F.ring.layers.set(1); a.root.add(F.ring);
     F.ring2 = F.ring.clone(); F.ring2.material = F.ring.material.clone(); a.root.add(F.ring2);
   }
-  F.ring.visible = show && !F.kit; F.ring2.visible = show && !F.kit && rank >= 4;
+  F.ring.visible = show && !F.kit; F.ring2.visible = false; // v84: one quiet ring, no second pulse
   F.ring.material.color.set(col); F.ring2.material.color.set(col);
   F.rank = rank; F.col = col; F.rainbow = rank >= 5 && !aura;
   F.trail = trail && COS.trail[trail] ? COS.trail[trail].col : null; F.trailShimmer = !!(trail && COS.trail[trail] && COS.trail[trail].shimmer); F.trailAt = 0; F.moteAt = 0;
@@ -10363,16 +10415,16 @@ function flairTick(a, dt, moving) {
   if (F.kit) auraKitTick(F);
   if (F.ring.visible) {
     const k = 1 + Math.sin(now * 2.4) * 0.06;
-    F.ring.scale.setScalar(1.25 * k); F.ring.material.opacity = 0.28 + 0.1 * F.rank / 5 + Math.sin(now * 3) * 0.06;
+    F.ring.scale.setScalar(0.95 * k); F.ring.material.opacity = 0.16 + 0.06 * F.rank / 5 + Math.sin(now * 3) * 0.04;
     if (F.ring2.visible) { F.ring2.scale.setScalar(1.9 - ((now * 0.6) % 1) * 0.7); F.ring2.material.opacity = 0.3 * ((now * 0.6) % 1); }
     if (F.rainbow) { const c = new THREE.Color().setHSL((now * 0.15) % 1, 0.8, 0.62); F.ring.material.color.copy(c); F.ring2.material.color.copy(c); F.col = `#${c.getHexString()}`; }
-    if (F.rank >= 3 && now > F.moteAt) {
+    if (false && F.rank >= 3 && now > F.moteAt) { // v84: no rank sparkles (clutter)
       F.moteAt = now + (F.rank >= 4 ? 0.12 : 0.25);
       const ang = rng() * 6.28; _fx.set(a.root.position.x + Math.cos(ang) * 1.1, 0.3, a.root.position.z + Math.sin(ang) * 1.1);
       burst(_fx, F.col, 1, 1.5, 0.9);
     }
   }
-  if (F.trail && moving && now > F.trailAt) { F.trailAt = now + 0.06; burst(_fx.copy(a.root.position).setY(0.3), F.trailShimmer ? `#${_shim.setHSL((now * 0.4) % 1, 0.85, 0.65).getHexString()}` : F.trail, 2, 1.6, 0.7); }
+  if (F.trail && moving && now > F.trailAt) { F.trailAt = now + 0.14; burst(_fx.copy(a.root.position).setY(0.3), F.trailShimmer ? `#${_shim.setHSL((now * 0.4) % 1, 0.85, 0.65).getHexString()}` : F.trail, 2, 1.6, 0.7); }
 }
 function heroFlair() {
   if (!player) return;

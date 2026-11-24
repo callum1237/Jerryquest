@@ -274,7 +274,7 @@ function dotTexture() {
 const DOT = dotTexture();
 export const rng = (() => { let s = 1337; return () => ((s = (s * 16807) % 2147483647) / 2147483647); })();
 
-const MOTES = 260;
+const MOTES = 70; // v84: far fewer floating motes (cleaner, lighter)
 const motePos = new Float32Array(MOTES * 3), moteCol = new Float32Array(MOTES * 3), moteSeed = new Float32Array(MOTES);
 const moteColors = ['#ffe07a', '#9ff3ff', '#ffb3e6', '#c7ff9a'].map((c) => new THREE.Color(c));
 for (let i = 0; i < MOTES; i++) {
@@ -302,7 +302,7 @@ let bNext = 0;
 const _bc = new THREE.Color(), _bv = new THREE.Vector3();
 export function burst(p, color, n = 24, spd = 6, up = 0.9) {
   _bc.set(color);
-  n = n <= 2 ? n : Math.min(36, Math.round(n * 0.6));
+  n = n <= 2 ? n : Math.min(20, Math.round(n * 0.4)); // v84: smaller puffs
   for (let i = 0; i < n; i++) {
     const j = bNext = (bNext + 1) % BURST, k = j * 3;
     bPos[k] = p.x; bPos[k + 1] = p.y; bPos[k + 2] = p.z;
@@ -313,7 +313,7 @@ export function burst(p, color, n = 24, spd = 6, up = 0.9) {
   }
 }
 export function updateParticles(dt, t, center) {
-  moteMat.opacity = env.cur.motes * 0.7;
+  moteMat.opacity = env.cur.motes * 0.45;
   moteMat.color.setRGB(1 - env.cur.night * 0.1, 1, 1 - env.cur.night * 0.55); // fireflies turn yellow-green at night
   for (let i = 0; i < MOTES; i++) {
     const s = moteSeed[i];

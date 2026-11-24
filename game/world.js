@@ -1,7 +1,7 @@
 // Static world: ground, lake, paths, village buildings, forest, mountains, clouds, campfire.
 import { THREE, scene, gradient, stylize, registerMesh, toon, rng, foliageMat, puffNormals } from './engine.js';
 
-export const S_BUILD = 5, S_NATURE = 4.5, S_PROP = 2.6;
+export const S_BUILD = 5.9, S_NATURE = 4.5, S_PROP = 2.6; // v84: houses a bit bigger to suit the taller heroes
 export const LAKE = { x: 37, z: -7, r: 12 };
 export const CAMP = { x: -22, z: 31 };
 // the Old Quarry: a big open pit out east past the dragon's cave, with copper, iron, silver and gold
@@ -37,7 +37,7 @@ export const TOWNS = [
 export const townFacing = (T) => Math.atan2((T.home ? T.home[1] : 0) - T.z, (T.home ? T.home[0] : 0) - T.x);
 // The four lands beyond the valley forest. Each has its own colour, mood, monsters and a miniboss.
 // The village is spread out a little: every village building and prop sits VS times further from the well.
-export const VS = 1.6;
+export const VS = 1.95; // v84: more room round the spawn
 export const ZONES = {
   glimmer: { name: 'Glimmerwood', x: 108, z: 6, r: 42, grass: '#5aa6a0', grass2: '#7d7fd6' },
   crags: { name: 'Grumble Crags', x: -106, z: -4, r: 42, grass: '#9a9a78', grass2: '#b5a27e' },
@@ -83,7 +83,8 @@ export function instanced(template, matrices, opts = {}) {
     const rel = new THREE.Matrix4().multiplyMatrices(inv, o.matrixWorld);
     const im = new THREE.InstancedMesh(o.geometry, o.material, matrices.length);
     const tmp = new THREE.Matrix4();
-    matrices.forEach((m, i) => im.setMatrixAt(i, tmp.multiplyMatrices(m, rel)));
+    const lift = new THREE.Matrix4();
+    matrices.forEach((m, i) => { const e = m.elements, h = opts.flat ? 0 : terrainH(e[12], e[14]); lift.makeTranslation(0, h, 0); im.setMatrixAt(i, tmp.multiplyMatrices(lift, m).multiply(rel)); });
     // nature-kit parts come with their own painted materials and layer (see natural())
     if (o.userData.mats) { registerMesh(im, o.userData.mats); im.layers.mask = o.layers.mask; im.castShadow = opts.cast !== false && o.castShadow; im.receiveShadow = true; }
     if (opts.colors) { matrices.forEach((m, i) => im.setColorAt(i, opts.colors[i])); }
@@ -233,6 +234,27 @@ const faceCenter = (x, z) => Math.atan2(-x, -z);
 export const blocked = (x, z) => Math.hypot(x - LAKE.x, z - LAKE.z) < LAKE.r + 3 || Math.hypot(x - CAMP.x, z - CAMP.z) < 11
   || TOWNS.some((T) => Math.hypot(x - T.x, z - T.z) < T.r + 3) || Math.hypot(x - 4, z + 66) < 18 || Math.hypot(x - 62, z + 63) < 11 || Math.hypot(x - MINE.x, z - MINE.z) < MINE.r + 4
   || VALLEY_ARENAS.some((A) => Math.hypot(x - A.x, z - A.z) < A.r + 2);
+// v84: rolling hills. A smooth height field that stays flat on roads, in the village, towns, the lake, the camp,
+// the quarry and every boss stage, and rises into soft grassy hills in the open country between them.
+const roadDist = (x, z) => { let m = 1e9; for (const [tx, tz, fx, fz] of ROADS) { const dx = tx - fx, dz = tz - fz, L2 = dx * dx + dz * dz; const t = Math.max(0, Math.min(1, ((x - fx) * dx + (z - fz) * dz) / L2)); m = Math.min(m, Math.hypot(x - (fx + dx * t), z - (fz + dz * t))); } return m; };
+const sstep = (a, b, v) => { const t = Math.max(0, Math.min(1, (v - a) / (b - a))); return t * t * (3 - 2 * t); };
+export const HILL_H = 4.2;
+export function terrainH(x, z) {
+  const d = Math.hypot(x, z);
+  if (d > WORLD_R - 6 || d < 62) return 0;
+  // a few broad lumps (sum of soft waves), only the tops of them are kept
+  const n = Math.sin(x * 0.043 + 1.3) * Math.cos(z * 0.039 - 0.7) + 0.6 * Math.sin(x * 0.081 - z * 0.067 + 2.1) + 0.35 * Math.cos(x * 0.13 + z * 0.11);
+  let h = sstep(0.35, 1.25, n);
+  if (h <= 0) return 0;
+  h *= sstep(62, 92, d) * (1 - sstep(WORLD_R - 30, WORLD_R - 6, d));
+  h *= sstep(9, 22, roadDist(x, z));
+  for (const Z of VALLEY_ARENAS) h *= sstep(Z.r + 4, Z.r + 18, Math.hypot(x - Z.x, z - Z.z));
+  for (const T of TOWNS) h *= sstep(T.r + 6, T.r + 22, Math.hypot(x - T.x, z - T.z));
+  h *= sstep(LAKE.r + 5, LAKE.r + 18, Math.hypot(x - LAKE.x, z - LAKE.z));
+  h *= sstep(MINE.r + 5, MINE.r + 18, Math.hypot(x - MINE.x, z - MINE.z));
+  h *= sstep(14, 28, Math.hypot(x - CAMP.x, z - CAMP.z));
+  return h * HILL_H;
+}
 export const isFree = (x, z, pad = 0) => !colliders.some((c) => Math.hypot(c.x - x, c.z - z) < c.r + pad);
 
 export function buildWorld(library) {
@@ -252,7 +274,9 @@ export function buildWorld(library) {
       if (k > 0) tmpc.lerp(zc.set(Z.grass).lerp(zc2.set(Z.grass2), (n + 1.5) / 3), k * 0.7);
     }
     const d = Math.hypot(x, z);
-    pos.setY(i, d > WORLD_R + 4 ? (d - WORLD_R - 4) * 0.25 * (1 + 0.5 * Math.sin(x * 0.11 + z * 0.07)) : 0);
+    const hh = terrainH(x, z);
+    pos.setY(i, (d > WORLD_R + 4 ? (d - WORLD_R - 4) * 0.25 * (1 + 0.5 * Math.sin(x * 0.11 + z * 0.07)) : 0) + hh);
+    if (hh > 0.3) tmpc.lerp(zc.set('#9cce62'), Math.min(0.35, hh * 0.08)); // sunny hilltops
     gc.push(tmpc.r, tmpc.g, tmpc.b);
   }
   gGeo.setAttribute('color', new THREE.Float32BufferAttribute(gc, 3));
@@ -324,10 +348,10 @@ export function buildWorld(library) {
   // village
   place('building_well_blue', 0, 0, S_BUILD);
   const ring = [
-    ['building_tavern_blue', -4, -17, 6.5], ['building_home_A_blue', -15, -9, S_BUILD], ['building_home_B_blue', -16, 8, S_BUILD],
+    ['building_tavern_blue', -4, -17, 7.6], ['building_home_A_blue', -15, -9, S_BUILD], ['building_home_B_blue', -16, 8, S_BUILD],
     ['building_home_A_red', 11, -15, S_BUILD], ['building_home_B_yellow', 14, 6, S_BUILD], ['building_market_yellow', 7, 15.5, S_BUILD * 1.5],
-    ['building_blacksmith_red', 9, -24, S_BUILD], ['building_church_yellow', -14, -28, 6], ['building_windmill_green', -30, -12, 6],
-    ['building_lumbermill_green', -27, 14, S_BUILD], ['building_tower_A_red', 22, -26, 6],
+    ['building_blacksmith_red', 9, -24, S_BUILD], ['building_church_yellow', -14, -28, 7], ['building_windmill_green', -30, -12, 7.2],
+    ['building_lumbermill_green', -27, 14, S_BUILD], ['building_tower_A_red', 22, -26, 7],
   ];
   for (const [n, x0, z0, s] of ring) { const x = x0 * VS, z = z0 * VS; place(n, x, z, s, faceCenter(x, z)); }
   shopSign(7 * VS, 15.5 * VS);
@@ -384,11 +408,11 @@ export function buildWorld(library) {
     colliders.push({ x, z, r: 1.0 });
   }
   // v81: the Glimmerwood grows twisty painted trees in magic pinks and teals
-  forestOf(glimmerBig, [[natural('TwistedTree_1', { pal: PAL.glimmer, h: hOf(lib.trees_B_large) * 1.15 }), 1]]);
-  forestOf(glimmerTrees, [[natural('CommonTree_3', { pal: PAL.glimmer2, h: hOf(lib.trees_A_medium) * 1.1 }), 1]]);
+  forestOf(glimmerBig, [[natural('TwistedTree_1', { pal: PAL.glimmer, h: hOf(lib.trees_B_large) * 1.4 }), 1]]);
+  forestOf(glimmerTrees, [[natural('CommonTree_3', { pal: PAL.glimmer2, h: hOf(lib.trees_A_medium) * 1.35 }), 1]]);
   for (const [k, list] of Object.entries(kinds)) if (list.length) instanced(lib[k], list);
   // v81: painted Quaternius trees stand where the round toy trees stood (same spots, same sizes)
-  const TH = 1.5;
+  const TH = 1.9; // v84: taller trees
   forestOf(rounds.A, [[natural('CommonTree_1', { h: TH }), 0.6], [natural('CommonTree_3', { h: TH * 1.1 }), 0.4]]);
   forestOf(rounds.B, [[natural('CommonTree_2', { h: TH, pal: PAL.deep }), 0.85], [natural('TwistedTree_1', { h: TH * 1.3 }), 0.15]]);
   forestOf(rounds.C, [[natural('CommonTree_5', { h: TH * 0.95, pal: PAL.spring }), 1]]);
