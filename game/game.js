@@ -822,7 +822,7 @@ function makePeer(id, p) {
   const look = { ...fresh().look, ...(p.look || {}) };
   const cos = look.cos || {}, skel = isSkel(cos);
   const a = skel ? new Actor(G.skel_minion, { hide: SKEL_HIDE }) : new Actor(look.sex === 'f' ? G.heroine : G.knight, { hide: look.hat ? [] : PEER_HATS });
-  if (skel) skelPaint(a); else { dressNpc(a, pathLook(look, look.path)); pathDecor(a, look.path); }
+  if (skel) skelPaint(a, COS.outfit[cos.outfit]); else { dressNpc(a, pathLook(look, look.path)); pathDecor(a, look.path); }
   setFlair(a, { rank: rankOf(p.lvl || 1), aura: cos.aura, trail: cos.trail, hat: cos.hat, helmet: look.hat });
   if (!skel && cos.outfit && COS.outfit[cos.outfit]) { paintOutfit(a, COS.outfit[cos.outfit]); dressOutfit(a, COS.outfit[cos.outfit], look.sex === 'f' ? G.heroine : G.knight); }
   setHeroScale(a, heroScale(look));
@@ -912,7 +912,7 @@ function partySet(p, why) {
 // picks the action up from there, so nobody can fake one by sending a message.
 // typed amounts: "90k" = 90,000, "2.5m" = 2,500,000, "1b" = a billion; commas and spaces are ignored. NaN if it isn't a number.
 const parseAmount = (t) => { const m = String(t ?? '').replace(/[,\s_]/g, '').toLowerCase().match(/^(\d+(?:\.\d+)?|\.\d+)([kmb])?$/); return m ? Math.floor(parseFloat(m[1]) * ({ k: 1e3, m: 1e6, b: 1e9 }[m[2]] || 1)) : NaN; };
-const ADMIN_HELP = 'Admin: /give [player] thing [amount]. Things: coins, xp (or exp), any item, gear, look or spell by name (like /give prism aura or /give Bob dark blade), or an id like outfit:id, aura:id, hat:id, cape:id, trail:id, spell:id, or "all-looks". /give find skins (or auras, hats, capes, trails, spells, gear, items) lists names; /give find word searches. /kick player (30 seconds). /remove player thing [amount]. /look player shows their hero and bag. /shrink player makes them tiny for 30 seconds. /wolf and /unwolf turn you into a giant wolf and back. /azap and /agust give you Admin Zap and Admin Gust (admin only, no cooldown).';
+const ADMIN_HELP = 'Admin: /give [player] thing [amount]. Things: coins, xp (or exp), any item, gear, look or spell by name (like /give prism aura or /give Bob dark blade), or an id like outfit:id, aura:id, hat:id, cape:id, trail:id, spell:id, or "all-looks" (also "all outfits"). /give find skins (or auras, hats, capes, trails, spells, gear, items) lists names; /give find word searches. /kick player (30 seconds). /remove player thing [amount]. /look player shows their hero and bag. /shrink player makes them tiny for 30 seconds. /wolf and /unwolf turn you into a giant wolf and back. /azap and /agust give you Admin Zap and Admin Gust (admin only, no cooldown).';
 function giveThing(what, n) {
   if (what === 'coins' || what === 'gold') { S.coins += n; refreshUI(); return `${fmt(n)} coins`; }
   if (what === 'xp' || what === 'exp') { giveHeroXp(n); return `${fmt(n)} hero XP`; }
@@ -961,7 +961,7 @@ let thingIndex = null;
 function thingNames() {
   if (thingIndex) return thingIndex;
   const out = []; const add = (id, ...names) => { for (const n of names) if (n) out.push([normName(n), id]); };
-  add('coins', 'coins', 'coin', 'gold'); add('xp', 'xp', 'exp', 'experience'); add('all-looks', 'all looks', 'all skins', 'all cosmetics');
+  add('coins', 'coins', 'coin', 'gold'); add('xp', 'xp', 'exp', 'experience'); add('all-looks', 'all looks', 'all skins', 'all cosmetics', 'all outfits', 'all outfit', 'every outfit', 'all-outfits');
   for (const [k, v] of Object.entries(ITEMS)) add(k, k, v);
   for (const [k, g] of Object.entries(GEAR)) add(k, k, g.name);
   for (const [slot, list] of Object.entries(COS)) for (const [k, c] of Object.entries(list)) {
@@ -2614,7 +2614,7 @@ function applyLook() {
   });
   dressArmour();
   if (helmOn) player.root.traverse((o) => { if (o.isMesh && /Knight_Helmet$/.test(o.name) && o.userData.mats && !Array.isArray(o.userData.mats.toon)) { if (!o.userData.ownMats) { o.userData.ownMats = { std: o.userData.mats.std.clone(), toon: o.userData.mats.toon.clone() }; o.userData.ownMats.toon.onBeforeCompile = o.userData.mats.toon.onBeforeCompile; o.userData.mats = o.userData.ownMats; o.material = styled.on ? o.userData.mats.toon : o.userData.mats.std; } for (const m of [o.userData.mats.std, o.userData.mats.toon]) { colourise(m, 0.7); m.color.set(ofc0.helm); if (m.emissive) m.emissive.set('#000000'); } } });
-  const ofC = cosState().eq.outfit; if (skel) skelPaint(player); else if (ofC && COS.outfit[ofC]) paintOutfit(player, COS.outfit[ofC]);
+  const ofC = cosState().eq.outfit; if (skel) skelPaint(player, COS.outfit[ofC]); else if (ofC && COS.outfit[ofC]) paintOutfit(player, COS.outfit[ofC]);
   player.baseScale = heroScale(L); if (!tinyUntil) setHeroScale(player, player.baseScale);
   const capeC = cosState().eq.cape; if (capeC && COS.cape[capeC]) capeColour(player, COS.cape[capeC].col, COS.cape[capeC].glow);
   addInk(player.root);
@@ -2679,22 +2679,6 @@ function dressOutfit(a, c, model, armour = null) {
     put(`upperarm${sd}`, padGeo, dark, sp.clone().add(new THREE.Vector3(out * 0.07 * S1, 0.1 * S1, 0)), new THREE.Euler(0, 0, -out * 0.5), new THREE.Vector3(R0, R0 * 0.8, R0 * 1.05));
     put(`upperarm${sd}`, padGeo, trim, sp.clone().add(new THREE.Vector3(out * 0.15 * S1, -0.02 * S1, 0)), new THREE.Euler(0, 0, -out * 0.75), new THREE.Vector3(R0 * 0.75, R0 * 0.6, R0 * 0.85));
     put(`upperarm${sd}`, spikeGeo, trim, sp.clone().add(new THREE.Vector3(out * 0.22 * S1, 0.4 * S1, 0)), new THREE.Euler(0, 0, -out * 0.55), new THREE.Vector3(0.055 * S1, 0.08 * S1, 0.055 * S1));
-  }
-  if ((st === 'vamp' || st === 'holy') && live.chest) {
-    // folded wings on the back: leathery bat wings for vampires, small feathered ones for holy looks
-    for (const sx of [-1, 1]) {
-      const w = new THREE.Group();
-      if (st === 'vamp') {
-        const o = new THREE.Mesh(batWingGeo); registerMesh(o, (() => { const m = toon(c.trim); m.std.side = m.toon.side = side2; return m; })()); o.scale.set(sx * 0.6, 0.6, 1);
-        const i2 = new THREE.Mesh(batWingGeo); registerMesh(i2, (() => { const m = toon(c.body); m.std.side = m.toon.side = side2; return m; })()); i2.scale.set(sx * 0.48, 0.48, 1); i2.position.set(sx * 0.04, 0.03, -0.01);
-        w.add(o, i2); w.position.set(sx * 0.14, 0.3, -0.34); w.rotation.set(0.15, sx * 0.55, sx * 0.1);
-      } else {
-        const fm = toon('#ffffff', { emissive: new THREE.Color(c.trim).multiplyScalar(0.15 + glow) });
-        for (const [k, len] of [[0, 0.5], [1, 0.4], [2, 0.3]]) { const f = new THREE.Mesh(new THREE.CapsuleGeometry(0.07, len, 4, 8)); registerMesh(f, fm); f.position.set(sx * (0.14 + k * 0.06), 0.12 - k * 0.1, 0); f.rotation.z = sx * (1.0 + k * 0.25); w.add(f); }
-        w.position.set(sx * 0.18, 0.25, -0.32); w.rotation.y = -sx * 0.5;
-      }
-      live.chest.add(w); a.outfitParts.push(w);
-    }
   }
   if (st === 'holy' && live.head && a.headInfo) {
     const H = a.headInfo, ring = new THREE.Mesh(new THREE.TorusGeometry(0.5, 0.045, 8, 32)); registerMesh(ring, toon(c.trim, { emissive: new THREE.Color(c.trim).multiplyScalar(0.6) }));
@@ -6469,25 +6453,15 @@ function choosePath(k) {
   if (k === 'vampire') queueLetter('path_vampire');
   rebuildHero(); refreshUI(); save();
 }
-// fangs, red eyes, a halo and wings: built on the hero (and on other players) from their path
-// Vampires get folded bat wings with a blood-red lining, a tall dark collar and a faint crimson mist.
-const batWingGeo = (() => {
-  const sh = new THREE.Shape(); sh.moveTo(0, 0); sh.lineTo(0.95, 0.5); sh.lineTo(0.85, 0.12); sh.quadraticCurveTo(0.72, -0.02, 0.62, -0.18);
-  sh.quadraticCurveTo(0.5, -0.05, 0.4, -0.22); sh.quadraticCurveTo(0.28, -0.08, 0.16, -0.2); sh.lineTo(0, 0);
-  return new THREE.ShapeGeometry(sh, 6);
-})();
+// fangs, red eyes and a halo: built on the hero (and on other players) from their path
+// Vampires get a tall dark collar and a faint crimson mist.
 function vampDecor(a) {
   let head = null, chest = null;
   a.root.traverse((o) => { if (o.isBone && o.name === 'head') head = o; if (o.isBone && o.name === 'chest') chest = o; });
   const outer = toon('#2a1830'), inner = toon('#8a1424', { emissive: '#2a0006' });
   for (const m of [outer, inner]) for (const k of ['std', 'toon']) m[k].side = THREE.DoubleSide;
-  if (chest) for (const sx of [-1, 1]) {
-    const w = new THREE.Group();
-    const o = new THREE.Mesh(batWingGeo); registerMesh(o, outer); o.scale.set(sx * 0.62, 0.62, 1);
-    const i = new THREE.Mesh(batWingGeo); registerMesh(i, inner); i.scale.set(sx * 0.5, 0.5, 1); i.position.set(sx * 0.04, 0.03, -0.01);
-    w.add(o, i); w.position.set(sx * 0.14, 0.3, -0.34); w.rotation.set(0.15, sx * 0.55, sx * 0.1); w.userData.bat = sx;
-    chest.add(w); a.pathDecor.push(w);
-  }
+  // v67.9 (Callum): no wings on vampires
+  a.pathDecor.mist = true;
   if (head && a.headInfo) {
     // a high collar that flares up behind the jaw
     const H = a.headInfo, y = H.box.min.y + 0.02;
@@ -6508,23 +6482,12 @@ function pathDecor(a, path) {
   const H = a.headInfo, hy = H ? H.box.max.y + 0.32 : 1.4;
   const gold = toon('#ffe27a', { emissive: '#8a6a10' });
   if (head) { const halo = new THREE.Mesh(new THREE.TorusGeometry(0.42, 0.07, 10, 32)); registerMesh(halo, gold); halo.rotation.x = Math.PI / 2; halo.position.y = hy; head.add(halo); a.pathDecor.push(halo); }
-  if (chest) {
-    const wingMat = toon('#ffffff');
-    for (const sx of [-1, 1]) {
-      const w = new THREE.Group();
-      for (const [i, len] of [[0, 0.7], [1, 0.55], [2, 0.42]].entries()) { const f = new THREE.Mesh(new THREE.CapsuleGeometry(0.09, len[1], 4, 8)); registerMesh(f, wingMat); f.position.set(sx * (0.18 + i * 0.07), 0.1 - i * 0.12, 0); f.rotation.z = sx * (1.0 + i * 0.25); w.add(f); }
-      w.position.set(sx * 0.2, 0.25, -0.32); w.rotation.y = -sx * 0.5; chest.add(w); a.pathDecor.push(w);
-    }
-  }
   for (const o of a.pathDecor) addInk(o);
 }
 const pathLook = (L, path) => (path === 'vampire' ? { ...L, mouth: 'fang' } : L); // vampires keep whatever eye colour they chose
 function wingTick() {
-  if (!player || !player.pathDecor) return;
-  for (const w of player.pathDecor) if (w.isGroup) {
-    if (w.userData.bat) { w.rotation.y = w.userData.bat * (0.55 + Math.sin(now * 2.2) * 0.12); if (rng() < 0.02) burst(player.pos.clone().setY(0.4 + rng()), '#b0203a', 1, 0.8); }
-    else w.rotation.z = Math.sin(now * 3) * 0.12 * Math.sign(w.position.x);
-  }
+  // vampires trail a faint crimson mist (no wings since v67.9)
+  if (player && player.pathDecor && player.pathDecor.mist && rng() < 0.03) burst(player.pos.clone().setY(0.4 + rng()), '#b0203a', 1, 0.8);
 }
 // Sir Soggington dries out in Lilypad Landing once he's beaten, and drills the tadpoles.
 let soggFriend = null;
@@ -7940,16 +7903,16 @@ const isSkel = (cos) => { const c = cos && cos.outfit && COS.outfit[cos.outfit];
 const heroSkel = () => isSkel(cosState().eq);
 function heroModel() { return heroSkel() ? G.skel_minion : S.look.sex === 'f' ? G.heroine : G.knight; }
 const SKEL_HIDE = ['Skeleton_Blade_1'];
-// dark bones, a tattered violet cloak and glowing eyes
-function skelPaint(a) {
+// dark bones, a tattered violet cloak and glowing eyes (or the colours of the skeleton skin worn)
+function skelPaint(a, c = {}) {
   a.root.traverse((o) => {
     if (!o.isMesh || !o.userData.mats || Array.isArray(o.userData.mats.toon) || !/^Skeleton_/.test(o.name)) return;
     if (!o.userData.ownMats) { o.userData.ownMats = { std: o.userData.mats.std.clone(), toon: o.userData.mats.toon.clone() }; o.userData.ownMats.toon.onBeforeCompile = o.userData.mats.toon.onBeforeCompile; o.userData.mats = o.userData.ownMats; o.material = styled.on ? o.userData.mats.toon : o.userData.mats.std; }
     const eyes = /_Eyes$/.test(o.name), cloak = /_Cloak$/.test(o.name);
     for (const m of [o.userData.mats.std, o.userData.mats.toon]) {
-      if (eyes) { m.color.set('#d9a8ff'); if (m.emissive) m.emissive.set('#a050ff').multiplyScalar(1.2); continue; }
-      colourise(m, cloak ? 0.9 : 0.55); m.color.set(cloak ? '#3a2458' : '#5a5470');
-      if (m.emissive) m.emissive.set(cloak ? '#1a0830' : '#120c22');
+      if (eyes) { m.color.set(c.eye || '#d9a8ff'); if (m.emissive) m.emissive.set(c.eyeGlow || '#a050ff').multiplyScalar(1.2); continue; }
+      colourise(m, cloak ? 0.9 : (c.boneMix ?? 0.55)); m.color.set(cloak ? (c.cloak || '#3a2458') : (c.bone || '#5a5470'));
+      if (m.emissive) m.emissive.set(cloak ? (c.cloakGlow || '#1a0830') : (c.boneGlow || '#120c22'));
     }
   });
 }
@@ -8944,6 +8907,15 @@ const COS = {
     templar: { name: 'Sunlit Templar', r: 3, body: '#fff3da', trim: '#f2b632', glow: 0.1, style: 'holy', how: 'drop' },
     seraph: { name: 'Seraph Raiment', r: 5, body: '#ffffff', trim: '#8fd4ff', glow: 0.3, style: 'holy', shimmer: true, how: 'drop' },
     skeleton: { name: 'Dark Skeleton', r: 5, body: '#5a5470', trim: '#a050ff', skin: 'skeleton', how: 'drop' },
+    // v67.9: two more skeleton skins
+    boneskel: { name: 'Skeleton', r: 3, body: '#e8e2d0', trim: '#7a6a52', skin: 'skeleton', bone: '#ece6d4', boneMix: 0.25, cloak: '#6a5a44', cloakGlow: '#1a140c', eye: '#bff6ff', eyeGlow: '#4ad8ff', how: 'drop' },
+    // v67.9 (Callum: "more outfits, keep some simple but cool")
+    woodland: { name: 'Woodland brown', r: 0, body: '#7a5a3a', trim: '#d8b47a', how: 'drop' }, charcoal: { name: 'Charcoal', r: 0, body: '#3c3c46', trim: '#e0e0e8', how: 'drop' },
+    tide: { name: 'Ocean tide', r: 1, body: '#2a8a9a', trim: '#eafaff', how: 'drop' }, autumn: { name: 'Autumn leaves', r: 1, body: '#c86a2a', trim: '#5a2a1a', how: 'drop' }, mint: { name: 'Mint fresh', r: 1, body: '#8ee0c0', trim: '#2a6a5a', how: 'drop' },
+    crimson: { name: 'Royal crimson', r: 2, body: '#8a1a2a', trim: '#ffcc33', how: 'drop' }, nightr: { name: 'Night ranger', r: 2, body: '#1e2a3a', trim: '#5ae0a0', how: 'drop' }, snow: { name: 'Snowfall', r: 2, body: '#f4f8ff', trim: '#7a9ac8', how: 'drop' },
+    emberk: { name: 'Ember knight', r: 3, body: '#3a2420', trim: '#ff7a2a', glow: 0.12, style: 'knight', helm: '#5a3a30', how: 'drop' }, sakura: { name: 'Sakura', r: 3, body: '#ffc8dc', trim: '#d84a7a', glow: 0.08, how: 'drop' },
+    thunder: { name: 'Thunderlord', r: 4, body: '#24305a', trim: '#ffe23a', glow: 0.25, style: 'knight', helm: '#3a4670', how: 'drop' }, molten: { name: 'Molten', r: 4, body: '#2a1a1a', trim: '#ff5a1a', glow: 0.35, how: 'drop' },
+    redskel: { name: 'Red Skeleton', r: 4, body: '#b02a2a', trim: '#ff6a3a', skin: 'skeleton', bone: '#c86a5a', boneMix: 0.3, boneGlow: '#2a0604', cloak: '#3a1014', cloakGlow: '#200406', eye: '#ffd08a', eyeGlow: '#ff6a1a', how: 'drop' },
   },
   cape: {
     crimson: { name: 'Crimson cape', r: 0, col: '#c8323a', how: 'drop' }, sky: { name: 'Sky cape', r: 0, col: '#6ab4f0', how: 'drop' },
