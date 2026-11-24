@@ -558,7 +558,12 @@ const totalDef = () => stat('def') + gearDef();
 let together = false;
 // v71: pets each give one small bonus (see COS.pet)
 let PETS = null;
-const petBonus = (k) => { const P = PETS && S.cos && S.cos.eq && PETS[S.cos.eq.pet]; return (P && P[k]) || 0; };
+// v74: pets level up as you fight together (to level 10), and their bonus grows by 10% of itself each level
+const petLv = (id) => Math.min(10, Math.floor(Math.sqrt(((S.petXp || {})[id] || 0) / 10)));
+const petBonus = (k) => { const id = S.cos && S.cos.eq && S.cos.eq.pet, P = PETS && id && PETS[id]; return P && P[k] ? P[k] * (1 + 0.1 * petLv(id)) : 0; };
+// v74: the monster journal. Beat enough of one kind of monster to earn a hunter rank against it (+3% damage per rank)
+const JOURNAL_AT = [25, 100, 500];
+const journalTier = (t) => { const n = (S.journal || {})[t] || 0; return JOURNAL_AT.filter((x) => n >= x).length; };
 // v72: weapon mastery. Every monster you beat with a kind of weapon (blades, bows, staffs) makes you better with that kind
 const MASTERY = { melee: 'Blade', ranged: 'Bow', magic: 'Staff' };
 const masteryLv = (t) => Math.min(10, Math.floor(Math.sqrt(((S.mastery || {})[t] || 0) / 8)));
@@ -6052,6 +6057,37 @@ function tmapDig() {
   toast(`You dug up buried treasure: ${got.join(', ')}!`, ICONS.treasure_map || ICONS.coins, true);
   S.mapsDug = (S.mapsDug || 0) + 1; refreshUI(); save();
 }
+// ---------- v74: monster journal, pet levels, first boss win of the day ----------
+const ROMAN = ['', 'I', 'II', 'III'];
+function journalKill(e) {
+  const t = e.type, was = journalTier(t);
+  S.journal = { ...(S.journal || {}), [t]: ((S.journal || {})[t] || 0) + 1 };
+  const tier = journalTier(t);
+  if (tier > was) {
+    const nm = (ENEMY_TYPES[t] || e.T).name, coins = 100 * tier * tier + heroLvl() * 20 * tier, xp = Math.round((e.T.xp || 20) * 10 * tier);
+    S.coins += coins; giveHeroXp(xp);
+    toast(`Monster journal: ${nm} Hunter ${ROMAN[tier]}! +${3 * tier}% damage against them, +${fmt(coins)} coins and ${fmt(xp)} XP.`, ICONS.star, true);
+    floatText(player.pos.clone().setY(4.4), `${nm} Hunter ${ROMAN[tier]}!`, 'crit'); sfx('win');
+  }
+}
+function petKill() {
+  const id = S.cos && S.cos.eq && S.cos.eq.pet; if (!id || !PETS[id]) return;
+  const was = petLv(id);
+  S.petXp = { ...(S.petXp || {}), [id]: ((S.petXp || {})[id] || 0) + 1 };
+  const lv = petLv(id);
+  if (lv > was) {
+    toast(`${PETS[id].name} grew to level ${lv}! Its bonus is now ${Math.round(100 * (1 + 0.1 * lv))}% as strong.`, ICONS.star, true);
+    if (player.pet) { burst(player.pet.actor.root.position.clone().setY(1), '#ffe07a', 24, 3, 1); player.pet.actor.root.scale.setScalar(PETS[id].s * (1 + 0.03 * lv)); }
+  }
+}
+function bossFirstWin(e, coins) {
+  const today = new Date().toDateString();
+  if (!S.bossDay || S.bossDay.d !== today) S.bossDay = { d: today, b: [] };
+  if (S.bossDay.b.includes(e.type)) return;
+  S.bossDay.b.push(e.type);
+  S.coins += coins; addItem('treasure_map'); popLoot(e.pos.clone(), 'treasure_map', 0.9);
+  later(1.2, () => toast(`First win against ${e.T.name} today: double coins and a treasure map!`, ICONS.treasure_map || ICONS.coins, true));
+}
 // ---------- v72: weapon mastery ----------
 function masteryKill(t) {
   const was = masteryLv(t);
@@ -6102,6 +6138,7 @@ function hurtEnemy(e, dmg, src = null, power = 1) {
   if (e.T.affix && !crewHitting && !poisonHit && !bossRemote && !mobRemote && !wbRemote) dmg = affixHit(e, dmg, head);
   if (e.shield) { dmg = Math.max(1, Math.round(dmg * 0.25)); if (rng() < 0.4) floatText(head.clone().setY(4.6), 'Shielded! Break the glowing crystal', 'miss'); }
   else if (now < (e.dizzyUntil || 0)) dmg = Math.round(dmg * 1.5);
+  if (!e.T.boss && !crewHitting && !poisonHit && !bossRemote && !mobRemote && !wbRemote && journalTier(e.type)) dmg = Math.round(dmg * (1 + 0.03 * journalTier(e.type)));
   if (e.coreOpen) { dmg = Math.round(dmg * 1.3); if (rng() < 0.15) floatText(head.clone().setY(5), 'Core hit!', 'gain'); }
   const hpWas = e.hp; e.hp = Math.max(0, e.hp - dmg);
   if (!bossRemote && !wbRemote && !mobRemote) { e.myDmg = (e.myDmg || 0) + dmg; mobShare(e, dmg); }
@@ -6166,6 +6203,9 @@ function hurtEnemy(e, dmg, src = null, power = 1) {
     if (e.golden) goldenCaught(e);
     if (e.T.elite) { S.champKills = (S.champKills || 0) + 1; const bd = boardToday(); bd.champs = (bd.champs || 0) + 1; }
     if (!crewHitting && !W().fist && MASTERY[W().type]) masteryKill(W().type);
+    if (!e.T.boss && !e.temp) journalKill(e);
+    if (!e.temp) petKill();
+    if (e.T.boss && !e.temp) bossFirstWin(e, coins);
     if (streak > (S.bestStreak || 0)) S.bestStreak = streak;
     for (const k of Object.keys(QUESTS)) if (S.quests[k].state === 'active' && QUESTS[k].need.kills !== undefined && (!QUESTS[k].land || QUESTS[k].land === e.inside)) S.quests[k].kills++;
     if (!e.temp || e.boss) boardToday().kills++;
@@ -9586,7 +9626,7 @@ function petSet(a, id) {
   if (!a || (a.pet && a.pet.id === id) || (!a.pet && !id)) return;
   if (a.pet) { scene.remove(a.pet.actor.root); a.pet = null; }
   const P = id && COS.pet[id]; if (!P || !G[P.model]) return;
-  const pa = new Actor(G[P.model], { scale: P.s, hide: P.model === 'skel_minion' ? SKEL_HIDE : [] });
+  const pa = new Actor(G[P.model], { scale: P.s * (1 + 0.03 * (a === player ? petLv(id) : 0)), hide: P.model === 'skel_minion' ? SKEL_HIDE : [] });
   if (P.model === 'drake') { pa.alias = DRAKE_ALIAS; drakeLook(pa, P.drake); }
   else if (P.model === 'slime') pa.alias = ENEMY_TYPES.bog_slime.alias;
   else if (P.model === 'bat') pa.alias = ENEMY_TYPES.mire_bat.alias;
@@ -9973,7 +10013,7 @@ function dollList() {
     const sl = dollSlot.slice(4), got = C.got;
     const rows = Object.entries(COS[sl]).sort((x, y) => (y[1].r || 0) - (x[1].r || 0)).map(([k, c]) => {
       const have = got[`${sl}:${k}`], on = C.eq[sl] === k, R = RARITY[c.r || 0];
-      return `<button class="cosrow ${R.id} ${have ? '' : 'locked'}" data-cos="${sl}:${k}" aria-pressed="${on}" ${have ? '' : 'disabled'}><span class="swatch" style="--sw:${c.col || c.body || '#e8a93a'}${c.trim ? `;--sw2:${c.trim}` : ''}"></span><b>${c.name}</b><i class="rar">${R.name}</i><small>${c.bonus ? `${c.bonus} · ` : ''}${have ? (on ? (sl === 'pet' ? 'With you' : 'Wearing') : (sl === 'pet' ? 'Tap to bring along' : 'Tap to wear')) : `Locked: ${cosLabel(c)}`}</small></button>`;
+      return `<button class="cosrow ${R.id} ${have ? '' : 'locked'}" data-cos="${sl}:${k}" aria-pressed="${on}" ${have ? '' : 'disabled'}><span class="swatch" style="--sw:${c.col || c.body || '#e8a93a'}${c.trim ? `;--sw2:${c.trim}` : ''}"></span><b>${c.name}</b><i class="rar">${R.name}</i><small>${c.bonus ? `${sl === 'pet' && have ? `Lv ${petLv(k)} · ` : ''}${c.bonus}${sl === 'pet' && petLv(k) ? ` (×${(1 + 0.1 * petLv(k)).toFixed(1)})` : ''} · ` : ''}${have ? (on ? (sl === 'pet' ? 'With you' : 'Wearing') : (sl === 'pet' ? 'Tap to bring along' : 'Tap to wear')) : `Locked: ${cosLabel(c)}`}</small></button>`;
     }).join('');
     return `<h4 class="sub">${COS_SLOTS[sl]}s <small>${Object.keys(COS[sl]).filter((k) => got[`${sl}:${k}`]).length} of ${Object.keys(COS[sl]).length} found</small></h4><div class="coslist">${C.eq[sl] ? `<button class="cosrow" data-cos="${sl}:">Take it off</button>` : ''}${rows}</div><p class="hint">${sl === 'pet' ? 'A pet follows you everywhere and gives one small bonus. Friends online can see it too. You find pets by playing: levelling up, beating bosses and Champions, and as rare drops.' : 'Looks never change your stats. You earn them only by playing: beating bosses, reaching new ranks and freeing towns.'}</p>`;
   }
@@ -10212,6 +10252,8 @@ function heroStatsHtml() {
       <p class="hint">You get ${FREE_PER_LEVEL} more points each level.</p>
       <h4 class="sub">Weapon mastery</h4><div class="stats">${Object.entries(MASTERY).map(([t, nm]) => { const l = masteryLv(t), k = (S.mastery || {})[t] || 0, next = l < 10 ? 8 * (l + 1) ** 2 : 0; return `<div class="stat"><img src="${ICONS[t]}" alt=""><span class="nm">${nm}</span><span class="lv">${l}</span><small>${l ? `+${(l * 1.5).toFixed(1).replace(/\.0$/, '')}% damage · ` : ''}${next ? `${fmt(k)} / ${fmt(next)} monsters` : 'Mastered!'}</small></div>`; }).join('')}</div>
       <p class="hint">Beat monsters with a kind of weapon to master it, up to +15% damage.</p>
+      <h4 class="sub">Monster journal <small>${Object.keys(S.journal || {}).length} kinds beaten</small></h4>${Object.keys(S.journal || {}).length ? `<div class="journal">${Object.entries(S.journal).sort((a, b) => b[1] - a[1]).map(([t, n]) => { const tr = journalTier(t), nx = JOURNAL_AT[tr]; return `<div class="jrow"><b>${esc((ENEMY_TYPES[t] || { name: t }).name)}</b><span class="jstars">${'★'.repeat(tr)}${'☆'.repeat(3 - tr)}</span><small>${fmt(n)}${nx ? ` / ${fmt(nx)}` : ''}</small></div>`; }).join('')}</div>` : ''}
+      <p class="hint">Beat 25, 100 and 500 of a kind of monster to become its Hunter: +3% damage against it per star, plus a reward.</p>
       <h4 class="sub">Gathering</h4><div class="skills">${SKILLS.filter(([k]) => k !== 'crafting').map(([k, nm]) => {
       const l = lvl(k), c0 = XPT[l], n0 = XPT[Math.min(99, l + 1)];
       const pc = l >= 99 ? 100 : ((S.xp[k] - c0) / (n0 - c0)) * 100;
@@ -10600,7 +10642,7 @@ function makeGagronFriend() {
   npcs.push(gagronFriend);
 }
 
-window.__jq = { SPELL_FX, adminHuman, humanSet, get humanOn() { return humanOn; }, helpedUp, dailyGift, masteryLv, reviveTick, affixFx, partySet, get streak() { return streak; }, get together() { return together; }, dragonAttack, dodgedFx, popLoot, toast, wolfSet, get wolfOn() { return wolfOn; }, set wolfOn(v) { wolfOn = v; }, mobNet, netHeroesTick, esNet, enemyAttackNet, hzNet, bfxNet, pickTarget, heroesNear, get hazards() { return hazards; }, get netDrive() { return netDrive; }, shrinkMe, showStoryIntro, hurtPlayer, koSitOut, wakeUp, showLook, removeThing, giveThing, COS, ITEMS, GEAR, parseGive, chargedAttack, parseAmount, hitPeers, shotHitsPeer, showKeysNote, castSpell, learnSpell, spellCd, SPELLS, goonSneeze, goonDrips, goonFlop, setSlotBox, showSlots, get slotBox() { return slotBox; }, get guide() { return guide; }, bossNet, safeSpot, get PVP_LVL() { return PVP_LVL; }, goldNode, wbInfo, wbTick, get wb() { return wb; }, WB_SPOTS, tradeOpen, tradeNet, offerKey, get trade() { return trade; }, adv(s) { for (let t = 0; t < s; t += 0.05) { for (let i = timers.length - 1; i >= 0; i--) { timers[i].t -= 0.05; if (timers[i].t <= 0) { const f = timers[i].f; timers.splice(i, 1); f(); } } bossFxTick(0.05); } }, get party() { return party; }, BOSS_AI, PHASE_SETUP, get gulped() { return gulped; }, wriggle, toggleBigMap, spawnEnemy, openPathChoice, choosePath, startLanternNight, get lanterns() { return lanterns; }, duelOffer, duelPrize, onNet, chatCommand, canFight, openUpgrade, openBoard, boardToday, queueLetter, makeGagronFriend, net, peerActors, runeTick, bossFx, renderer, scene, openMayor, darkOmen, netWorth, liberateTown, setGolden, goldenCaught, pompArrive, get goldenE() { return goldenE; }, spinWheel, dayTick, get bossIntro() { return bossIntro; }, bossSkip, startBossScene, sailTo, regions, closeSheet, renderHotbar, crew, setCrewMode, TOWNS, liberateTown, chests, openChest, stopRoulette, enemies, startBossIntro, closeDialog, advanceDialog, dash, attackPress, craft, CRAFTS, openCreator, closeCreator, creator, rebuildHero, setZoom: (z) => { zoom = zoomGoal = z; }, hurtEnemy, goThrough, get where() { return where; }, INTERIORS, equipGear, spendPoint, giveHeroXp, heroLvl, stat, maxHp, defDiv, openWeaponShop, openKing, jump, eat, eatBest, openShop, swing, swingTarget, hitNode, projectiles, timers, get S() { return S; }, get player() { return player; }, enemies, nodes, npcs, startTask, doAction, giveXp, save, openSheet, openDialog };
+window.__jq = { journalTier, petLv, bossFirstWin, SPELL_FX, adminHuman, humanSet, get humanOn() { return humanOn; }, helpedUp, dailyGift, masteryLv, reviveTick, affixFx, partySet, get streak() { return streak; }, get together() { return together; }, dragonAttack, dodgedFx, popLoot, toast, wolfSet, get wolfOn() { return wolfOn; }, set wolfOn(v) { wolfOn = v; }, mobNet, netHeroesTick, esNet, enemyAttackNet, hzNet, bfxNet, pickTarget, heroesNear, get hazards() { return hazards; }, get netDrive() { return netDrive; }, shrinkMe, showStoryIntro, hurtPlayer, koSitOut, wakeUp, showLook, removeThing, giveThing, COS, ITEMS, GEAR, parseGive, chargedAttack, parseAmount, hitPeers, shotHitsPeer, showKeysNote, castSpell, learnSpell, spellCd, SPELLS, goonSneeze, goonDrips, goonFlop, setSlotBox, showSlots, get slotBox() { return slotBox; }, get guide() { return guide; }, bossNet, safeSpot, get PVP_LVL() { return PVP_LVL; }, goldNode, wbInfo, wbTick, get wb() { return wb; }, WB_SPOTS, tradeOpen, tradeNet, offerKey, get trade() { return trade; }, adv(s) { for (let t = 0; t < s; t += 0.05) { for (let i = timers.length - 1; i >= 0; i--) { timers[i].t -= 0.05; if (timers[i].t <= 0) { const f = timers[i].f; timers.splice(i, 1); f(); } } bossFxTick(0.05); } }, get party() { return party; }, BOSS_AI, PHASE_SETUP, get gulped() { return gulped; }, wriggle, toggleBigMap, spawnEnemy, openPathChoice, choosePath, startLanternNight, get lanterns() { return lanterns; }, duelOffer, duelPrize, onNet, chatCommand, canFight, openUpgrade, openBoard, boardToday, queueLetter, makeGagronFriend, net, peerActors, runeTick, bossFx, renderer, scene, openMayor, darkOmen, netWorth, liberateTown, setGolden, goldenCaught, pompArrive, get goldenE() { return goldenE; }, spinWheel, dayTick, get bossIntro() { return bossIntro; }, bossSkip, startBossScene, sailTo, regions, closeSheet, renderHotbar, crew, setCrewMode, TOWNS, liberateTown, chests, openChest, stopRoulette, enemies, startBossIntro, closeDialog, advanceDialog, dash, attackPress, craft, CRAFTS, openCreator, closeCreator, creator, rebuildHero, setZoom: (z) => { zoom = zoomGoal = z; }, hurtEnemy, goThrough, get where() { return where; }, INTERIORS, equipGear, spendPoint, giveHeroXp, heroLvl, stat, maxHp, defDiv, openWeaponShop, openKing, jump, eat, eatBest, openShop, swing, swingTarget, hitNode, projectiles, timers, get S() { return S; }, get player() { return player; }, enemies, nodes, npcs, startTask, doAction, giveXp, save, openSheet, openDialog };
 window.addEventListener('error', (e) => { const m = $('loadmsg'); if (m) m.textContent = `Something went wrong: ${e.message}`; });
 main().catch((err) => {
   console.error(err);
