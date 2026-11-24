@@ -1081,6 +1081,21 @@
   .cosrow .swatch[style*="--sw2"] { background: linear-gradient(135deg, var(--sw) 55%, var(--sw2) 55%); }
   @media (prefers-reduced-motion: reduce) { .mythic .rar, button.slot.mythic, .dslot.mythic, .gearbtn.mythic { animation: none; } }
   @media (max-width: 700px) { .dprev { max-width: 130px; } }
+  /* /look: an admin's view of another player */
+  .lookov { display: grid; place-items: center; background: rgb(20 10 4 / .55); z-index: 60; }
+  .lookpanel { position: relative; width: min(620px, calc(100vw - 24px)); max-height: calc(100vh - 40px); overflow-y: auto; padding: 18px 20px; }
+  .lookpanel .sh-x { position: absolute; top: 10px; right: 10px; }
+  .lookpanel h4 { margin: 14px 0 6px; font: 800 13px/1 var(--display, sans-serif); letter-spacing: .04em; text-transform: uppercase; opacity: .75; }
+  .lk-head { display: flex; gap: 14px; align-items: center; }
+  .lk-face { width: 96px; height: 96px; border-radius: 50%; border: 3px solid var(--ink); background: #f2e2bd; object-fit: cover; flex: none; }
+  .lk-head h3 { margin: 0 0 2px; } .lk-head p { margin: 0 0 6px; } .lk-on { color: #2f8a3a; }
+  .lk-money { display: flex; flex-wrap: wrap; gap: 6px 12px; font-weight: 700; } .lk-money img { width: 18px; height: 18px; vertical-align: -4px; margin-right: 3px; }
+  .lk-row { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+  .lk-chip { display: inline-flex; align-items: center; gap: 5px; padding: 3px 9px 3px 5px; border: 2px solid var(--rc, var(--ink)); border-radius: 99px; background: #fff8e6; font-weight: 700; font-size: 13px; }
+  .lk-chip img { width: 20px; height: 20px; }
+  .lk-bag { display: grid; grid-template-columns: repeat(auto-fill, minmax(76px, 1fr)); gap: 6px; }
+  .lk-item { display: grid; justify-items: center; padding: 6px 4px; border: 2px solid var(--ink); border-radius: 10px; background: #f6e6c4; text-align: center; }
+  .lk-item img { width: 30px; height: 30px; } .lk-item b { font-size: 13px; } .lk-item small { font-size: 10px; line-height: 1.1; }
 </style>
 
 <div id="stage"></div>

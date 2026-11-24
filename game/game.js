@@ -8,7 +8,7 @@ import { LANDS, VALLEY_DOCK, buildLands, makeSnow, landRoads, coastOf, SANDS_FX,
 import { ICONS } from './icons.js';
 import { buildInteriors, INTERIORS, lavaPools } from './interiors.js';
 import { unlockAudio, playMusic, sfx, setVolumes, fxMute } from './audio.js';
-import { net, resume, signIn, signOut, loadCloud, cloudSave, flushSave, refreshBoard, setTown, connect, updateProfile, sendPos, sendChat, cleanChat, sendNet, isAdmin, adminSend, adminInbox } from './online.js';
+import { net, resume, signIn, signOut, loadCloud, cloudSave, flushSave, refreshBoard, setTown, connect, updateProfile, sendPos, sendChat, cleanChat, sendNet, isAdmin, adminSend, adminInbox, adminFindPlayer } from './online.js';
 
 const $ = (id) => document.getElementById(id);
 let resizeCount = 0; addEventListener('resize', () => { resizeCount++; });
@@ -900,7 +900,7 @@ function partySet(p, why) {
 // picks the action up from there, so nobody can fake one by sending a message.
 // typed amounts: "90k" = 90,000, "2.5m" = 2,500,000, "1b" = a billion; commas and spaces are ignored. NaN if it isn't a number.
 const parseAmount = (t) => { const m = String(t ?? '').replace(/[,\s_]/g, '').toLowerCase().match(/^(\d+(?:\.\d+)?|\.\d+)([kmb])?$/); return m ? Math.floor(parseFloat(m[1]) * ({ k: 1e3, m: 1e6, b: 1e9 }[m[2]] || 1)) : NaN; };
-const ADMIN_HELP = 'Admin: /give [player] thing [amount]. Things: coins, xp (or exp), any item, gear, look or spell by name (like /give prism aura or /give Bob dark blade), or an id like outfit:id, aura:id, hat:id, cape:id, trail:id, spell:id, or "all-looks". /give find skins (or auras, hats, capes, trails, spells, gear, items) lists names; /give find word searches. /kick player (30 seconds).';
+const ADMIN_HELP = 'Admin: /give [player] thing [amount]. Things: coins, xp (or exp), any item, gear, look or spell by name (like /give prism aura or /give Bob dark blade), or an id like outfit:id, aura:id, hat:id, cape:id, trail:id, spell:id, or "all-looks". /give find skins (or auras, hats, capes, trails, spells, gear, items) lists names; /give find word searches. /kick player (30 seconds). /remove player thing [amount]. /look player shows their hero and bag.';
 function giveThing(what, n) {
   if (what === 'coins' || what === 'gold') { S.coins += n; refreshUI(); return `${fmt(n)} coins`; }
   if (what === 'xp' || what === 'exp') { giveHeroXp(n); return `${fmt(n)} hero XP`; }
@@ -913,6 +913,27 @@ function giveThing(what, n) {
   }
   if (GEAR[what]) { if (!S.owned.includes(what)) S.owned.push(what); refreshUI(); renderHotbar(); return GEAR[what].name; }
   if (ITEMS[what] || FOOD[what]) { addItem(what, n); return `${n} × ${ITEMS[what] || what}`; }
+  return null;
+}
+// the opposite of giveThing, for /remove: takes away up to n of something. Equipped gear goes back to the starter kit.
+function removeThing(what, n) {
+  if (what === 'coins') { const a = Math.min(n, S.coins); S.coins -= a; refreshUI(); return a ? `${fmt(a)} coins` : null; }
+  if (what === 'xp' || what === 'all-looks') return null;
+  if (what.includes(':')) {
+    const [sl, k] = what.split(':');
+    if (sl === 'spell') { const own = spellsOwned(); if (!own[k]) return null; delete own[k]; S.hotbar = hotbar().map((x) => (x === what ? null : x)); renderHotbar(); return `the ${SPELLS[k].name} spell`; }
+    const C = cosState(); if (!C.got[what]) return null;
+    delete C.got[what];
+    if (C.eq[sl] === k) { const wasSkel = heroSkel(); C.eq[sl] = null; if (sl === 'outfit' && wasSkel !== heroSkel()) rebuildHero(); else { applyLook(); equipGear(); } heroFlair(); }
+    return COS[sl][k].name;
+  }
+  if (GEAR[what]) {
+    if (!S.owned.includes(what) || Object.values(STARTER).includes(what) || what === 'sh_badge') return null;
+    S.owned = S.owned.filter((x) => x !== what); S.hotbar = (S.hotbar || []).map((x) => (x === what ? null : x)); if (S.plus) delete S.plus[what];
+    for (const [sl, k] of Object.entries(S.equip)) if (k === what) S.equip[sl] = sl === 'weapon' ? STARTER.weapon : sl === 'armour' ? STARTER.armour : sl === 'shield' ? 'sh_badge' : null;
+    equipGear(); buildGearBar(); renderHotbar(); refreshUI(); return GEAR[what].name;
+  }
+  if (S.inv[what] > 0) { const a = Math.min(n, S.inv[what]); takeItem(what, a); refreshUI(); return `${a} × ${ITEMS[what] || what}`; }
   return null;
 }
 const knownThing = (w) => ['coins', 'gold', 'xp', 'exp', 'all-looks', 'all-skins'].includes(w) || !!GEAR[w] || !!ITEMS[w] || !!FOOD[w] || (w.includes(':') && (() => { const [a0, k] = w.split(':'), sl = { skin: 'outfit', skins: 'outfit', outfits: 'outfit', auras: 'aura', hats: 'hat' }[a0] || a0; return sl === 'spell' ? !!SPELLS[k] : !!(COS[sl] && COS[sl][k]); })());
@@ -973,6 +994,8 @@ async function adminGive(rest) {
   else {
     const peer = args.length > 1 ? peerByName(args[0]) : null, forPeer = peer ? parseGive(args.slice(1)) : null;
     if (forPeer && (forPeer.id || forPeer.many)) { target = peer; g = forPeer; } else g = parseGive(args);
+    // not a thing and not online: maybe an offline player, who gets it next time they play
+    if (!target && !g.id && args.length > 1) { const rest2 = parseGive(args.slice(1)); if (rest2.id || rest2.many) { const t = await adminTarget(args[0]); if (t && !t.error) { target = [t.id, { name: t.name }]; g = rest2; } } }
   }
   if (g.many) { sys(`"${g.text}" could be: ${g.many.slice(0, 8).map(thingLabel).join(', ')}${g.many.length > 8 ? '...' : ''}. Type more of the name.`); return; }
   if (!g.id) { sys(`I don't know "${g.text}". Try /give find word${!target && args.length > 1 ? `, or check ${args[0]} is online with /who` : ''}.`); return; }
@@ -980,6 +1003,61 @@ async function adminGive(rest) {
   if (!target) { const got = giveThing(what, n); save(); sys(`Gave yourself ${got}.`); return; }
   const r = await adminSend(target[0], 'give', { what, n });
   sys(r.error ? `Couldn't send that: ${r.error}` : `Sent ${what === 'coins' ? `${fmt(n)} coins` : what === 'xp' ? `${fmt(n)} XP` : `${n > 1 ? `${fmt(n)} × ` : ''}${thingLabel(what)}`} to ${target[1].name}. It arrives within a few seconds.`);
+}
+// find a player by name: online first, otherwise their save (so /give and /remove reach them next time they play)
+async function adminTarget(name) {
+  const on = peerByName(name); if (on) return { id: on[0], name: on[1].name, online: true };
+  const r = await adminFindPlayer(name);
+  if (r.row) return { id: r.row.user_id, name: r.row.name, online: false, row: r.row };
+  if (r.error) return { error: /permission|policy|denied/i.test(r.error) ? 'run admin-setup-part3.sql in Supabase first' : r.error };
+  return null;
+}
+async function adminRemove(rest) {
+  if (!(await isAdmin())) { sys(net.on ? 'Only admins can use that command.' : 'Admin commands need you to be signed in and online.'); return; }
+  const args = rest.filter(Boolean);
+  if (args.length < 2) { sys('Remove: /remove player thing [amount]. Example: /remove Bob dark blade'); return; }
+  const t = await adminTarget(args[0]);
+  if (!t || t.error) { sys(t ? `Couldn't look them up: ${t.error}` : `Nobody called "${args[0]}" has played yet. Try /who.`); return; }
+  const g = parseGive(args.slice(1));
+  if (g.many) { sys(`"${g.text}" could be: ${g.many.slice(0, 8).map(thingLabel).join(', ')}. Type more of the name.`); return; }
+  if (!g.id) { sys(`I don't know "${g.text}". Try /give find word.`); return; }
+  const r = await adminSend(t.id, 'remove', { what: g.id, n: g.n });
+  sys(r.error ? `Couldn't send that: ${r.error}` : `Removing ${g.n > 1 ? `${fmt(g.n)} × ` : ''}${thingLabel(g.id)} from ${t.name}${t.online ? '. It happens within a few seconds.' : ". They're offline, so it happens next time they play."}`);
+}
+// /look player: their hero, gold, gear, looks and bag, from their latest save
+async function adminLook(rest) {
+  if (!(await isAdmin())) { sys(net.on ? 'Only admins can use that command.' : 'Admin commands need you to be signed in and online.'); return; }
+  const nm = rest.filter(Boolean).join(' ');
+  if (!nm) { sys('Look: /look player'); return; }
+  const on = peerByName(nm), r = await adminFindPlayer(on ? on[1].name : nm);
+  if (r.error) { sys(/permission|policy|denied/i.test(r.error) ? 'Run admin-setup-part3.sql in Supabase first, then try again.' : `Couldn't look them up: ${r.error}`); return; }
+  if (!r.row) { sys(`Nobody called "${nm}" has a save yet.`); return; }
+  showLook(r.row, !!on);
+}
+function showLook(row, online) {
+  const box = row.data || {}, P = box.slots ? box.slots[box.cur || 0] || {} : box;
+  const inv = P.inv || {}, owned = P.owned || [], eq = P.equip || {}, cos = P.cos || { got: {}, eq: {} }, spells = Object.keys(P.spells || {}).filter((k) => SPELLS[k]);
+  const gearChip = (k) => { const g = GEAR[k]; if (!g) return ''; const ri = gearRarIx(g); return `<span class="lk-chip" style="--rc:${RARITY[ri].col}"><img src="${gearIcon(g)}" alt="">${esc(g.name)}${P.plus && P.plus[k] ? ` +${P.plus[k]}` : ''}</span>`; };
+  const cosNames = Object.entries(cos.eq || {}).filter(([sl, k]) => k && COS[sl] && COS[sl][k]).map(([sl, k]) => `<span class="lk-chip" style="--rc:${RARITY[COS[sl][k].r || 0].col}">${COS_SLOTS[sl]}: ${esc(COS[sl][k].name)}</span>`).join('');
+  const bag = Object.entries(inv).filter(([, n]) => n > 0).map(([k, n]) => `<span class="lk-item" title="${esc(ITEMS[k] || k)}"><img src="${ICONS[k] || ICONS.star}" alt=""><b>${fmt(n)}</b><small>${esc(ITEMS[k] || k)}</small></span>`).join('');
+  const spare = owned.filter((k) => GEAR[k] && !Object.values(eq).includes(k)).map(gearChip).join('');
+  const gotLooks = Object.keys(cos.got || {}).length;
+  const seen = Math.max(0, Math.round((Date.now() - new Date(row.updated_at).getTime()) / 60000));
+  const el = document.createElement('div'); el.className = 'overlay lookov';
+  el.innerHTML = `<div class="panel lookpanel">
+    <button class="sh-x" aria-label="Close">✕</button>
+    <div class="lk-head"><img class="lk-face" src="${P.look ? portrait(P.look) : ''}" alt="">
+      <div><h3>${esc(row.name)}</h3><p>Level ${row.level} · ${online ? '<b class="lk-on">Online now</b>' : `last saved ${seen < 2 ? 'just now' : seen < 120 ? `${seen} minutes ago` : `${Math.round(seen / 60)} hours ago`}`}</p>
+      <div class="lk-money"><span><img src="${ICONS.coins}" alt="">${fmt(P.coins || 0)} carried</span><span><img src="${ICONS.chest}" alt="">${fmt(P.bank || 0)} banked</span><span>Net worth ${fmt(row.net_worth || 0)}</span></div></div></div>
+    <h4>Wearing</h4><div class="lk-row">${['weapon', 'shield', 'armour', 'gadget'].map((sl) => gearChip(eq[sl])).join('') || '<small>Nothing</small>'}${cosNames}</div>
+    <h4>Bag</h4><div class="lk-bag">${bag || '<small>Empty</small>'}</div>
+    <h4>Spare gear</h4><div class="lk-row">${spare || '<small>None</small>'}</div>
+    <h4>Spells and looks</h4><div class="lk-row">${spells.map((k) => `<span class="lk-chip" style="--rc:${RARITY[SPELLS[k].r].col}">${SPELLS[k].name}</span>`).join('') || '<small>No spells</small>'}<small>${gotLooks} looks collected</small></div>
+    <p class="hint">Take something back with /remove ${esc(row.name)} name. This is their last save, so it can be a few seconds behind.</p></div>`;
+  document.body.appendChild(el);
+  const close = () => el.remove();
+  el.querySelector('.sh-x').onclick = close; el.onclick = (e) => { if (e.target === el) close(); };
+  addEventListener('keydown', function esc2(e) { if (e.key === 'Escape') { close(); removeEventListener('keydown', esc2); } });
 }
 async function adminKick(rest) {
   if (!(await isAdmin())) { sys(net.on ? 'Only admins can use that command.' : 'Admin commands need you to be signed in and online.'); return; }
@@ -994,6 +1072,7 @@ async function adminInboxTick() {
   for (const r of rows) {
     if (r.action === 'give') { const got = giveThing(String(r.data.what || '').toLowerCase(), Math.max(1, Math.min(1e9, +r.data.n || 1))); if (got) { toast(`An admin gave you ${got}!`, ICONS.star, true); burst(player.pos.clone().setY(2), '#ffe07a', 40, 6, 1.2); } save(); }
     if (r.action === 'kick') kickedOut(Math.max(5, Math.min(600, +r.data.secs || 30)));
+    if (r.action === 'remove') { const gone = removeThing(String(r.data.what || '').toLowerCase(), Math.max(1, Math.min(1e9, +r.data.n || 1))); if (gone) toast(`An admin took back ${gone}.`, ICONS.star); save(); }
   }
 }
 // kicked: back to a loading screen that counts down, then the game reloads. Reloading early doesn't skip it.
@@ -1016,6 +1095,8 @@ function chatCommand(line) {
   const [cmd, ...rest] = line.slice(1).split(/\s+/), arg = rest.join(' ');
   if (/^give$/i.test(cmd)) { adminGive(rest); return; }
   if (/^kick$/i.test(cmd)) { adminKick(rest); return; }
+  if (/^remove$/i.test(cmd)) { adminRemove(rest); return; }
+  if (/^look$/i.test(cmd)) { adminLook(rest); return; }
   if (/^(who|online)$/i.test(cmd)) {
     if (!net.on) { sys('You are not online.'); return; }
     const place = (w) => (w === 'out' ? 'Jerry Valley' : LANDS[w] ? LANDS[w].name : w ? `indoors (${w})` : 'loading in');
@@ -9091,7 +9172,7 @@ function makeGagronFriend() {
   npcs.push(gagronFriend);
 }
 
-window.__jq = { toast, COS, ITEMS, GEAR, parseGive, chargedAttack, parseAmount, hitPeers, shotHitsPeer, showKeysNote, castSpell, learnSpell, spellCd, SPELLS, goonSneeze, goonDrips, goonFlop, setSlotBox, showSlots, get slotBox() { return slotBox; }, get guide() { return guide; }, bossNet, safeSpot, get PVP_LVL() { return PVP_LVL; }, goldNode, wbInfo, wbTick, get wb() { return wb; }, WB_SPOTS, tradeOpen, tradeNet, offerKey, get trade() { return trade; }, adv(s) { for (let t = 0; t < s; t += 0.05) { for (let i = timers.length - 1; i >= 0; i--) { timers[i].t -= 0.05; if (timers[i].t <= 0) { const f = timers[i].f; timers.splice(i, 1); f(); } } bossFxTick(0.05); } }, get party() { return party; }, BOSS_AI, PHASE_SETUP, get gulped() { return gulped; }, wriggle, toggleBigMap, spawnEnemy, openPathChoice, choosePath, startLanternNight, get lanterns() { return lanterns; }, duelOffer, duelPrize, onNet, chatCommand, canFight, openUpgrade, openBoard, boardToday, queueLetter, makeGagronFriend, net, peerActors, runeTick, bossFx, renderer, scene, openMayor, darkOmen, netWorth, liberateTown, setGolden, goldenCaught, pompArrive, get goldenE() { return goldenE; }, spinWheel, dayTick, get bossIntro() { return bossIntro; }, bossSkip, startBossScene, sailTo, regions, closeSheet, renderHotbar, crew, setCrewMode, TOWNS, liberateTown, chests, openChest, stopRoulette, enemies, startBossIntro, closeDialog, advanceDialog, dash, attackPress, craft, CRAFTS, openCreator, closeCreator, creator, rebuildHero, setZoom: (z) => { zoom = zoomGoal = z; }, hurtEnemy, goThrough, get where() { return where; }, INTERIORS, equipGear, spendPoint, giveHeroXp, heroLvl, stat, maxHp, defDiv, openWeaponShop, openKing, jump, eat, eatBest, openShop, swing, swingTarget, hitNode, projectiles, timers, get S() { return S; }, get player() { return player; }, enemies, nodes, npcs, startTask, doAction, giveXp, save, openSheet, openDialog };
+window.__jq = { toast, showLook, removeThing, giveThing, COS, ITEMS, GEAR, parseGive, chargedAttack, parseAmount, hitPeers, shotHitsPeer, showKeysNote, castSpell, learnSpell, spellCd, SPELLS, goonSneeze, goonDrips, goonFlop, setSlotBox, showSlots, get slotBox() { return slotBox; }, get guide() { return guide; }, bossNet, safeSpot, get PVP_LVL() { return PVP_LVL; }, goldNode, wbInfo, wbTick, get wb() { return wb; }, WB_SPOTS, tradeOpen, tradeNet, offerKey, get trade() { return trade; }, adv(s) { for (let t = 0; t < s; t += 0.05) { for (let i = timers.length - 1; i >= 0; i--) { timers[i].t -= 0.05; if (timers[i].t <= 0) { const f = timers[i].f; timers.splice(i, 1); f(); } } bossFxTick(0.05); } }, get party() { return party; }, BOSS_AI, PHASE_SETUP, get gulped() { return gulped; }, wriggle, toggleBigMap, spawnEnemy, openPathChoice, choosePath, startLanternNight, get lanterns() { return lanterns; }, duelOffer, duelPrize, onNet, chatCommand, canFight, openUpgrade, openBoard, boardToday, queueLetter, makeGagronFriend, net, peerActors, runeTick, bossFx, renderer, scene, openMayor, darkOmen, netWorth, liberateTown, setGolden, goldenCaught, pompArrive, get goldenE() { return goldenE; }, spinWheel, dayTick, get bossIntro() { return bossIntro; }, bossSkip, startBossScene, sailTo, regions, closeSheet, renderHotbar, crew, setCrewMode, TOWNS, liberateTown, chests, openChest, stopRoulette, enemies, startBossIntro, closeDialog, advanceDialog, dash, attackPress, craft, CRAFTS, openCreator, closeCreator, creator, rebuildHero, setZoom: (z) => { zoom = zoomGoal = z; }, hurtEnemy, goThrough, get where() { return where; }, INTERIORS, equipGear, spendPoint, giveHeroXp, heroLvl, stat, maxHp, defDiv, openWeaponShop, openKing, jump, eat, eatBest, openShop, swing, swingTarget, hitNode, projectiles, timers, get S() { return S; }, get player() { return player; }, enemies, nodes, npcs, startTask, doAction, giveXp, save, openSheet, openDialog };
 window.addEventListener('error', (e) => { const m = $('loadmsg'); if (m) m.textContent = `Something went wrong: ${e.message}`; });
 main().catch((err) => {
   console.error(err);

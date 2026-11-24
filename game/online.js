@@ -93,6 +93,13 @@ export async function adminSend(targetId, action, data) {
   const { error } = await sb.from('admin_actions').insert({ target_id: targetId, action, data });
   return error ? { error: /relation|does not exist/i.test(error.message) ? 'run admin-setup.sql (part 2) in Supabase first' : error.message } : {};
 }
+// an admin looking someone up by name (online or not): needs admin-setup-part3.sql, which lets admins read saves
+export async function adminFindPlayer(name) {
+  if (!net.on || !sb) return { error: 'not online' };
+  const { data, error } = await sb.from('saves').select('user_id, name, level, net_worth, data, updated_at').ilike('name', String(name).replace(/[%_\\]/g, (c) => `\\${c}`)).limit(1);
+  if (error) return { error: error.message };
+  return data && data[0] ? { row: data[0] } : { none: true };
+}
 export async function adminInbox() {
   if (!net.on || !sb || !net.user) return [];
   try {
