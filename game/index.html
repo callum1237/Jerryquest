@@ -1097,6 +1097,29 @@
   .lk-bag { display: grid; grid-template-columns: repeat(auto-fill, minmax(76px, 1fr)); gap: 6px; }
   .lk-item { display: grid; justify-items: center; padding: 6px 4px; border: 2px solid var(--ink); border-radius: 10px; background: #f6e6c4; text-align: center; }
   .lk-item img { width: 30px; height: 30px; } .lk-item b { font-size: 13px; } .lk-item small { font-size: 10px; line-height: 1.1; }
+  /* knocked out: the world drains of colour behind a simple card */
+  canvas.ko-grey { filter: grayscale(.75) brightness(.8); transition: filter .8s; }
+  #ko { position: fixed; inset: 0; display: grid; place-items: center; pointer-events: none; z-index: 5; opacity: 0; transition: opacity .35s; background: radial-gradient(circle, transparent 35%, rgb(40 4 10 / .55)); }
+  #ko.show { opacity: 1; } #ko.fade { opacity: 0; background: rgb(10 4 6 / .9); transition: opacity .35s, background .2s; }
+  .ko-card { text-align: center; color: #fff; text-shadow: 0 2px 0 #2a0a10, 0 0 14px rgb(0 0 0 / .6); transform: translateY(-8vh); }
+  .ko-card h2 { margin: 0 0 6px; font: 900 clamp(26px, 5vw, 44px)/1 var(--display, sans-serif); color: #ffd6da; letter-spacing: .02em; animation: kopop .5s cubic-bezier(.3,1.5,.5,1); }
+  .ko-card p { margin: 0; font: 700 16px/1.35 var(--body, sans-serif); max-width: 30ch; margin-inline: auto; }
+  .ko-count { display: block; margin-top: 10px; font: 900 48px/1 var(--display, sans-serif); color: #fff; }
+  @keyframes kopop { from { transform: scale(.7); opacity: 0; } }
+  .duelprize .sitout { display: grid; grid-template-columns: auto auto 1fr; gap: 8px; align-items: center; margin-top: 8px; font-weight: 700; font-size: 13px; }
+  /* first-login story intro */
+  #storyintro { position: fixed; inset: 0; z-index: 40; display: grid; place-items: center; padding-inline: max(16px, env(safe-area-inset-left, 0px)) max(16px, env(safe-area-inset-right, 0px)); background: radial-gradient(ellipse at 50% 40%, rgb(52 12 20 / .96), rgb(8 4 8 / .99)); cursor: pointer; transition: opacity .5s; }
+  #storyintro.out { opacity: 0; pointer-events: none; }
+  .si-card { max-width: 34rem; text-align: center; color: #f6ead2; opacity: 0; }
+  .si-card.in { animation: siIn .7s ease-out forwards; }
+  @keyframes siIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+  .si-card h2 { margin: 6px 0 12px; font: 900 clamp(26px, 5vw, 40px)/1.1 var(--display, serif); color: #ffd98a; text-wrap: balance; text-shadow: 0 2px 0 #2a0a10, 0 0 22px rgb(255 120 60 / .25); }
+  .si-card p { margin: 0 auto; font: 600 clamp(16px, 2.4vw, 20px)/1.55 var(--body, sans-serif); max-width: 32ch; text-wrap: pretty; }
+  .si-step { font: 800 12px/1 var(--display, sans-serif); letter-spacing: .14em; color: #c9a87a; }
+  .si-go { display: block; margin-top: 26px; font: 700 13px/1 var(--body, sans-serif); color: #c9a87a; animation: siBlink 1.6s ease-in-out infinite; }
+  @keyframes siBlink { 50% { opacity: .35; } }
+  .si-skip { position: absolute; right: max(18px, env(safe-area-inset-right, 0px)); bottom: max(18px, env(safe-area-inset-bottom, 0px)); padding: 8px 16px; font: 700 14px var(--body, sans-serif); color: #f6ead2; background: rgb(255 255 255 / .08); border: 1.5px solid rgb(246 234 210 / .4); border-radius: 99px; cursor: pointer; }
+  @media (prefers-reduced-motion: reduce) { .si-card.in { animation: none; opacity: 1; } .si-go { animation: none; } }
 </style>
 
 <div id="stage"></div>

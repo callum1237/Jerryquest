@@ -855,7 +855,7 @@ function peersTick(dt) {
     pa.a.root.position.set(p.x, 0, p.z);
     let dr = (p.ry || 0) - pa.a.root.rotation.y; dr = Math.atan2(Math.sin(dr), Math.cos(dr));
     pa.a.root.rotation.y += dr * k;
-    if (p.a && p.a !== pa.anim) { pa.anim = p.a; pa.a.play(p.a, { once: ONE_SHOT.test(p.a), clamp: /Death/.test(p.a) }); }
+    if (p.a && p.a !== pa.anim) { if (/Death/.test(p.a) && !/Death/.test(pa.anim || '')) deathFx(p.x, p.z); pa.anim = p.a; pa.a.play(p.a, { once: ONE_SHOT.test(p.a), clamp: /Death/.test(p.a) }); }
     pa.a.mixer.update(dt); headPose(pa.a);
     flairTick(pa.a, dt, /Running|Walking/.test(pa.anim));
     if (pa.shimAt === undefined || now > pa.shimAt) { pa.shimAt = now + 0.1; shimmerTick(pa.a, p.look && p.look.cos); }
@@ -1237,7 +1237,7 @@ function onNet(ev, m) {
   if (ev === 'push') { if (player && !player.dead) { const vx = Math.max(-12, Math.min(12, +m.x || 0)), vz = Math.max(-12, Math.min(12, +m.z || 0)); tween(0.45, (k) => { player.pos.x += vx * 0.016 * (1 - k) * 2.2; player.pos.z += vz * 0.016 * (1 - k) * 2.2; collide(player.pos); }); toast('Whoosh! A gust blew you away!', ICONS.star); } return; }
   if (ev === 'hit') { if (canFight(from, true)) hurtPlayer(Math.max(1, Math.min(9999, +m.dmg || 0)), from); return; }
   if (ev === 'ko') { if (peer && m.offer) duelPrize(from, peer.name || 'a hero', m.offer); return; }
-  if (ev === 'loot') { takeDuelLoss(from, m.pick); return; }
+  if (ev === 'loot') { takeDuelLoss(from, m.pick, m.wait); return; }
   if (ev === 'px') {
     if (!inParty(from) || m.w !== where || !player || player.dead) return;
     if (Math.hypot(player.pos.x - m.x, player.pos.z - m.z) > 40) return;
@@ -1344,11 +1344,14 @@ function duelPrize(from, name, offer) {
   if (items.length) opts.push(['items', items.map(([k, n]) => `<img src="${ICONS[k]}" alt="">${n} × ${esc(ITEMS[k])}`).join(' ')]);
   sfx('win');
   if (!opts.length) { toast(`You won the duel against ${name}! They had nothing worth taking.`, ICONS.star, true); return; }
-  el.innerHTML = `<p>You beat <b></b>! Pick one prize:</p><div class="prizes">${opts.map(([k, h]) => `<button type="button" data-pz="${k}">${h}</button>`).join('')}<button type="button" class="mercy" data-pz="none">Take nothing (show mercy)</button></div>`;
+  el.innerHTML = `<p>You beat <b></b>! Pick one prize:</p><div class="prizes">${opts.map(([k, h]) => `<button type="button" data-pz="${k}">${h}</button>`).join('')}<button type="button" class="mercy" data-pz="none">Take nothing (show mercy)</button></div>
+    <label class="sitout">Make them sit out: <b>0s</b><input type="range" min="0" max="60" step="5" value="0" aria-label="Seconds they sit out"></label>`;
   el.querySelector('b').textContent = name;
+  const sit = el.querySelector('.sitout input'), sitB = el.querySelector('.sitout b'), wait = () => +sit.value || 0;
+  sit.oninput = () => { sitB.textContent = `${sit.value}s`; };
   el.querySelectorAll('[data-pz]').forEach((b) => { b.onclick = () => {
     const k = b.dataset.pz; el.remove();
-    if (k === 'none') { sendNet('loot', { to: from, pick: 'none' }); toast(`You let ${name} keep everything. How kind!`, ICONS.star, true); giveHeroXp(60 + heroLvl() * 10); refreshUI(); save(); return; }
+    if (k === 'none') { sendNet('loot', { to: from, pick: 'none', wait: wait() }); toast(`You let ${name} keep everything. How kind!`, ICONS.star, true); giveHeroXp(60 + heroLvl() * 10); refreshUI(); save(); return; }
     if (k === 'coins') S.coins += c;
     else if (k === 'items') for (const [id, n] of items) addItem(id, Math.max(1, Math.min(2, n | 0)));
     else {
@@ -1356,16 +1359,17 @@ function duelPrize(from, name, offer) {
       if (!S.owned.includes(gk)) S.owned.push(gk);
       if (plus > plusOf(gk)) S.plus = { ...(S.plus || {}), [gk]: Math.min(PLUS_MAX, plus | 0) };
     }
-    sendNet('loot', { to: from, pick: k });
+    sendNet('loot', { to: from, pick: k, wait: wait() });
     toast(`Prize taken from ${name}!`, ICONS.coins, true); sfx('coin'); giveHeroXp(60 + heroLvl() * 10); refreshUI(); save();
   }; });
   setTimeout(() => el.remove(), 45000);
   document.body.appendChild(el);
 }
-function takeDuelLoss(from, pick) {
+function takeDuelLoss(from, pick, wait = 0) {
   if (!duelLoss || duelLoss.from !== from || now > duelLoss.until) return;
   const o = duelLoss.offer; duelLoss = null;
   const who = (net.peers.get(from) || {}).name || 'The winner';
+  koSitOut(+wait || 0, who);
   if (pick === 'none') toast(`${who} showed mercy and took nothing!`, ICONS.star, true);
   else if (pick === 'coins') { const c = Math.min(S.coins, o.coins || 0); S.coins -= c; toast(`${who} took ${fmt(c)} of your coins.`, ICONS.coins, true); }
   else if (pick === 'items' && o.items) { for (const [k, n] of o.items) if (S.inv[k]) takeItem(k, Math.min(S.inv[k], n)); toast(`${who} took ${o.items.map(([k, n]) => `${n} ${ITEMS[k]}`).join(' and ')} from your bag.`, ICONS.bag, true); }
@@ -5105,22 +5109,22 @@ function hurtPlayer(dmg, from = null) {
   if (S.hp <= 0) {
     S.hp = 0; player.dead = true; cancelTask(); moveTarget = null;
     player.play('Death_A', { once: true, clamp: true, fade: 0.1 });
+    deathFx(player.pos.x, player.pos.z); sfx('hurt');
     const lost = Math.floor(S.coins / 2);
     const foe = from && net.peers.get(from);
     if (foe) {
-      // beaten in a duel: you keep your coins on you, but the winner picks one prize from you
+      // beaten in a duel: you keep your coins on you, but the winner picks one prize from you,
+      // and can make you sit out for up to a minute before you wake up
       duelLoss = { from, until: now + 60, offer: duelOffer() };
       sendNet('ko', { to: from, offer: duelLoss.offer });
-      toast(`${foe.name || 'Another hero'} beat you in a duel! They get to pick one prize from you. Bank your coins to keep them safe.`, null, true);
-    } else if (lost > 0) { S.coins -= lost; dropPouch(lost); }
-    if (!foe) toast(lost > 0 ? `You were knocked out and dropped ${lost} coins where you fell! Go back for them, or bank your coins next time.` : 'You were knocked out! You wake up in the nearest village.', null, true);
-    later(2.2, () => {
-      // wake up in the nearest village: the one in the land you fell in, or just outside a cave or house
-      const L = LANDS[where], I = !L && INTERIORS[where], at = L ? { x: L.village.x, z: L.village.z + 4 } : I && I.exitTo ? I.exitTo : { x: 0, z: 6 };
-      where = L ? where : 'out'; player.root.position.set(at.x, 0, at.z); player.air = false;
-      camPos.copy(player.pos).setY(0).add(CAM_OFF.clone().multiplyScalar(zoom * (camera.aspect < 1 ? 1.3 : 1)));
-      S.hp = maxHp(); player.dead = false; player.play('Idle'); refreshUI(); save();
-    });
+      koShow(`${foe.name || 'Another hero'} knocked you out!`, `Waiting for ${foe.name || 'them'} to pick a prize...`);
+      const life = koLife = (koLife || 0) + 1;
+      later(20, () => { if (player.dead && koLife === life && !koWaitUntil) wakeUp(); }); // they took too long to choose
+    } else {
+      if (lost > 0) { S.coins -= lost; dropPouch(lost); }
+      koShow('Knocked out!', lost > 0 ? `You dropped ${fmt(lost)} coins where you fell. Bank your coins to keep them safe.` : 'You wake up in the nearest village.');
+      later(2.6, wakeUp);
+    }
   } else if (!player.task && now > player.busyUntil) {
     player.play('Hit_A', { once: true, fade: 0.05, onFinish: () => player.play('Idle') });
   }
@@ -5129,6 +5133,57 @@ function hurtPlayer(dmg, from = null) {
 
 const timers = [];
 const later = (t, f) => timers.push({ t, f });
+
+// ---------- knocked out ----------
+// The hero crumples, a dark red shock ring spreads, a pale wisp floats up, and the world drains of colour behind a
+// "Knocked out" card. Then everything fades, and you wake up in the nearest village inside a soft pillar of light.
+let koEl = null, koLife = 0, koWaitUntil = 0;
+function deathFx(x, z) {
+  burst(new THREE.Vector3(x, 1.4, z), '#8e1020', 34, 5, 1.3);
+  const ring = new THREE.Mesh(new THREE.RingGeometry(0.8, 1, 48), new THREE.MeshBasicMaterial({ color: '#b0182a', transparent: true, opacity: 0.8, depthWrite: false, fog: false, side: THREE.DoubleSide }));
+  ring.rotation.x = -Math.PI / 2; ring.position.set(x, 0.12, z); ring.layers.set(1); scene.add(ring);
+  tween(0.9, (k) => { ring.scale.setScalar(0.6 + k * 4.5); ring.material.opacity = 0.8 * (1 - k); }, () => { scene.remove(ring); ring.geometry.dispose(); ring.material.dispose(); });
+  // the wisp: a soft pale orb that drifts up and fades a moment after the fall
+  later(0.5, () => {
+    const w = new THREE.Mesh(new THREE.SphereGeometry(0.32, 12, 10), new THREE.MeshBasicMaterial({ color: '#f4ecff', transparent: true, opacity: 0.85, depthWrite: false, fog: false, blending: THREE.AdditiveBlending }));
+    w.position.set(x, 1.1, z); w.layers.set(1); scene.add(w);
+    tween(1.6, (k) => { w.position.set(x + Math.sin(k * 7) * 0.25, 1.1 + k * 4.2, z); w.material.opacity = 0.85 * (1 - k); w.scale.setScalar(1 - k * 0.5); if (rng() < 0.35) burst(w.position.clone(), '#e8dcff', 1, 0.6); }, () => { scene.remove(w); w.geometry.dispose(); w.material.dispose(); });
+  });
+}
+function koShow(title, line) {
+  if (!koEl) { koEl = document.createElement('div'); koEl.id = 'ko'; koEl.innerHTML = '<div class="ko-card"><h2></h2><p></p><b class="ko-count" hidden></b></div>'; document.body.appendChild(koEl); }
+  koEl.querySelector('h2').textContent = title; koEl.querySelector('p').textContent = line; koEl.querySelector('.ko-count').hidden = true;
+  koEl.className = 'show'; renderer.domElement.classList.add('ko-grey');
+}
+// the winner's choice arrived: sit out for that many seconds (with a countdown), then wake up
+function koSitOut(secs, who) {
+  secs = Math.max(0, Math.min(60, secs | 0));
+  if (!player.dead) return;
+  if (!secs) { later(1.2, wakeUp); return; }
+  koWaitUntil = now + secs; const life = koLife;
+  koShow(`${who} is making you sit out`, 'You can come back when the timer runs out.');
+  const cnt = koEl.querySelector('.ko-count'); cnt.hidden = false;
+  const step = () => { if (koLife !== life || !player.dead) return; const left = Math.ceil(koWaitUntil - now); if (left <= 0) { wakeUp(); return; } cnt.textContent = `${left}`; later(0.25, step); };
+  step();
+}
+function wakeUp() {
+  if (!player || !player.dead) return;
+  koLife++; koWaitUntil = 0;
+  if (koEl) koEl.className = 'fade';
+  later(0.35, () => {
+    // wake up in the nearest village: the one in the land you fell in, or just outside a cave or house
+    const L = LANDS[where], I = !L && INTERIORS[where], at = L ? { x: L.village.x, z: L.village.z + 4 } : I && I.exitTo ? I.exitTo : { x: 0, z: 6 };
+    where = L ? where : 'out'; player.root.position.set(at.x, 0, at.z); player.air = false;
+    camPos.copy(player.pos).setY(0).add(CAM_OFF.clone().multiplyScalar(zoom * (camera.aspect < 1 ? 1.3 : 1)));
+    S.hp = maxHp(); player.dead = false; player.play('Idle'); refreshUI(); save();
+    renderer.domElement.classList.remove('ko-grey'); if (koEl) koEl.className = '';
+    // a soft pillar of light where you wake
+    const p = new THREE.Mesh(new THREE.CylinderGeometry(0.9, 0.9, 10, 20, 1, true), new THREE.MeshBasicMaterial({ color: '#fff2c0', transparent: true, opacity: 0.6, depthWrite: false, fog: false, side: THREE.DoubleSide, blending: THREE.AdditiveBlending }));
+    p.position.set(at.x, 5, at.z); p.layers.set(1); scene.add(p);
+    tween(0.9, (k) => { p.material.opacity = 0.6 * (1 - k); p.scale.set(1 - k * 0.6, 1, 1 - k * 0.6); }, () => { scene.remove(p); p.geometry.dispose(); p.material.dispose(); });
+    burst(new THREE.Vector3(at.x, 1.2, at.z), '#fff2c0', 30, 4, 1.2);
+  });
+}
 
 // ---------- Gagron's fire ----------
 // Every fire attack paints a glowing warning on the floor first. Jump, dash or step out before it fills.
@@ -7346,6 +7401,33 @@ function openCreator(mode = 'edit') {
   player.play('Idle');
   renderCreator();
 }
+// the first time a hero steps out: a short story intro (click, E, Space or Enter to go on; Skip jumps to the end)
+function showStoryIntro(then) {
+  if ($('storyintro')) return;
+  const pages = [
+    ['Welcome, ' + heroName(), 'Long ago, a terrible darkness was sealed away deep beneath the realm.'],
+    ['The seal has broken', `Darkness has plagued the realm, as ${DARK_KING.split(' ')[0]} has awoken from his slumber. Monsters roam the roads and towns have fallen under his shadow.`],
+    ['Your quest', 'It is up to you, warrior, to restore peace to the realm.'],
+    ['It begins here', 'Your journey starts in Jerry Village. King Jerrold is waiting for you.'],
+  ];
+  let i = 0;
+  const el = document.createElement('div'); el.id = 'storyintro';
+  el.innerHTML = `<div class="si-card"><small class="si-step"></small><h2></h2><p></p><span class="si-go">Click or press E to continue</span></div><button class="si-skip" type="button">Skip</button>`;
+  document.body.appendChild(el);
+  const draw = () => {
+    const [h, t] = pages[i], card = el.querySelector('.si-card');
+    card.classList.remove('in'); void card.offsetWidth; card.classList.add('in');
+    el.querySelector('h2').textContent = h; el.querySelector('p').textContent = t;
+    el.querySelector('.si-step').textContent = `${i + 1} / ${pages.length}`;
+    el.querySelector('.si-go').textContent = i === pages.length - 1 ? 'Click or press E to begin' : 'Click or press E to continue';
+  };
+  const done = () => { removeEventListener('keydown', onKey, true); el.classList.add('out'); setTimeout(() => el.remove(), 500); S.seenIntro = true; save(); if (then) then(); };
+  const next = () => { sfx('click'); if (++i >= pages.length) done(); else draw(); };
+  const onKey = (e) => { if (['KeyE', 'Space', 'Enter', 'NumpadEnter', 'Escape'].includes(e.code)) { e.preventDefault(); e.stopPropagation(); if (e.code === 'Escape') done(); else next(); } };
+  addEventListener('keydown', onKey, true);
+  el.addEventListener('click', (e) => { if (e.target.closest('.si-skip')) done(); else next(); });
+  draw();
+}
 // the first time a hero steps out, a small note shows the controls (attack J, charged attack K)
 function showKeysNote() {
   if ($('keysnote') || S.seenKeys) return;
@@ -7388,7 +7470,8 @@ function closeCreator(keep) {
   updateTitle(); save();
   if (creator.mode === 'new') {
     if (!S.welcomed) { S.welcomed = true; toast(`Welcome to Jerry Village, ${heroName()}! Look for villagers with a ! above their heads.`, null, true); }
-    if (!S.seenKeys) setTimeout(showKeysNote, 900);
+    if (!S.seenIntro) setTimeout(() => showStoryIntro(() => { if (!S.seenKeys) setTimeout(showKeysNote, 300); }), 600);
+    else if (!S.seenKeys) setTimeout(showKeysNote, 900);
     else toast(`Looking good, ${heroName()}!`, ICONS.star);
   }
 }
@@ -9168,7 +9251,7 @@ function makeGagronFriend() {
   npcs.push(gagronFriend);
 }
 
-window.__jq = { toast, showLook, removeThing, giveThing, COS, ITEMS, GEAR, parseGive, chargedAttack, parseAmount, hitPeers, shotHitsPeer, showKeysNote, castSpell, learnSpell, spellCd, SPELLS, goonSneeze, goonDrips, goonFlop, setSlotBox, showSlots, get slotBox() { return slotBox; }, get guide() { return guide; }, bossNet, safeSpot, get PVP_LVL() { return PVP_LVL; }, goldNode, wbInfo, wbTick, get wb() { return wb; }, WB_SPOTS, tradeOpen, tradeNet, offerKey, get trade() { return trade; }, adv(s) { for (let t = 0; t < s; t += 0.05) { for (let i = timers.length - 1; i >= 0; i--) { timers[i].t -= 0.05; if (timers[i].t <= 0) { const f = timers[i].f; timers.splice(i, 1); f(); } } bossFxTick(0.05); } }, get party() { return party; }, BOSS_AI, PHASE_SETUP, get gulped() { return gulped; }, wriggle, toggleBigMap, spawnEnemy, openPathChoice, choosePath, startLanternNight, get lanterns() { return lanterns; }, duelOffer, duelPrize, onNet, chatCommand, canFight, openUpgrade, openBoard, boardToday, queueLetter, makeGagronFriend, net, peerActors, runeTick, bossFx, renderer, scene, openMayor, darkOmen, netWorth, liberateTown, setGolden, goldenCaught, pompArrive, get goldenE() { return goldenE; }, spinWheel, dayTick, get bossIntro() { return bossIntro; }, bossSkip, startBossScene, sailTo, regions, closeSheet, renderHotbar, crew, setCrewMode, TOWNS, liberateTown, chests, openChest, stopRoulette, enemies, startBossIntro, closeDialog, advanceDialog, dash, attackPress, craft, CRAFTS, openCreator, closeCreator, creator, rebuildHero, setZoom: (z) => { zoom = zoomGoal = z; }, hurtEnemy, goThrough, get where() { return where; }, INTERIORS, equipGear, spendPoint, giveHeroXp, heroLvl, stat, maxHp, defDiv, openWeaponShop, openKing, jump, eat, eatBest, openShop, swing, swingTarget, hitNode, projectiles, timers, get S() { return S; }, get player() { return player; }, enemies, nodes, npcs, startTask, doAction, giveXp, save, openSheet, openDialog };
+window.__jq = { toast, showStoryIntro, hurtPlayer, koSitOut, wakeUp, showLook, removeThing, giveThing, COS, ITEMS, GEAR, parseGive, chargedAttack, parseAmount, hitPeers, shotHitsPeer, showKeysNote, castSpell, learnSpell, spellCd, SPELLS, goonSneeze, goonDrips, goonFlop, setSlotBox, showSlots, get slotBox() { return slotBox; }, get guide() { return guide; }, bossNet, safeSpot, get PVP_LVL() { return PVP_LVL; }, goldNode, wbInfo, wbTick, get wb() { return wb; }, WB_SPOTS, tradeOpen, tradeNet, offerKey, get trade() { return trade; }, adv(s) { for (let t = 0; t < s; t += 0.05) { for (let i = timers.length - 1; i >= 0; i--) { timers[i].t -= 0.05; if (timers[i].t <= 0) { const f = timers[i].f; timers.splice(i, 1); f(); } } bossFxTick(0.05); } }, get party() { return party; }, BOSS_AI, PHASE_SETUP, get gulped() { return gulped; }, wriggle, toggleBigMap, spawnEnemy, openPathChoice, choosePath, startLanternNight, get lanterns() { return lanterns; }, duelOffer, duelPrize, onNet, chatCommand, canFight, openUpgrade, openBoard, boardToday, queueLetter, makeGagronFriend, net, peerActors, runeTick, bossFx, renderer, scene, openMayor, darkOmen, netWorth, liberateTown, setGolden, goldenCaught, pompArrive, get goldenE() { return goldenE; }, spinWheel, dayTick, get bossIntro() { return bossIntro; }, bossSkip, startBossScene, sailTo, regions, closeSheet, renderHotbar, crew, setCrewMode, TOWNS, liberateTown, chests, openChest, stopRoulette, enemies, startBossIntro, closeDialog, advanceDialog, dash, attackPress, craft, CRAFTS, openCreator, closeCreator, creator, rebuildHero, setZoom: (z) => { zoom = zoomGoal = z; }, hurtEnemy, goThrough, get where() { return where; }, INTERIORS, equipGear, spendPoint, giveHeroXp, heroLvl, stat, maxHp, defDiv, openWeaponShop, openKing, jump, eat, eatBest, openShop, swing, swingTarget, hitNode, projectiles, timers, get S() { return S; }, get player() { return player; }, enemies, nodes, npcs, startTask, doAction, giveXp, save, openSheet, openDialog };
 window.addEventListener('error', (e) => { const m = $('loadmsg'); if (m) m.textContent = `Something went wrong: ${e.message}`; });
 main().catch((err) => {
   console.error(err);
