@@ -1,5 +1,5 @@
 // Static world: ground, lake, paths, village buildings, forest, mountains, clouds, campfire.
-import { THREE, scene, gradient, stylize, registerMesh, toon, rng } from './engine.js';
+import { THREE, scene, gradient, stylize, registerMesh, toon, rng, foliageMat, puffNormals } from './engine.js';
 
 export const S_BUILD = 5, S_NATURE = 4.5, S_PROP = 2.6;
 export const LAKE = { x: 37, z: -7, r: 12 };
@@ -84,6 +84,9 @@ export function instanced(template, matrices, opts = {}) {
     const im = new THREE.InstancedMesh(o.geometry, o.material, matrices.length);
     const tmp = new THREE.Matrix4();
     matrices.forEach((m, i) => im.setMatrixAt(i, tmp.multiplyMatrices(m, rel)));
+    // nature-kit parts come with their own painted materials and layer (see natural())
+    if (o.userData.mats) { registerMesh(im, o.userData.mats); im.layers.mask = o.layers.mask; im.castShadow = opts.cast !== false && o.castShadow; im.receiveShadow = true; }
+    if (opts.colors) { matrices.forEach((m, i) => im.setColorAt(i, opts.colors[i])); }
     im.instanceMatrix.needsUpdate = true;
     im.computeBoundingSphere();
     group.add(im);
@@ -107,6 +110,109 @@ export function place(name, x, z, s, ry = 0, { collide = true, y = 0, shrink = 0
     colliders.push(o.userData.collider);
   }
   return o;
+}
+
+// ---------- v81 nature kit (Quaternius Stylized Nature MegaKit, CC0) ----------
+// Painted trees, bushes, grass, flowers and rocks. natural() returns a ready-to-instance template:
+// the leaves get the soft painted colour ramp and round "puffy" normals (engine.js foliageMat),
+// bark and rocks keep their hand-painted textures with the toon shading.
+export const PAL = {
+  valley: ['#12503a', '#86c43a'], deep: ['#0f4636', '#62a832'], spring: ['#1f6a34', '#b4d43e'],
+  glimmer: ['#33287e', '#e07ac4'], glimmer2: ['#15566e', '#6cd8c4'], pine: ['#123f38', '#5c9a46'],
+  grass: ['#3d9032', '#d4ee6a'], bush: ['#1f6a40', '#9cd64c'], plant: ['#2b7a3a', '#a8dc52'],
+  meadow: ['#5aa634', '#eef07a'], dry: ['#7a8a48', '#e0d488'],
+};
+const natCache = new Map();
+export function natural(name, { pal = PAL.valley, h = 0, w = 0, fit = null, sway = 0, bark = null, paint = true, puff = true, cast = true, mul = 1, small = false } = {}) {
+  const key = [name, pal.join(), h, w, fit && fit.uuid, sway, bark, paint, puff, cast, mul, small].join('|');
+  if (natCache.has(key)) return natCache.get(key);
+  const src = lib[name];
+  if (!src) { console.warn('missing nature model', name); return new THREE.Group(); }
+  const root = new THREE.Group(), o = src.clone(true);
+  o.position.set(0, 0, 0); o.rotation.set(0, 0, 0); o.scale.set(1, 1, 1);
+  root.add(o); root.updateMatrixWorld(true);
+  if (fit) { const a = new THREE.Box3().setFromObject(fit), b = new THREE.Box3().setFromObject(o), sa = a.getSize(new THREE.Vector3()), sb = b.getSize(new THREE.Vector3());
+    o.scale.setScalar(Math.max(sa.x, sa.y, sa.z) / Math.max(0.001, sb.x, sb.y, sb.z)); root.updateMatrixWorld(true); }
+  if (w) { const sb = new THREE.Box3().setFromObject(o).getSize(new THREE.Vector3()); o.scale.setScalar(w / Math.max(0.001, sb.x, sb.y, sb.z)); root.updateMatrixWorld(true); }
+  if (h) { const b = new THREE.Box3().setFromObject(o); o.scale.setScalar(h / Math.max(0.001, b.max.y - b.min.y)); root.updateMatrixWorld(true); }
+  o.traverse((m) => {
+    if (!m.isMesh) return;
+    const std = m.material, ud = std.userData || {};
+    const leafy = ud.cut && /leaves|pine|plants|flowers/.test(ud.tex || '') || /grass/.test(ud.tex || '');
+    if (leafy) {
+      const flower = /flowers/.test(ud.tex || '');
+      const geo = m.geometry.clone();
+      if (puff && !flower) puffNormals(geo); else if (!geo.attributes.normal) geo.computeVertexNormals();
+      geo.computeBoundingBox();
+      m.geometry = geo;
+      registerMesh(m, foliageMat(std.map, { lo: pal[0], hi: pal[1], y0: geo.boundingBox.min.y, y1: geo.boundingBox.max.y, sway, cut: ud.cut ? 0.5 : 0, paint: paint && !flower, mul, puff: puff && !flower }));
+      // small plants go on layer 3: drawn in colour only (no ink, no shadow) to keep things quick
+      m.layers.set(small ? 3 : 2); m.castShadow = cast && !small; m.receiveShadow = true;
+    } else {
+      if (bark) { const c = std.clone(); c.color.set(bark); m.material = c; }
+      stylize(m, { cast });
+    }
+  });
+  natCache.set(key, root);
+  return root;
+}
+// v81: hand-painted ground. World-space noise adds soft brushy light and dark patches, sunny
+// yellow dapples and fine blade streaks over the ground's own colours (so every land keeps its palette).
+export function paintGround(mats, { k = 1 } = {}) {
+  for (const key of ['std', 'toon']) {
+    const m = mats[key], prev = m.onBeforeCompile;
+    m.onBeforeCompile = (sh, r) => {
+      if (prev) prev(sh, r);
+      sh.vertexShader = 'varying vec3 vGW;\n' + sh.vertexShader.replace('#include <begin_vertex>', '#include <begin_vertex>\n vGW = (modelMatrix * vec4(position, 1.)).xyz;');
+      sh.fragmentShader = `varying vec3 vGW;
+        float gh(vec2 p){ return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+        float gn(vec2 p){ vec2 i = floor(p), f = fract(p); f = f*f*(3.-2.*f);
+          return mix(mix(gh(i), gh(i+vec2(1,0)), f.x), mix(gh(i+vec2(0,1)), gh(i+vec2(1,1)), f.x), f.y); }
+        float gf(vec2 p){ return gn(p) * .55 + gn(p * 2.1 + 3.7) * .3 + gn(p * 4.3 + 1.3) * .15; }
+      ` + sh.fragmentShader.replace('#include <color_fragment>', `#include <color_fragment>
+        { vec2 p = vGW.xz;
+          float big = gf(p * 0.045);                       // broad light and shade
+          float mid = gf(p * 0.16 + big * 2.);              // brushy patches
+          float streak = gn(vec2(p.x * 0.9 + p.y * 0.35, p.y * 3.1 - p.x * 0.6)); // little blade strokes
+          float sh = (big - .5) * .7 + (mid - .5) * .45 + (streak - .5) * .14;
+          vec3 c = diffuseColor.rgb * (1. + sh * ${k.toFixed(2)});
+          float sun = smoothstep(.55, .7, mid) * smoothstep(.4, .62, big);
+          c = mix(c, c * vec3(1.2, 1.15, .72), sun * .7 * ${k.toFixed(2)});
+          diffuseColor.rgb = c; }`);
+    };
+    const pk = m.customProgramCacheKey ? m.customProgramCacheKey.bind(m) : () => '';
+    m.customProgramCacheKey = () => pk() + 'paint' + k;
+  }
+  return mats;
+}
+// A one-off (not instanced) copy of a nature template, keeping its painted materials and layers.
+// Leaves are marked so the ink-hull outliner leaves them alone (a hull of leaf cards would be squares).
+export function naturalCopy(tpl) {
+  const c = tpl.clone(true), src = [], dst = [];
+  tpl.traverse((o) => src.push(o)); c.traverse((o) => dst.push(o));
+  src.forEach((o, i) => { if (o.isMesh && o.userData.mats) { const d = dst[i]; d.userData = { mats: null }; registerMesh(d, o.userData.mats); d.layers.mask = o.layers.mask; d.castShadow = o.castShadow; d.receiveShadow = true; if (o.layers.mask !== 1) d.userData.hasInk = true; } });
+  return c;
+}
+// a stable 0..1 number for a spot on the map (so picking tree kinds doesn't touch the world's dice)
+// KayKit rock -> painted rock of the same size
+const ROCKS = { rock_single_A: 'Rock_Medium_1', rock_single_B: 'Rock_Medium_2', rock_single_C: 'Rock_Medium_3' };
+const natRock = (k, tint = null) => natural(ROCKS[k], { fit: lib[k], bark: tint });
+export const hOf = (tpl) => { const b = new THREE.Box3().setFromObject(tpl); return b.max.y - b.min.y; };
+export const spotHash = (x, z) => { const v = Math.sin(x * 12.9898 + z * 78.233) * 43758.5453; return v - Math.floor(v); };
+// split one list of tree spots into several kinds, by spot
+function splitKinds(list, kinds) {
+  const out = kinds.map(() => []), p = new THREE.Vector3();
+  for (const m of list) { p.setFromMatrixPosition(m); const h = spotHash(p.x, p.z); let i = 0, acc = kinds[0][1]; while (h > acc && i < kinds.length - 1) acc += kinds[++i][1]; out[i].push(m); }
+  return out;
+}
+export function forestOf(list, kinds, opts = {}) {
+  splitKinds(list, kinds).forEach((l, i) => {
+    if (!l.length) return;
+    const p = new THREE.Vector3();
+    // each tree a touch lighter, darker or warmer than its neighbours
+    const colors = l.map((m) => { p.setFromMatrixPosition(m); const h = spotHash(p.z * 1.7, p.x * 0.9); return new THREE.Color(0.9 + h * 0.25, 0.94 + h * 0.12, 1.02 - h * 0.18); });
+    instanced(kinds[i][0], l, { ...opts, colors });
+  });
 }
 const faceCenter = (x, z) => Math.atan2(-x, -z);
 export const blocked = (x, z) => Math.hypot(x - LAKE.x, z - LAKE.z) < LAKE.r + 3 || Math.hypot(x - CAMP.x, z - CAMP.z) < 11
@@ -138,7 +244,7 @@ export function buildWorld(library) {
   gGeo.computeVertexNormals();
   const ground = new THREE.Mesh(gGeo);
   ground.receiveShadow = true;
-  registerMesh(ground, toon('#ffffff', { vertexColors: true }));
+  registerMesh(ground, paintGround(toon('#ffffff', { vertexColors: true })));
   scene.add(ground);
 
   // lake
@@ -147,15 +253,27 @@ export function buildWorld(library) {
   registerMesh(shore, toon('#f1d79c', { polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1 }));
   scene.add(shore);
   dynamic.waterMat = new THREE.ShaderMaterial({
-    uniforms: { time: { value: 0 }, deep: { value: new THREE.Color('#2f8fd8') }, shallow: { value: new THREE.Color('#7fe3f0') } },
+    uniforms: { time: { value: 0 }, deep: { value: new THREE.Color('#1f6fc8') }, shallow: { value: new THREE.Color('#79e6e8') } },
     vertexShader: `varying vec2 vP; varying float vR; void main(){ vP = position.xy; vR = length(position.xy); gl_Position = projectionMatrix*modelViewMatrix*vec4(position,1.); }`,
     fragmentShader: `uniform float time; uniform vec3 deep, shallow; varying vec2 vP; varying float vR;
+      float wh(vec2 p){ return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+      float wn(vec2 p){ vec2 i = floor(p), f = fract(p); f = f*f*(3.-2.*f);
+        return mix(mix(wh(i), wh(i+vec2(1,0)), f.x), mix(wh(i+vec2(0,1)), wh(i+vec2(1,1)), f.x), f.y); }
       void main(){
+        // v81 storybook water: a deep middle fading to bright shallows, painted ripple bands that drift,
+        // a wobbly foam ring at the shore and little twinkles
         float r = vR / ${LAKE.r.toFixed(1)};
-        vec3 c = mix(deep, shallow, smoothstep(0.55, 1.0, r));
-        float w = sin(vP.x*0.9 + time*1.3) * sin(vP.y*0.8 - time*1.1) + 0.5*sin((vP.x+vP.y)*1.7 + time*2.0);
-        c += vec3(0.9,1.,1.) * step(1.05, w) * 0.35;
-        c = mix(c, vec3(1.), smoothstep(0.93, 0.97, r) * (1.-smoothstep(0.97,1.0,r)) * 0.8);
+        float wob = wn(vP * 0.45 + time * 0.15) - .5;
+        vec3 c = mix(deep, shallow, smoothstep(0.35, 1.0, r + wob * 0.12));
+        float rip = wn(vec2(vP.x * 0.5 + time * 0.25, vP.y * 1.4 - time * 0.12)) + wn(vP * 1.1 - time * 0.2) * 0.5;
+        c = mix(c, c * 1.18 + vec3(0.04, 0.06, 0.06), smoothstep(0.95, 1.05, rip) * 0.7);
+        c = mix(c, deep * 0.82, smoothstep(0.25, 0.1, rip) * 0.35);
+        float spark = step(0.985, wn(vP * 3.1 + vec2(time * 0.6, -time * 0.4))) * (1. - smoothstep(0.7, 0.95, r));
+        c += vec3(1.) * spark * 0.7;
+        float edge = r + wob * 0.05 + sin(atan(vP.y, vP.x) * 9. + time * 1.5) * 0.008;
+        float foam = smoothstep(0.9, 0.93, edge) * (1. - smoothstep(0.965, 0.985, edge));
+        float foam2 = smoothstep(0.975, 0.99, edge);
+        c = mix(c, vec3(1.), max(foam * 0.85, foam2 * 0.95));
         gl_FragColor = vec4(c, 1.);
         #include <colorspace_fragment>
       }`,
@@ -173,7 +291,7 @@ export function buildWorld(library) {
   instanced(lib.waterlily_A, lilies, { cast: false });
 
   // sandy paths
-  const pathMats = toon('#e9c98f', { polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
+  const pathMats = paintGround(toon('#e9c98f', { polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }), { k: 0.8 });
   const addPath = (geo, x, z, ry = 0) => {
     const m = new THREE.Mesh(geo);
     m.rotation.set(-Math.PI / 2, 0, ry); m.position.set(x, 0.03, z); m.receiveShadow = true;
@@ -250,33 +368,15 @@ export function buildWorld(library) {
     (rng() > 0.5 ? glimmerBig : glimmerTrees).push(M(x, 0, z, S_NATURE * (0.9 + rng() * 0.5), rng() * 6));
     colliders.push({ x, z, r: 1.0 });
   }
-  // recolour the leaves by rotating the texture's hue (trunks stay brown-ish)
-  const tintTrees = (group, hue, sat = 1, bright = 1) => group.traverse((o) => {
-    if (!o.isMesh) return;
-    const m = o.userData.mats;
-    for (const key of ['std', 'toon']) {
-      const mat = m[key].clone(), prev = m[key].onBeforeCompile;
-      mat.onBeforeCompile = (sh, r) => {
-        if (prev) prev(sh, r);
-        sh.fragmentShader = sh.fragmentShader.replace('#include <map_fragment>', `#include <map_fragment>
-          { vec3 c = diffuseColor.rgb; float g = dot(c, vec3(0.299, 0.587, 0.114));
-            float a = ${hue.toFixed(3)}; float cs = cos(a), sn = sin(a);
-            mat3 R = mat3(0.299+0.701*cs+0.168*sn, 0.587-0.587*cs+0.330*sn, 0.114-0.114*cs-0.497*sn,
-                          0.299-0.299*cs-0.328*sn, 0.587+0.413*cs+0.035*sn, 0.114-0.114*cs+0.292*sn,
-                          0.299-0.300*cs+1.250*sn, 0.587-0.588*cs-1.050*sn, 0.114+0.886*cs-0.203*sn);
-            float leaf = smoothstep(0.02, 0.12, c.g - max(c.r, c.b));
-            vec3 h = mix(vec3(g), c * R, ${sat.toFixed(2)}) * ${bright.toFixed(2)};
-            diffuseColor.rgb = mix(c, h, leaf); }`);
-      };
-      mat.customProgramCacheKey = () => `hue${hue}${sat}${bright}`;
-      m[key] = mat;
-    }
-    o.material = m.toon;
-  });
-  tintTrees(instanced(lib.trees_B_large, glimmerBig), -2.6, 0.85, 1.05);
-  tintTrees(instanced(lib.trees_A_medium, glimmerTrees), -0.9, 1.1, 1.1);
+  // v81: the Glimmerwood grows twisty painted trees in magic pinks and teals
+  forestOf(glimmerBig, [[natural('TwistedTree_1', { pal: PAL.glimmer, h: hOf(lib.trees_B_large) * 1.15 }), 1]]);
+  forestOf(glimmerTrees, [[natural('CommonTree_3', { pal: PAL.glimmer2, h: hOf(lib.trees_A_medium) * 1.1 }), 1]]);
   for (const [k, list] of Object.entries(kinds)) if (list.length) instanced(lib[k], list);
-  for (const [k, list] of Object.entries(rounds)) if (list.length) instanced(roundTree(k), list);
+  // v81: painted Quaternius trees stand where the round toy trees stood (same spots, same sizes)
+  const TH = 1.5;
+  forestOf(rounds.A, [[natural('CommonTree_1', { h: TH }), 0.6], [natural('CommonTree_3', { h: TH * 1.1 }), 0.4]]);
+  forestOf(rounds.B, [[natural('CommonTree_2', { h: TH, pal: PAL.deep }), 0.85], [natural('TwistedTree_1', { h: TH * 1.3 }), 0.15]]);
+  forestOf(rounds.C, [[natural('CommonTree_5', { h: TH * 0.95, pal: PAL.spring }), 1]]);
 
   // scenery rocks, more of them in the Crags
   const rocks = { rock_single_A: [], rock_single_B: [], rock_single_C: [] };
@@ -299,7 +399,7 @@ export function buildWorld(library) {
   for (let i = 0; i < 9; i++) { const a = (i / 9) * Math.PI * 2, Z = ZONES.crags; const x = Z.x + Math.cos(a) * (Z.r + 6), z = Z.z + Math.sin(a) * (Z.r + 6); if (!nearRoad(x, z, 8)) cragHills.push(M(x, 0, z, 7 + rng() * 3, rng() * 6)); }
   // warm the crag hills so their grassy tops read as dry ochre, not acid green
   instanced(tinted(lib.mountain_C_grass, '#e6c49a'), cragHills);
-  for (const [k, list] of Object.entries(rocks)) instanced(lib[k], list);
+  for (const [k, list] of Object.entries(rocks)) instanced(natRock(k), list); // v81 painted rocks
 
   // Honeymeadow hamlet: homes, windmill, fields
   const H = ZONES.meadow;
@@ -331,7 +431,7 @@ export function buildWorld(library) {
     if (nearRoad(x, z, 4) || blocked(x, z) || !isFree(x, z, 2)) continue;
     dead.push(M(x, 0, z, S_NATURE * (0.9 + rng() * 0.4), rng() * 6)); colliders.push({ x, z, r: 1.0 });
   }
-  instanced(deadTree(), dead);
+  { const dh = hOf(deadTree()) * 1.35; forestOf(dead, [[natural('DeadTree_1', { h: dh, bark: '#c9b8d8' }), 0.5], [natural('DeadTree_2', { h: dh, bark: '#c9b8d8' }), 0.5]]); }
   // spooky purple mist and glowing pumpkin lanterns
   const mist = new THREE.Mesh(new THREE.CircleGeometry(W.r + 6, 48), new THREE.MeshBasicMaterial({ color: '#8a6ad8', transparent: true, opacity: 0.18, depthWrite: false, fog: false }));
   mist.rotation.x = -Math.PI / 2; mist.position.set(W.x, 0.06, W.z); mist.layers.set(1); scene.add(mist);
@@ -392,32 +492,90 @@ export function buildWorld(library) {
 }
 
 export function buildFlowers() {
-  const tuft = new THREE.IcosahedronGeometry(0.55, 1);
-  tuft.scale(1, 0.75, 1); tuft.translate(0, 0.3, 0);
-  const N = 45, FN = 70;
-  const tufts = new THREE.InstancedMesh(tuft, undefined, N);
-  const flowerGeo = new THREE.IcosahedronGeometry(0.22, 0);
-  flowerGeo.scale(1, 0.55, 1); flowerGeo.translate(0, 0.55, 0);
-  const flowers = new THREE.InstancedMesh(flowerGeo, undefined, FN);
-  const palette = ['#ff7eb6', '#ffd23f', '#ffffff', '#b78cff', '#ff9a4d', '#7fd3ff'].map((c) => new THREE.Color(c));
+  // (the dice are rolled exactly as before so everything placed after this stays put)
+  const N = 45, FN = 70, tuftM = [], flowerM = [];
   const free = (x, z) => Math.hypot(x, z) > 16 && Math.hypot(x - LAKE.x, z - LAKE.z) > LAKE.r + 1 && isFree(x, z);
   let ti = 0, fi = 0, guard = 0;
   while ((ti < N || fi < FN) && guard++ < 20000) {
     const a = rng() * Math.PI * 2, rr = 6 + rng() * 52;
     const cx = Math.cos(a) * rr, cz = Math.sin(a) * rr;
-    const col = palette[Math.floor(rng() * palette.length)];
+    rng(); // (used to pick a flower colour)
     for (let k = 0; k < 6; k++) {
       const x = cx + (rng() - 0.5) * 3, z = cz + (rng() - 0.5) * 3;
       if (!free(x, z)) continue;
-      if (ti < N && rng() > 0.55) tufts.setMatrixAt(ti++, M(x, 0, z, 0.6 + rng() * 0.9, rng() * 6));
-      if (fi < FN && rng() > 0.45) { flowers.setColorAt(fi, col); flowers.setMatrixAt(fi++, M(x + 0.3, 0, z + 0.2, 0.8 + rng() * 0.6, rng() * 6)); }
+      if (ti < N && rng() > 0.55) { tuftM.push(M(x, 0, z, 0.6 + rng() * 0.9, rng() * 6)); ti++; }
+      if (fi < FN && rng() > 0.45) { flowerM.push(M(x + 0.3, 0, z + 0.2, 0.8 + rng() * 0.6, rng() * 6)); fi++; }
     }
   }
-  // v65: fewer bushes and flowers round the village, for a cleaner look
-  tufts.count = Math.min(ti, 28); flowers.count = Math.min(fi, 42);
-  tufts.castShadow = false; tufts.receiveShadow = true; flowers.receiveShadow = true;
-  registerMesh(tufts, toon('#4f9d3a')); registerMesh(flowers, toon('#ffffff'));
-  scene.add(tufts, flowers);
+  // v81: painted bushes and flower clumps from the nature kit
+  const bushes = tuftM.slice(0, 28), flowers = flowerM.slice(0, 42);
+  forestOf(bushes, [[natural('Bush_Common', { h: 1.1, pal: PAL.bush }), 0.6], [natural('Bush_Common_Flowers', { h: 1.1, pal: PAL.bush }), 0.4]], { cast: false });
+  forestOf(flowers, [[natural('Flower_3_Group', { h: 0.9, sway: 0.06, small: true }), 0.5], [natural('Flower_4_Group', { h: 0.8, sway: 0.06, small: true }), 0.5]], { cast: false });
+}
+
+// v81: a carpet of painted grass tufts, clover, ferns, wildflowers, bushes, toadstools and pebbles over the
+// valley, in clumps, kept off the roads, paths, buildings and water. Uses its own dice, so nothing else moves.
+export function buildMeadow() {
+  let seed = 20241124; const nr = () => ((seed = (seed * 48271) % 2147483647) / 2147483647);
+  const spokes = [[4, -50, 0, 0], [-22 * VS, 26 * VS, 0, 0], [-28 * VS, -4 * VS, 0, 0], [22 * VS, 10 * VS, 0, 0], [10 * VS, 14 * VS, 0, 0], [0, 52, 0, 0]];
+  const onSpoke = (x, z, pad) => spokes.some(([tx, tz, fx, fz]) => { const dx = tx - fx, dz = tz - fz, L2 = dx * dx + dz * dz, t = Math.max(0, Math.min(1, ((x - fx) * dx + (z - fz) * dz) / L2)); return Math.hypot(x - fx - dx * t, z - fz - dz * t) < pad; });
+  const zoneAt = (x, z) => { for (const [k, Z] of Object.entries(ZONES)) if (Math.hypot(x - Z.x, z - Z.z) < Z.r + 2) return k; return ''; };
+  const ok = (x, z, pad = 0.4) => Math.hypot(x, z) > 11 && Math.hypot(x, z) < WORLD_R - 2 && !blocked(x, z) && !nearRoad(x, z, 2.2) && !onSpoke(x, z, 2.1)
+    && isFree(x, z, pad) && !(dynamic.lavas || []).some((L) => Math.hypot(x - L.x, z - L.z) < L.r + 2);
+  const lists = {};
+  const put = (k, x, z, s) => (lists[k] = lists[k] || []).push(M(x, 0, z, s, nr() * 6.28));
+  // grass clumps
+  for (let i = 0; i < 700; i++) {
+    const a = nr() * Math.PI * 2, rr = Math.sqrt(nr()) * WORLD_R, cx = Math.cos(a) * rr, cz = Math.sin(a) * rr;
+    const zn = zoneAt(cx, cz); if (zn === 'hollow' || zn === 'crags') continue;
+    const n = 4 + Math.floor(nr() * 5);
+    for (let k = 0; k < n; k++) {
+      const x = cx + (nr() - 0.5) * 2.6, z = cz + (nr() - 0.5) * 2.6; if (!ok(x, z)) continue;
+      const r = nr(), s = 0.8 + nr() * 0.5;
+      put(zn === 'glimmer' ? 'gGrass' : zn === 'meadow' ? 'mGrass' : r < 0.72 ? 'grass' : r < 0.82 ? 'wispy' : r < 0.94 ? 'clover' : 'fern', x, z, s);
+    }
+  }
+  // wildflower patches
+  for (let i = 0; i < 130; i++) {
+    const a = nr() * Math.PI * 2, rr = 14 + Math.sqrt(nr()) * (WORLD_R - 14), cx = Math.cos(a) * rr, cz = Math.sin(a) * rr;
+    const zn = zoneAt(cx, cz); if (zn === 'hollow' || zn === 'crags') continue;
+    const kind = nr() < 0.5 ? 'fl3' : 'fl4';
+    for (let k = 0; k < 2; k++) { const x = cx + (nr() - 0.5) * 2.4, z = cz + (nr() - 0.5) * 2.4; if (ok(x, z)) put(kind, x, z, 0.8 + nr() * 0.5); }
+  }
+  // bushes, ferns and toadstools along the edge of the woods
+  for (let i = 0; i < 240; i++) {
+    const a = nr() * Math.PI * 2, rr = 44 + nr() * (WORLD_R - 46), x = Math.cos(a) * rr, z = Math.sin(a) * rr;
+    const zn = zoneAt(x, z); if (zn === 'hollow' || zn === 'crags') continue;
+    const r = nr(); if (!ok(x, z, r < 0.4 ? 1.2 : 0.5)) continue;
+    put(r < 0.25 ? 'bush' : r < 0.4 ? 'bushF' : r < 0.6 ? 'bigFern' : r < 0.78 ? 'plant' : 'shroom', x, z, 0.8 + nr() * 0.5);
+  }
+  // pebbles along the roads
+  for (const [tx, tz, fx, fz] of ROADS) {
+    const dx = tx - fx, dz = tz - fz, L = Math.hypot(dx, dz), ux = dx / L, uz = dz / L;
+    for (let d = 3; d < L; d += 2.2 + nr() * 3) for (const side of [-1, 1]) {
+      if (nr() < 0.45) continue;
+      const off = side * (1.75 + nr() * 0.5), x = fx + ux * d - uz * off, z = fz + uz * d + ux * off;
+      if (isFree(x, z, 0.2) && !blocked(x, z)) put('peb' + (1 + Math.floor(nr() * 5)), x, z, 0.7 + nr() * 0.6);
+    }
+  }
+  const T = {
+    grass: natural('Grass_Common_Short', { small: true, h: 0.8, pal: PAL.grass, sway: 0.1, cast: false }),
+    wispy: natural('Grass_Wispy_Short', { small: true, h: 0.85, pal: PAL.grass, sway: 0.1, cast: false }),
+    tall: natural('Grass_Common_Tall', { small: true, h: 1.2, pal: PAL.grass, sway: 0.12, cast: false }),
+    mGrass: natural('Grass_Common_Short', { small: true, h: 0.8, pal: PAL.meadow, sway: 0.12, cast: false }),
+    gGrass: natural('Grass_Common_Short', { small: true, h: 0.75, pal: PAL.glimmer2, sway: 0.1, cast: false }),
+    clover: natural('Clover_1', { small: true, w: 0.9, pal: PAL.plant, cast: false }),
+    fern: natural('Fern_1', { small: true, w: 1.1, pal: PAL.plant, sway: 0.05, cast: false }),
+    bigFern: natural('Plant_1_Big', { small: true, w: 1.5, pal: PAL.plant, sway: 0.05, cast: false }),
+    plant: natural('Plant_7_Big', { small: true, w: 1.2, pal: PAL.plant, sway: 0.05, cast: false }),
+    fl3: natural('Flower_3_Group', { small: true, h: 0.85, sway: 0.08, cast: false }),
+    fl4: natural('Flower_4_Single', { small: true, h: 0.75, sway: 0.08, cast: false }),
+    bush: natural('Bush_Common', { h: 1.3, pal: PAL.bush }),
+    bushF: natural('Bush_Common_Flowers', { h: 1.3, pal: PAL.bush }),
+    shroom: natural('Mushroom_Common', { h: 0.7, cast: false }),
+  };
+  for (let i = 1; i <= 5; i++) T['peb' + i] = natural('Pebble_Round_' + i, { w: 0.75, cast: false });
+  for (const [k, list] of Object.entries(lists)) if (T[k] && list.length) instanced(T[k], list, { cast: !/grass|wispy|tall|clover|fern|fl|peb|shroom/i.test(k) });
 }
 
 function buildCampfire(x, z) {
@@ -468,23 +626,6 @@ function buildTown(T) {
   T.homely = [];
   const homely = [['bucket_water', 2.2, -2.4], ['sack', -4.6, 3.4], ['sack', -4, 4.2], ['wheelbarrow', 5.2, 3.6], ['resource_lumber', -6.2, -2]];
   for (const [nm, dx, dz] of homely) { const o = place(nm, T.x + dx, T.z + dz, S_PROP, rng() * 6, { collide: false }); if (o) { o.visible = false; T.homely.push(o); } }
-}
-
-// A chunky, toy-like round tree built in code: a stubby trunk and a cluster of fat leafy balls.
-function roundTree(kind) {
-  const leaf = { A: '#46b83a', B: '#7cd043', C: '#2f9a48' }[kind];
-  const g = new THREE.Group();
-  const trunkMat = new THREE.MeshStandardMaterial({ color: '#8a5530', roughness: 1 });
-  const leafMat = new THREE.MeshStandardMaterial({ color: leaf, roughness: 1 });
-  const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.09, 0.55, 8), trunkMat); trunk.position.y = 0.27; g.add(trunk);
-  const ball = new THREE.SphereGeometry(1, 14, 10);
-  const blobs = kind === 'B' ? [[0, 0.82, 0, 0.36], [0, 1.18, 0, 0.26]] : [[0, 0.78, 0, 0.36], [0.24, 0.66, 0.05, 0.25], [-0.22, 0.68, -0.06, 0.24], [0.02, 1.06, 0, 0.24]];
-  for (const [x, y, z, r] of blobs) { const m = new THREE.Mesh(ball, leafMat); m.position.set(x, y, z); m.scale.set(r, r * 0.92, r); g.add(m); }
-  if (kind === 'B') { // a few red apples
-    const apple = new THREE.MeshStandardMaterial({ color: '#e8402f', roughness: 1 });
-    for (const [x, y, z] of [[0.2, 0.75, 0.27], [-0.25, 0.9, 0.18], [0.05, 0.6, -0.32], [0.3, 0.95, -0.1]]) { const a = new THREE.Mesh(new THREE.SphereGeometry(0.05, 8, 6), apple); a.position.set(x, y, z); g.add(a); }
-  }
-  return g;
 }
 
 // ---------- chunky storybook props, built in code ----------
@@ -623,7 +764,7 @@ function buildQuarry() {
     const rr = Q.r + 2 + (i % 2) * 1.2, x = Q.x + Math.cos(a) * rr, z = Q.z + Math.sin(a) * rr, s = S_NATURE * (1.8 + (i % 3) * 0.4);
     rocks[keys[i % 3]].push(M(x, 0, z, s, i * 1.7)); colliders.push({ x, z, r: s * 0.17 });
   }
-  for (const [k, list] of Object.entries(rocks)) instanced(tinted(lib[k], '#d8c0a0'), list);
+  for (const [k, list] of Object.entries(rocks)) instanced(natRock(k, '#ecd6b4'), list);
   place('building_mine_green', Q.x + Q.r - 3, Q.z - 2, 7, -Math.PI / 2);
   for (const [n, dx, dz, ry] of [['wheelbarrow', -13, -6, 0.6], ['resource_stone', -12, 7, 0], ['crate_A_big', 11, 9, 0.3]]) place(n, Q.x + dx, Q.z + dz, S_PROP, ry, { shrink: 0.6 });
   dynamic.signs.push({ name: 'Old Quarry', x: Q.x, z: Q.z, r: Q.r });

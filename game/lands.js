@@ -1,7 +1,7 @@
 // Continents: each story chapter takes you to a new land, reached by ship.
 // Every land is built far away from the valley (x ≈ 1000+), and sailing moves you there through a fade.
 import { THREE, scene, registerMesh, toon, rng } from './engine.js';
-import { M, instanced, place, colliders, tinted, lib, S_BUILD, S_PROP, LAKE, TOWNS } from './world.js';
+import { M, instanced, place, colliders, tinted, lib, S_BUILD, S_PROP, LAKE, TOWNS, natural, naturalCopy, PAL, paintGround } from './world.js';
 
 const FX = 1000, FZ = 0, MX = 2000, MZ = 0, DX = 3000, DZ = 0, KX = 4000, KZ = 0;
 // Every land is a round board: the harbour bay in the south (from z + coast), the village just above it,
@@ -203,7 +203,7 @@ function landGround(L, cols3, rise, colourAt) {
   }
   gGeo.setAttribute('color', new THREE.Float32BufferAttribute(cols, 3)); gGeo.computeVertexNormals();
   const ground = new THREE.Mesh(gGeo); ground.position.set(L.x, 0, L.z); ground.receiveShadow = true;
-  registerMesh(ground, toon('#ffffff', { vertexColors: true })); scene.add(ground);
+  registerMesh(ground, paintGround(toon('#ffffff', { vertexColors: true }))); scene.add(ground);
 }
 function landSea(L, col, sand) {
   const C = coastOf(L);
@@ -301,11 +301,16 @@ export function buildLands() {
     pineAt(x, z, 3.8 + rng() * 1.8);
   }
   for (let i = 0; i < 26; i++) { const [x, z] = rnd(20, R - 16); if (!open(x, z, 3, 5)) continue; pineAt(x, z, 4 + rng() * 1.2); }
-  instanced(snowPine(), pines);
+  // v81: painted pines whose tips are frosted with snow (same spots and sizes as the old cone pines)
+  { const ph = (() => { const b = new THREE.Box3().setFromObject(snowPine()); return b.max.y - b.min.y; })() * 1.15;
+    const P = new THREE.Vector3(), lists = [[], []];
+    for (const m of pines) { P.setFromMatrixPosition(m); lists[(Math.sin(P.x * 12.99 + P.z * 78.2) * 43758.5 % 1 + 1) % 1 < 0.5 ? 0 : 1].push(m); }
+    if (lists[0].length) instanced(natural('Pine_1', { h: ph, pal: ['#173f4a', '#eef6ff'] }), lists[0]);
+    if (lists[1].length) instanced(natural('Pine_2', { h: ph, pal: ['#1a4a48', '#dcefff'] }), lists[1]); }
   // a few snow-capped rocks and lilac crystals, well apart
   const rocks = [], loose = [];
   for (let i = 0; i < 12 && rocks.length < 6; i++) { const [x, z] = rnd(20, R - 14); if (!open(x, z, 5)) continue; rocks.push(M(x, 0, z, 3.5 + rng() * 2, rng() * 6)); colliders.push({ x, z, r: 0.7 }); }
-  if (lib.rock_single_B) instanced(tinted(lib.rock_single_B, '#dfe9f6'), rocks);
+  instanced(natural('Rock_Medium_2', { fit: lib.rock_single_B, bark: '#e8f0fa' }), rocks);
   for (let i = 0; i < 12 && loose.length < 5; i++) { const [x, z] = rnd(16, R - 14); if (!open(x, z, 5)) continue; loose.push(M(x, 0, z, 1.3 + rng() * 0.7, rng() * 6)); colliders.push({ x, z, r: 0.5 }); }
   instanced(crystal('#c8b8ff'), loose);
   // a signpost at the crossroads
@@ -453,7 +458,7 @@ export function buildMarsh() {
   for (let i = 0; i < 14; i++) { const a = rng() * 6.28, rr = MH.r + 1 + rng() * 5, x = MH.x + Math.cos(a) * rr, z = MH.z + Math.sin(a) * rr; if (nearPath(x, z) || !free(x, z, 0.5)) continue; (i % 3 ? ts : tsB).push(M(x, 0, z, 1.8 + rng() * 1.4, rng() * 6)); }
   for (let i = 0; i < 12 && rocks.length < 5; i++) { const [x, z] = rnd(18, R - 14); if (!open(x, z, 5)) continue; rocks.push(M(x, 0, z, 3 + rng() * 2, rng() * 6)); colliders.push({ x, z, r: 0.7 }); }
   instanced(reeds(), rd, { cast: false }); instanced(toadstool('#e0444f'), ts); instanced(toadstool('#a86ad8'), tsB);
-  if (lib.rock_single_B) instanced(tinted(lib.rock_single_B, '#8a9a6a'), rocks);
+  instanced(natural('Rock_Medium_1', { fit: lib.rock_single_B, bark: '#a8b88a' }), rocks);
   signpost(L.cross.x + 3.2, L.cross.z - 3.2, '#5a3a22', '#e8d8a0');
   // far hills
   const far = [];
@@ -524,12 +529,10 @@ export const SANDS_FX = { castle: null };
 // a choppable desert palm for Woodcutting: the full tree and its stump
 // A choppable round toy tree (matches the round forest trees): oak ones are bigger and carry apples.
 export function roundNode(x, z, oak = false, sc = 2.4) {
-  const g = new THREE.Group(), ball = new THREE.SphereGeometry(1, 16, 12);
-  const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.14, 0.7, 10)); trunk.position.y = 0.35; g.add(add(trunk, '#8a5530'));
-  const leaf = oak ? '#3f9a3e' : '#5cc443';
-  const blobs = oak ? [[0, 0.95, 0, 0.5], [0.34, 0.8, 0.08, 0.34], [-0.32, 0.82, -0.08, 0.33], [0.02, 1.32, 0, 0.32], [0.05, 0.8, 0.33, 0.3]] : [[0, 0.9, 0, 0.42], [0.26, 0.76, 0.06, 0.28], [-0.24, 0.78, -0.06, 0.27], [0.02, 1.2, 0, 0.27]];
-  for (const [bx, by, bz, r] of blobs) { const m = new THREE.Mesh(ball); m.position.set(bx, by, bz); m.scale.set(r, r * 0.92, r); g.add(add(m, leaf)); }
-  if (oak) for (const [ax, ay, az] of [[0.28, 0.82, 0.38], [-0.34, 1.0, 0.24], [0.08, 0.66, -0.44], [0.42, 1.1, -0.12], [-0.12, 1.5, 0.2]]) { const a = new THREE.Mesh(new THREE.SphereGeometry(0.07, 8, 6)); a.position.set(ax, ay, az); g.add(add(a, '#e8402f')); }
+  // v81: a painted Quaternius tree (oaks are the big dark ones, with red apples)
+  const g = new THREE.Group();
+  g.add(naturalCopy(natural(oak ? 'CommonTree_2' : 'CommonTree_1', { h: oak ? 1.75 : 1.5, pal: oak ? PAL.deep : PAL.spring })));
+  if (oak) for (const [ax, ay, az] of [[0.3, 1.05, 0.28], [-0.32, 1.2, 0.16], [0.1, 0.95, -0.36], [-0.12, 1.4, 0.28]]) { const a = new THREE.Mesh(new THREE.SphereGeometry(0.05, 8, 6)); a.position.set(ax, ay, az); g.add(add(a, '#e8402f')); }
   g.scale.setScalar(sc * (0.9 + rng() * 0.2)); g.position.set(x, 0, z); g.rotation.y = rng() * 6; scene.add(g);
   const cut = new THREE.Group(); const st = new THREE.Mesh(new THREE.CylinderGeometry(0.13, 0.16, 0.22, 10)); st.position.y = 0.11; cut.add(add(st, '#8a5530'));
   const top = new THREE.Mesh(new THREE.CircleGeometry(0.12, 12)); top.rotation.x = -Math.PI / 2; top.position.y = 0.225; cut.add(add(top, '#f0d8a0'));
@@ -564,7 +567,7 @@ export function buildSands() {
   }
   gGeo.setAttribute('color', new THREE.Float32BufferAttribute(cols, 3)); gGeo.computeVertexNormals();
   const ground = new THREE.Mesh(gGeo); ground.position.set(DX, 0, DZ); ground.receiveShadow = true;
-  registerMesh(ground, toon('#ffffff', { vertexColors: true })); scene.add(ground);
+  registerMesh(ground, paintGround(toon('#ffffff', { vertexColors: true }))); scene.add(ground);
   const sea = new THREE.Mesh(new THREE.PlaneGeometry(68, 70)); sea.rotation.x = -Math.PI / 2; sea.position.set(DX, -0.05, DZ + 92);
   registerMesh(sea, toon('#4fa8c8')); scene.add(sea);
 
@@ -605,7 +608,7 @@ export function buildSands() {
   for (let i = 0; i < 30 && cacti.length < 14; i++) { const a = rng() * 6.28, rr = 16 + rng() * 50, x = DX + Math.cos(a) * rr, z = DZ + Math.sin(a) * rr; if (!away(x, z, 3)) continue; cacti.push(M(x, 0, z, 1 + rng() * 0.6, rng() * 6)); colliders.push({ x, z, r: 0.5 }); }
   for (let i = 0; i < 16 && rocks.length < 7; i++) { const a = rng() * 6.28, rr = 14 + rng() * 48, x = DX + Math.cos(a) * rr, z = DZ + Math.sin(a) * rr; if (!away(x, z, 4)) continue; rocks.push(M(x, 0, z, 3 + rng() * 2.5, rng() * 6)); colliders.push({ x, z, r: 0.8 }); }
   instanced(cactus(), cacti);
-  if (lib.rock_single_B) instanced(tinted(lib.rock_single_B, '#d8a868'), rocks);
+  instanced(natural('Rock_Medium_3', { fit: lib.rock_single_B, bark: '#f0c888' }), rocks);
   // half-buried brass gears: the old Brassbolt kingdom is under the sand
   for (let i = 0, n = 0; i < 16 && n < 6; i++) {
     const a = rng() * 6.28, rr = 14 + rng() * 50, x = DX + Math.cos(a) * rr, z = DZ + Math.sin(a) * rr; if (!away(x, z, 4)) continue; n++;
