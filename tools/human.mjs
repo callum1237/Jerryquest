@@ -1,5 +1,5 @@
 // Builds game/models/human.txt + game/tex/human.png for /human. Run from a folder holding three, @gltf-transform/* and meshoptimizer,
-// with assets/ -> a Mesh2Motion checkout's static/assets/human (CC0) and human_tex.png made by tools/human_tex.py.
+// with assets/ -> a Mesh2Motion checkout's static/assets/human (CC0) and human_tex.png (the painted texture from tools/human_bake.py).
 import {NodeIO} from '@gltf-transform/core';
 import {ALL_EXTENSIONS} from '@gltf-transform/extensions';
 import {prune, dedup, resample, quantize} from '@gltf-transform/functions';
