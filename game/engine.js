@@ -23,7 +23,7 @@ camera.layers.enableAll();
 // ---------- lighting presets ----------
 export const PRESETS = {
   day: {
-    top: '#3f8fe6', horizon: '#ffe6bd', fog: '#f6e2c0',
+    top: '#3f8fe6', horizon: '#e2f1ff', fog: '#eceaee',
     sun: '#fff0d2', sunI: 2.5, sunDir: [26, 48, 18],
     hemiSky: '#cfe6ff', hemiGround: '#7a9a50', hemiI: 1.25,
     rim: '#fff3c4', rimI: 0.45, motes: 0.55, fire: 0.6,
@@ -32,21 +32,21 @@ export const PRESETS = {
     top: '#4a62b8', horizon: '#ffc08e', fog: '#f7c39a',
     sun: '#ffc78f', sunI: 2.1, sunDir: [50, 26, 8],
     hemiSky: '#ffe0c4', hemiGround: '#5d6e48', hemiI: 1.05,
-    rim: '#ffb36b', rimI: 0.75, motes: 1.0, fire: 1.0,
+    rim: '#ffb36b', rimI: 0.75, motes: 1.0, fire: 1.0, cloud: '#ffe2c8',
   },
   // a storybook night: deep blue but never murky, with a cool moon and lots of fireflies
   night: {
     top: '#1c2a6b', horizon: '#6b6fb8', fog: '#4a5290',
     sun: '#b8ccff', sunI: 1.35, sunDir: [-30, 52, 22],
     hemiSky: '#9aaaf0', hemiGround: '#46506e', hemiI: 1.15,
-    rim: '#a8c4ff', rimI: 0.7, motes: 1.4, fire: 1.3, night: 1,
+    rim: '#a8c4ff', rimI: 0.7, motes: 1.4, fire: 1.3, night: 1, cloud: '#7f86c8',
   },
   // v68: Magma Caverns. A smoky red cave lit from below by lava: warm and moody, but never murky
   magma: {
     top: '#1e1418', horizon: '#6a2a20', fog: '#3a2224',
     sun: '#ffe2cc', sunI: 2.1, sunDir: [18, 52, 14],
     hemiSky: '#d8c4c8', hemiGround: '#3a2a2a', hemiI: 1.1,
-    rim: '#ff9a5a', rimI: 0.55, motes: 0, fire: 1.4,
+    rim: '#ff9a5a', rimI: 0.55, motes: 0, fire: 1.4, cloud: '#5a2a26',
   },
 };
 const rimUniform = { value: new THREE.Color(PRESETS.day.rim) };
@@ -61,18 +61,33 @@ Object.assign(sun.shadow.camera, { left: -42, right: 42, top: 42, bottom: -42, n
 sun.shadow.bias = -0.0004;
 sun.shadow.normalBias = 0.04;
 sun.shadow.intensity = 0.55; // softer, lighter storybook shadows
+sun.shadow.camera.layers.enable(2); // cut-out leaves live on layer 2 (see FOLIAGE below)
 scene.add(sun, sun.target);
 
-const skyUniforms = { top: { value: new THREE.Color() }, horizon: { value: new THREE.Color() } };
+const skyUniforms = { top: { value: new THREE.Color() }, horizon: { value: new THREE.Color() }, cloudCol: { value: new THREE.Color('#ffffff') }, time: { value: 0 } };
+// v81: a painted storybook sky: soft billowy clouds drift round the horizon, with a warm glow under them
 export const sky = new THREE.Mesh(
-  new THREE.SphereGeometry(450, 32, 16),
+  new THREE.SphereGeometry(450, 48, 24),
   new THREE.ShaderMaterial({
     side: THREE.BackSide, depthWrite: false, fog: false, uniforms: skyUniforms,
     vertexShader: `varying vec3 vP; void main(){ vP = normalize(position); gl_Position = projectionMatrix*modelViewMatrix*vec4(position,1.); }`,
-    fragmentShader: `uniform vec3 top; uniform vec3 horizon; varying vec3 vP;
+    fragmentShader: `uniform vec3 top; uniform vec3 horizon; uniform vec3 cloudCol; uniform float time; varying vec3 vP;
+      float hash(vec2 p){ return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+      float noise(vec2 p){ vec2 i = floor(p), f = fract(p); f = f*f*(3.-2.*f);
+        return mix(mix(hash(i), hash(i+vec2(1,0)), f.x), mix(hash(i+vec2(0,1)), hash(i+vec2(1,1)), f.x), f.y); }
+      float fbm(vec2 p){ float v = 0., a = .5; for (int i = 0; i < 5; i++){ v += a*noise(p); p = p*2.03 + 7.1; a *= .5; } return v; }
       void main(){ float h = clamp(vP.y*1.6+0.05,0.,1.); vec3 c = mix(horizon, top, pow(h,0.7));
-      gl_FragColor = vec4(c,1.);
-      #include <colorspace_fragment>
+        // clouds live on a band above the horizon; wrap them round the sky using the view angle
+        float ang = atan(vP.z, vP.x);
+        vec2 q = vec2(ang * 3.2 + time * 0.004, vP.y * 9.);
+        float band = smoothstep(0.0, 0.12, vP.y) * (1. - smoothstep(0.32, 0.62, vP.y));
+        float n = fbm(q + vec2(fbm(q * 0.7), 0.)) ;
+        float cl = smoothstep(0.46, 0.66, n) * band;
+        float shade = smoothstep(0.5, 0.85, fbm(q * 1.3 + 3.));
+        vec3 cc = mix(mix(cloudCol, horizon, 0.35), cloudCol, shade);
+        c = mix(c, cc, cl * 0.85);
+        gl_FragColor = vec4(c,1.);
+        #include <colorspace_fragment>
       }`,
   })
 );
@@ -94,6 +109,7 @@ export function blendPresets(na, nb, k) {
   mixC(skyUniforms.top.value, a.top, b.top, k);
   mixC(skyUniforms.horizon.value, a.horizon, b.horizon, k);
   mixC(scene.fog.color, a.fog, b.fog, k);
+  mixC(skyUniforms.cloudCol.value, a.cloud || '#ffffff', b.cloud || '#ffffff', k);
   mixC(sun.color, a.sun, b.sun, k); sun.intensity = mixN(a.sunI, b.sunI, k);
   mixC(hemi.color, a.hemiSky, b.hemiSky, k); mixC(hemi.groundColor, a.hemiGround, b.hemiGround, k); hemi.intensity = mixN(a.hemiI, b.hemiI, k);
   mixC(rimUniform.value, a.rim, b.rim, k); rimStrength.value = mixN(a.rimI, b.rimI, k);
@@ -161,6 +177,63 @@ export function stylize(obj, { cast = true, receive = true } = {}) {
 export function setStyled(on) {
   styled.on = on;
   for (const m of swapables) m.material = on ? m.userData.mats.toon : m.userData.mats.std;
+}
+
+// ---------- v81 foliage: painted leaves, grass and flowers ----------
+// Leaves are flat cards with see-through edges (alphaTest). They get "puffy" round normals so a whole
+// canopy shades like one soft ball, and a painted colour ramp from a deep shade at the bottom to a sunny
+// tip at the top (the leaf texture adds the brush detail). They live on layer 2, so the ink pass draws
+// them with their own cut-out shape instead of solid squares.
+export const FOLIAGE = { time: { value: 0 }, normalPass: { value: 0 } };
+const folCache = new Map();
+export function foliageMat(map, { lo = '#1d6b4c', hi = '#b6de52', y0 = 0, y1 = 1, sway = 0, cut = 0.5, mul = 1, paint = true, puff = true } = {}) {
+  const key = [map && map.uuid, lo, hi, y0.toFixed(2), y1.toFixed(2), sway, cut, mul, paint, puff].join('|');
+  if (folCache.has(key)) return folCache.get(key);
+  const mk = (Base, extra) => {
+    const m = new Base({ map, alphaTest: cut, alphaToCoverage: !!cut, side: THREE.DoubleSide, ...extra });
+    if (!cut) m.alphaTest = 0;
+    m.onBeforeCompile = (sh) => {
+      sh.uniforms.fTime = FOLIAGE.time; sh.uniforms.fNormalPass = FOLIAGE.normalPass;
+      sh.uniforms.fLo = { value: new THREE.Color(lo) }; sh.uniforms.fHi = { value: new THREE.Color(hi) };
+      sh.vertexShader = 'uniform float fTime;\nvarying float vFolH;\n' + sh.vertexShader.replace('#include <begin_vertex>', `#include <begin_vertex>
+        vFolH = clamp((position.y - (${y0.toFixed(3)})) / ${(Math.max(0.001, y1 - y0)).toFixed(3)}, 0., 1.);
+        ${sway ? `{ vec4 wp = vec4(position, 1.);
+#ifdef USE_INSTANCING
+          wp = instanceMatrix * wp;
+#endif
+          wp = modelMatrix * wp;
+          float k = vFolH * vFolH * ${sway.toFixed(3)};
+          transformed.x += sin(fTime * 1.7 + wp.x * 0.35 + wp.z * 0.2) * k;
+          transformed.z += cos(fTime * 1.3 + wp.z * 0.3) * k * 0.6; }` : ''}`);
+      sh.fragmentShader = 'uniform float fNormalPass;\nuniform vec3 fLo, fHi;\nvarying float vFolH;\n' + sh.fragmentShader
+        .replace('#include <map_fragment>', paint ? `#include <map_fragment>
+          { float l = dot(diffuseColor.rgb, vec3(.3, .59, .11));
+            vec3 ramp = mix(fLo, fHi, smoothstep(0.05, 0.95, vFolH));
+            diffuseColor.rgb = ramp * (0.3 + 0.75 * l) * ${mul.toFixed(2)}; }` : '#include <map_fragment>')
+        // round leaf normals must not flip on the back of a card, or half the leaves shade inside-out
+        .replace('#include <normal_fragment_begin>', puff ? `#include <normal_fragment_begin>
+          #ifdef DOUBLE_SIDED
+            normal *= faceDirection;
+          #endif` : '#include <normal_fragment_begin>')
+        .replace('#include <dithering_fragment>', `#include <dithering_fragment>
+          if (fNormalPass > 0.5) gl_FragColor = vec4(normalize(normal) * 0.5 + 0.5, 1.);`);
+    };
+    m.customProgramCacheKey = () => 'fol' + key;
+    return m;
+  };
+  const toonM = mk(THREE.MeshToonMaterial, { gradientMap: gradient });
+  const mats = { std: mk(THREE.MeshStandardMaterial, { roughness: 1 }), toon: toonM };
+  folCache.set(key, mats);
+  return mats;
+}
+// Give a cut-out leaf geometry soft round normals, pointing out from the middle of the canopy.
+export function puffNormals(geo, lift = 0.15) {
+  geo.computeBoundingBox();
+  const bb = geo.boundingBox, c = new THREE.Vector3(); bb.getCenter(c); c.y -= (bb.max.y - bb.min.y) * lift;
+  const p = geo.attributes.position, n = new Float32Array(p.count * 3), v = new THREE.Vector3();
+  for (let i = 0; i < p.count; i++) { v.fromBufferAttribute(p, i).sub(c).normalize(); n[i * 3] = v.x; n[i * 3 + 1] = v.y; n[i * 3 + 2] = v.z; }
+  geo.setAttribute('normal', new THREE.BufferAttribute(n, 3));
+  return geo;
 }
 
 // ---------- loading (models packed as base64 GLB, textures as png) ----------
@@ -334,12 +407,14 @@ addEventListener('resize', () => {
 export const QUALITY = {
   high: { pr: Math.min(window.devicePixelRatio || 1, 1.5), samples: 4, shadow: 2048, soft: true, shadowEvery: 1 },
   medium: { pr: Math.min(window.devicePixelRatio || 1, 1), samples: 2, shadow: 1024, soft: true, shadowEvery: 1 },
-  low: { pr: Math.min(window.devicePixelRatio || 1, 1) * 0.75, samples: 0, shadow: 1024, soft: false, shadowEvery: 2 },
+  low: { pr: Math.min(window.devicePixelRatio || 1, 1) * 0.75, samples: 0, shadow: 1024, soft: false, shadowEvery: 2, noPlants: true }, // low also hides the little grass tufts and flowers
 };
-let shadowEvery = 1, frameN = 0;
+let shadowEvery = 1, frameN = 0, noPlants = false;
+// all layers, except the small-plant layer (3) on Low graphics
+function showLayers() { camera.layers.enableAll(); if (noPlants) camera.layers.disable(3); }
 export function setQuality(name) {
   const q = QUALITY[name] || QUALITY.high;
-  pr = q.pr; samples = q.samples; shadowEvery = q.shadowEvery;
+  pr = q.pr; samples = q.samples; shadowEvery = q.shadowEvery; noPlants = !!q.noPlants; showLayers();
   renderer.setPixelRatio(pr); renderer.setSize(innerWidth, innerHeight);
   const type = q.soft ? THREE.PCFSoftShadowMap : THREE.PCFShadowMap;
   if (renderer.shadowMap.type !== type) { renderer.shadowMap.type = type; renderer.shadowMap.needsUpdate = true; }
@@ -348,6 +423,7 @@ export function setQuality(name) {
   RT.color.dispose(); RT.normal.dispose(); RT = makeTargets();
 }
 export function render() {
+  FOLIAGE.time.value = performance.now() / 1000; skyUniforms.time.value = FOLIAGE.time.value;
   // on low quality the shadows are redrawn every other frame
   frameN++; renderer.shadowMap.autoUpdate = shadowEvery === 1 || frameN % shadowEvery === 0;
   if (!styled.on) { renderer.setRenderTarget(null); renderer.render(scene, camera); renderer.shadowMap.autoUpdate = true; return; }
@@ -363,10 +439,14 @@ export function render() {
   // the shadow map was already drawn for the colour pass, so don't draw it a second time
   renderer.shadowMap.autoUpdate = false;
   renderer.render(scene, camera);
+  // cut-out leaves and grass (layer 2) draw their own normals, so the ink follows the leaf shapes
+  scene.overrideMaterial = null; camera.layers.set(2); FOLIAGE.normalPass.value = 1;
+  renderer.autoClear = false; renderer.render(scene, camera); renderer.autoClear = true;
+  FOLIAGE.normalPass.value = 0;
   renderer.shadowMap.autoUpdate = true;
   renderer.setClearColor(0x000000, 1);
   scene.overrideMaterial = null; scene.fog = fog; sky.visible = true;
-  camera.layers.enableAll();
+  showLayers();
   const u = postMat.uniforms;
   u.tColor.value = RT.color.texture; u.tNormal.value = RT.normal.texture; u.tNDepth.value = RT.normal.depthTexture;
   u.res.value.set(RT.color.width, RT.color.height);

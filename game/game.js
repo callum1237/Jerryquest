@@ -3,7 +3,7 @@ import { THREE, scene, camera, renderer, sun, sky, PRESETS, env, applyPreset, bl
   loadModel, burst, updateParticles, render, rng, setQuality } from './engine.js';
 import * as SkeletonUtils from 'three/addons/utils/SkeletonUtils.js';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
-import { buildWorld, buildFlowers, place, tentAt, S_PROP, S_BUILD, colliders, clouds, dynamic, LAKE, CAMP, MINE, S_NATURE, blocked, isFree, ZONES, WORLD_R, VS, TOWNS, ROADS, townFacing, VALLEY_ARENAS } from './world.js';
+import { buildWorld, buildFlowers, buildMeadow, place, tentAt, S_PROP, S_BUILD, colliders, clouds, dynamic, LAKE, CAMP, MINE, S_NATURE, blocked, isFree, ZONES, WORLD_R, VS, TOWNS, ROADS, townFacing, VALLEY_ARENAS } from './world.js';
 import { LANDS, landPt, VALLEY_DOCK, buildLands, makeSnow, makeEmbers, MAGMA_FX, landRoads, coastOf, SANDS_FX, palmNode, roundNode } from './lands.js';
 import { ICONS } from './icons.js';
 import { HUMAN_ALIAS, HUMAN_LOOPS, makeHumanHair } from './human.js';
@@ -749,13 +749,14 @@ const nodes = [];
 let tool = null, rod = null, pick = null;
 
 // ---------- boot ----------
-const FILES = ['world', 'gear', 'interior', 'dragon', 'drake', 'slime', 'bat', 'knight', 'heroine', 'mage', 'archer', 'barbarian', 'skel_warrior', 'skel_minion', 'skel_mage'];
+const FILES = ['world', 'nature', 'gear', 'interior', 'dragon', 'drake', 'slime', 'bat', 'knight', 'heroine', 'mage', 'archer', 'barbarian', 'skel_warrior', 'skel_minion', 'skel_mage'];
 async function main() {
   let n = 0;
   const loaded = await Promise.all(FILES.map((f) => loadModel(f).then((g) => { $('loadmsg').textContent = `${++n} of ${FILES.length} models`; $('ldfill').style.width = `${8 + 80 * n / FILES.length}%`; return g; })));
   FILES.forEach((f, i) => { G[f] = loaded[i]; });
   $('loadmsg').textContent = 'building the world'; $('ldfill').style.width = '94%'; await new Promise((r) => requestAnimationFrame(() => setTimeout(r, 0)));
   for (const c of G.world.scene.children) lib[c.name] = c;
+  for (const c of G.nature.scene.children) lib[c.name] = c; // v81 painted nature kit
   for (const c of G.gear.scene.children) lib[c.name] = c;
   for (const c of G.interior.scene.children) lib[c.name] = c;
   const before = new Set(scene.children);
@@ -773,6 +774,7 @@ async function main() {
   buildEnemies();
   buildCrew();
   buildFlowers();
+  buildMeadow();
   buildTools();
   mergeStatic();
   poolLights();
@@ -6054,7 +6056,7 @@ function goldNode(n, on) {
   n.golden = on;
   n.full.traverse((o) => {
     if (!o.isMesh || !o.userData.mats || Array.isArray(o.userData.mats.std)) return;
-    if (on) { if (!o.userData.goldOrig) o.userData.goldOrig = o.userData.mats; const m = { std: o.userData.goldOrig.std.clone(), toon: o.userData.goldOrig.toon.clone() }; m.toon.onBeforeCompile = o.userData.goldOrig.toon.onBeforeCompile; for (const x of [m.std, m.toon]) { x.color.lerp(new THREE.Color('#ffd23f'), 0.9); if (x.emissive) x.emissive.set('#8a5a00'); } registerMesh(o, m); }
+    if (on) { if (!o.userData.goldOrig) o.userData.goldOrig = o.userData.mats; const m = { std: o.userData.goldOrig.std.clone(), toon: o.userData.goldOrig.toon.clone() }; m.toon.onBeforeCompile = o.userData.goldOrig.toon.onBeforeCompile; m.toon.customProgramCacheKey = o.userData.goldOrig.toon.customProgramCacheKey; for (const x of [m.std, m.toon]) { x.color.lerp(new THREE.Color('#ffd23f'), 0.9); if (x.emissive) x.emissive.set('#8a5a00'); } registerMesh(o, m); }
     else if (o.userData.goldOrig) registerMesh(o, o.userData.goldOrig);
   });
 }

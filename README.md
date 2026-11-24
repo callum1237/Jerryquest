@@ -42,3 +42,5 @@ Models are stored as base64-encoded, quantized GLB files in `game/models/*.txt` 
 ## Roadmap
 
 See [ROADMAP.md](ROADMAP.md).
+
+The landscape (trees, bushes, grass, flowers, ferns, toadstools, rocks and pebbles) uses the free version of Quaternius' [Stylized Nature MegaKit](https://quaternius.com) (CC0). `tools/nature.mjs` builds `game/models/nature.txt` from it and writes the shrunk textures to `game/tex/nat_*.png` (the leaf textures are then re-painted as soft grey leaf shapes that the game colours in).
