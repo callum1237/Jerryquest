@@ -1367,7 +1367,7 @@ function onNet(ev, m) {
     } else if (party && party.leader === from && party.leader !== me) partySet(null, 'You were removed from the party.');
     return;
   }
-  if (ev === 'spell') { if (m.w === where && SPELL_FX[m.k]) SPELL_FX[m.k](+m.x || 0, +m.z || 0, +m.ry || 0, false); return; }
+  if (ev === 'spell') { if (m.w === where && SPELL_FX[m.k]) SPELL_FX[m.k](+m.x || 0, +m.z || 0, +m.ry || 0, false, m.c !== undefined ? +m.c : undefined); return; }
   if (ev === 'push') { if (player && !player.dead) { const vx = Math.max(-60, Math.min(60, +m.x || 0)), vz = Math.max(-60, Math.min(60, +m.z || 0)); moveTarget = null; player.vy = Math.max(player.vy || 0, 7); player.air = true; tween(0.7, (k, dt) => { player.pos.x += vx * dt * (1 - k) * 2; player.pos.z += vz * dt * (1 - k) * 2; collide(player.pos); }); toast('Whoosh! A gust blew you away!', ICONS.star); } return; }
   if (ev === 'hit') { if (canFight(from, true)) hurtPlayer(Math.max(1, Math.min(9999, +m.dmg || 0)), from); return; }
   if (ev === 'ko') { if (peer && m.offer) duelPrize(from, peer.name || 'a hero', m.offer); return; }
@@ -2905,6 +2905,56 @@ function equipGear() {
   arcMesh.scale.setScalar(w.type === 'melee' ? (w.reach + 0.6) / (MELEE_REACH + 0.6) : 1);
   applyLook();
 }
+// ---------- Fire Breath charging ----------
+// Hold its hotbar key (or press and hold its button): your hero breathes in deeply, embers swirl into their mouth
+// and a hot glow builds. Let go to breathe fire. It's full after 1.6 seconds, and lets go by itself after 3.
+let breath = null, hotKeyCode = null;
+const BREATH_FULL = 1.6;
+function breathStart(k) {
+  if (breath || !player) return;
+  const orb = fxMesh(new THREE.SphereGeometry(0.22, 12, 10), '#ffb347', { opacity: 0.9 }); orb.userData.op = 0.9;
+  breath = { k, t0: now, code: hotKeyCode, orb, emberAt: 0 };
+  player.play('Spellcasting', { fade: 0.15, speed: 0.45 });
+  player.busyUntil = now + 0.3;
+  sfx('bigsniff');
+}
+function breathTick() {
+  if (!breath) return;
+  if (!player || player.dead || uiLock()) { breathCancel(); return; }
+  const c = Math.min(1, (now - breath.t0) / BREATH_FULL), ry = player.root.rotation.y, fx = Math.sin(ry), fz = Math.cos(ry);
+  const mouth = new THREE.Vector3(player.pos.x + fx * 0.75, player.pos.y + 2.25, player.pos.z + fz * 0.75);
+  breath.orb.position.copy(mouth); breath.orb.scale.setScalar(0.4 + c * 1.6 + Math.sin(now * 20) * 0.08 * c);
+  breath.orb.material.color.set(c >= 1 ? '#fff1a0' : '#ffb347');
+  player.busyUntil = now + 0.15;
+  // embers drift in from all around and get sucked into the mouth
+  if (now > breath.emberAt) {
+    breath.emberAt = now + 0.05;
+    for (let i = 0; i < 2; i++) {
+      const a = rng() * 6.28, r = 2.2 + rng() * 1.6, e = fxMesh(new THREE.SphereGeometry(0.07, 6, 4), rng() < 0.5 ? '#ffcf5a' : '#ff6a1a', { opacity: 1 }); e.userData.op = 1;
+      const sx = mouth.x + Math.cos(a) * r, sy = 0.4 + rng() * 2.6, sz = mouth.z + Math.sin(a) * r;
+      fade(e, 0.45, (k) => { const q = k * k; e.position.set(sx + (mouth.x - sx) * q, sy + (mouth.y - sy) * q, sz + (mouth.z - sz) * q); });
+    }
+  }
+  if (c >= 1 && Math.floor(now * 8) % 2 === 0) burst(mouth.clone(), '#ffd27a', 1, 1.5, 0.5);
+  if (now - breath.t0 > 3) breathRelease();
+}
+function breathRelease() {
+  if (!breath) return;
+  const B = breath; breath = null; scene.remove(B.orb); B.orb.geometry.dispose(); B.orb.material.dispose();
+  const c = Math.max(0.2, Math.min(1, (now - B.t0) / BREATH_FULL)), sp = SPELLS[B.k];
+  if (!player || player.dead) return;
+  spellCd[B.k] = now + sp.cd;
+  const ry = player.root.rotation.y, x = player.pos.x, z = player.pos.z;
+  player.play('Spellcast_Shoot', { once: true, fade: 0.06, speed: 0.9, onFinish: () => player.play('Idle') });
+  player.busyUntil = now + 0.6;
+  SPELL_FX[B.k](x, z, ry, true, c);
+  if (net.on) sendNet('spell', { k: B.k, x: +x.toFixed(2), z: +z.toFixed(2), ry: +ry.toFixed(3), w: where, c: +c.toFixed(2) });
+  renderHotbar();
+}
+function breathCancel() { if (!breath) return; scene.remove(breath.orb); breath = null; }
+addEventListener('keyup', (e) => { if (breath && breath.code && e.code === breath.code) breathRelease(); });
+addEventListener('pointerup', () => { if (breath && breath.code === 'ptr') breathRelease(); });
+addEventListener('blur', () => { if (breath) breathRelease(); });
 // ---------- hover tooltips ----------
 // Hovering anything with a title in the bag, hotbar, shops or menus shows a neat label right away
 // (instead of the browser's slow little one). Touch screens keep tap-to-see.
@@ -2991,7 +3041,9 @@ function renderHotbar() {
   }).join('');
   el.querySelectorAll('[data-hot]').forEach((b) => {
     const i = +b.dataset.hot;
-    b.onclick = () => useHotbar(i);
+    const chg = () => { const k = hotbar()[i]; return k && k.startsWith('spell:') && SPELLS[k.slice(6)] && SPELLS[k.slice(6)].charge; };
+    b.onpointerdown = (ev) => { if (!chg()) return; ev.preventDefault(); hotKeyCode = 'ptr'; try { useHotbar(i); } finally { hotKeyCode = null; } };
+    b.onclick = () => { if (!chg()) useHotbar(i); };
     b.oncontextmenu = (e) => { e.preventDefault(); hotbar()[i] = null; save(); renderHotbar(); };
   });
 }
@@ -4189,10 +4241,11 @@ const SPELLS = {
   agust: { name: 'Admin Gust', icon: 'gust', r: 5, cd: 0.12, price: 0, admin: true, col: '#c9b8ff', desc: 'Admin only. A huge whirlwind blast with spinning wind funnels that throws everything far away. No cooldown.' },
   gust: { name: 'Gust', r: 2, cd: 10, price: 4000, sold: 'frost', col: '#e8f6ff', desc: 'No damage, but blows monsters and other players away in the direction you face.' },
   bigheal: { name: 'Big Heal', r: 2, cd: 40, price: 6500, sold: 'frost', col: '#ffe9a0', desc: 'Heals most of your health in a column of golden light.' },
+  breath: { name: 'Fire Breath', r: 3, cd: 12, price: 14000, sold: 'marsh', charge: true, col: '#ff5a1a', desc: 'Hold to take a deep breath (embers swirl in), then let go to roar a long jet of fire. The longer you hold, the longer and hotter the flame. Burns.', dmg: 16 },
   tidal: { name: 'Tidal Wave', r: 3, cd: 20, price: 30000, sold: 'marsh', col: '#3ab0ff', desc: 'Summons a huge wave that rolls forward, smashing and knocking back everything in its path.', dmg: 22 },
   shadow: { name: 'Shadow Wave', r: 4, cd: 28, price: 150000, sold: 'sands', col: '#8a3aff', desc: 'Two rings of living shadow burst out around you, hurting and dazing every foe they touch.', dmg: 36 },
 };
-const SPELL_LAND = { out: ['zap', 'heal', 'scorch'], frost: ['gust', 'bigheal'], marsh: ['tidal'], sands: ['shadow'] };
+const SPELL_LAND = { out: ['zap', 'heal', 'scorch'], frost: ['gust', 'bigheal'], marsh: ['tidal', 'breath'], sands: ['shadow'] };
 const spellCd = {};
 const spellsOwned = () => (S.spells = S.spells || {});
 const spellIcon = (k) => ICONS[`spell_${k}`] || (SPELLS[k] && ICONS[`spell_${SPELLS[k].icon}`]) || ICONS.star;
@@ -4211,6 +4264,7 @@ function castSpell(k) {
   const left = (spellCd[k] || 0) - now;
   if (left > 0) { toast(`${sp.name} is ready in ${Math.ceil(left)}s.`, spellIcon(k)); return; }
   if (now - aim.at < 2.5) { player.face(aim.x, aim.z); aim.at = -99; }
+  if (sp.charge) { breathStart(k); return; } // Fire Breath: hold to charge, let go to breathe
   spellCd[k] = now + sp.cd;
   const ry = player.root.rotation.y, x = player.pos.x, z = player.pos.z;
   player.play('Spellcast_Shoot', { once: true, fade: 0.08, speed: 1.4, onFinish: () => player.play('Idle') });
@@ -4290,6 +4344,35 @@ const SPELL_FX = {
     later(0.25, () => burst(new THREE.Vector3(x + fx * 4, 1, z + fz * 4), '#3a2a22', 8, 2, 0.8));
     sfx('dash');
     if (mine) spellHit(inCone(x, z, ry, 5.2, 0.55), SPELLS.scorch.dmg, 0.6, (e, n) => { e.poison = { left: 3, at: now + 1, dmg: Math.max(1, Math.round(n * 0.25)) }; });
+  },
+  // Fire Breath: a long roaring jet of fire from the mouth that rolls forward; c is how full the breath was (0.2 to 1)
+  breath(x, z, ry, mine, c = 1) {
+    c = Math.max(0.2, Math.min(1, +c || 1));
+    const fx = Math.sin(ry), fz = Math.cos(ry), L = 7 + 11 * c, mouth = new THREE.Vector3(x + fx * 0.75, 2.25, z + fz * 0.75);
+    sfx('special'); sfx('dash'); later(0.2, () => sfx('dash'));
+    const n = Math.round(40 + 50 * c), geo = new THREE.IcosahedronGeometry(0.3, 1);
+    for (let i = 0; i < n; i++) later(i * (0.6 / n), () => {
+      // a tight white-hot core near the mouth that spreads into rolling orange and red flame, then dark smoke at the tip
+      const hot = i % 3 === 0, a = ry + (rng() - 0.5) * (hot ? 0.08 : 0.3), sp = L * (hot ? 0.55 + rng() * 0.2 : 0.8 + rng() * 0.3);
+      const col = hot ? (rng() < 0.5 ? '#fff6c0' : '#ffd23a') : rng() < 0.5 ? '#ff7a1a' : rng() < 0.7 ? '#f0461a' : '#b8281a';
+      const f = fxMesh(geo, col, { dark: !hot, opacity: hot ? 0.9 : 0.8 }); f.userData.op = hot ? 0.9 : 0.8; f.position.copy(mouth); f.rotation.set(rng() * 6, rng() * 6, 0);
+      const dur = 0.38 + rng() * 0.14, drop = 1.3 + rng() * 0.25, grow = hot ? 0.9 + 0.6 * c : 1.4 + 1.4 * c, wob = rng() * 6;
+      fade(f, dur, (k) => { const d = 0.2 + k * sp; f.position.set(mouth.x + Math.sin(a) * d - fx * 0.3, mouth.y - k * drop + Math.sin(k * 5 + wob) * 0.18 * k, mouth.z + Math.cos(a) * d - fz * 0.3); f.scale.setScalar(0.35 + k * grow); f.rotation.x += 0.15; });
+      if (i % 4 === 0) later(dur * 0.9, () => burst(new THREE.Vector3(mouth.x + Math.sin(a) * sp, 0.8, mouth.z + Math.cos(a) * sp), i % 8 ? '#ffb347' : '#4a3328', 5, 3, 0.9));
+    });
+    // a hot glow sweeps along the ground under the flame
+    const glow = fxMesh(new THREE.CircleGeometry(1, 30, Math.PI / 2 - 0.3, 0.6), '#ff8a2a', { opacity: 0.5 }); glow.rotation.x = -Math.PI / 2; glow.rotation.z = ry + Math.PI; glow.position.set(x, 0.12, z); glow.userData.op = 0.5;
+    fade(glow, 0.9, (k) => glow.scale.setScalar(1 + Math.min(1, k * 1.8) * L));
+    burst(mouth.clone(), '#fff1a0', 14, 4, 0.9);
+    if (mine) {
+      // it burns forward: closer things catch first, then the flame reaches further
+      const hit = new Set();
+      for (let s2 = 1; s2 <= 3; s2++) later(s2 * 0.12, () => {
+        const R = L * s2 / 3;
+        spellHit((px, pz) => { const ok = inCone(x, z, ry, R, 0.3)(px, pz); if (!ok) return false; const id = `${Math.round(px * 2)},${Math.round(pz * 2)}`; return true; }, SPELLS.breath.dmg * (0.45 + c) / 3, 0.7,
+          (e, dmg) => { if (!hit.has(e)) { hit.add(e); e.poison = { left: 4, at: now + 1, dmg: Math.max(1, Math.round(dmg * 0.6)) }; } });
+      });
+    }
   },
   // rarer spells: properly flashy
   gust(x, z, ry, mine, o = {}) {
@@ -4905,7 +4988,7 @@ addEventListener('keydown', (e) => {
   else if (act === 'bag') { if (sheetMode !== 'bag') bagTab = 'items'; openSheet('bag'); }
   else if (act === 'quests') openSheet('quests');
   else if (act === 'emote') toggleEmotes();
-  else if (act.startsWith('hot') && typeof useHotbar === 'function') useHotbar(+act.slice(3) - 1);
+  else if (act.startsWith('hot') && typeof useHotbar === 'function') { if (e.repeat && breath) return; hotKeyCode = e.code; try { useHotbar(+act.slice(3) - 1); } finally { hotKeyCode = null; } }
 });
 addEventListener('keyup', (e) => {
   const act = codeToAct[e.code];
@@ -7340,7 +7423,7 @@ function tick() {
   regionTick(); lightTick();
   if (player) { goldenTick(); tinyTick(dt); pompTick(dt); }
 
-  if (player) { if (wolfOn && !player.wolf) wolfSet(player, true); wolfTick(player, dt, player.name); gulpTick(); lanternTick(dt); wingTick(); stormTick(dt); castleTick(dt); colossusTick(dt); cosTick(); wbTick(); bossSyncTick(); if (net.on) mobFlush(); weaponSparkle(); flairTick(player, dt, player.name === 'Running_A' || player.name === 'Walking_A' || (player.name || '').startsWith('Running')); }
+  if (player) { breathTick(); if (wolfOn && !player.wolf) wolfSet(player, true); wolfTick(player, dt, player.name); gulpTick(); lanternTick(dt); wingTick(); stormTick(dt); castleTick(dt); colossusTick(dt); cosTick(); wbTick(); bossSyncTick(); if (net.on) mobFlush(); weaponSparkle(); flairTick(player, dt, player.name === 'Running_A' || player.name === 'Walking_A' || (player.name || '').startsWith('Running')); }
   if (player && !player.dead && !uiLock() && !gulped) {
     const busy = now < player.busyUntil;
     let mx = 0, mz = 0;
