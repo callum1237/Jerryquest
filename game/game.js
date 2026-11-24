@@ -1688,12 +1688,22 @@ function hzNet(m) {
   try { hazard({ x: +m.x, z: +m.z, R: +m.R, dir: +m.dir || 0, half: Math.min(Math.PI, +m.half || Math.PI), dur: Math.max(0.2, Math.min(4, +m.dur || 1.1)), fire: !!m.fire, col: m.col || null, inner: +m.inner || 0, dmg: m.b ? Math.max(1, Math.round(m.b * hitUnit())) : 0 }); } finally { netFxIn = false; }
 }
 function bfxShare(k, e, extra = {}) { if (!netFxIn && netDrive && e && e.nid && !netDriven(e)) sendNet('bfx', { w: where, k, n: e.nid, ...extra }); }
+function aimTargetPos() { if (!aimPeer) return player.pos; const h = heroesNear.find((x) => x.id === aimPeer.id); return h ? h.pos : player.pos; }
 function bfxNet(m) {
   if (!player || m.w !== where) return;
   const e = enemies.find((x) => x.nid === m.n && x.inside === where && x.hp > 0); if (!e) return;
   netFxIn = true;
   try {
     if (m.k === 'slam' && e.T.slam) bossSlam(e);
+    else if (m.k === 'aura') {
+      // a spinning or charging boss: anyone it touches gets hurt, at most every tick seconds
+      const R = Math.min(8, +m.R || 3.6), tick = Math.max(0.3, +m.tick || 0.5), d = hitFrom(m); let at = 0;
+      tween(Math.min(6, +m.dur || 3), () => {
+        if (e.hp <= 0 || player.dead || where !== e.inside || now < at) return;
+        if (Math.hypot(player.pos.x - e.pos.x, player.pos.z - e.pos.z) < R) { at = now + tick; if (dodging()) floatText(player.pos.clone().setY(3.6), 'Dodged!', 'miss'); else hurtPlayer(d); }
+      });
+    } else if (m.k === 'ring') { toast('Its knees are glowing! Jump the laser (Space)!', ICONS.star); laserRing(e, +m.x, +m.z, hitFrom(m)); }
+    else if (m.k === 'pull') sniffPull(e, +m.x, +m.z);
     else if (m.k === 'add' && ENEMY_TYPES[m.t] && !enemies.some((a) => a.nid === `${m.t}@${(+m.x).toFixed(1)},${(+m.z).toFixed(1)}` && a.hp > 0)) bossAdd(e, m.t, +m.x, +m.z);
   } finally { netFxIn = false; }
 }
@@ -5820,11 +5830,14 @@ function axeSpin(e) {
   e.state = 'slam'; e.play('2H_Melee_Attack_Spin', { fade: 0.1 }) || e.play('Running_A');
   let hitAt = 0;
   bossSay(e, 'WHEEEE!');
+  const tgt = aimTargetPos(); // it spins after whoever it picked, and hurts anyone it touches
+  bfxShare('aura', e, { R: 3.6, dur: 3.2, tick: 0.5, ...hitMsg(bossDmg(e, 0.8), true) });
   tween(3.2, (k, dt) => {
     if (e.hp <= 0) return;
     e.root.rotation.y += dt * 14;
-    const dx = player.pos.x - e.pos.x, dz = player.pos.z - e.pos.z, d = Math.hypot(dx, dz);
-    if (d > 0.5) { e.pos.x += (dx / d) * 2.6 * dt; e.pos.z += (dz / d) * 2.6 * dt; }
+    const dx = tgt.x - e.pos.x, dz = tgt.z - e.pos.z, dt2 = Math.hypot(dx, dz);
+    if (dt2 > 0.5) { e.pos.x += (dx / dt2) * 2.6 * dt; e.pos.z += (dz / dt2) * 2.6 * dt; }
+    const d = Math.hypot(player.pos.x - e.pos.x, player.pos.z - e.pos.z);
     if (rng() < dt * 10) burst(e.pos.clone().setY(1.2), '#ffd08a', 4, 5, 0.5);
     if (d < 3.6 && now > hitAt && !player.dead) { hitAt = now + 0.5; if (dodging()) floatText(player.pos.clone().setY(3.6), 'Dodged!', 'miss'); else hurtPlayer(bossDmg(e, 0.8)); }
   }, () => { if (e.hp > 0) { bossSay(e, 'So... dizzy...'); dizzy(e, 2.6); } });
@@ -6058,6 +6071,8 @@ function tongueLash(e) {
 }
 // Goonshoe the Bogdweller. A BIG sniff pulls you in (the ground shows where the sneeze will land),
 // then he sneezes a wide cone. Phase 2 adds drips of bog-snot round you; phase 3 adds a belly flop.
+// the sniff drags you a little towards him, so you have to really run
+function sniffPull(e, sx, sz) { tween(1.3, () => { if (e.hp <= 0 || player.dead || where !== e.inside) return; const dx = sx - player.pos.x, dz = sz - player.pos.z, d = Math.hypot(dx, dz); if (d > 2.5 && d < 20) { player.pos.x += (dx / d) * 0.045; player.pos.z += (dz / d) * 0.045; } }); }
 function goonSneeze(e) {
   e.face(player.pos.x, player.pos.z); e.state = 'slam';
   e.play('Spellcasting', { fade: 0.1 });
@@ -6065,7 +6080,7 @@ function goonSneeze(e) {
   const dir = Math.atan2(player.pos.x - e.pos.x, player.pos.z - e.pos.z), sx = e.pos.x, sz = e.pos.z;
   hazard({ x: sx, z: sz, R: 13, dir: dir + Math.PI, half: 0.55, dur: 1.5, dmg: bossDmg(e, 1.6), col: '#b8e07a' });
   // the sniff drags you a little towards him, so you have to really run
-  tween(1.3, () => { if (e.hp <= 0 || player.dead) return; const dx = sx - player.pos.x, dz = sz - player.pos.z, d = Math.hypot(dx, dz); if (d > 2.5 && d < 20) { player.pos.x += (dx / d) * 0.045; player.pos.z += (dz / d) * 0.045; } });
+  bfxShare('pull', e, { x: r2(sx), z: r2(sz) }); sniffPull(e, sx, sz);
   later(1.45, () => {
     if (e.hp <= 0) return; sfx('sneeze'); e.play('2H_Melee_Attack_Chop', { once: true, fade: 0.05 });
     for (let i = 0; i < 4; i++) { const a = dir + (rng() - 0.5) * 1.0, r = 3 + rng() * 8; burst(new THREE.Vector3(sx + Math.sin(a) * r, 1, sz + Math.cos(a) * r), '#c8f08a', 10, 4); }
@@ -6529,7 +6544,13 @@ function kneeLaser(e) {
   e.state = 'slam'; e.play('Spellcasting', { once: true, fade: 0.1 });
   bossSay(e, 'KNEE. LASER. CHARGING.');
   toast('Its knees are glowing! Jump the laser (Space) or stand on a glowing plate!', ICONS.star);
-  const x = e.pos.x, z = e.pos.z;
+  const x = e.pos.x, z = e.pos.z, dmg = bossDmg(e, 1.4);
+  bfxShare('ring', e, { x: r2(x), z: r2(z), ...hitMsg(dmg, true) });
+  laserRing(e, x, z, dmg);
+  later(3, () => { if (e.hp > 0 && e.state === 'slam') { e.state = 'chase'; e.play('Idle_Combat'); } });
+}
+// the expanding knee-laser ring: jump over it
+function laserRing(e, x, z, dmg) {
   const ring = new THREE.Mesh(new THREE.RingGeometry(0.92, 1, 64), new THREE.MeshBasicMaterial({ color: '#ff3a5a', transparent: true, opacity: 0.9, depthWrite: false, fog: false, side: THREE.DoubleSide }));
   ring.rotation.x = -Math.PI / 2; ring.position.set(x, 0.6, z); ring.layers.set(1); ring.visible = false; scene.add(ring);
   let hit = false;
@@ -6537,9 +6558,8 @@ function kneeLaser(e) {
     if (e.hp <= 0) { ring.visible = false; return; }
     const r = 2 + k * 22; ring.visible = true; ring.scale.setScalar(r);
     const d = Math.hypot(player.pos.x - x, player.pos.z - z);
-    if (!hit && Math.abs(d - r) < 0.9 && player.pos.y < 0.7 && !player.dead) { hit = true; hurtPlayer(bossDmg(e, 1.4)); floatText(player.pos.clone().setY(4), 'Zapped! Jump next time!', 'miss'); }
+    if (!hit && Math.abs(d - r) < 0.9 && player.pos.y < 0.7 && !player.dead && where === e.inside) { hit = true; hurtPlayer(dmg); floatText(player.pos.clone().setY(4), 'Zapped! Jump next time!', 'miss'); }
   }, () => scene.remove(ring)));
-  later(3, () => { if (e.hp > 0 && e.state === 'slam') { e.state = 'chase'; e.play('Idle_Combat'); } });
 }
 function makePlates(e) {
   e.plates = [];
