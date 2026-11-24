@@ -37,23 +37,43 @@ const SKILL_NAME = Object.fromEntries(SKILLS);
 const XPT = [0, 0];
 { let pts = 0; for (let l = 1; l < 99; l++) { pts += Math.floor(l + 300 * Math.pow(2, l / 7)); XPT[l + 1] = Math.floor(pts / 4); } }
 const levelOf = (xp) => { let l = 1; while (l < 99 && xp >= XPT[l + 1]) l++; return l; };
-// Hero levels: cheap at first, steep later. Going from level L to L+1 costs 60 + 40 × L^1.6 XP,
-// so level 1 → 2 is 100 XP, 10 → 11 about 1,650, 50 → 51 about 21,000 and 100 → 101 about 63,500.
-const HERO_MAX = 150, HXT = [0, 0];
-for (let l = 1; l < HERO_MAX; l++) HXT[l + 1] = HXT[l] + Math.round(60 + 40 * Math.pow(l, 1.6));
+// Hero levels (v80 rework): levelling is slower and goes much higher. Reaching Brassbolt Sands (the 4th land)
+// puts you around level 80-100, and the cap is 200. Each new level maps onto the old curve (LV_ANCHORS: new level ->
+// old level), so the whole world rescales with it: monsters keep their old feel at the matching point in the story.
+const LV_ANCHORS = [[1, 1], [8, 5], [12, 8], [20, 14], [26, 18], [50, 30], [76, 44], [108, 60], [140, 92]];
+const invMap = (N) => {
+  if (N <= 1) return N;
+  for (let i = 1; i < LV_ANCHORS.length; i++) if (N <= LV_ANCHORS[i][0]) { const [a, b] = LV_ANCHORS[i - 1], [c, d] = LV_ANCHORS[i]; return b + ((d - b) * (N - a)) / (c - a); }
+  return 92 + (N - 140);
+};
+const fwdMap = (o) => { // old level -> new level (for unlocks that used to sit at an old level)
+  if (o <= 1) return o;
+  for (let i = 1; i < LV_ANCHORS.length; i++) if (o <= LV_ANCHORS[i][1]) { const [a, b] = LV_ANCHORS[i - 1], [c, d] = LV_ANCHORS[i]; return a + ((c - a) * (o - b)) / (d - b); }
+  return 140 + (o - 92);
+};
+const HERO_MAX = 200, HXT = [0, 0];
+{
+  const OLD = [0, 0]; for (let l = 1; l < 260; l++) OLD[l + 1] = OLD[l] + Math.round(60 + 40 * Math.pow(l, 1.6));
+  const at = (o) => { const f = Math.floor(o), t = o - f; return OLD[f] + (OLD[f + 1] - OLD[f]) * t; };
+  for (let l = 2; l <= HERO_MAX; l++) HXT[l] = Math.round(1.25 * at(invMap(l)));
+}
 const heroLevelOf = (xp) => { let l = 1; while (l < HERO_MAX && xp >= HXT[l + 1]) l++; return l; };
 
-// ---------- the hero: one level, three stats ----------
-// Every level gives +1 Attack, +1 Defense and +1 Health for free, plus 2 points to spend anywhere.
-const STATS = { atk: ['Attack', 'melee'], def: ['Defense', 'shield'], hp: ['Health', 'heart'] };
-const AUTO_PER_LEVEL = 1, FREE_PER_LEVEL = 2;
-// Attack multiplies your weapon's base damage. Defense divides the damage you take.
-// Health adds max health. A point of Defense and a point of Health are worth about the same,
-// so a balanced hero lasts longest.
+// ---------- the hero: one level, four stats ----------
+// Every level gives +1 Attack, Defense, Health and Magic for free, plus 3 points to spend anywhere.
+const STATS = { atk: ['Attack', 'melee'], def: ['Defense', 'shield'], hp: ['Health', 'heart'], mag: ['Magic', 'magic'] };
+const AUTO_PER_LEVEL = 1, FREE_PER_LEVEL = 3;
+// Attack multiplies sword, axe and bow damage. Magic multiplies staff and spell damage and is your magic defense.
+// Defense blocks a share of every hit, with diminishing returns, and never more than DEF_CAP (75%).
+// Health adds max health.
 // Hero XP: bosses and quests give the most; hitting and beating monsters gives some;
 // chopping, mining and fishing give a little (this share of the skill XP).
 const GATHER_HERO_XP = 0.25, HIT_HERO_XP = 3;
-const ATK_MULT = 0.1, DEF_DIV = 0.1, HP_BASE = 50, HP_PER = 6, CRIT_CHANCE = 0.1;
+const DEF_CAP = 0.75;
+// defense needed to block the full 75% at your level: about 4 per level (420 at level 100)
+const defFull = (L) => 4 * L + 20;
+const blockPct = (D, L) => Math.min(DEF_CAP, DEF_CAP * Math.pow(Math.max(0, D) / defFull(L), 0.7));
+const ATK_MULT = 0.1, HP_BASE = 50, HP_PER = 6, CRIT_CHANCE = 0.1;
 // How each kind of weapon attacks. The weapon itself sets damage, reach (or range) and swing time.
 const STYLES = {
   melee: { anim: '1H_Melee_Attack_Slice_Diagonal', heavy: '2H_Melee_Attack_Chop', hitAt: 0.32 },
@@ -481,7 +501,7 @@ const storyStep = () => Object.keys(QUESTS).filter((k) => QUESTS[k].story && sto
 const SAVE_KEY = 'jerryquest_save_v1';
 const fresh = () => ({
   started: false, name: '', bank: 0, xp: Object.fromEntries(SKILLS.map(([k]) => [k, 0])), inv: {}, coins: 0,
-  hero: { xp: 0, alloc: { atk: 0, def: 0, hp: 0 } },
+  hero: { xp: 0, alloc: { atk: 0, def: 0, hp: 0, mag: 0 } }, perks: {}, v80: 1,
   quests: Object.fromEntries(Object.keys(QUESTS).map((k) => [k, { state: 'todo', kills: 0 }])),
   hp: 56, pos: [0, 6], preset: 'day',
   look: { outfit: 'none', trim: 'none', hat: false, cape: true, hair: 'hero', hairLen: 'short', hairCol: 'chestnut', skin: 'peach', eyes: 'brown', eyeStyle: 'round', head: 'big', ears: 'human', sex: 'm', mouth: 'smile', mark: 'none', beard: 'none' },
@@ -519,12 +539,14 @@ function parseSave(d) {
       // older saves had classes and Melee/Magic/Ranged skills: fold that into the hero
       if (d.cls && !d.hero) {
         const old = d.xp || {};
-        d.hero = { xp: (old.melee || 0) + (old.magic || 0) + (old.ranged || 0), alloc: { atk: 0, def: 0, hp: 0 } };
+        d.hero = { xp: (old.melee || 0) + (old.magic || 0) + (old.ranged || 0), alloc: { atk: 0, def: 0, hp: 0, mag: 0 } };
         d.equip = { weapon: (d.equip && d.equip[d.cls]) || 'k_sword', shield: 'sh_badge', armour: 'ar_cloth' };
         d.started = true;
       }
       S = { ...f, ...d, xp: { ...f.xp, ...d.xp }, hero: { ...f.hero, ...d.hero, alloc: { ...f.hero.alloc, ...(d.hero || {}).alloc } }, quests: { ...f.quests, ...d.quests }, look: { ...f.look, ...d.look }, equip: { ...f.equip, ...d.equip }, owned: [...new Set([...f.owned, ...(d.owned || [])])] };
       for (const k of Object.keys(S.xp)) if (!SKILL_NAME[k]) delete S.xp[k];
+      // v80: stats were reworked (Magic, 3 points a level, new levels), so everyone gets their points back once
+      if (!d.v80) { S.v80 = 1; if (Object.values(S.hero.alloc).some((v) => v > 0)) { S.hero.alloc = { atk: 0, def: 0, hp: 0, mag: 0 }; S.v80Refund = 1; } }
       S.owned = S.owned.filter((k) => GEAR[k]);
       for (const sl of ['weapon', 'shield', 'armour']) if (!GEAR[S.equip[sl]]) S.equip[sl] = f.equip[sl];
       delete S.cls;
@@ -543,7 +565,7 @@ function save() {
 const lvl = (k) => levelOf(S.xp[k]);
 const heroLvl = () => heroLevelOf(S.hero.xp);
 // a stat = 1 at level 1, +1 every level, plus whatever points you spent on it
-const stat = (k) => heroLvl() * AUTO_PER_LEVEL + S.hero.alloc[k];
+const stat = (k) => heroLvl() * AUTO_PER_LEVEL + (S.hero.alloc[k] || 0);
 const freePoints = () => (heroLvl() - 1) * FREE_PER_LEVEL - Object.values(S.hero.alloc).reduce((a, b) => a + b, 0);
 // the equipped weapon, with any smith upgrades applied
 const wCache = { k: '', p: -1, w: null };
@@ -565,7 +587,7 @@ let together = false;
 let PETS = null;
 // v74: pets level up as you fight together (to level 10), and their bonus grows by 10% of itself each level
 const petLv = (id) => Math.min(10, Math.floor(Math.sqrt(((S.petXp || {})[id] || 0) / 10)));
-const petBonus = (k) => { const id = S.cos && S.cos.eq && S.cos.eq.pet, P = PETS && id && PETS[id]; return P && P[k] ? P[k] * (1 + 0.1 * petLv(id)) : 0; };
+const petBonus = (k) => { const id = S.cos && S.cos.eq && S.cos.eq.pet, P = PETS && id && PETS[id]; return P && P[k] ? P[k] * (1 + 0.1 * petLv(id)) * (perkOn('petbond') ? 1.5 : 1) : 0; };
 // v74: the monster journal. Beat enough of one kind of monster to earn a hunter rank against it (+3% damage per rank)
 const JOURNAL_AT = [25, 100, 500];
 const journalTier = (t) => { const n = (S.journal || {})[t] || 0; return JOURNAL_AT.filter((x) => n >= x).length; };
@@ -575,9 +597,85 @@ const MASTERY = { melee: 'Sword', axe: 'Axe', ranged: 'Bow', magic: 'Staff' };
 const mKey = (w) => (/^axe/.test(w.model || '') && w.type === 'melee' ? 'axe' : w.type);
 const mIcon = (t) => (t === 'axe' ? ICONS.woodcutting : ICONS[t]);
 const masteryLv = (t) => Math.min(10, Math.floor(Math.sqrt(((S.mastery || {})[t] || 0) / 8)));
-const dmgMult = () => (1 + ATK_MULT * stat('atk')) * renown() * (together ? 1.1 : 1) * (1 + petBonus('dmg')) * (1 + 0.015 * masteryLv(mKey(W())));
-const defDiv = () => (1 + DEF_DIV * totalDef()) * pathDef() * (1 + petBonus('def'));
-const maxHp = () => Math.round((HP_BASE + HP_PER * stat('hp')) * pathHp() * renown() * (1 + petBonus('hp')));
+// ---------- v80: perks ----------
+// At levels 25, 50, 75 and 100 (then every 25 levels) you pick one perk from three. Each tier has eight,
+// and later tiers are stronger. The Point Allocation trainer can swap them for coins.
+const PERK_AT = [25, 50, 75, 100, 125, 150, 175, 200];
+const PERKS = [
+  { // tier 1, level 25
+    lifesteal: ['Lifesteal', 'Heal 3% of the damage you deal.'],
+    longdash: ['Long Dash', 'Your dashes go 50% further.'],
+    thickskin: ['Thick Skin', '+10% Defense.'],
+    nose: ['Treasure Nose', '+20% coins from monsters.'],
+    petbond: ['Pet Bond', "Your pet's bonus is 50% stronger."],
+    gatherer: ['Gatherer', '+30% Woodcutting, Mining and Fishing XP.'],
+    spellweaver: ['Spellweaver', 'Spells recharge 20% faster.'],
+    learner: ['Quick Learner', '+10% XP from everything.'],
+  },
+  { // tier 2, level 50
+    secondwind: ['Second Wind', 'Once every 2 minutes, a knockout blow leaves you standing with 30% health.'],
+    bloodthirst: ['Bloodthirst', 'Heal 5% of the damage you deal.'],
+    ironhide: ['Iron Hide', '+18% Defense.'],
+    arcaneward: ['Arcane Ward', '+25% Magic defense.'],
+    berserker: ['Berserker', '+20% damage while you are under half health.'],
+    fortune: ['Fortune', '+35% coins from monsters.'],
+    swift: ['Swift Feet', 'Move 8% faster.'],
+    relentless: ['Relentless', 'A Rampage waits 9 seconds between kills instead of 6.'],
+  },
+  { // tier 3, level 75
+    giantslayer: ['Giant Slayer', '+18% damage to bosses and Champions.'],
+    bulwark: ['Bulwark', '+12% max health and +10% Defense.'],
+    countermaster: ['Counter Master', 'Counters last 2.5 seconds and do triple damage.'],
+    executioner: ['Executioner', '+30% damage to monsters under 30% health.'],
+    chargemaster: ['Charge Master', 'Charged attacks charge 35% faster.'],
+    lucky: ['Lucky Finds', 'Rare looks drop twice as often, and +20% coins.'],
+    manasurge: ['Mana Surge', '+20% staff and spell damage.'],
+    warpath: ['Warpath', '+12% damage and +8% XP.'],
+  },
+  { // tier 4, level 100 and every 25 levels after
+    titan: ['Titan', '+20% max health.'],
+    warlord: ['Warlord', '+18% damage.'],
+    sanctuary: ['Sanctuary', '+20% Defense and +20% Magic defense.'],
+    phoenix: ['Phoenix', 'Once every 3 minutes, when you are knocked out you rise again with full health.'],
+    leechlord: ['Leech Lord', 'Heal 8% of the damage you deal.'],
+    archmage: ['Archmage', 'Spells recharge 35% faster and hit 25% harder.'],
+    golden: ['Golden Touch', '+50% coins from monsters and +20% XP.'],
+    unbound: ['Unbound', 'Move 12% faster and dash 50% further.'],
+  },
+];
+const PERK_ICON = { lifesteal: 'heart', bloodthirst: 'heart', leechlord: 'heart', longdash: 'star', unbound: 'star', swift: 'star', thickskin: 'shield', ironhide: 'shield', bulwark: 'shield', sanctuary: 'shield', titan: 'heart', arcaneward: 'magic', spellweaver: 'magic', manasurge: 'magic', archmage: 'magic', nose: 'coins', fortune: 'coins', golden: 'coins', lucky: 'coins', petbond: 'star', gatherer: 'mining', learner: 'star', secondwind: 'heart', phoenix: 'heart', berserker: 'melee', giantslayer: 'melee', countermaster: 'melee', executioner: 'melee', chargemaster: 'melee', warpath: 'melee', warlord: 'melee', relentless: 'melee' };
+const perkTier = (i) => PERKS[Math.min(3, i)];
+const perkInfo = (id) => { for (const T of PERKS) if (T[id]) return T[id]; return null; };
+const perkOn = (id) => !!S.perks && Object.values(S.perks).includes(id);
+// sum of a perk-driven bonus: perkSum({ lifesteal: 0.03, bloodthirst: 0.05 })
+const perkSum = (m) => { let t = 0; if (S.perks) for (const id of Object.values(S.perks)) if (m[id]) t += m[id]; return t; };
+// perk picks waiting: tiers you have reached but not chosen yet
+const perksDue = () => PERK_AT.map((L, i) => i).filter((i) => heroLvl() >= PERK_AT[i] && !(S.perks || {})[PERK_AT[i]]);
+// the three choices offered for a tier: fixed per hero (rerolled when the trainer swaps it), never one you already have
+function perkChoices(i) {
+  const pool = Object.keys(perkTier(i)).filter((id) => !perkOn(id) || (S.perks || {})[PERK_AT[i]] === id);
+  let h = ((S.perkSeed || 1) * 2654435761 + i * 40503) >>> 0;
+  const out = [];
+  while (out.length < 3 && pool.length) { h = (h * 1103515245 + 12345) >>> 0; out.push(pool.splice(h % pool.length, 1)[0]); }
+  return out;
+}
+const dmgPerk = () => 1 + perkSum({ warpath: 0.12, warlord: 0.18 }) + (perkOn('berserker') && S.hp < maxHp() * 0.5 ? 0.2 : 0);
+// your power with a kind of attack: Attack for swords, axes and bows, Magic for staffs and spells
+const powMult = (k) => (1 + ATK_MULT * stat(k)) * renown() * (together ? 1.1 : 1) * (1 + petBonus('dmg')) * dmgPerk() * (k === 'mag' ? 1 + perkSum({ manasurge: 0.2 }) : 1);
+const dmgMult = () => powMult(W().type === 'magic' ? 'mag' : 'atk') * (1 + 0.015 * masteryLv(mKey(W())));
+const spellMult = () => powMult('mag') * (1 + perkSum({ archmage: 0.25 }));
+// Defense: armour and your Defense stat add up; Angel path, gadgets, pets and perks multiply it.
+// The share it blocks has diminishing returns and stops at 75%. defDiv() is what a hit is divided by.
+const defPts = () => totalDef() * pathDef() * (1 + petBonus('def')) * (1 + perkSum({ thickskin: 0.1, ironhide: 0.18, bulwark: 0.1, sanctuary: 0.2 }));
+const magPts = () => stat('mag') * (S.path === 'angel' ? 1.15 : 1) * (1 + petBonus('def')) * (1 + perkSum({ arcaneward: 0.25, sanctuary: 0.2 }));
+const defBlock = () => blockPct(defPts(), heroLvl());
+const magBlock = () => blockPct(magPts(), heroLvl());
+const defDiv = () => 1 / (1 - defBlock());
+const magDiv = () => 1 / (1 - magBlock());
+const maxHp = () => Math.round((HP_BASE + HP_PER * stat('hp')) * pathHp() * renown() * (1 + petBonus('hp')) * (1 + perkSum({ bulwark: 0.12, titan: 0.2 })));
+// v80: fighting monsters above your level is rough: they hit up to 60% harder, and your hits do up to half damage
+const gapIn = (e) => 1 + Math.min(0.6, Math.max(0, ((e && e.T && e.T.lv) || 0) - heroLvl()) * 0.03);
+const gapOut = (e) => Math.max(0.5, 1 - Math.max(0, ((e && e.T && e.T.lv) || 0) - heroLvl()) * 0.02);
 
 // ---------- see-through silhouettes ----------
 // When a tree or house hides the hero (or a boss), a soft glowing shape shows through it.
@@ -928,7 +1026,7 @@ function peersTick(dt) {
 // and can't hurt each other unless the leader turns party damage on.
 // Outside the villages and indoors, players level 10 and up can fight each other.
 // The whole Chapter 1 starting area around Jerry Village is always safe.
-const PARTY_MAX = 6, PVP_LVL = 10;
+const PARTY_MAX = 6, PVP_LVL = 15;
 const esc = (t) => String(t).replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
 let party = null; // { leader, members: [{ id, name }], dmg }
 const invites = new Map(); // id we invited -> time
@@ -1830,11 +1928,15 @@ function pickTarget(e) {
 }
 // run a boss move aimed at another hero: for that instant the move "sees" them where you stand
 function aimAt(h, e, fn) {
-  if (!h) return fn();
+  if (!h) { const was = foeNow; foeNow = e; try { return fn(); } finally { foeNow = was; } }
   const P = player.pos, sx = P.x, sz = P.z;
-  aimPeer = { id: h.id, big: !!e.T.boss }; P.x = h.pos.x; P.z = h.pos.z;
-  try { return fn(); } finally { P.x = sx; P.z = sz; aimPeer = null; }
+  aimPeer = { id: h.id, big: !!e.T.boss }; P.x = h.pos.x; P.z = h.pos.z; const was = foeNow; foeNow = e;
+  try { return fn(); } finally { P.x = sx; P.z = sz; aimPeer = null; foeNow = was; }
 }
+// v80: the monster whose move is being worked out right now (so its floor attacks know if they are magic)
+let foeNow = null;
+const MAGIC_BOSS = new Set(['boss_gloom', 'boss_frost', 'boss_mire', 'boss_twin_b', 'boss_pyrrhax']);
+const isMagicFoe = (e) => !!e && !!e.T && (MAGIC_BOSS.has(e.type) || (!!e.T.ranged && !/bow/i.test(e.T.weapon || '')));
 function hitMsg(dmg, big) { return big ? { b: +(dmg / hitUnit()).toFixed(3) } : { d: Math.round(dmg) }; }
 function hitFrom(m) { return m.b ? Math.max(1, Math.round(m.b * hitUnit())) : Math.max(0, m.d | 0); }
 // a basic swing or shot at another hero
@@ -1881,12 +1983,12 @@ function hzShare(o) {
   if (netFxIn || !netDrive || !player) return;
   if (!heroesNear.some((h) => Math.hypot(h.pos.x - o.x, h.pos.z - o.z) < 45)) return;
   if (enemies.some((e) => e.T.boss && netDriven(e) && e.inside === where && Math.hypot(e.pos.x - o.x, e.pos.z - o.z) < 60)) return;
-  sendNet('hz', { w: where, x: r2(o.x), z: r2(o.z), R: r2(o.R), dir: r2(o.dir || 0), half: r2(o.half ?? Math.PI), dur: r2(o.dur ?? 1.1), fire: o.fire === false ? 0 : 1, col: o.col || '', inner: r2(o.inner || 0), b: o.dmg ? +(o.dmg / hitUnit()).toFixed(3) : 0 });
+  sendNet('hz', { w: where, x: r2(o.x), z: r2(o.z), R: r2(o.R), dir: r2(o.dir || 0), half: r2(o.half ?? Math.PI), dur: r2(o.dur ?? 1.1), fire: o.fire === false ? 0 : 1, col: o.col || '', inner: r2(o.inner || 0), mg: o.magic ? 1 : 0, b: o.dmg ? +(o.dmg / hitUnit()).toFixed(3) : 0 });
 }
 function hzNet(m) {
   if (!player || m.w !== where || !(m.R > 0) || m.R > 40) return;
   netFxIn = true;
-  try { hazard({ x: +m.x, z: +m.z, R: +m.R, dir: +m.dir || 0, half: Math.min(Math.PI, +m.half || Math.PI), dur: Math.max(0.2, Math.min(4, +m.dur || 1.1)), fire: !!m.fire, col: m.col || null, inner: +m.inner || 0, dmg: m.b ? Math.max(1, Math.round(m.b * hitUnit())) : 0 }); } finally { netFxIn = false; }
+  try { hazard({ x: +m.x, z: +m.z, R: +m.R, dir: +m.dir || 0, half: Math.min(Math.PI, +m.half || Math.PI), dur: Math.max(0.2, Math.min(4, +m.dur || 1.1)), fire: !!m.fire, col: m.col || null, inner: +m.inner || 0, magic: !!m.mg, dmg: m.b ? Math.max(1, Math.round(m.b * hitUnit())) : 0 }); } finally { netFxIn = false; }
 }
 function bfxShare(k, e, extra = {}) { if (!netFxIn && netDrive && e && e.nid && !netDriven(e)) sendNet('bfx', { w: where, k, n: e.nid, ...extra }); }
 function aimTargetPos() { if (!aimPeer) return player.pos; const h = heroesNear.find((x) => x.id === aimPeer.id); return h ? h.pos : player.pos; }
@@ -3141,7 +3243,7 @@ function breathRelease() {
   const B = breath; breath = null; scene.remove(B.orb); B.orb.geometry.dispose(); B.orb.material.dispose();
   const c = Math.max(0.2, Math.min(1, (now - B.t0) / BREATH_FULL)), sp = SPELLS[B.k];
   if (!player || player.dead) return;
-  spellCd[B.k] = now + sp.cd;
+  spellCd[B.k] = now + sp.cd * spellCdK();
   const ry = player.root.rotation.y, x = player.pos.x, z = player.pos.z;
   player.play('Spellcast_Shoot', { once: true, fade: 0.06, speed: 0.9, onFinish: () => player.play('Idle') });
   player.busyUntil = now + 0.6;
@@ -3250,8 +3352,10 @@ function renderHotbar() {
 function buildGearBar() {
   const w = W(), free = freePoints();
   $('classes').innerHTML = `<div class="classchip"><img src="${wIcon(w)}" alt="">${w.name}<small>${KIND_NAME[wKind(w)]}</small></div>`
-    + (free > 0 ? `<button id="spendpts" class="spend"><img src="${ICONS.star}" alt="">${free} stat point${free > 1 ? 's' : ''} to spend</button>` : '');
+    + (free > 0 ? `<button id="spendpts" class="spend"><img src="${ICONS.star}" alt="">${free} stat point${free > 1 ? 's' : ''} to spend</button>` : '')
+    + (perksDue().length ? `<button id="pickperk" class="spend"><img src="${ICONS.star}" alt="">Choose your perk!</button>` : '');
   if (free > 0) $('spendpts').onclick = () => openSheet('skills');
+  if (perksDue().length) $('pickperk').onclick = () => openPerkPick();
 }
 function updateTitle() {
   $('pname').textContent = heroName();
@@ -3407,6 +3511,7 @@ function buildNpcs() {
     { id: 'pip', name: 'Pip of the Request Board', model: 'archer', x: -9.5 * VS, z: 11.5 * VS, hide: [], board: true, tint: '#ffd8a0' },
     { id: 'brom', name: 'Brom the Blacksmith', model: 'barbarian', x: 5.5 * VS, z: -19.8 * VS, hide: [], shop: 'melee', tint: '#ffb38a' },
     { id: 'wisteria', name: 'Madame Wisteria, spell seller', model: 'mage', x: 18.4 * VS, z: -21.6 * VS, hide: [], shop: 'magic', tint: '#f0b0ff' },
+    { id: 'orrin', name: 'Master Orrin, Point Allocation', model: 'knight', x: 22.6 * VS, z: -18.2 * VS, hide: ['Knight_Helmet'], alloc: true, tint: '#ffe08a' },
     { id: 'hazel', name: 'Hazel the Fletcher', model: 'heroine', x: -22 * VS, z: 10.5 * VS, hide: [], shop: 'ranged', tint: '#d8f0a0' },
     { id: 'king', name: 'King Jerrold', model: 'knight', x: INTERIORS.castle.king.x, z: INTERIORS.castle.king.z, hide: ['Knight_Helmet'], king: true, tint: '#b98cff', inside: 'castle' },
     ...INTERIORS.castle.guards.map(([x, z], i) => ({ id: `guard${i}`, name: 'Royal Guard', model: 'knight', x, z, hide: [], inside: 'castle', tint: '#8fb8ff',
@@ -3510,6 +3615,7 @@ const NPC_LOOKS = (() => {
     marta: L({ sex: 'f', skin: 'porcelain', eyes: 'sky', eyeStyle: 'happy', mouth: 'grin', hair: 'twin', hairLen: 'shoulder', hairCol: 'blonde', mark: 'freckles' }),
     brom: L({ skin: 'bronze', eyes: 'gold', eyeStyle: 'sharp', mouth: 'grin', hair: 'none', hairCol: 'ginger', beard: 'full', hat: true }),
     wisteria: L({ sex: 'f', skin: 'peach', eyes: 'violet', eyeStyle: 'sleepy', mouth: 'cat', hair: 'hime', hairLen: 'long', hairCol: 'pink', mark: 'star', hat: true }),
+    orrin: L({ skin: 'bronze', eyes: 'gold', eyeStyle: 'sharp', mouth: 'calm', hair: 'swept', hairCol: 'snow', beard: 'full' }),
     hazel: L({ sex: 'f', skin: 'tan', eyes: 'hazel', eyeStyle: 'round', mouth: 'smile', hair: 'long', hairLen: 'long', hairCol: 'green', mark: 'freckles', ears: 'elf' }),
     king: L({ skin: 'peach', eyes: 'blue', eyeStyle: 'happy', mouth: 'grin', hair: 'curls', hairCol: 'snow', beard: 'full', head: 'chibi' }),
     guard: L({ skin: 'honey', eyes: 'brown', eyeStyle: 'sharp', mouth: 'calm', hair: 'none', beard: 'stache', hairCol: 'chestnut', hat: true }),
@@ -3569,14 +3675,14 @@ ENEMY_TYPES.dust_bat.alias = ENEMY_TYPES.mire_bat.alias;
 // per-body shape keeps minions flimsy, warriors beefy and dragons enormous.
 // Chapter 1 mobs are 1-5 and its bosses 10-20, rising every chapter; Magma Caverns sits above all of them.
 const MON_LV = {
-  jelly_slime: 1, skel_minion: 2, honey_slime: 2, mint_slime: 3, skel_mage: 3, hollow_bat: 4, skel_warrior: 5, gloom_shadow: 8,
-  boss_rattle: 10, boss_crusher: 12, boss_gloom: 14, boss_gagron: 18,
-  frost_minion: 14, frost_mage: 15, frost_warrior: 17, thaw_shadow: 18,
-  boss_grumble: 26, boss_twin_a: 28, boss_twin_b: 28, boss_frost: 30,
-  mire_bat: 25, mud_gloop: 26, bog_slime: 27, bog_witchling: 28, bog_knight: 30,
-  boss_mire: 36, boss_sogg: 38, boss_goon: 40, boss_gobbler: 44,
-  dust_bat: 38, sand_gloop: 40, clock_conjurer: 41, clock_soldier: 43,
-  boss_pomp: 52, boss_colossus: 60,
+  jelly_slime: 1, skel_minion: 2, honey_slime: 3, mint_slime: 4, skel_mage: 5, hollow_bat: 6, skel_warrior: 8, gloom_shadow: 12,
+  boss_rattle: 14, boss_crusher: 17, boss_gloom: 20, boss_gagron: 26,
+  frost_minion: 26, frost_mage: 28, frost_warrior: 31, thaw_shadow: 33,
+  boss_grumble: 40, boss_twin_a: 44, boss_twin_b: 44, boss_frost: 50,
+  mire_bat: 50, mud_gloop: 52, bog_slime: 54, bog_witchling: 56, bog_knight: 59,
+  boss_mire: 64, boss_sogg: 67, boss_goon: 70, boss_gobbler: 76,
+  dust_bat: 80, sand_gloop: 83, clock_conjurer: 86, clock_soldier: 89,
+  boss_pomp: 98, boss_colossus: 108,
 };
 // boss-specific shape: [health, damage]
 const BOSS_SHAPE = { boss_pyrrhax: [0.8, 0.9], boss_gagron: [0.75, 0.75], boss_twin_a: [0.75, 1], boss_twin_b: [0.75, 1], boss_colossus: [1.25, 1.05], boss_gobbler: [0.95, 0.95] };
@@ -3587,12 +3693,25 @@ const lvHit = (L, boss) => (boss ? 22 * Math.pow(L / 12, 1.3) : 5 + 0.6 * L + 0.
 const lvXp = (L, boss) => (boss ? 900 * Math.pow(L / 12, 2.2) : 10 + 4 * L + 0.2 * L * L);
 // defense: each point takes about 1% off every hit it receives (level 40 shrugs off about a sixth)
 const lvDef = (L) => Math.round(L * 0.5);
+// v80: monster levels use the new, longer scale. Stats come from the old formulas at the matching old level,
+// scaled by how much stronger (or tougher) a typical hero at that level is under the new stat rules, then
+// made a touch harder (LV_HARD). Typical hero: a third of free points each in Attack, Defense and Health,
+// and the armour of that part of the story.
+const LV_HARD = 1.1;
+const gearAt = (o) => (o < 10 ? 4 : o < 18 ? 8 : o < 30 ? 21 : o < 44 ? 34 : o < 60 ? 51 : 75);
+function heroRatio(N) {
+  const o = invMap(N), oS = o + (2 * (o - 1)) / 3, nS = N + (N - 1), g = gearAt(o);
+  const dmg = (1 + 0.1 * nS) / (1 + 0.1 * oS);
+  const ehpOld = (50 + 6 * oS) * (1 + 0.1 * (oS + g)), ehpNew = (50 + 6 * nS) / (1 - blockPct(nS + g, N));
+  return [dmg, ehpNew / ehpOld, o];
+}
 function setLevel(T, L, sh = T.shape || [1, 1]) {
   T.lv = L; T.shape = sh;
-  T.hp = Math.round(lvHp(L, T.boss) * sh[0]);
-  T.maxHit = Math.max(1, Math.round(lvHit(L, T.boss) * sh[1]));
-  T.xp = Math.round(lvXp(L, T.boss) * (sh[2] || 1));
-  T.def = lvDef(L);
+  const [rD, rE, o] = heroRatio(L);
+  T.hp = Math.round(lvHp(o, T.boss) * sh[0] * rD * LV_HARD);
+  T.maxHit = Math.max(1, Math.round(lvHit(o, T.boss) * sh[1] * rE * LV_HARD));
+  T.xp = Math.round(lvXp(o, T.boss) * (sh[2] || 1));
+  T.def = lvDef(o);
 }
 function farMult(w, x, z) {
   const c = w === 'out' || !LANDS[w] ? { x: 0, z: 0 } : LANDS[w].village;
@@ -3602,15 +3721,16 @@ function farMult(w, x, z) {
 }
 // Boss hits always matter: at least a share of your max health (after your defence), however strong you are.
 function bossDmg(e, k = 1) {
-  if (!e.T.boss) return Math.max(1, Math.round(e.T.maxHit * k));
-  return Math.max(Math.round(e.T.maxHit * k), Math.round(maxHp() * 0.075 * k * defDiv()));
+  const g = gapIn(e);
+  if (!e.T.boss) return Math.max(1, Math.round(e.T.maxHit * k * g));
+  return Math.max(Math.round(e.T.maxHit * k * g), Math.round(maxHp() * 0.075 * k * g * defDiv()));
 }
 function toughen(T, k) {
   if (T.world || T.toughened) return; T.toughened = true;
   const L = T.lv || MON_LV[k];
   if (L) { setLevel(T, L, T.boss ? (BOSS_SHAPE[k] || T.shape || [1, 1]) : (T.shape || MOB_SHAPE[T.model || k] || [1, 1])); return; }
   // anything without a level yet: guess one from its strength so it still shows a sensible number
-  T.lv = Math.max(1, Math.round(T.boss ? 12 * Math.pow(T.hp * 4.5 / 1300, 1 / 2.15) : Math.sqrt(T.hp * 2.9 / 0.62) * 0.8));
+  T.lv = Math.max(1, Math.round(fwdMap(T.boss ? 12 * Math.pow(T.hp * 4.5 / 1300, 1 / 2.15) : Math.sqrt(T.hp * 2.9 / 0.62) * 0.8)));
   setLevel(T, T.lv, T.boss ? [1, 1] : (MOB_SHAPE[T.model || k] || [1, 1]));
 }
 // Valley critters: round, goofy monsters alongside the skeletons (Quaternius CC0 slime and bat)
@@ -3631,7 +3751,7 @@ Object.assign(ENEMY_TYPES, {
   boss_pyrrhax: { name: 'Pyrrhax the Ashen', title: 'Lord of the Magma Caverns', model: 'drake', hp: 1, maxHit: 1, xp: 1, boss: true, dragon: true, scale: 3.0, drake: 'pyrrhax', inside: 'magma', coins: [6000, 9000], drop: 'dragon_heart', noBones: true, mass: 40 },
   elder_dragon: { name: 'Elder Flame Dragon', model: 'drake', hp: 1, maxHit: 1, xp: 1, dragon: true, scale: 2.0, drake: 'elder', inside: 'magma', coins: [1600, 2600], noBones: true, mass: 16, shape: [4.2, 1.5, 1.6] },
 });
-Object.assign(MON_LV, { boss_pyrrhax: 92, flame_minion: 56, flame_mage: 58, flame_warrior: 61, flame_knight: 66, magma_drake: 76, elder_dragon: 86 });
+Object.assign(MON_LV, { boss_pyrrhax: 140, flame_minion: 110, flame_mage: 113, flame_warrior: 117, flame_knight: 122, magma_drake: 128, elder_dragon: 135 });
 MOB_SHAPE.dragon = [3, 1.35, 1.3];
 for (const [k, T] of Object.entries(ENEMY_TYPES)) toughen(T, k);
 // v69: the big dragons use a proper four-legged, winged dragon (Mesh2Motion, CC0) with walk, roar and fire-breath animations
@@ -3662,8 +3782,8 @@ function spawnEnemy(k, x, z) {
   e.type = k; e.T = T; e.home = new THREE.Vector2(x, z);
   e.nid = `${k}@${x.toFixed(1)},${z.toFixed(1)}`; // the same on every player's screen, so hits can be shared
   // monsters far from the land's village are naturally fiercer (up to +80% health and damage, and better rewards)
-  // v68: they're a few levels higher (up to +4), which raises everything else with it
-  const far = farMult(e.inside, x, z), extra = Math.round((far - 1) * 5);
+  // v68: they are a few levels higher (up to +6), which raises everything else with it
+  const far = farMult(e.inside, x, z), extra = Math.round((far - 1) * 8);
   if (!T.boss && !T.town && !T.world && T.lv && extra >= 1) {
     e.T = { ...T, coins: T.coins ? T.coins.map((c) => Math.round(c * (1 + extra * 0.15))) : T.coins, name: extra >= 2 ? `Fierce ${T.name}` : T.name };
     setLevel(e.T, T.lv + extra);
@@ -3672,7 +3792,7 @@ function spawnEnemy(k, x, z) {
   // Which monsters are Champions comes from their spot on the map, so every player sees the same ones.
   if (!T.boss && !T.town && !T.world && !T.dragon && e.T.lv && nidHash(e.nid) % 100 < 6) {
     const B = e.T; e.T = { ...B, elite: true, name: `Champion ${B.name.replace(/^Fierce /, '')}`, coins: B.coins ? B.coins.map((c) => c * 3) : [20, 60] };
-    setLevel(e.T, B.lv + 3); e.T.hp = Math.round(e.T.hp * 1.5); e.T.xp *= 2;
+    setLevel(e.T, B.lv + 5); e.T.hp = Math.round(e.T.hp * 1.5); e.T.xp *= 2;
     // v71: every Champion has one trick of its own (the same one for every player)
     const AF = CHAMP_AFFIX[Math.floor(nidHash(e.nid) / 100) % CHAMP_AFFIX.length];
     e.T.affix = AF.k; e.T.affixName = AF.name; if (AF.k === 'swift') e.T.fast = 1.35;
@@ -3848,6 +3968,7 @@ function buildEnemies() {
 function addItem(id, n = 1) { S.inv[id] = (S.inv[id] || 0) + n; refreshUI(); if (!$('sheet').hidden && sheetMode === 'craft') renderSheet(); }
 function takeItem(id, n) { S.inv[id] -= n; if (S.inv[id] <= 0) delete S.inv[id]; }
 function giveXp(skill, amount, at) {
+  if (skill !== 'speed') amount *= 1 + perkSum({ gatherer: 0.3 });
   const before = lvl(skill);
   S.xp[skill] += amount;
   const after = lvl(skill);
@@ -3865,6 +3986,7 @@ function giveXp(skill, amount, at) {
   else if (!$('sheet').hidden && sheetMode === 'card' && skill !== 'speed') renderSheet();
 }
 function giveHeroXp(amount, at) {
+  amount *= 1 + perkSum({ learner: 0.1, warpath: 0.08, golden: 0.2 });
   const before = heroLvl();
   S.hero.xp += amount;
   const after = heroLvl();
@@ -3881,17 +4003,98 @@ function giveHeroXp(amount, at) {
     burst(player.pos.clone().setY(1.5), '#ffd23f', 60, 7, 1.5);
     if (!player.task && now > player.busyUntil && !player.dead) { player.play('Cheer', { once: true, onFinish: () => player.play('Idle') }); player.busyUntil = now + 1.2; }
     buildGearBar();
+    if (PERK_AT.some((L) => before < L && after >= L)) later(2.5, perkNudge);
   }
   updateTitle(); refreshUI();
   if (!$('sheet').hidden && sheetMode === 'card') renderSheet();
 }
+// a perk tier reached: open the choice right away when it's calm, otherwise point at the Hero card
+function perkNudge() {
+  if (!perksDue().length || !player) return;
+  if (player.dead || inCombat() || !$('bossbar').hidden || uiLock() || talking) { toast('A perk is waiting! Open your Hero card (Tab) to choose it.', ICONS.star, true); return; }
+  openPerkPick();
+}
+// v80: one-time note after the level and stat rework
+function v80Note() {
+  if (S.v80Refund) { delete S.v80Refund; toast('Big update: levels and stats are reworked, with a new Magic stat and 3 points a level. All your stat points are refunded, so spend them again on your Hero card (Tab).', ICONS.star, true); save(); }
+  if (perksDue().length) later(4, () => toast(`You can choose a perk! Open your Hero card (Tab).`, ICONS.star, true));
+}
 function spendPoint(k) {
   if (freePoints() <= 0) return;
   const before = maxHp();
-  S.hero.alloc[k]++;
+  S.hero.alloc[k] = (S.hero.alloc[k] || 0) + 1;
   if (k === 'hp') S.hp += maxHp() - before;
-  burst(player.pos.clone().setY(1.6), k === 'hp' ? '#ff7a8a' : k === 'def' ? '#8fc2ff' : '#ffd84a', 16, 4);
+  burst(player.pos.clone().setY(1.6), k === 'hp' ? '#ff7a8a' : k === 'def' ? '#8fc2ff' : k === 'mag' ? '#c8a0ff' : '#ffd84a', 16, 4);
   updateTitle(); buildGearBar(); refreshUI(); save(); renderSheet();
+}
+// v80: what each stat does right now, in plain words (with the 75% block cap spelled out)
+function statEffect() {
+  const L = heroLvl(), dp = Math.round(defPts()), mp = Math.round(magPts()), full = defFull(L), pc = (v) => Math.round(v * 100);
+  const capNote = (pts) => (pts >= full ? ' <b>Maxed!</b>' : `. Max at ${fmt(full)} (you have ${fmt(pts)})`);
+  const capDef = (pts) => (pts >= full ? capNote(pts) : `. Max at ${fmt(full)} (you have ${fmt(pts)}${gearDef() ? `, ${fmt(gearDef())} from armour` : ""})`);
+  return {
+    atk: `Sword, axe and bow damage × ${powMult('atk').toFixed(1)}`,
+    def: `Blocks ${pc(defBlock())}% of hits, max 75%${capDef(dp)}`,
+    hp: `${maxHp()} max health`,
+    mag: `Staff and spell damage × ${powMult('mag').toFixed(1)}. Blocks ${pc(magBlock())}% of magic, max 75%${capNote(mp)}`,
+  };
+}
+// the Perks part of the Hero card: what you have, and a big button when one is waiting
+function perksHtml() {
+  const due = perksDue(), got = PERK_AT.filter((L) => (S.perks || {})[L]);
+  const next = PERK_AT.find((L) => heroLvl() < L);
+  return `<h4 class="sub">Perks <small>pick one at levels 25, 50, 75 and 100</small></h4>
+    ${due.length ? `<button class="primary perkready" data-perkpick="1" type="button">★ Choose your level ${PERK_AT[due[0]]} perk</button>` : ''}
+    ${got.length ? `<div class="perklist">${got.map((L) => { const id = S.perks[L], P = perkInfo(id); return P ? `<div class="perkrow"><img src="${ICONS[PERK_ICON[id]] || ICONS.star}" alt=""><b>${P[0]}</b><small>Lv ${L} · ${P[1]}</small></div>` : ''; }).join('')}</div>` : due.length ? '' : `<p class="hint">Your first perk comes at level 25.</p>`}
+    ${next && !due.length && got.length ? `<p class="hint">Next perk at level ${next}.</p>` : ''}`;
+}
+// pick one of three perks for the earliest tier you have reached
+function openPerkPick(after) {
+  const due = perksDue(); if (!due.length) return;
+  const i = due[0], L = PERK_AT[i], ch = perkChoices(i), d = $('dialog');
+  talking = null;
+  d.innerHTML = `<h3>Choose a perk <small>Level ${L}</small></h3><p>Pick one. It lasts forever (Master Orrin in Jerry Village can swap it later for coins).</p>
+    <div class="perkcards">${ch.map((id) => { const P = perkInfo(id); return `<button class="perkcard" data-perk="${id}" type="button"><img src="${ICONS[PERK_ICON[id]] || ICONS.star}" alt=""><b>${P[0]}</b><span>${P[1]}</span></button>`; }).join('')}</div>
+    <div class="row"><button id="perklater" type="button">Decide later</button></div>`;
+  d.querySelectorAll('[data-perk]').forEach((b) => { b.onclick = () => {
+    S.perks = { ...(S.perks || {}), [L]: b.dataset.perk }; closeDialog(); sfx('levelup'); buildGearBar();
+    burst(player.pos.clone().setY(1.6), '#ffd84a', 50, 6, 1.4);
+    toast(`New perk: ${perkInfo(b.dataset.perk)[0]}!`, ICONS[PERK_ICON[b.dataset.perk]] || ICONS.star, true);
+    refreshUI(); save(); if (!$('sheet').hidden) renderSheet();
+    if (perksDue().length) later(0.4, () => openPerkPick(after)); else if (after) after();
+  }; });
+  $('perklater').onclick = () => { closeDialog(); if (after) after(); };
+  showDialog(d);
+}
+// ---------- v80: Point Allocation (Master Orrin, Jerry Village) ----------
+// Reset all your stat points for coins, or swap a perk you picked.
+const allocCost = () => 100 * heroLvl();
+const perkSwapCost = (L) => 100 * L;
+function openAlloc(npc) {
+  talking = npc;
+  const d = $('dialog'), A = S.hero.alloc, spent = Object.values(A).reduce((a, b) => a + b, 0), cost = allocCost();
+  const got = PERK_AT.filter((L) => (S.perks || {})[L]), due = perksDue();
+  d.innerHTML = `<h3>${npc.name}</h3><p>Point Allocation! Spent your points badly? I can take them all back so you can spend them again. I can swap your perks too.</p>
+    <div class="allocrow">${Object.entries(STATS).map(([k, [nm, ic]]) => `<span><img src="${ICONS[ic]}" alt="">${nm} <b>+${A[k] || 0}</b></span>`).join('')}</div>
+    <div class="row"><button id="areset" class="primary" type="button" ${!spent || S.coins < cost ? 'disabled' : ''}>Reset my ${spent} points (${fmt(cost)} coins)</button></div>
+    ${due.length ? `<div class="row"><button id="apick" class="primary" type="button">★ Choose my level ${PERK_AT[due[0]]} perk</button></div>` : ''}
+    ${got.length ? `<h4 class="sub">Swap a perk</h4><div class="perklist">${got.map((L) => { const id = S.perks[L], P = perkInfo(id) || ['?', '']; return `<div class="perkrow"><img src="${ICONS[PERK_ICON[id]] || ICONS.star}" alt=""><b>${P[0]}</b><small>Lv ${L}</small><button data-swap="${L}" type="button" ${S.coins < perkSwapCost(L) ? 'disabled' : ''}>Swap (${fmt(perkSwapCost(L))})</button></div>`; }).join('')}</div><p class="hint">Swapping gives you three fresh choices for that level.</p>` : '<p class="hint">Perks come at levels 25, 50, 75 and 100.</p>'}
+    <div class="row"><button id="abye" type="button">Bye</button></div>`;
+  $('areset').onclick = () => {
+    if (S.coins < cost || !spent) return;
+    S.coins -= cost; S.hero.alloc = { atk: 0, def: 0, hp: 0, mag: 0 }; S.hp = Math.min(S.hp, maxHp());
+    sfx('special'); burst(player.pos.clone().setY(2), '#ffe08a', 60, 7, 1.4);
+    toast(`Your ${spent} points are back. Spend them on your Hero card (Tab).`, ICONS.star, true);
+    updateTitle(); refreshUI(); save(); openAlloc(npc);
+  };
+  if ($('apick')) $('apick').onclick = () => openPerkPick(() => openAlloc(npc));
+  d.querySelectorAll('[data-swap]').forEach((b) => { b.onclick = () => {
+    const L = +b.dataset.swap; if (S.coins < perkSwapCost(L)) return;
+    S.coins -= perkSwapCost(L); delete S.perks[L]; S.perkSeed = (S.perkSeed || 1) + 1; S.hp = Math.min(S.hp, maxHp()); buildGearBar();
+    refreshUI(); save(); openPerkPick(() => openAlloc(npc));
+  }; });
+  $('abye').onclick = closeDialog;
+  showDialog(d);
 }
 function levelFanfare(col) {
   if (!player) return;
@@ -4092,7 +4295,7 @@ function floatText(p, text, cls = '') {
 }
 const npcName = (id) => npcs.find((n) => n.id === id).name;
 // how a monster's level compares to yours: grey = easy, white = fair, orange = tough, red = deadly
-function lvClass(L) { const d = L - heroLvl(); return d <= -5 ? 'easy' : d <= 2 ? 'fair' : d <= 9 ? 'tough' : 'deadly'; }
+function lvClass(L) { const d = L - heroLvl(); return d <= -8 ? 'easy' : d <= 3 ? 'fair' : d <= 12 ? 'tough' : 'deadly'; }
 function lvTagSet(el, L, elite) { const c = lvClass(L); setText(el, elite ? `★ ${typeof elite === 'string' ? `${elite} ` : ''}Champion · Lv ${L}` : `Lv ${L}`); if (!!elite !== !!el._e) { el._e = !!elite; el.classList.toggle('elite', !!elite); } if (el._c !== c) { if (el._c) el.classList.remove(el._c); el.classList.add(c); el._c = c; } }
 function bossUi() {
   if (!player) return;
@@ -4452,7 +4655,7 @@ function unlockNotes(before, after) {
 function refreshUI() {
   if (!S.started) return;
   hudGate();
-  $('status').classList.toggle('compact', !S.hudOpen); $('status').classList.toggle('pts', freePoints() > 0);
+  $('status').classList.toggle('compact', !S.hudOpen); $('status').classList.toggle('pts', freePoints() > 0 || perksDue().length > 0);
   $('hudmore').setAttribute('aria-expanded', String(!!S.hudOpen)); $('hudmore').textContent = S.hudOpen ? '▴' : '▾';
   const mh = maxHp();
   $('hpfill').style.width = `${Math.max(0, (S.hp / mh) * 100)}%`;
@@ -4492,13 +4695,13 @@ function renderSheet() {
   if (sheetMode === 'card') { renderCard(el); return; }
   if (sheetMode === 'skills') {
     const L = heroLvl(), cur = HXT[L], next = HXT[Math.min(HERO_MAX, L + 1)], free = freePoints();
-    const pct = L >= 99 ? 100 : ((S.hero.xp - cur) / (next - cur)) * 100;
-    const effect = { atk: `Weapon damage × ${dmgMult().toFixed(1)}`, def: `Damage taken ÷ ${defDiv().toFixed(1)}${gearDef() ? ` (gear +${gearDef()})` : ''}`, hp: `${maxHp()} max health` };
+    const pct = L >= HERO_MAX ? 100 : ((S.hero.xp - cur) / (next - cur)) * 100;
+    const effect = statEffect();
     const w = W();
     el.innerHTML = `<h3>Hero <small>Level ${L}</small></h3>
       <div class="herolvl"><div class="xp"><i style="width:${pct}%"></i></div><small>${Math.floor(S.hero.xp - cur)} / ${next - cur} XP to level ${L + 1}</small></div>
       <div class="stats">${Object.entries(STATS).map(([k, [nm, ic]]) => `<div class="stat"><img src="${ICONS[ic]}" alt=""><span class="nm">${nm}</span><span class="lv">${stat(k)}</span><small>${effect[k]}</small>${free > 0 ? `<button class="plus" data-stat="${k}" aria-label="Add a point to ${nm}">+</button>` : ''}</div>`).join('')}</div>
-      <p class="hint">${free > 0 ? `<b>${free} point${free > 1 ? 's' : ''} to spend.</b> ` : ''}You get ${FREE_PER_LEVEL} more points each level.</p>
+      <p class="hint">${free > 0 ? `<b>${free} point${free > 1 ? 's' : ''} to spend.</b> ` : ''}You get ${FREE_PER_LEVEL} more points each level. Master Orrin in Jerry Village resets them for coins.</p>${perksHtml()}
       <h4 class="sub">Weapon</h4><div class="gearbtn now"><b><img src="${ICONS[w.type]}" alt="">${w.name}</b><span>${gearStats(w)}</span></div>
       <h4 class="sub">Gathering</h4><div class="skills">${SKILLS.filter(([k]) => k !== 'crafting').map(([k, nm]) => {
       const l = lvl(k), c0 = XPT[l], n0 = XPT[Math.min(99, l + 1)];
@@ -4506,6 +4709,7 @@ function renderSheet() {
       return `<div class="skill" title="${Math.floor(S.xp[k])} XP"><img src="${ICONS[k]}" alt=""><span class="nm">${nm}</span><span class="lv">${l}</span><div class="xp"><i style="width:${pc}%"></i></div></div>`;
     }).join('')}</div><p class="hint">Skills level up as you use them.</p>${worthHtml()}`;
     el.querySelectorAll('[data-stat]').forEach((b) => { b.onclick = () => spendPoint(b.dataset.stat); });
+    el.querySelectorAll('[data-perkpick]').forEach((b) => { b.onclick = () => openPerkPick(); });
   } else if (sheetMode === 'bag') { renderBag(el); return;
   } else if (sheetMode === 'bagOld') {
     const items = Object.entries(S.inv);
@@ -4645,7 +4849,7 @@ $('status').addEventListener('click', (e) => { if (e.target.closest('#classes bu
 // ---------- spells ----------
 // Buy them from the magic sellers (each land sells its own), or find one rarely when a boss falls.
 // They live on the hotbar: press the slot's number to cast toward where you're facing.
-// Damage spells scale with your Attack, like your weapon does.
+// Damage spells scale with your Magic stat (v80), like staffs do.
 const SPELLS = {
   azap: { name: 'Admin Zap', icon: 'zap', r: 5, cd: 0.12, price: 0, admin: true, col: '#b98aff', desc: 'Admin only. Huge violet lightning that chains to three foes, with no cooldown.', dmg: 60 },
   zap: { name: 'Zap', r: 0, cd: 2.5, price: 350, sold: 'magic', col: '#ffe14a', desc: 'A bolt of lightning strikes the ground ahead of you. Long range.', dmg: 10 },
@@ -4660,6 +4864,7 @@ const SPELLS = {
 };
 const SPELL_LAND = { out: ['zap', 'heal', 'scorch'], frost: ['gust', 'bigheal'], marsh: ['tidal', 'breath'], sands: ['shadow'], magma: ['breath', 'shadow', 'tidal'] };
 const spellCd = {};
+const spellCdK = () => 1 - Math.min(0.5, perkSum({ spellweaver: 0.2, archmage: 0.35 }));
 const spellsOwned = () => (S.spells = S.spells || {});
 const spellIcon = (k) => ICONS[`spell_${k}`] || (SPELLS[k] && ICONS[`spell_${SPELLS[k].icon}`]) || ICONS.star;
 function learnSpell(k) {
@@ -4669,7 +4874,7 @@ function learnSpell(k) {
   if (!hb.includes(id)) { const at = hb.indexOf(null); if (at >= 0 && (at < 4 || heroLvl() >= 4)) hb[at] = id; } // slots 5-8 stay hidden until level 4
   renderHotbar(); save();
 }
-function spellPower(base) { return Math.max(1, Math.round(base * dmgMult() * pathDmg() * (0.85 + rng() * 0.3))); }
+function spellPower(base) { return Math.max(1, Math.round(base * spellMult() * pathDmg() * (0.85 + rng() * 0.3))); }
 function castSpell(k) {
   const sp = SPELLS[k];
   if (!sp || !player || player.dead || uiLock() || talking) return;
@@ -4678,7 +4883,7 @@ function castSpell(k) {
   if (left > 0) { toast(`${sp.name} is ready in ${Math.ceil(left)}s.`, spellIcon(k)); return; }
   if (now - aim.at < 2.5) { player.face(aim.x, aim.z); aim.at = -99; }
   if (sp.charge) { breathStart(k); return; } // Fire Breath: hold to charge, let go to breathe
-  spellCd[k] = now + sp.cd;
+  spellCd[k] = now + sp.cd * spellCdK();
   const ry = player.root.rotation.y, x = player.pos.x, z = player.pos.z;
   player.play('Spellcast_Shoot', { once: true, fade: 0.08, speed: 1.4, onFinish: () => player.play('Idle') });
   player.busyUntil = Math.max(player.busyUntil, now + 0.35);
@@ -5201,6 +5406,7 @@ function openDialog(npc, plain = false) {
   if (npc.crew) { openCrewTalk(npc); return; }
   if (npc.id === 'croakley' && !S.path && S.quests.st_choice && (S.quests.st_choice.state === 'active' || S.repick)) { openPathChoice(npc); return; }
   if (npc.id === 'fenwick' && S.path && !plain) { openPathUndo(npc); return; }
+  if (npc.alloc) { openAlloc(npc); return; }
   if (npc.id === 'cogsworth') { openRiddle(npc); return; }
   if (npc.sail) { openSail(npc); return; }
   if (npc.clerk) { openMayor(npc); return; }
@@ -5545,7 +5751,7 @@ const dodging = () => player.pos.y > 0.7 || now < dashUntil + 0.08 || dashLeft >
 let counterUntil = 0;
 function dodgedFx() {
   floatText(player.pos.clone().setY(3.6), 'Dodged!', 'miss');
-  if (now > counterUntil) { counterUntil = now + 1.5; burst(player.pos.clone().setY(1.4), '#9fe8ff', 14, 3.5, 0.8); sfx('special'); if (!S.seenCounter) { S.seenCounter = true; toast('Nice dodge! Hit back quickly for a Counter: double damage.', ICONS.star, true); } }
+  if (now > counterUntil) { counterUntil = now + (perkOn('countermaster') ? 2.5 : 1.5); burst(player.pos.clone().setY(1.4), '#9fe8ff', 14, 3.5, 0.8); sfx('special'); if (!S.seenCounter) { S.seenCounter = true; toast('Nice dodge! Hit back quickly for a Counter: double damage.', ICONS.star, true); } }
 }
 // dir: [x, z] on screen. Left out, you dash the way you are moving, or the way you face when standing still.
 function dash(dir) {
@@ -5561,7 +5767,7 @@ function dash(dir) {
   }
   const L = Math.hypot(dir[0], dir[1]) || 1;
   sfx('dash');
-  dashDir = { x: dir[0] / L, z: dir[1] / L }; dashUntil = now + 0.18; dashReady = now + 0.55; dashLeft = 4.2;
+  dashDir = { x: dir[0] / L, z: dir[1] / L }; dashUntil = now + 0.18; dashReady = now + 0.55; dashLeft = 4.2 * (1 + perkSum({ longdash: 0.5, unbound: 0.5 }));
   stamina = Math.max(0, stamina - 12); staminaAt = now + 1;
   burst(player.pos.clone().setY(0.4), '#f3e2bd', 12, 3);
 }
@@ -5673,7 +5879,7 @@ let comboStep = 0, lastSwingAt = -9, dashLunge = null;
 // blow with up to almost three times the damage, and melee weapons send a slash wave flying ahead.
 const CHARGE_MIN = 0.45;
 // the charge fills faster as you level: about 2 seconds at level 1, 0.6 seconds by level 100
-const chargeFull = () => 2.0 - 1.4 * (Math.min(100, Math.max(1, heroLvl())) - 1) / 99;
+const chargeFull = () => (2.0 - 1.4 * (Math.min(100, Math.max(1, heroLvl())) - 1) / 99) * (perkOn('chargemaster') ? 0.65 : 1);
 let charge = null, chargeRing = null;
 function chargeStart() { if (!player || player.dead || uiLock() || talking) return; charge = { at: now, full: false }; }
 function chargeTick() {
@@ -6071,10 +6277,10 @@ function affixTick(e, dt) {
   }
 }
 let streak = 0, streakAt = -99;
-const STREAK_T = 6;
+const STREAK_T = 6, streakT = () => (perkOn('relentless') ? 9 : STREAK_T);
 const streakBonus = () => (streak >= 3 ? Math.min(0.5, (streak - 2) * 0.1) : 0);
 function streakKill() {
-  streak = now - streakAt < STREAK_T ? streak + 1 : 1; streakAt = now;
+  streak = now - streakAt < streakT() ? streak + 1 : 1; streakAt = now;
   const at = player.pos.clone().setY(4.4);
   if (streak === 3) floatText(at, 'Rampage!', 'crit');
   else if (streak === 6) { floatText(at, 'Unstoppable!', 'crit'); sfx('special'); }
@@ -6244,7 +6450,7 @@ function chipsTick() {
   together = !player.dead && !!party && party.members.length > 1 && heroesNear.some((h) => !h.dead && inParty(h.id) && Math.hypot(h.pos.x - player.pos.x, h.pos.z - player.pos.z) < 14);
   if (together && !togetherWas && !S.seenTogether) { S.seenTogether = true; toast('Fighting beside your party: +10% damage and +10% XP from kills.', ICONS.star, true); }
   togetherWas = together;
-  const left = STREAK_T - (now - streakAt), rampage = streak >= 3 && left > 0;
+  const left = streakT() - (now - streakAt), rampage = streak >= 3 && left > 0;
   if (!chipsEl) { chipsEl = document.createElement('div'); chipsEl.id = 'chips'; chipsEl.innerHTML = '<span class="chip rampage" hidden><b></b><i></i></span><span class="chip together" hidden><b>Together +10%</b></span><span class="chip rampage helping" hidden><b></b><i></i></span><span class="chip treasure" hidden><b></b></span><span class="chip lucky" hidden><b></b></span>'; document.body.appendChild(chipsEl); }
   const [r, t, hp, tr, lk] = chipsEl.children;
   const ll = luckyText(); setShown(lk, !!ll); if (ll) setText(lk.firstChild, ll);
@@ -6252,7 +6458,7 @@ function chipsTick() {
   setShown(t, together);
   const h = reviveTick(); setShown(hp, !!h);
   if (h) { setText(hp.firstChild, `Helping ${h.name} up...`); hp.lastChild.style.transform = `scaleX(${h.k.toFixed(3)})`; }
-  if (!dailyDone && S.started && S.seenIntro && !uiLock() && !document.body.classList.contains('titling')) { dailyDone = true; later(2, dailyGift); }
+  if (!dailyDone && S.started && S.seenIntro && !uiLock() && !document.body.classList.contains('titling')) { dailyDone = true; later(2, dailyGift); later(7, v80Note); }
   setShown(r, rampage);
   if (rampage) { setText(r.firstChild, `Rampage ×${streak} · +${Math.round(streakBonus() * 100)}%`); r.lastChild.style.transform = `scaleX(${Math.max(0, left / STREAK_T).toFixed(3)})`; }
 }
@@ -6269,16 +6475,25 @@ function hurtEnemy(e, dmg, src = null, power = 1) {
   if (dmg === 0) { floatText(head, 'Miss', 'miss'); return; }
   // v68: a monster's defense (from its level) takes a little off every hit you land (remote hits arrive already reduced)
   if (e.T.def && !bossRemote && !mobRemote && !wbRemote && !poisonHit) dmg = Math.max(1, Math.round(dmg * 100 / (100 + e.T.def)));
+  // v80: level gap (monsters above you shrug off up to half), and perks that pick their targets
+  if (!crewHitting && !bossRemote && !mobRemote && !wbRemote) {
+    let k = gapOut(e);
+    if (e.T.boss || e.T.elite) k *= 1 + perkSum({ giantslayer: 0.18 });
+    if (e.hp < e.T.hp * 0.3) k *= 1 + perkSum({ executioner: 0.3 });
+    if (k !== 1) dmg = Math.max(1, Math.round(dmg * k));
+  }
   // v68.2: critical hits. About one hit in ten lands extra hard (your own hits only)
   let crit = false;
   let counter = false;
-  if (!crewHitting && !poisonHit && !bossRemote && !mobRemote && !wbRemote && dmg > 0 && now < counterUntil) { counterUntil = 0; counter = true; dmg = Math.round(dmg * 2); crit = true; }
+  if (!crewHitting && !poisonHit && !bossRemote && !mobRemote && !wbRemote && dmg > 0 && now < counterUntil) { counterUntil = 0; counter = true; dmg = Math.round(dmg * (perkOn('countermaster') ? 3 : 2)); crit = true; }
   else if (!crewHitting && !poisonHit && !bossRemote && !mobRemote && !wbRemote && dmg > 0 && rng() < CRIT_CHANCE) { dmg = Math.round(dmg * 1.75); crit = true; }
   if (!crewHitting && !poisonHit && !bossRemote && !mobRemote && !wbRemote) {
     const w = W();
     // marsh poison keeps hurting for a few seconds; the Fangblade drinks a little health back
     if (w.poison) e.poison = { left: 3, at: now + 1, dmg: Math.max(1, Math.round(dmg * 0.15)) };
     if (w.drain && S.hp < maxHp()) { S.hp = Math.min(maxHp(), S.hp + Math.max(1, Math.round(dmg * w.drain))); refreshUI(); }
+    const ls = perkSum({ lifesteal: 0.03, bloodthirst: 0.05, leechlord: 0.08 });
+    if (ls && S.hp > 0 && S.hp < maxHp()) { S.hp = Math.min(maxHp(), S.hp + Math.max(1, Math.round(dmg * ls))); refreshUI(); }
   }
   if (e.T.affix && !crewHitting && !poisonHit && !bossRemote && !mobRemote && !wbRemote) dmg = affixHit(e, dmg, head);
   if (e.shield) { dmg = Math.max(1, Math.round(dmg * 0.25)); if (rng() < 0.4) floatText(head.clone().setY(4.6), 'Shielded! Break the glowing crystal', 'miss'); }
@@ -6326,7 +6541,7 @@ function hurtEnemy(e, dmg, src = null, power = 1) {
     } else {
     const sb = (e.T.boss || e.temp ? 0 : streakKill()) + (luckyNow() ? 0.5 : 0); // v71: a Rampage (quick kills in a row) adds up to +50% XP and coins
     giveHeroXp(Math.round(e.T.xp * (1 + sb + (together ? 0.1 : 0) + (e.T.boss ? 0 : petBonus('xp')))), e.pos.clone().setY(4)); partyShareXp(e.T.xp, e.pos);
-    const coins = Math.round((e.T.coins ? e.T.coins[0] + Math.floor(rng() * (e.T.coins[1] - e.T.coins[0])) : 3 + Math.floor(rng() * 9)) * (1 + sb + (e.T.boss ? 0 : petBonus('coins'))));
+    const coins = Math.round((e.T.coins ? e.T.coins[0] + Math.floor(rng() * (e.T.coins[1] - e.T.coins[0])) : 3 + Math.floor(rng() * 9)) * (1 + sb + (e.T.boss ? 0 : petBonus('coins')) + perkSum({ nose: 0.2, fortune: 0.35, lucky: 0.2, golden: 0.5 })));
     S.coins += coins; if (e.T.boss || rng() < 0.6) addItem('bones'); later(0.25, () => sfx('coin')); // v65: bones 60% from ordinary monsters (was every kill)
     rollLoot(e);
     if (e.T.boss) {
@@ -6378,16 +6593,23 @@ const vig = document.createElement('div'); vig.id = 'vignette'; document.body.ap
 function hurtFlash(dmg) { vig.classList.remove('hit'); void vig.offsetWidth; if (dmg >= maxHp() * 0.06) vig.classList.add('hit'); }
 let vigLow = false;
 function vigTick() { const low = !!player && !player.dead && S.hp > 0 && S.hp < maxHp() * 0.25; if (low !== vigLow) { vigLow = low; vig.classList.toggle('low', low); } }
-function hurtPlayer(dmg, from = null) {
+// v80: magic hits (casters' bolts, magic bosses' spells) are blocked by your Magic instead of your Defense
+const perkCd = {};
+function hurtPlayer(dmg, from = null, magic = false) {
   if (aimPeer) { sendNet('ea', { w: where, t: aimPeer.id, i: 1, ...hitMsg(dmg, aimPeer.big) }); return; } // a boss move aimed at a friend: the hit is theirs
   if (player.dead || creator.open) return;
   const head = player.pos.clone().setY(3.6);
   if (dmg === 0) { floatText(head, 'Miss', 'miss'); return; }
   // Defense divides the hit; the leftover fraction rounds up or down by chance
-  const d = dmg / defDiv();
+  const d = dmg / (magic ? magDiv() : defDiv());
   dmg = Math.floor(d) + (rng() < d - Math.floor(d) ? 1 : 0);
   if (dmg === 0) { floatText(head, 'Blocked', 'miss'); burst(player.pos.clone().setY(1.5), '#bfe0ff', 8, 3); return; }
   S.hp -= dmg; lastHurt = now; player.hurtFace = now + 0.45; sfx('hurt');
+  // v80 perks: Phoenix (full health, every 3 minutes) and Second Wind (30%, every 2 minutes) catch a knockout blow
+  if (S.hp <= 0 && !from) {
+    const pk = perkOn('phoenix') && now > (perkCd.phoenix || 0) ? ['phoenix', 180, 1, 'Phoenix! You rise again!', '#ffb347'] : perkOn('secondwind') && now > (perkCd.secondwind || 0) ? ['secondwind', 120, 0.3, 'Second Wind!', '#9fe8ff'] : null;
+    if (pk) { perkCd[pk[0]] = now + pk[1]; S.hp = Math.max(1, Math.round(maxHp() * pk[2])); floatText(head.clone().setY(4.4), pk[3], 'crit'); burst(player.pos.clone().setY(1.5), pk[4], 40, 6, 1.3); sfx('special'); refreshUI(); return; }
+  }
   hurtFlash(dmg);
   floatText(head, String(dmg), 'hurt');
   burst(player.pos.clone().setY(1.5), '#ff8a7a', 10, 4);
@@ -6482,14 +6704,14 @@ function wakeUp() {
 // Every fire attack paints a glowing warning on the floor first. Jump, dash or step out before it fills.
 const hazards = [];
 const hazardMat = () => new THREE.MeshBasicMaterial({ color: '#ff6a1f', transparent: true, opacity: 0.25, depthWrite: false, fog: false, side: THREE.DoubleSide });
-function hazard({ x, z, R, dir = 0, half = Math.PI, dur = 1.1, dmg, fire = true, col = null, inner = 0 }) {
-  hzShare({ x, z, R, dir, half, dur, dmg, fire, col, inner });
+function hazard({ x, z, R, dir = 0, half = Math.PI, dur = 1.1, dmg, fire = true, col = null, inner = 0, magic = isMagicFoe(foeNow) }) {
+  hzShare({ x, z, R, dir, half, dur, dmg, fire, col, inner, magic });
   const geo = inner > 0 ? new THREE.RingGeometry(inner / R, 1, 48) : half >= Math.PI ? new THREE.CircleGeometry(1, 40) : new THREE.CircleGeometry(1, 30, Math.PI / 2 - half, half * 2);
   const m = new THREE.Mesh(geo, hazardMat()); if (col) m.material.color.set(col); m.rotation.x = -Math.PI / 2; m.rotation.z = dir; m.position.set(x, 0.14, z); m.layers.set(1); m.scale.setScalar(R * 0.1); scene.add(m);
   const edge = new THREE.Mesh(inner > 0 ? new THREE.RingGeometry(0.95, 1, 48) : half >= Math.PI ? new THREE.RingGeometry(0.95, 1, 48) : new THREE.RingGeometry(0.96, 1, 30, 1, Math.PI / 2 - half, half * 2), new THREE.MeshBasicMaterial({ color: '#ffd23f', transparent: true, opacity: 0.9, depthWrite: false, fog: false, side: THREE.DoubleSide }));
   edge.rotation.x = -Math.PI / 2; edge.rotation.z = dir; edge.position.set(x, 0.15, z); edge.layers.set(1); edge.scale.setScalar(R); scene.add(edge);
   if (inner > 0) { const e2 = new THREE.Mesh(new THREE.RingGeometry(0.94, 1, 48), edge.material); e2.rotation.x = -Math.PI / 2; e2.position.set(x, 0.15, z); e2.layers.set(1); e2.scale.setScalar(inner); scene.add(e2); m.userData.inEdge = e2; }
-  hazards.push({ x, z, R, dir, half, dur, dmg, fire, col, inner, m, edge, t: 0 });
+  hazards.push({ x, z, R, dir, half, dur, dmg, fire, col, inner, magic, m, edge, t: 0 });
 }
 function inHazard(h) {
   const dx = player.pos.x - h.x, dz = player.pos.z - h.z, d = Math.hypot(dx, dz);
@@ -6513,7 +6735,7 @@ function hazardTick(dt) {
       shake = Math.max(shake, 0.3);
       if (!player.dead && inHazard(h)) {
         if (dodging()) dodgedFx();
-        else hurtPlayer(h.dmg);
+        else hurtPlayer(h.dmg, null, h.magic);
       }
       scene.remove(h.m, h.edge); if (h.m.userData.inEdge) scene.remove(h.m.userData.inEdge); h.m.material.dispose(); hazards.splice(i, 1);
     }
@@ -7190,7 +7412,7 @@ const PATH_UNDO = 5000;
 // paths and gadgets both nudge your stats; Sunsteel burns 15% hotter in daylight
 const sunBoost = () => (W().sun && env.preset !== 'night' && (where === 'out' || LANDS[where]) ? 1.15 : 1);
 const pathDmg = () => (S.path === 'vampire' ? 1.12 : 1) * gadgetMult('dmg') * sunBoost();
-const pathSpeed = () => (S.path === 'vampire' ? 1.06 : 1) * gadgetMult('speed');
+const pathSpeed = () => (S.path === 'vampire' ? 1.06 : 1) * gadgetMult('speed') * (1 + perkSum({ swift: 0.08, unbound: 0.12 }));
 const pathDef = () => (S.path === 'angel' ? 1.15 : 1) * gadgetMult('def');
 const pathHp = () => (S.path === 'human' ? 1.15 : 1) * gadgetMult('hp');
 function openPathChoice(npc) {
@@ -7654,7 +7876,7 @@ function enemyTick(e, dt) {
       if (e.name !== '1H_Melee_Attack_Chop' && e.name !== 'Spellcast_Shoot' && e.name !== 'Hit_A') e.play('Running_A', { fade: 0.15 });
     } else if (now > e.nextHit) {
       e.nextHit = now + (big ? 1.5 / (e.T.fast || 1) : 1.9) + rng() * (big && e.T.fast ? 0.4 : 0.6);
-      const dmg = big ? bossDmg(e, 0.65 + rng() * 0.45) : rng() < 0.3 ? 0 : 1 + Math.floor(rng() * e.T.maxHit);
+      const dmg = big ? bossDmg(e, 0.65 + rng() * 0.45) : rng() < 0.3 ? 0 : Math.round((1 + Math.floor(rng() * e.T.maxHit)) * gapIn(e));
       if (BOSS_AI[e.type] && aim(() => BOSS_AI[e.type](e, toP))) return;
       if (e.T.dragon) { aim(() => dragonAttack(e, toP)); return; }
       if (big && ++e.swings % 3 === 0) { bossSlam(e); return; }
@@ -7671,7 +7893,7 @@ function enemyTick(e, dt) {
           const spreads = e.T.spread ? [-0.3, 0, 0.3] : [0];
           for (const sp of spreads) {
             const d2 = dir.clone().applyAxisAngle(new THREE.Vector3(0, 1, 0), sp);
-            shoot(ep.clone().setY(big ? 3 : 1.8).addScaledVector(d2.clone().normalize(), big ? 1.4 : 0.6), d2, 'dark', big ? 15 : 12, 'enemy', () => (tgt ? hurtCrew(tgt, dmg, e) : hurtPlayer(dmg)));
+            shoot(ep.clone().setY(big ? 3 : 1.8).addScaledVector(d2.clone().normalize(), big ? 1.4 : 0.6), d2, 'dark', big ? 15 : 12, 'enemy', () => (tgt ? hurtCrew(tgt, dmg, e) : hurtPlayer(dmg, null, isMagicFoe(e))));
             if (tgt) projectiles[projectiles.length - 1].tgt = tgt;
           }
         });
@@ -9182,12 +9404,12 @@ for (const T of TOWNS) {
   for (const k of ['skel_minion', 'skel_warrior', 'skel_mage']) {
     const b = ENEMY_TYPES[T.land ? LAND_TOWN[T.land].mobs[k] : k];
     ENEMY_TYPES[`${T.id}_${k}`] = { ...b, model: k, name: `${tier.tag} ${b.name}`, tint: tier.tint, town: T.id, inside, coins: [Math.round(5 * T.stars * m), Math.round(12 * T.stars * m)] };
-    setLevel(ENEMY_TYPES[`${T.id}_${k}`], b.lv + 2 * T.stars + (T.outer ? 4 : 0), MOB_SHAPE[k]); // outskirt towns are 4 levels tougher // town guards are a few levels above the wild ones
+    setLevel(ENEMY_TYPES[`${T.id}_${k}`], b.lv + 3 * T.stars + (T.outer ? 6 : 0), MOB_SHAPE[k]); // outskirt towns are 6 levels tougher // town guards are a few levels above the wild ones
   }
   ENEMY_TYPES[`${T.id}_boss`] = { ...TOWN_BOSS[T.id], title: `Tyrant of ${T.name}`, hp: Math.round((110 + 90 * T.stars) * (T.land ? LAND_TOWN[T.land].hp : 1)), maxHit: Math.round((5 + 2 * T.stars) * (T.land ? LAND_TOWN[T.land].hit : 1)), xp: Math.round((500 + 400 * T.stars) * (T.land ? LAND_TOWN[T.land].xp : 1)), boss: true,
     scale: 2 + 0.15 * T.stars, coins: [Math.round(80 * T.stars * m), Math.round(140 * T.stars * m)], slam: 4.5 + T.stars * 0.5, town: T.id, tint: tier.tint, inside };
   // town tyrants: Chapter 1 levels 11-15, then about a chapter higher in each land
-  ENEMY_TYPES[`${T.id}_boss`].lv = ({ out: 9, frost: 22, marsh: 32, sands: 46 }[inside] || 9) + 2 * T.stars + (T.outer ? 4 : 0);
+  ENEMY_TYPES[`${T.id}_boss`].lv = ({ out: 14, frost: 38, marsh: 62, sands: 92 }[inside] || 14) + 3 * T.stars + (T.outer ? 6 : 0);
   ENEMY_TYPES[`${T.id}_boss`].shape = [0.8, 0.9];
   toughen(ENEMY_TYPES[`${T.id}_boss`]);
 }
@@ -9295,7 +9517,7 @@ const crew = [];
 const pickOne = (arr) => arr[Math.floor(rng() * arr.length)];
 const crewCfg = (c) => { S.crew = S.crew || {}; return (S.crew[c.id] = S.crew[c.id] || { mode: 'neutral', tactic: 'charge' }); };
 const isRival = (c) => crewCfg(c).mode === 'rival';
-const crewMax = (c) => Math.round((c.def.hp + heroLvl() * 5) * (isRival(c) ? 0.75 : 1)); // rivals are a fair duel, not a wall
+const crewMax = (c) => Math.round((c.def.hp + invMap(heroLvl()) * 5) * (isRival(c) ? 0.75 : 1)); // rivals are a fair duel, not a wall
 const crewUp = (c) => c.hp > 0 && c.state !== 'ko';
 const dist2d = (a, b) => Math.hypot(a.x - b.x, a.z - b.z);
 const NPC_BASE = { skin: 'peach', eyes: 'brown', eyeStyle: 'round', mouth: 'smile', mark: 'none', hair: 'short', hairLen: 'short', hairCol: 'chestnut', ears: 'human', head: 'big', beard: 'none', hat: false, sex: 'm' };
@@ -9368,7 +9590,7 @@ function crewFindFoe(c, center, radius, onlyAngry) {
   return best;
 }
 const foeAlive = (f) => f && (f === player ? !player.dead : f.isCrew ? crewUp(f) && isRival(f) : f.hp > 0 && f.state !== 'dead' && f.state !== 'gone' && f.state !== 'rising');
-const crewDmg = (c) => (rng() < 0.12 ? 0 : Math.round((c.def.hit[0] + rng() * (c.def.hit[1] - c.def.hit[0])) * (1 + (heroLvl() - 1) * 0.07)));
+const crewDmg = (c) => (rng() < 0.12 ? 0 : Math.round((c.def.hit[0] + rng() * (c.def.hit[1] - c.def.hit[0])) * (1 + (invMap(heroLvl()) - 1) * 0.07)));
 let crewHitting = false;
 // a crew member lands a blow on t (a monster, a rival, or you)
 function crewStrike(c, t) {
@@ -9731,11 +9953,11 @@ function goldenCaught(e) {
 // you earn only by playing (beating bosses, reaching ranks, catching golden monsters, freeing towns).
 const RANKS = [
   { min: 1, name: 'Rookie', col: '#9a9aa8' },
-  { min: 10, name: 'Adventurer', col: '#5fbf6a' },
-  { min: 25, name: 'Veteran', col: '#4f9ae8' },
-  { min: 45, name: 'Champion', col: '#b06ae8' },
-  { min: 70, name: 'Legend', col: '#ffb02e' },
-  { min: 90, name: 'Mythic', col: '#ff4a6a' },
+  { min: 15, name: 'Adventurer', col: '#5fbf6a' },
+  { min: 40, name: 'Veteran', col: '#4f9ae8' },
+  { min: 75, name: 'Champion', col: '#b06ae8' },
+  { min: 110, name: 'Legend', col: '#ffb02e' },
+  { min: 140, name: 'Mythic', col: '#ff4a6a' },
 ];
 function rankOf(l) { let r = 0; for (let i = 0; i < RANKS.length; i++) if (l >= RANKS[i].min) r = i; return r; }
 // each rank: +5% damage and +5% max health
@@ -9857,7 +10079,7 @@ for (const [id, c] of Object.entries(COS.outfit)) c.id = id;
 const COS_ODDS = { magma: [8, 20, 30, 27, 12, 3], out: [70, 24, 5, 1, 0, 0], frost: [50, 32, 13, 4.5, 0.5, 0], marsh: [35, 33, 20, 10, 1.8, 0.2], sands: [22, 30, 25, 17, 5.2, 0.8] };
 function cosDrop(e, at, boss) {
   const land = ['frost', 'marsh', 'sands', 'magma'].includes(e.inside) ? e.inside : 'out';
-  if (rng() > (boss ? 0.3 : e.temp ? 0.001 : e.T.elite ? 0.1 : land === 'magma' ? (e.T.dragon ? 0.12 : 0.02) : 0.006)) return;
+  if (rng() > (boss ? 0.3 : e.temp ? 0.001 : e.T.elite ? 0.1 : land === 'magma' ? (e.T.dragon ? 0.12 : 0.02) : 0.006) * (perkOn('lucky') ? 2 : 1)) return;
   const odds = COS_ODDS[land].slice(); if (boss) { odds[0] *= 0.4; odds[3] *= 1.6; odds[4] *= 2; odds[5] *= 2; }
   let roll = rng() * odds.reduce((a, b) => a + b, 0), r = 0;
   while (r < 5 && roll > odds[r]) { roll -= odds[r]; r++; }
@@ -9881,13 +10103,13 @@ function cosEarned() {
   const out = new Set(), l = heroLvl();
   for (const [t, ids] of Object.entries(COS_BOSS)) if (beaten(t)) ids.forEach((i) => out.add(i));
   if (l >= 5) out.add('pet:slimy');
-  if (l >= 10) out.add('trail:sparkle');
+  if (l >= 15) out.add('trail:sparkle');
   if ((S.champKills || 0) >= 25) out.add('pet:rattles');
   if (beaten('boss_gagron')) out.add('pet:gagjr');
-  if (l >= 25) out.add('cape:royal');
-  if (l >= 45) out.add('aura:royal');
-  if (l >= 70) { out.add('hat:crown'); out.add('cape:gold'); }
-  if (l >= 90) { out.add('aura:void'); out.add('trail:shadow'); }
+  if (l >= 40) out.add('cape:royal');
+  if (l >= 75) out.add('aura:royal');
+  if (l >= 110) { out.add('hat:crown'); out.add('cape:gold'); }
+  if (l >= 140) { out.add('aura:void'); out.add('trail:shadow'); }
   if ((S.goldenN || 0) > 0) out.add('trail:hearts');
   if (lvl('woodcutting') >= 50) out.add('cape:wood');
   if (lvl('mining') >= 50) out.add('cape:mine');
@@ -10465,7 +10687,7 @@ const upgradeCost = (T, l) => Math.round(TOWN_LEVELS[l].cost * T.stars * townMul
 // Tab: a hero card with your look, level, gold, net worth and the towns you run
 function renderCard(el) {
   const nw = netWorth(), mine = TOWNS.filter((T) => townMine(T.id)), rk = rankOf(heroLvl()), R = RANKS[rk], t = heroTitle(), ch = chapterNow();
-  const L = heroLvl(), cur = HXT[L], next = HXT[Math.min(HERO_MAX, L + 1)], pct = L >= 99 ? 100 : ((S.hero.xp - cur) / (next - cur)) * 100;
+  const L = heroLvl(), cur = HXT[L], next = HXT[Math.min(HERO_MAX, L + 1)], pct = L >= HERO_MAX ? 100 : ((S.hero.xp - cur) / (next - cur)) * 100;
   el.innerHTML = `<h3>${esc(heroName())} <small>${ch.tag}</small></h3>
     <div class="herocard" style="--rank:${R.col}">
       <div class="dfig"><div class="dprev" title="Drag to turn your hero"></div><span class="drank">${R.name}</span>${t && t.name !== R.name ? `<em>${esc(t.name)}</em>` : ''}</div>
@@ -10485,15 +10707,17 @@ function renderCard(el) {
     <div class="row"><button id="cardclose">Close (Tab)</button></div>`;
   previewMount();
   el.querySelectorAll('[data-stat]').forEach((b) => { b.onclick = () => spendPoint(b.dataset.stat); });
+    el.querySelectorAll('[data-perkpick]').forEach((b) => { b.onclick = () => openPerkPick(); });
   $('cardclose').onclick = closeSheet;
 }
 // stat points, weapon, gathering skills and the rich list (this used to be its own Hero sheet)
 function heroStatsHtml() {
   const free = freePoints();
-  const effect = { atk: `Weapon damage × ${dmgMult().toFixed(1)}`, def: `Damage taken ÷ ${defDiv().toFixed(1)}${gearDef() ? ` (gear +${gearDef()})` : ''}`, hp: `${maxHp()} max health` };
+  const effect = statEffect();
   return `<h4 class="sub">Stats ${free > 0 ? `<small><b>${free} point${free > 1 ? 's' : ''} to spend</b></small>` : ''}</h4>
       <div class="stats">${Object.entries(STATS).map(([k, [nm, ic]]) => `<div class="stat"><img src="${ICONS[ic]}" alt=""><span class="nm">${nm}</span><span class="lv">${stat(k)}</span><small>${effect[k]}</small>${free > 0 ? `<button class="plus" data-stat="${k}" aria-label="Add a point to ${nm}">+</button>` : ''}</div>`).join('')}</div>
-      <p class="hint">You get ${FREE_PER_LEVEL} more points each level.</p>
+      <p class="hint">You get ${FREE_PER_LEVEL} more points each level. Master Orrin in Jerry Village resets them for coins.</p>
+      ${perksHtml()}
       <h4 class="sub">Weapon mastery</h4><div class="stats">${Object.entries(MASTERY).map(([t, nm]) => { const l = masteryLv(t), k = (S.mastery || {})[t] || 0, next = l < 10 ? 8 * (l + 1) ** 2 : 0; return `<div class="stat"><img src="${mIcon(t)}" alt=""><span class="nm">${nm}</span><span class="lv">${l}</span><small>${l ? `+${(l * 1.5).toFixed(1).replace(/\.0$/, '')}% damage · ` : ''}${next ? `${fmt(k)} / ${fmt(next)} monsters` : 'Mastered!'}</small></div>`; }).join('')}</div>
       <p class="hint">Beat monsters with a kind of weapon to master it, up to +15% damage.</p>
       <h4 class="sub">Monster journal <small>${Object.keys(S.journal || {}).length} kinds beaten</small></h4>${Object.keys(S.journal || {}).length ? `<div class="journal">${Object.entries(S.journal).sort((a, b) => b[1] - a[1]).map(([t, n]) => { const tr = journalTier(t), nx = JOURNAL_AT[tr]; return `<div class="jrow"><b>${esc((ENEMY_TYPES[t] || { name: t }).name)}</b><span class="jstars">${'★'.repeat(tr)}${'☆'.repeat(3 - tr)}</span><small>${fmt(n)}${nx ? ` / ${fmt(nx)}` : ''}</small></div>`; }).join('')}</div>` : ''}
@@ -10886,7 +11110,7 @@ function makeGagronFriend() {
   npcs.push(gagronFriend);
 }
 
-window.__jq = { dogMe, dogSet, get dogOn() { return dogOn; }, journalTier, petLv, bossFirstWin, SPELL_FX, adminHuman, humanSet, get humanOn() { return humanOn; }, helpedUp, dailyGift, masteryLv, reviveTick, affixFx, partySet, get streak() { return streak; }, get together() { return together; }, dragonAttack, dodgedFx, popLoot, toast, wolfSet, get wolfOn() { return wolfOn; }, set wolfOn(v) { wolfOn = v; }, mobNet, netHeroesTick, esNet, enemyAttackNet, hzNet, bfxNet, pickTarget, heroesNear, get hazards() { return hazards; }, get netDrive() { return netDrive; }, shrinkMe, showStoryIntro, hurtPlayer, koSitOut, wakeUp, showLook, removeThing, giveThing, COS, ITEMS, GEAR, parseGive, chargedAttack, parseAmount, hitPeers, shotHitsPeer, showKeysNote, castSpell, learnSpell, spellCd, SPELLS, goonSneeze, goonDrips, goonFlop, setSlotBox, showSlots, get slotBox() { return slotBox; }, get guide() { return guide; }, bossNet, safeSpot, get PVP_LVL() { return PVP_LVL; }, goldNode, wbInfo, wbTick, get wb() { return wb; }, WB_SPOTS, tradeOpen, tradeNet, offerKey, get trade() { return trade; }, adv(s) { for (let t = 0; t < s; t += 0.05) { for (let i = timers.length - 1; i >= 0; i--) { timers[i].t -= 0.05; if (timers[i].t <= 0) { const f = timers[i].f; timers.splice(i, 1); f(); } } bossFxTick(0.05); } }, get party() { return party; }, BOSS_AI, PHASE_SETUP, get gulped() { return gulped; }, wriggle, toggleBigMap, spawnEnemy, openPathChoice, choosePath, startLanternNight, get lanterns() { return lanterns; }, duelOffer, duelPrize, onNet, chatCommand, canFight, openUpgrade, openBoard, boardToday, queueLetter, makeGagronFriend, net, peerActors, runeTick, bossFx, renderer, scene, openMayor, darkOmen, netWorth, liberateTown, setGolden, goldenCaught, pompArrive, get goldenE() { return goldenE; }, spinWheel, dayTick, get bossIntro() { return bossIntro; }, bossSkip, startBossScene, sailTo, regions, closeSheet, renderHotbar, crew, setCrewMode, TOWNS, liberateTown, chests, openChest, stopRoulette, enemies, startBossIntro, closeDialog, advanceDialog, dash, attackPress, craft, CRAFTS, openCreator, closeCreator, creator, rebuildHero, setZoom: (z) => { zoom = zoomGoal = z; }, hurtEnemy, goThrough, get where() { return where; }, INTERIORS, equipGear, spendPoint, giveHeroXp, heroLvl, stat, maxHp, defDiv, openWeaponShop, openKing, jump, eat, eatBest, openShop, swing, swingTarget, hitNode, projectiles, timers, get S() { return S; }, get player() { return player; }, enemies, nodes, npcs, startTask, doAction, giveXp, save, openSheet, openDialog };
+window.__jq = { openPerkPick, openAlloc, perksDue, defBlock, magBlock, magDiv, perkOn, statEffect, gapIn, gapOut, dogMe, dogSet, get dogOn() { return dogOn; }, journalTier, petLv, bossFirstWin, SPELL_FX, adminHuman, humanSet, get humanOn() { return humanOn; }, helpedUp, dailyGift, masteryLv, reviveTick, affixFx, partySet, get streak() { return streak; }, get together() { return together; }, dragonAttack, dodgedFx, popLoot, toast, wolfSet, get wolfOn() { return wolfOn; }, set wolfOn(v) { wolfOn = v; }, mobNet, netHeroesTick, esNet, enemyAttackNet, hzNet, bfxNet, pickTarget, heroesNear, get hazards() { return hazards; }, get netDrive() { return netDrive; }, shrinkMe, showStoryIntro, hurtPlayer, koSitOut, wakeUp, showLook, removeThing, giveThing, COS, ITEMS, GEAR, parseGive, chargedAttack, parseAmount, hitPeers, shotHitsPeer, showKeysNote, castSpell, learnSpell, spellCd, SPELLS, goonSneeze, goonDrips, goonFlop, setSlotBox, showSlots, get slotBox() { return slotBox; }, get guide() { return guide; }, bossNet, safeSpot, get PVP_LVL() { return PVP_LVL; }, goldNode, wbInfo, wbTick, get wb() { return wb; }, WB_SPOTS, tradeOpen, tradeNet, offerKey, get trade() { return trade; }, adv(s) { for (let t = 0; t < s; t += 0.05) { for (let i = timers.length - 1; i >= 0; i--) { timers[i].t -= 0.05; if (timers[i].t <= 0) { const f = timers[i].f; timers.splice(i, 1); f(); } } bossFxTick(0.05); } }, get party() { return party; }, BOSS_AI, PHASE_SETUP, get gulped() { return gulped; }, wriggle, toggleBigMap, spawnEnemy, openPathChoice, choosePath, startLanternNight, get lanterns() { return lanterns; }, duelOffer, duelPrize, onNet, chatCommand, canFight, openUpgrade, openBoard, boardToday, queueLetter, makeGagronFriend, net, peerActors, runeTick, bossFx, renderer, scene, openMayor, darkOmen, netWorth, liberateTown, setGolden, goldenCaught, pompArrive, get goldenE() { return goldenE; }, spinWheel, dayTick, get bossIntro() { return bossIntro; }, bossSkip, startBossScene, sailTo, regions, closeSheet, renderHotbar, crew, setCrewMode, TOWNS, liberateTown, chests, openChest, stopRoulette, enemies, startBossIntro, closeDialog, advanceDialog, dash, attackPress, craft, CRAFTS, openCreator, closeCreator, creator, rebuildHero, setZoom: (z) => { zoom = zoomGoal = z; }, hurtEnemy, goThrough, get where() { return where; }, INTERIORS, equipGear, spendPoint, giveHeroXp, heroLvl, stat, maxHp, defDiv, openWeaponShop, openKing, jump, eat, eatBest, openShop, swing, swingTarget, hitNode, projectiles, timers, get S() { return S; }, get player() { return player; }, enemies, nodes, npcs, startTask, doAction, giveXp, save, openSheet, openDialog };
 window.addEventListener('error', (e) => { const m = $('loadmsg'); if (m) m.textContent = `Something went wrong: ${e.message}`; });
 main().catch((err) => {
   console.error(err);
