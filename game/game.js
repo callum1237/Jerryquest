@@ -7741,6 +7741,8 @@ function tagHp(tag, h) {
   const [a, b] = String(h || '').split('/').map(Number);
   if (!b) { bar.hidden = true; return; }
   const k = Math.max(0, Math.min(1, a / b)); bar.hidden = false; bar.title = `${a} / ${b}`;
+  let num = bar.querySelector('var'); if (!num) { num = document.createElement('var'); bar.appendChild(num); }
+  num.textContent = `${fmt(a)} / ${fmt(b)}`;
   const u = bar.firstChild; u.style.width = `${(k * 100).toFixed(0)}%`; u.style.background = k > 0.5 ? '#5ad65a' : k > 0.25 ? '#f2b632' : '#e8453c';
 }
 
