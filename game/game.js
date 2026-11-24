@@ -3570,7 +3570,7 @@ function learnSpell(k) {
   if (!SPELLS[k]) return;
   spellsOwned()[k] = 1;
   const hb = hotbar(), id = `spell:${k}`;
-  if (!hb.includes(id)) { const at = hb.indexOf(null); if (at >= 0) hb[at] = id; }
+  if (!hb.includes(id)) { const at = hb.indexOf(null); if (at >= 0 && (at < 4 || heroLvl() >= 4)) hb[at] = id; } // slots 5-8 stay hidden until level 4
   renderHotbar(); save();
 }
 function spellPower(base) { return Math.max(1, Math.round(base * dmgMult() * pathDmg() * (0.85 + rng() * 0.3))); }
