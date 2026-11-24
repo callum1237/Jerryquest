@@ -3338,11 +3338,36 @@ const npcIdle = (n) => n.actor.play(n.id === 'fenwick' ? 'Spellcasting' : 'Idle'
 // ---------- enemies ----------
 for (const k of ['mud_gloop', 'boss_gobbler', 'sand_gloop']) ENEMY_TYPES[k].alias = ENEMY_TYPES.bog_slime.alias;
 ENEMY_TYPES.dust_bat.alias = ENEMY_TYPES.mire_bat.alias;
-// Toughness pass (Callum, Nov 23): every monster hits harder and takes longer to beat; bosses much more so.
-// v65 (Callum: "mobs a bit stronger"): ordinary monsters +32% health (2.2 -> 2.9) and +18% damage (1.9 -> 2.25). Bosses unchanged.
-const MOB_HP = 2.9, MOB_HIT = 2.25, BOSS_HP = 4.5, BOSS_HIT = 3;
-// each chapter's land is a big step up from the last
-const CHAPTER_MULT = { out: 1, frost: 1.35, marsh: 1.75, sands: 2.3 };
+// ---------- monster levels (v68, Callum: "level will determine their damage, defense, health") ----------
+// Every monster and boss has a level. The level alone sets its health, hit, defense and XP; a small
+// per-body shape keeps minions flimsy, warriors beefy and dragons enormous.
+// Chapter 1 mobs are 1-5 and its bosses 10-20, rising every chapter; Magma Caverns sits above all of them.
+const MON_LV = {
+  jelly_slime: 1, skel_minion: 2, honey_slime: 2, mint_slime: 3, skel_mage: 3, hollow_bat: 4, skel_warrior: 5, gloom_shadow: 8,
+  boss_rattle: 10, boss_crusher: 12, boss_gloom: 14, boss_gagron: 18,
+  frost_minion: 14, frost_mage: 15, frost_warrior: 17, thaw_shadow: 18,
+  boss_grumble: 26, boss_twin_a: 28, boss_twin_b: 28, boss_frost: 30,
+  mire_bat: 25, mud_gloop: 26, bog_slime: 27, bog_witchling: 28, bog_knight: 30,
+  boss_mire: 36, boss_sogg: 38, boss_goon: 40, boss_gobbler: 44,
+  dust_bat: 38, sand_gloop: 40, clock_conjurer: 41, clock_soldier: 43,
+  boss_pomp: 52, boss_colossus: 60,
+};
+// boss-specific shape: [health, damage]
+const BOSS_SHAPE = { boss_gagron: [0.75, 0.75], boss_twin_a: [0.75, 1], boss_twin_b: [0.75, 1], boss_colossus: [1.25, 1.05], boss_gobbler: [0.95, 0.95] };
+// body shape for ordinary monsters: [health, damage]
+const MOB_SHAPE = { skel_minion: [0.85, 0.9], skel_warrior: [1.15, 1.1], skel_mage: [0.9, 1], slime: [1.05, 0.95], bat: [0.75, 1], dragon: [3, 1.35] };
+const lvHp = (L, boss) => (boss ? 1300 * Math.pow(L / 12, 2.15) : 28 + 7 * L + 0.62 * L * L);
+const lvHit = (L, boss) => (boss ? 22 * Math.pow(L / 12, 1.3) : 5 + 0.6 * L + 0.045 * L * L);
+const lvXp = (L, boss) => (boss ? 900 * Math.pow(L / 12, 2.2) : 10 + 4 * L + 0.2 * L * L);
+// defense: each point takes about 1% off every hit it receives (level 40 shrugs off about a sixth)
+const lvDef = (L) => Math.round(L * 0.5);
+function setLevel(T, L, sh = T.shape || [1, 1]) {
+  T.lv = L; T.shape = sh;
+  T.hp = Math.round(lvHp(L, T.boss) * sh[0]);
+  T.maxHit = Math.max(1, Math.round(lvHit(L, T.boss) * sh[1]));
+  T.xp = Math.round(lvXp(L, T.boss) * (sh[2] || 1));
+  T.def = lvDef(L);
+}
 function farMult(w, x, z) {
   const c = w === 'out' || !LANDS[w] ? { x: 0, z: 0 } : LANDS[w].village;
   if (!c || (w !== 'out' && !LANDS[w])) return 1;
@@ -3354,7 +3379,14 @@ function bossDmg(e, k = 1) {
   if (!e.T.boss) return Math.max(1, Math.round(e.T.maxHit * k));
   return Math.max(Math.round(e.T.maxHit * k), Math.round(maxHp() * 0.075 * k * defDiv()));
 }
-function toughen(T) { if (T.world || T.toughened) return; T.toughened = true; const ch = CHAPTER_MULT[T.inside || 'out'] || 1; T.hp = Math.round(T.hp * (T.boss ? BOSS_HP : MOB_HP) * ch); T.maxHit = Math.max(1, Math.round(T.maxHit * (T.boss ? BOSS_HIT : MOB_HIT) * ch)); }
+function toughen(T, k) {
+  if (T.world || T.toughened) return; T.toughened = true;
+  const L = T.lv || MON_LV[k];
+  if (L) { setLevel(T, L, T.boss ? (BOSS_SHAPE[k] || T.shape || [1, 1]) : (T.shape || MOB_SHAPE[T.model || k] || [1, 1])); return; }
+  // anything without a level yet: guess one from its strength so it still shows a sensible number
+  T.lv = Math.max(1, Math.round(T.boss ? 12 * Math.pow(T.hp * 4.5 / 1300, 1 / 2.15) : Math.sqrt(T.hp * 2.9 / 0.62) * 0.8));
+  setLevel(T, T.lv, T.boss ? [1, 1] : (MOB_SHAPE[T.model || k] || [1, 1]));
+}
 // Valley critters: round, goofy monsters alongside the skeletons (Quaternius CC0 slime and bat)
 Object.assign(ENEMY_TYPES, {
   jelly_slime: { name: 'Jelly Slime', model: 'slime', hp: 14, maxHit: 3, xp: 18, scale: 0.6, noBones: true, poof: true, tintAll: '#ff8ac8', mass: 0.9, coins: [3, 10], alias: ENEMY_TYPES.bog_slime.alias },
@@ -3362,7 +3394,7 @@ Object.assign(ENEMY_TYPES, {
   mint_slime: { name: 'Mint Slime', model: 'slime', hp: 22, maxHit: 4, xp: 26, scale: 0.7, noBones: true, poof: true, tintAll: '#7fe8c8', mass: 1, coins: [4, 12], alias: ENEMY_TYPES.bog_slime.alias },
   hollow_bat: { name: 'Hollow Bat', model: 'bat', hp: 16, maxHit: 4, xp: 24, scale: 0.6, noBones: true, poof: true, fly: 1.5, mass: 0.6, tintAll: '#8a6ac8', coins: [4, 12], alias: ENEMY_TYPES.mire_bat.alias },
 });
-for (const T of Object.values(ENEMY_TYPES)) toughen(T);
+for (const [k, T] of Object.entries(ENEMY_TYPES)) toughen(T, k);
 function spawnEnemy(k, x, z) {
   const T = ENEMY_TYPES[k];
   const e = new Actor(G[T.model || k], { scale: T.scale || 1.3, hide: T.hide || [] });
@@ -3374,9 +3406,11 @@ function spawnEnemy(k, x, z) {
   e.type = k; e.T = T; e.home = new THREE.Vector2(x, z);
   e.nid = `${k}@${x.toFixed(1)},${z.toFixed(1)}`; // the same on every player's screen, so hits can be shared
   // monsters far from the land's village are naturally fiercer (up to +80% health and damage, and better rewards)
-  const far = farMult(e.inside, x, z);
-  if (!T.boss && !T.town && !T.world && far > 1.05) {
-    e.T = { ...T, hp: Math.round(T.hp * far), maxHit: Math.max(1, Math.round(T.maxHit * far)), xp: Math.round(T.xp * far), coins: T.coins ? T.coins.map((c) => Math.round(c * far)) : T.coins, name: far >= 1.4 ? `Fierce ${T.name}` : T.name };
+  // v68: they're a few levels higher (up to +4), which raises everything else with it
+  const far = farMult(e.inside, x, z), extra = Math.round((far - 1) * 5);
+  if (!T.boss && !T.town && !T.world && T.lv && extra >= 1) {
+    e.T = { ...T, coins: T.coins ? T.coins.map((c) => Math.round(c * (1 + extra * 0.15))) : T.coins, name: extra >= 2 ? `Fierce ${T.name}` : T.name };
+    setLevel(e.T, T.lv + extra);
   }
   e.root.position.set(x, 0, z); e.root.rotation.y = rng() * 6;
   e.hp = T.hp; e.state = 'idle'; e.timer = rng() * 3; e.target = new THREE.Vector2(); e.nextHit = 0; e.swings = 0;
@@ -3386,6 +3420,7 @@ function spawnEnemy(k, x, z) {
   if ((T.model || k).startsWith('skel')) skeletonize(e, T);
   if (T.look) { const hat = e.root.getObjectByName('Mage_Hat'); if (hat) hat.visible = false; const helm = !T.look.hat && e.root.getObjectByName('Knight_Helmet'); if (helm) helm.visible = false; dressNpc(e, { ...NPC_BASE, ...T.look }); if (k === 'boss_frost') e.root.traverse((o) => { if (o.isBone && o.name === 'head') { const c = makeCrown(); c.traverse((m) => { if (m.isMesh) registerMesh(m, toon('#bfefff')); }); o.add(c); } }); }
   if (!T.boss) { const bar = document.createElement('div'); bar.className = 'hpbar'; bar.hidden = true; bar.innerHTML = '<i></i>'; document.body.appendChild(bar); e.bar = bar; }
+  if (!T.boss && e.T.lv) { const t = document.createElement('div'); t.className = 'lvtag'; t.hidden = true; document.body.appendChild(t); e.lvTag = t; }
   else e.bar = { hidden: true, style: {}, firstChild: { style: {} } };
   e.flashMats = [];
   e.root.traverse((o) => {
@@ -3693,6 +3728,9 @@ function floatText(p, text, cls = '') {
   setTimeout(() => { el.remove(); const i = floats.indexOf(f); if (i >= 0) floats.splice(i, 1); }, 1000);
 }
 const npcName = (id) => npcs.find((n) => n.id === id).name;
+// how a monster's level compares to yours: grey = easy, white = fair, orange = tough, red = deadly
+function lvClass(L) { const d = L - heroLvl(); return d <= -5 ? 'easy' : d <= 2 ? 'fair' : d <= 9 ? 'tough' : 'deadly'; }
+function lvTagSet(el, L) { const c = lvClass(L); setText(el, `Lv ${L}`); if (el._c !== c) { if (el._c) el.classList.remove(el._c); el.classList.add(c); el._c = c; } }
 function bossUi() {
   if (!player) return;
   const b = $('sheet').hidden ? enemies.find((e) => e.T.boss && e.inside === where && e.hp > 0 && (e.state === 'chase' || e.state === 'slam') && Math.hypot(e.pos.x - player.pos.x, e.pos.z - player.pos.z) < 32) : null;
@@ -3701,6 +3739,7 @@ function bossUi() {
   if (b) {
     const phased = !!PHASE_LINES[b.type];
     setText($('bossname'), phased ? `${b.T.name} · phase ${b.phase || 1} of 3` : b.T.name);
+    if (b.T.lv) lvTagSet($('bosslv'), b.T.lv);
     if (bar.classList.contains('phased') !== phased) bar.classList.toggle('phased', phased);
     setW($('bossfill'), (b.hp / b.T.hp) * 100);
   }
@@ -5565,6 +5604,8 @@ function hurtEnemy(e, dmg, src = null, power = 1) {
   if (e.state === 'idle' || e.state === 'walk') e.state = 'chase';
   if (e.under) { if (rng() < 0.5) floatText(head, 'It\'s underwater! Watch the bubbles', 'miss'); return; }
   if (dmg === 0) { floatText(head, 'Miss', 'miss'); return; }
+  // v68: a monster's defense (from its level) takes a little off every hit you land (remote hits arrive already reduced)
+  if (e.T.def && !bossRemote && !mobRemote && !wbRemote && !poisonHit) dmg = Math.max(1, Math.round(dmg * 100 / (100 + e.T.def)));
   if (!crewHitting && !poisonHit && !bossRemote && !mobRemote && !wbRemote) {
     const w = W();
     // marsh poison keeps hurting for a few seconds; the Fangblade drinks a little health back
@@ -7571,6 +7612,13 @@ function tick() {
     if (show) { v = tmpV.copy(e.pos).setY(3.3).project(camera); show = v.z <= 1; }
     setShown(e.bar, show);
     if (show) { pin(e.bar, v); setW(e.bar.firstChild, (e.hp / e.T.hp) * 100); }
+    // v68: the monster's level floats over it when you're close (or fighting it), coloured by how it compares to you
+    if (e.lvTag) {
+      let tag = show;
+      if (!tag && e.hp > 0 && e.state !== 'rising' && e.state !== 'dead' && e.inside === where && player && Math.hypot(e.pos.x - player.pos.x, e.pos.z - player.pos.z) < 13) { v = tmpV.copy(e.pos).setY(3.3).project(camera); tag = v.z <= 1; }
+      setShown(e.lvTag, tag);
+      if (tag) { pin(e.lvTag, v); lvTagSet(e.lvTag, e.T.lv); }
+    }
   }
 
   if (player && now - lastUi > 0.15) {
@@ -8329,10 +8377,14 @@ for (const T of TOWNS) {
   const m = townMult(T), inside = T.land || 'out';
   for (const k of ['skel_minion', 'skel_warrior', 'skel_mage']) {
     const b = ENEMY_TYPES[T.land ? LAND_TOWN[T.land].mobs[k] : k];
-    ENEMY_TYPES[`${T.id}_${k}`] = { ...b, model: k, name: `${tier.tag} ${b.name}`, hp: Math.round(b.hp * tier.hp), maxHit: b.maxHit + tier.hit, xp: Math.round(b.xp * tier.xp), tint: tier.tint, town: T.id, inside, coins: [Math.round(5 * T.stars * m), Math.round(12 * T.stars * m)] };
+    ENEMY_TYPES[`${T.id}_${k}`] = { ...b, model: k, name: `${tier.tag} ${b.name}`, tint: tier.tint, town: T.id, inside, coins: [Math.round(5 * T.stars * m), Math.round(12 * T.stars * m)] };
+    setLevel(ENEMY_TYPES[`${T.id}_${k}`], b.lv + 2 * T.stars, MOB_SHAPE[k]); // town guards are a few levels above the wild ones
   }
   ENEMY_TYPES[`${T.id}_boss`] = { ...TOWN_BOSS[T.id], title: `Tyrant of ${T.name}`, hp: Math.round((110 + 90 * T.stars) * (T.land ? LAND_TOWN[T.land].hp : 1)), maxHit: Math.round((5 + 2 * T.stars) * (T.land ? LAND_TOWN[T.land].hit : 1)), xp: Math.round((500 + 400 * T.stars) * (T.land ? LAND_TOWN[T.land].xp : 1)), boss: true,
     scale: 2 + 0.15 * T.stars, coins: [Math.round(80 * T.stars * m), Math.round(140 * T.stars * m)], slam: 4.5 + T.stars * 0.5, town: T.id, tint: tier.tint, inside };
+  // town tyrants: Chapter 1 levels 11-15, then about a chapter higher in each land
+  ENEMY_TYPES[`${T.id}_boss`].lv = ({ out: 9, frost: 22, marsh: 32, sands: 46 }[inside] || 9) + 2 * T.stars;
+  ENEMY_TYPES[`${T.id}_boss`].shape = [0.8, 0.9];
   toughen(ENEMY_TYPES[`${T.id}_boss`]);
 }
 const stars = (n) => '★'.repeat(n) + '☆'.repeat(3 - n);
@@ -8814,6 +8866,7 @@ function removeEnemy(e) {
   scene.remove(e.root);
   if (e.pile) { scene.remove(e.pile.g); piles.splice(piles.indexOf(e.pile), 1); e.pile = null; }
   if (e.bar && e.bar.remove) e.bar.remove();
+  if (e.lvTag) e.lvTag.remove();
   const i = enemies.indexOf(e); if (i >= 0) enemies.splice(i, 1);
 }
 

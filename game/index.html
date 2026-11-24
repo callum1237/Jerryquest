@@ -362,6 +362,9 @@
   }
   .hpbar { position: fixed; width: 54px; height: 9px; transform: translate(-50%, -50%); border: 2px solid var(--ink); border-radius: 6px; background: #6b3a2a; overflow: hidden; pointer-events: none; }
   .hpbar i { display: block; height: 100%; background: #7ee05a; }
+  .lvtag { position: fixed; transform: translate(-50%, -190%); padding: 0 6px; border-radius: 7px; font: 700 11px/15px Fredoka, Trebuchet MS, sans-serif; letter-spacing: 0.02em; color: #fff; background: rgba(40, 28, 22, 0.72); pointer-events: none; white-space: nowrap; }
+  .lvtag.easy { color: #c8c8c0; } .lvtag.fair { color: #fffbe8; } .lvtag.tough { color: #ff9a2e; } .lvtag.deadly { color: #ff4a3a; }
+  #bossbar .lvtag { position: static; transform: none; display: inline-block; margin-right: 8px; vertical-align: 3px; }
   .hpbar.node i { background: #ffc94a; }
   #minimap { position: fixed; right: calc(env(safe-area-inset-right, 0px) + 16px); bottom: calc(env(safe-area-inset-bottom, 0px) + 16px); width: 160px; height: 160px; border-radius: 50%; padding: 0; border-width: 4px; cursor: pointer; z-index: 2; }
   #bigmap { display: grid; place-items: center; z-index: 6; background: rgba(40,22,10,.45); }
@@ -1172,7 +1175,7 @@
 <button id="dashr" class="panel dash" aria-label="Dash">&raquo;</button>
 <button id="sprintbtn" class="panel" aria-label="Sprint" aria-pressed="false">Run</button>
 <div id="fade"></div>
-<div id="bossbar" class="panel" hidden><b id="bossname">Boss</b><div class="bar"><i id="bossfill" style="width:100%"></i></div></div>
+<div id="bossbar" class="panel" hidden><span id="bosslv" class="lvtag"></span><b id="bossname">Boss</b><div class="bar"><i id="bossfill" style="width:100%"></i></div></div>
 <div id="banner" aria-live="polite"></div>
 <div id="toasts" aria-live="polite"></div>
 <div id="dialog" class="panel" hidden></div>
