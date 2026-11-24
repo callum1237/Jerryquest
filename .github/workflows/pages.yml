@@ -20,5 +20,7 @@ jobs:
           # stamp the build so index.html always loads the newest game.js (see the loader in index.html)
           git checkout -q pages-tmp
           echo "$GITHUB_SHA" > version.txt
-          git add version.txt && git commit -q -m "version $GITHUB_SHA"
+          # every module imports the others with the same stamp, so a browser can never mix an old cached file with new ones
+          sed -i -E "s#from '\./([a-z]+)\.js'#from './\1.js?v=$GITHUB_SHA'#g" *.js
+          git add -A && git commit -q -m "version $GITHUB_SHA"
           git push -f origin pages-tmp:gh-pages
