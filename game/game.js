@@ -3775,6 +3775,35 @@ function drakeLook(e, skin) {
     else if (o.name === 'horn_base_l' || o.name === 'horn_base_r') o.scale.setScalar(1.35);
   });
 }
+// v83: a big painted rune circle that turns slowly under every boss, glowing in the boss's colour
+let bossRuneTex = null;
+function bossRuneTexture() {
+  if (bossRuneTex) return bossRuneTex;
+  const c = document.createElement('canvas'); c.width = c.height = 512; const x = c.getContext('2d');
+  x.translate(256, 256); x.strokeStyle = '#fff'; x.fillStyle = '#fff'; x.lineCap = 'round';
+  const ring = (r, w) => { x.lineWidth = w; x.beginPath(); x.arc(0, 0, r, 0, Math.PI * 2); x.stroke(); };
+  ring(244, 7); ring(222, 3); ring(150, 4); ring(132, 2);
+  // little runes round the band
+  x.font = 'bold 30px serif'; x.textAlign = 'center'; x.textBaseline = 'middle';
+  const glyphs = 'ᚠᚢᚦᚨᚱᚲᚷᚹᚺᚾᛁᛃᛇᛈᛉᛊᛏᛒᛖᛗᛚᛜᛞᛟ';
+  for (let i = 0; i < 24; i++) { x.save(); x.rotate((i / 24) * Math.PI * 2); x.fillText(glyphs[i], 0, -186); x.restore(); }
+  // a six-pointed star inside
+  x.lineWidth = 4;
+  for (const off of [0, Math.PI / 3]) { x.beginPath(); for (let i = 0; i <= 3; i++) { const a = off + (i / 3) * Math.PI * 2 - Math.PI / 2; x[i ? 'lineTo' : 'moveTo'](Math.cos(a) * 132, Math.sin(a) * 132); } x.stroke(); }
+  for (let i = 0; i < 6; i++) { const a = (i / 6) * Math.PI * 2; x.beginPath(); x.arc(Math.cos(a) * 222, Math.sin(a) * 222, 10, 0, Math.PI * 2); x.fill(); }
+  bossRuneTex = new THREE.CanvasTexture(c); bossRuneTex.colorSpace = THREE.SRGBColorSpace; bossRuneTex.anisotropy = 4;
+  return bossRuneTex;
+}
+function bossRune(e) {
+  const col = e.T.runeCol || (e.T.dragon ? '#ff7a2a' : '#a060ff');
+  const r = (e.T.boss && e.T.scale ? Math.min(3, e.T.scale) : 1.6) * 2.2;
+  const m = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshBasicMaterial({ map: bossRuneTexture(), color: col, transparent: true, opacity: 0.8, depthWrite: false, fog: false }));
+  m.rotation.x = -Math.PI / 2; m.position.y = 0.07; m.layers.set(1); m.renderOrder = 2;
+  m.onBeforeRender = () => { m.rotation.z = performance.now() * 0.00025; m.material.opacity = 0.68 + Math.sin(performance.now() * 0.002) * 0.14; };
+  // the circle is the same size on the ground whatever the boss's own scale
+  const s = r / Math.max(0.01, e.root.scale.x); m.scale.set(s, s, s);
+  e.root.add(m); e.rune = m;
+}
 const nidHash = (s) => { let h = 7; for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) >>> 0; return h; };
 function spawnEnemy(k, x, z) {
   const T = ENEMY_TYPES[k];
@@ -3807,7 +3836,7 @@ function spawnEnemy(k, x, z) {
   e.hp = e.T.hp; e.state = 'idle'; e.timer = rng() * 3; e.target = new THREE.Vector2(); e.nextHit = 0; e.swings = 0;
   e.play('Idle');
   if ((T.boss || T.tint) && !T.tintAll) e.root.traverse((o) => { if (o.isMesh && (T.town && !T.boss ? /Body/ : T.look ? (T.hide ? /Body|Arm|Leg|Cape/ : /Body/) : /Body|Head/).test(o.name)) tinted(o, T.tint || (k === 'boss_gloom' ? '#c8a8ff' : k === 'boss_crusher' ? '#ffd0a0' : '#c0ffc8')); });
-  if (T.boss) addSilhouette(e.root, '#ff8a9a');
+  if (T.boss) { addSilhouette(e.root, '#ff8a9a'); bossRune(e); }
   if (e.T.elite) {
     addSilhouette(e.root, '#ffd23f'); e.root.scale.multiplyScalar(1.15);
     // a slowly turning golden ring at a Champion's feet, so you can spot one across a field
@@ -8655,6 +8684,7 @@ function tick() {
   updateParticles(dt, now, focus);
   zoom += (zoomGoal - zoom) * (1 - Math.pow(0.0005, dt));
   const off = camOff.copy(CAM_OFF).multiplyScalar(zoom * (camera.aspect < 1 ? 1.3 : 1));
+  if (scene.fog) { const ex = Math.max(0, off.length() - CAM_OFF.length()); scene.fog.near = 95 + ex; scene.fog.far = 230 + ex; } // v83: zooming out doesn't bury the land in haze
   const following = !(creator.open && player) && !bossIntro && !(camMoment && player && camMoment.t < camMoment.dur) && !(player && dlg && dlg.talky && talking && talking.actor && !$('dialog').hidden) && !(!player && !$('pick').hidden);
   if (!following) camFollow = false;
   bossIntroTick(dt); bossGateTick(); goonTick(); spellTick();

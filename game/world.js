@@ -193,6 +193,21 @@ export function naturalCopy(tpl) {
   src.forEach((o, i) => { if (o.isMesh && o.userData.mats) { const d = dst[i]; d.userData = { mats: null }; registerMesh(d, o.userData.mats); d.layers.mask = o.layers.mask; d.castShadow = o.castShadow; d.receiveShadow = true; if (o.layers.mask !== 1) d.userData.hasInk = true; } });
   return c;
 }
+// v83: a painted rock crag (a tall rock with two smaller ones leaning on it), the same size as the
+// KayKit hill it replaces. Used for the Grumble Crags hills and the mountains round the edge of each land.
+const cragCache = new Map();
+export function crag(tint, like = lib.mountain_C_grass) {
+  const key = tint + (like && like.uuid);
+  if (cragCache.has(key)) return cragCache.get(key);
+  const g = new THREE.Group();
+  for (const [n, x, y, z, sx, sy, sz, ry] of [['Rock_Medium_1', 0, 0, 0, 1, 1.9, 1, 0], ['Rock_Medium_3', 0.55, 0, 0.3, 0.8, 1.2, 0.8, 1.7], ['Rock_Medium_2', -0.6, 0, -0.2, 0.75, 1.0, 0.85, 3.1], ['Rock_Medium_2', 0.1, 0, -0.55, 0.6, 0.7, 0.6, 4.4]]) {
+    const r = naturalCopy(natural(n, { h: 1, bark: tint })); r.position.set(x, y, z); r.scale.set(sx, sy, sz); r.rotation.y = ry; g.add(r);
+  }
+  const out = new THREE.Group(); out.add(g); out.updateMatrixWorld(true);
+  if (like) { const a = new THREE.Box3().setFromObject(like).getSize(new THREE.Vector3()), b = new THREE.Box3().setFromObject(g).getSize(new THREE.Vector3()); g.scale.multiplyScalar(Math.max(a.x, a.z) / Math.max(b.x, b.z)); g.scale.y *= 1.15; out.updateMatrixWorld(true); }
+  cragCache.set(key, out);
+  return out;
+}
 // a stable 0..1 number for a spot on the map (so picking tree kinds doesn't touch the world's dice)
 // KayKit rock -> painted rock of the same size
 const ROCKS = { rock_single_A: 'Rock_Medium_1', rock_single_B: 'Rock_Medium_2', rock_single_C: 'Rock_Medium_3' };
@@ -398,7 +413,7 @@ export function buildWorld(library) {
   const cragHills = [];
   for (let i = 0; i < 9; i++) { const a = (i / 9) * Math.PI * 2, Z = ZONES.crags; const x = Z.x + Math.cos(a) * (Z.r + 6), z = Z.z + Math.sin(a) * (Z.r + 6); if (!nearRoad(x, z, 8)) cragHills.push(M(x, 0, z, 7 + rng() * 3, rng() * 6)); }
   // warm the crag hills so their grassy tops read as dry ochre, not acid green
-  instanced(tinted(lib.mountain_C_grass, '#e6c49a'), cragHills);
+  instanced(crag('#f0cfa2'), cragHills); // v83 painted rock crags
   for (const [k, list] of Object.entries(rocks)) instanced(natRock(k), list); // v81 painted rocks
 
   // Honeymeadow hamlet: homes, windmill, fields
@@ -482,7 +497,8 @@ export function buildWorld(library) {
     far[['mountain_A_grass_trees', 'mountain_B_grass_trees', 'mountain_C_grass'][i % 3]].push(M(Math.cos(a) * rr, -1, Math.sin(a) * rr, 14 + rng() * 5, rng() * 6));
   }
   // soften the mountain tops from acid yellow to a calm sage green
-  for (const [k, list] of Object.entries(far)) instanced(tinted(lib[k], '#c4dcbc'), list, { cast: false });
+  // v83: painted rock crags round the edge, in soft blue-grey and lilac so they sit back in the haze
+  instanced(crag('#c8d0dc'), far.mountain_A_grass_trees, { cast: false }); instanced(crag('#d8c8e0'), far.mountain_B_grass_trees, { cast: false }); instanced(crag('#c8d8c4'), far.mountain_C_grass, { cast: false });
 
   for (let i = 0; i < 20; i++) {
     const c = place(i % 2 ? 'cloud_big' : 'cloud_small', -200 + rng() * 400, -200 + rng() * 400, 4 + rng() * 2, rng() * 6, { collide: false, y: 26 + rng() * 6 });
