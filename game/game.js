@@ -6,6 +6,7 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { buildWorld, buildFlowers, place, tentAt, S_PROP, S_BUILD, colliders, clouds, dynamic, LAKE, CAMP, MINE, S_NATURE, blocked, isFree, ZONES, WORLD_R, VS, TOWNS, ROADS, townFacing, VALLEY_ARENAS } from './world.js';
 import { LANDS, VALLEY_DOCK, buildLands, makeSnow, makeEmbers, MAGMA_FX, landRoads, coastOf, SANDS_FX, palmNode, roundNode } from './lands.js';
 import { ICONS } from './icons.js';
+import { HUMAN_ALIAS, HUMAN_LOOPS, makeHumanHair } from './human.js';
 import { buildInteriors, INTERIORS, lavaPools } from './interiors.js';
 import { unlockAudio, playMusic, sfx, setVolumes, fxMute } from './audio.js';
 import { net, resume, signIn, signOut, loadCloud, cloudSave, flushSave, refreshBoard, setTown, connect, updateProfile, sendPos, sendChat, cleanChat, sendNet, isAdmin, adminSend, adminInbox, adminFindPlayer } from './online.js';
@@ -817,7 +818,7 @@ function titleCam() {
   camera.lookAt(0, 3, -4);
 }
 let profileKey = '';
-function profile() { const C = cosState(), t = heroTitle(); return { sm: shrinkUntil > Date.now() ? 1 : 0, wf: wolfOn ? 1 : 0, name: heroName(), lvl: heroLvl(), look: { ...S.look, path: S.path || '', cos: { ...C.eq }, ti: t ? t.name : '', tc: t ? t.col : '' }, w: where, x: player ? player.pos.x : 0, z: player ? player.pos.z : 0 }; }
+function profile() { const C = cosState(), t = heroTitle(); return { sm: shrinkUntil > Date.now() ? 1 : 0, wf: wolfOn ? 1 : 0, hm: humanOn ? 1 : 0, name: heroName(), lvl: heroLvl(), look: { ...S.look, path: S.path || '', cos: { ...C.eq }, ti: t ? t.name : '', tc: t ? t.col : '' }, w: where, x: player ? player.pos.x : 0, z: player ? player.pos.z : 0 }; }
 function goOnline() {
   net.onTowns = syncTowns;
   net.onPeerGone = (id) => { dropPeer(id); partyPeerGone(id); if (trade && trade.with === id) tradeClose('Your trade partner left.'); };
@@ -856,6 +857,7 @@ function dropPeer(id) {
   if (pa.a.flair) auraKit(pa.a, null);
   if (pa.a.wolf) wolfSet(pa.a, false);
   petSet(pa.a, null);
+  if (pa.a.human) humanSet(pa.a, false);
   scene.remove(pa.a.root); pa.tag.remove(); peerActors.delete(id);
 }
 const ONE_SHOT = /Attack|Hit_|Death|Jump|Dodge|Use_Item|Interact|Cheer|Spellcast|Block/;
@@ -864,7 +866,7 @@ function peersTick(dt) {
   if (trade && !net.peers.has(trade.with)) tradeClose(`${trade.name} left, so the trade was cancelled. Nothing was swapped.`);
   sendPos(player.pos.x, player.pos.z, player.root.rotation.y, player.name || 'Idle', where, `${Math.max(0, Math.round(S.hp))}/${maxHp()}`);
   shrinkEase(player, shrinkUntil > Date.now(), dt);
-  const key = `${wolfOn ? 'w' : ''}${shrinkUntil > Date.now() ? 's' : ''}|${heroName()}|${heroLvl()}|${JSON.stringify(S.look)}|${S.path || ''}|${JSON.stringify(cosState().eq)}|${S.title || ''}`;
+  const key = `${wolfOn ? 'w' : ''}${humanOn ? 'h' : ''}${shrinkUntil > Date.now() ? 's' : ''}|${heroName()}|${heroLvl()}|${JSON.stringify(S.look)}|${S.path || ''}|${JSON.stringify(cosState().eq)}|${S.title || ''}`;
   if (key !== profileKey) { profileKey = key; updateProfile(profile()); }
   for (const [id, p] of net.peers) {
     let pa = peerActors.get(id);
@@ -873,6 +875,7 @@ function peersTick(dt) {
     const here = p.where === where && !creator.open;
     pa.a.root.visible = here;
     if (pa.a.wolf) pa.a.wolf.visible = here;
+    if (pa.a.human) pa.a.human.root.visible = here;
     if (!here) { setShown(pa.tag, false); continue; }
     // glide towards where they are now: their last update, nudged on by how fast they were moving
     const k = Math.min(1, dt * 12), still = !/Running|Walking|Dodge|Jump/.test(p.a || '');
@@ -887,6 +890,7 @@ function peersTick(dt) {
     shrinkEase(pa.a, !!p.sm, dt);
     wolfSet(pa.a, !!p.wf); wolfTick(pa.a, dt, pa.anim);
     pa.a.mixer.update(dt); headPose(pa.a); petTick(pa.a, dt);
+    humanSet(pa.a, !!p.hm && !p.wf); humanTick(pa.a, dt);
     flairTick(pa.a, dt, /Running|Walking/.test(pa.anim));
     if (pa.shimAt === undefined || now > pa.shimAt) { pa.shimAt = now + 0.1; shimmerTick(pa.a, p.look && p.look.cos); }
     const v = tmpV.set(p.x, pa.a.wolf ? 7.4 : 0.6 + 3.8 * (pa.a.shrinkK || 1), p.z).project(camera);
@@ -930,7 +934,7 @@ function partySet(p, why) {
 // picks the action up from there, so nobody can fake one by sending a message.
 // typed amounts: "90k" = 90,000, "2.5m" = 2,500,000, "1b" = a billion; commas and spaces are ignored. NaN if it isn't a number.
 const parseAmount = (t) => { const m = String(t ?? '').replace(/[,\s_]/g, '').toLowerCase().match(/^(\d+(?:\.\d+)?|\.\d+)([kmb])?$/); return m ? Math.floor(parseFloat(m[1]) * ({ k: 1e3, m: 1e6, b: 1e9 }[m[2]] || 1)) : NaN; };
-const ADMIN_HELP = 'Admin: /give [player] thing [amount]. Things: coins, xp (or exp), any item, gear, look or spell by name (like /give prism aura or /give Bob dark blade), or an id like outfit:id, aura:id, hat:id, cape:id, trail:id, spell:id, or "all-looks" (also "all outfits"). /give find skins (or auras, hats, capes, trails, spells, gear, items) lists names; /give find word searches. /kick player (30 seconds). /remove player thing [amount]. /look player shows their hero and bag. /shrink player makes them tiny for 30 seconds. /wolf and /unwolf turn you into a giant wolf and back. /azap and /agust give you Admin Zap and Admin Gust (admin only, no cooldown).';
+const ADMIN_HELP = 'Admin: /give [player] thing [amount]. Things: coins, xp (or exp), any item, gear, look or spell by name (like /give prism aura or /give Bob dark blade), or an id like outfit:id, aura:id, hat:id, cape:id, trail:id, spell:id, or "all-looks" (also "all outfits"). /give find skins (or auras, hats, capes, trails, spells, gear, items) lists names; /give find word searches. /kick player (30 seconds). /remove player thing [amount]. /look player shows their hero and bag. /shrink player makes them tiny for 30 seconds. /wolf and /unwolf turn you into a giant wolf and back. /human and /unhuman turn you into your realistic human and back. /azap and /agust give you Admin Zap and Admin Gust (admin only, no cooldown).';
 function giveThing(what, n) {
   if (what === 'coins' || what === 'gold') { S.coins += n; refreshUI(); return `${fmt(n)} coins`; }
   if (what === 'xp' || what === 'exp') { giveHeroXp(n); return `${fmt(n)} hero XP`; }
@@ -1201,9 +1205,84 @@ function wolfTick(a, dt, anim) {
   P.head.position.z += ((hit ? 1.6 : 1.35) - P.head.position.z) * Math.min(1, dt * 12);
   if (/Death/.test(anim || '')) w.rotation.z = Math.min(Math.PI / 2, (w.rotation.z || 0) + dt * 4); else w.rotation.z = 0;
 }
+// ---------- /human ----------
+// Admin-only: /human swaps the hero for Callum's realistic human (see human.js) until /unhuman. The model only
+// downloads the first time someone needs it, and everyone online sees it, animated to match what the hero is doing.
+let humanOn = false, humanG = null, humanLoad = null;
+const HUMAN_SCALE = 1.65;
+function loadHuman() {
+  if (!humanLoad) humanLoad = loadModel('human').then((g) => { humanG = g; }).catch((e) => { console.warn(e); humanLoad = null; });
+  return humanLoad;
+}
+function humanSet(a, on) {
+  if (!!a.human === on) return;
+  if (on) {
+    if (!humanG) { loadHuman(); return; } // tried again next frame once it has loaded
+    const h = a.human = new Actor(humanG, { scale: HUMAN_SCALE });
+    h.alias = HUMAN_ALIAS; h.root.position.copy(a.root.position);
+    const head = h.root.getObjectByName('head'); if (head) { const hair = makeHumanHair(); stylize(hair); head.add(hair); }
+    h.hand = h.root.getObjectByName('hand_r');
+    if (a === player) addSilhouette(h.root, '#ffe9a0'); // glows through trees, and the quest arrow never covers it
+    a.humanHid = []; humanHide(a);
+    burst(a.root.position.clone().setY(2), '#ffe2a8', 40, 6, 1.4);
+  } else {
+    scene.remove(a.human.root); a.human.mixer.stopAllAction(); a.human = null;
+    for (const o of a.humanHid || []) o.visible = true; a.humanHid = null;
+    burst(a.root.position.clone().setY(2), '#ffe2a8', 30, 5, 1.2);
+  }
+}
+// hide the hero's own meshes (they come back if the hero is rebuilt, so this runs again now and then) and give
+// the human a copy of whatever the hero is holding
+function humanHide(a) {
+  const h = a.human, slot = a.slot();
+  a.root.traverse((o) => { if (o.isMesh && o.visible) { o.visible = false; a.humanHid.push(o); } });
+  const key = slot ? slot.children.map((c) => c.name + c.uuid).join() : '';
+  if (key === h.heldKey || !h.hand) return;
+  h.heldKey = key;
+  if (h.held) { h.hand.remove(h.held); h.held = null; }
+  if (!slot || !slot.children.length) return;
+  const held = new THREE.Group();
+  for (const c of slot.children) { const k = c.clone(true); k.traverse((o) => { if (o.isMesh) { o.visible = !o.userData.isSil; } }); held.add(k); }
+  // same size in the world as in the hero's hand, gripped in the palm and pointing forward
+  const ws = new THREE.Vector3(), hs = new THREE.Vector3();
+  slot.updateWorldMatrix(true, false); h.hand.updateWorldMatrix(true, false);
+  slot.getWorldScale(ws); h.hand.getWorldScale(hs);
+  held.scale.setScalar(0.65 * ws.x / hs.x); held.position.set(0, 0.085, 0.02); held.rotation.set(0, Math.PI / 2, -Math.PI / 2);
+  h.hand.add(held); h.held = held;
+}
+function humanTick(a, dt) {
+  const h = a.human; if (!h) return;
+  if (now > (a.humanHideAt || 0)) { a.humanHideAt = now + 0.5; humanHide(a); }
+  h.root.visible = a.root.visible;
+  h.root.position.copy(a.root.position); h.root.rotation.y = a.root.rotation.y;
+  h.root.scale.setScalar(HUMAN_SCALE * a.root.scale.x / 1.3);
+  const name = a.name || 'Idle', act = a.current;
+  const restarted = act && (act !== h.mirrorAct || act.time + 0.02 < (h.mirrorT || 0)) && !HUMAN_LOOPS.has(HUMAN_ALIAS[name]);
+  h.mirrorT = act ? act.time : 0;
+  if (name !== h.mirror || restarted) {
+    h.mirror = name; h.mirrorAct = act;
+    const clip = HUMAN_ALIAS[name] || (/Attack/.test(name) ? 'sword-regular-a' : /Running/.test(name) ? 'jog' : /Walking/.test(name) ? 'walk' : 'idle-a');
+    const loop = HUMAN_LOOPS.has(clip), mine = h.clips[clip];
+    // one-off moves are timed to finish when the hero's own move does
+    let speed = 1;
+    if (!loop && act && mine) { const theirs = act.getClip().duration / Math.max(0.05, act.getEffectiveTimeScale() || 1); speed = Math.min(3, Math.max(0.5, mine.duration / Math.max(0.1, theirs))); }
+    if (clip === 'jog') speed = 1.15;
+    h.play(clip, { once: !loop, clamp: !loop, speed });
+  }
+  h.mixer.update(dt);
+}
+async function adminHuman(on) {
+  if (!(await isAdmin())) { sys(net.on ? 'Only admins can use that command.' : 'Admin commands need you to be signed in and online.'); return; }
+  if (on === humanOn) { sys(on ? 'You are already human! Type /unhuman to change back.' : 'You are not the human right now.'); return; }
+  if (on) { if (wolfOn) { wolfOn = false; wolfSet(player, false); } sys('Loading your human...'); await loadHuman(); if (!humanG) { sys('Could not load the human model. Try again in a moment.'); return; } }
+  humanOn = on; profileKey = ''; humanSet(player, on); sfx('special');
+  if (on) { toast('You are human now. Type /unhuman (or /human again) to change back.', ICONS.star, true); sys('You turned into your human. Type /unhuman to change back.'); }
+  else sys('You are yourself again.');
+}
 async function adminWolf(on) {
   if (!(await isAdmin())) { sys(net.on ? 'Only admins can use that command.' : 'Admin commands need you to be signed in and online.'); return; }
   if (on === wolfOn) { sys(on ? 'You are already a wolf! Type /unwolf to change back.' : 'You are not a wolf right now.'); return; }
+  if (on && humanOn) { humanOn = false; humanSet(player, false); }
   wolfOn = on; profileKey = ''; wolfSet(player, on); sfx('special');
   if (on) { toast('AWOOOO! You are a giant wolf. Type /unwolf to change back.', ICONS.star, true); sys('You turned into a giant wolf. Type /unwolf to change back.'); }
   else sys('You are yourself again.');
@@ -1247,6 +1326,8 @@ function chatCommand(line) {
   if (/^kick$/i.test(cmd)) { adminKick(rest); return; }
   if (/^shrink$/i.test(cmd)) { adminShrink(rest); return; }
   if (/^wolf$/i.test(cmd)) { adminWolf(true); return; }
+  if (/^human$/i.test(cmd)) { adminHuman(!humanOn); return; }
+  if (/^unhuman$/i.test(cmd)) { adminHuman(false); return; }
   if (/^agust$/i.test(cmd)) { (async () => { if (!(await isAdmin())) { sys(net.on ? 'Only admins can use that command.' : 'Admin commands need you to be signed in and online.'); return; } learnSpell('agust'); sys('Admin Gust is on your hotbar. No cooldown: blow them all away.'); toast('You learned Admin Gust!', spellIcon('agust'), true); })(); return; }
   if (/^azap$/i.test(cmd)) { (async () => { if (!(await isAdmin())) { sys(net.on ? 'Only admins can use that command.' : 'Admin commands need you to be signed in and online.'); return; }
     // /azap damage 50: Admin Zap hits for that percent of its full power (saved with your hero)
@@ -7851,7 +7932,7 @@ function tick() {
   regionTick(); lightTick(); vigTick(); chipsTick();
   if (player) { goldenTick(); tinyTick(dt); pompTick(dt); }
 
-  if (player) { breathTick(); if (wolfOn && !player.wolf) wolfSet(player, true); wolfTick(player, dt, player.name); gulpTick(); lanternTick(dt); wingTick(); stormTick(dt); castleTick(dt); colossusTick(dt); cosTick(); wbTick(); bossSyncTick(); if (net.on) mobFlush(); weaponSparkle(); flairTick(player, dt, player.name === 'Running_A' || player.name === 'Walking_A' || (player.name || '').startsWith('Running')); }
+  if (player) { breathTick(); if (wolfOn && !player.wolf) wolfSet(player, true); wolfTick(player, dt, player.name); if (humanOn && !player.human) humanSet(player, true); humanTick(player, dt); gulpTick(); lanternTick(dt); wingTick(); stormTick(dt); castleTick(dt); colossusTick(dt); cosTick(); wbTick(); bossSyncTick(); if (net.on) mobFlush(); weaponSparkle(); flairTick(player, dt, player.name === 'Running_A' || player.name === 'Walking_A' || (player.name || '').startsWith('Running')); }
   if (player && !player.dead && !uiLock() && !gulped) {
     const busy = now < player.busyUntil;
     let mx = 0, mz = 0;
@@ -10445,7 +10526,7 @@ function makeGagronFriend() {
   npcs.push(gagronFriend);
 }
 
-window.__jq = { helpedUp, dailyGift, masteryLv, reviveTick, affixFx, partySet, get streak() { return streak; }, get together() { return together; }, dragonAttack, dodgedFx, popLoot, toast, wolfSet, get wolfOn() { return wolfOn; }, set wolfOn(v) { wolfOn = v; }, mobNet, netHeroesTick, esNet, enemyAttackNet, hzNet, bfxNet, pickTarget, heroesNear, get hazards() { return hazards; }, get netDrive() { return netDrive; }, shrinkMe, showStoryIntro, hurtPlayer, koSitOut, wakeUp, showLook, removeThing, giveThing, COS, ITEMS, GEAR, parseGive, chargedAttack, parseAmount, hitPeers, shotHitsPeer, showKeysNote, castSpell, learnSpell, spellCd, SPELLS, goonSneeze, goonDrips, goonFlop, setSlotBox, showSlots, get slotBox() { return slotBox; }, get guide() { return guide; }, bossNet, safeSpot, get PVP_LVL() { return PVP_LVL; }, goldNode, wbInfo, wbTick, get wb() { return wb; }, WB_SPOTS, tradeOpen, tradeNet, offerKey, get trade() { return trade; }, adv(s) { for (let t = 0; t < s; t += 0.05) { for (let i = timers.length - 1; i >= 0; i--) { timers[i].t -= 0.05; if (timers[i].t <= 0) { const f = timers[i].f; timers.splice(i, 1); f(); } } bossFxTick(0.05); } }, get party() { return party; }, BOSS_AI, PHASE_SETUP, get gulped() { return gulped; }, wriggle, toggleBigMap, spawnEnemy, openPathChoice, choosePath, startLanternNight, get lanterns() { return lanterns; }, duelOffer, duelPrize, onNet, chatCommand, canFight, openUpgrade, openBoard, boardToday, queueLetter, makeGagronFriend, net, peerActors, runeTick, bossFx, renderer, scene, openMayor, darkOmen, netWorth, liberateTown, setGolden, goldenCaught, pompArrive, get goldenE() { return goldenE; }, spinWheel, dayTick, get bossIntro() { return bossIntro; }, bossSkip, startBossScene, sailTo, regions, closeSheet, renderHotbar, crew, setCrewMode, TOWNS, liberateTown, chests, openChest, stopRoulette, enemies, startBossIntro, closeDialog, advanceDialog, dash, attackPress, craft, CRAFTS, openCreator, closeCreator, creator, rebuildHero, setZoom: (z) => { zoom = zoomGoal = z; }, hurtEnemy, goThrough, get where() { return where; }, INTERIORS, equipGear, spendPoint, giveHeroXp, heroLvl, stat, maxHp, defDiv, openWeaponShop, openKing, jump, eat, eatBest, openShop, swing, swingTarget, hitNode, projectiles, timers, get S() { return S; }, get player() { return player; }, enemies, nodes, npcs, startTask, doAction, giveXp, save, openSheet, openDialog };
+window.__jq = { adminHuman, humanSet, get humanOn() { return humanOn; }, helpedUp, dailyGift, masteryLv, reviveTick, affixFx, partySet, get streak() { return streak; }, get together() { return together; }, dragonAttack, dodgedFx, popLoot, toast, wolfSet, get wolfOn() { return wolfOn; }, set wolfOn(v) { wolfOn = v; }, mobNet, netHeroesTick, esNet, enemyAttackNet, hzNet, bfxNet, pickTarget, heroesNear, get hazards() { return hazards; }, get netDrive() { return netDrive; }, shrinkMe, showStoryIntro, hurtPlayer, koSitOut, wakeUp, showLook, removeThing, giveThing, COS, ITEMS, GEAR, parseGive, chargedAttack, parseAmount, hitPeers, shotHitsPeer, showKeysNote, castSpell, learnSpell, spellCd, SPELLS, goonSneeze, goonDrips, goonFlop, setSlotBox, showSlots, get slotBox() { return slotBox; }, get guide() { return guide; }, bossNet, safeSpot, get PVP_LVL() { return PVP_LVL; }, goldNode, wbInfo, wbTick, get wb() { return wb; }, WB_SPOTS, tradeOpen, tradeNet, offerKey, get trade() { return trade; }, adv(s) { for (let t = 0; t < s; t += 0.05) { for (let i = timers.length - 1; i >= 0; i--) { timers[i].t -= 0.05; if (timers[i].t <= 0) { const f = timers[i].f; timers.splice(i, 1); f(); } } bossFxTick(0.05); } }, get party() { return party; }, BOSS_AI, PHASE_SETUP, get gulped() { return gulped; }, wriggle, toggleBigMap, spawnEnemy, openPathChoice, choosePath, startLanternNight, get lanterns() { return lanterns; }, duelOffer, duelPrize, onNet, chatCommand, canFight, openUpgrade, openBoard, boardToday, queueLetter, makeGagronFriend, net, peerActors, runeTick, bossFx, renderer, scene, openMayor, darkOmen, netWorth, liberateTown, setGolden, goldenCaught, pompArrive, get goldenE() { return goldenE; }, spinWheel, dayTick, get bossIntro() { return bossIntro; }, bossSkip, startBossScene, sailTo, regions, closeSheet, renderHotbar, crew, setCrewMode, TOWNS, liberateTown, chests, openChest, stopRoulette, enemies, startBossIntro, closeDialog, advanceDialog, dash, attackPress, craft, CRAFTS, openCreator, closeCreator, creator, rebuildHero, setZoom: (z) => { zoom = zoomGoal = z; }, hurtEnemy, goThrough, get where() { return where; }, INTERIORS, equipGear, spendPoint, giveHeroXp, heroLvl, stat, maxHp, defDiv, openWeaponShop, openKing, jump, eat, eatBest, openShop, swing, swingTarget, hitNode, projectiles, timers, get S() { return S; }, get player() { return player; }, enemies, nodes, npcs, startTask, doAction, giveXp, save, openSheet, openDialog };
 window.addEventListener('error', (e) => { const m = $('loadmsg'); if (m) m.textContent = `Something went wrong: ${e.message}`; });
 main().catch((err) => {
   console.error(err);
