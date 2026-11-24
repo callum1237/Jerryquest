@@ -276,7 +276,7 @@ const QUESTS = {
     name: 'Bones in the Woods', giver: 'rowan',
     intro: 'Skeletons have made camp to the south-west, past the lumber mill. Knock down 4 of them and the road will be safe again.',
     ready: 'Four of them? Ha! You fight like a captain already.', done: "The camp keeps stirring, but you've shown them who's in charge.",
-    need: { kills: 4 }, reward: { coins: 80, xp: { hero: 200 } }, desc: 'Defeat 4 skeletons at the camp.',
+    need: { kills: 4 }, prefer: 'skel', reward: { coins: 80, xp: { hero: 200 } }, desc: 'Defeat 4 skeletons at the camp south-west of the village.',
   },
   supper: {
     name: "The Wizard's Supper", giver: 'fenwick',
@@ -286,7 +286,7 @@ const QUESTS = {
   },
   crusher: {
     name: 'The Big Bad Bones', giver: 'giles', bossType: 'boss_crusher',
-    intro: "A giant skeleton called Bonecrusher stomps about the Grumble Crags, west of the valley. Every stomp sours my milk! Knock him down, and mind his big slam. Jump or run when the ground glows red!",
+    intro: "A giant skeleton called Bonecrusher stomps about the Grumble Crags, west of the valley. Every stomp sours my milk! Knock him down, and mind his big slam. Jump or run when the ground glows red! Oh, but he hides behind a magic seal until the dragon in the Ember Cave is beaten, so the King's quests come first.",
     ready: 'You beat Bonecrusher? My cows are cheering! Well, mooing.', done: 'Milk is sweet again, thanks to you.',
     need: { boss: 1 }, reward: { coins: 300, xp: { hero: 600 } }, desc: 'Defeat Bonecrusher in the Grumble Crags (west).',
   },
@@ -300,7 +300,7 @@ Object.assign(QUESTS, {
     intro: `For a hundred years the Heartstone kept the dark magic sealed away, and the kingdom knew only peace. Last night the Heartstone cracked. The seal is broken, and ${DARK_KING}'s servants are waking. The skeletons south-west of the village are the first of them. Show me you can stand against them: defeat 3.`,
     ready: 'You stood firm. Good. The kingdom will need that courage, for this is only the beginning.',
     done: 'The Heartstone shattered into shards when the seal broke. Find them, hero.',
-    need: { kills: 3 }, reward: { coins: 60, xp: { hero: 200 } }, desc: 'Defeat 3 skeletons, then return to King Jerrold.',
+    need: { kills: 3 }, prefer: 'skel', reward: { coins: 60, xp: { hero: 200 } }, desc: 'Defeat 3 skeletons at the camp south-west of the village, then return to King Jerrold.',
   },
   st_dragon: {
     story: true, chapter: 'Chapter 1', name: "Gagron's Lair", giver: 'king', after: ['st_1'], bossType: 'boss_gagron',
@@ -331,7 +331,7 @@ Object.assign(QUESTS, {
     intro: `All four shards sit in the Heartstone, but look: there is a hole right in its heart, where the core should be. Old Fenwick says a powder of ground bones can show whose hands last touched it. Bring me 6 bones from the skeletons and we shall see.`,
     ready: 'Fenwick sprinkles the powder... and the throne room glows! Scratch marks, all around the socket, from the INSIDE. Someone in this very room pried the core loose on purpose. And look: a footprint from a very shiny boot.',
     done: 'Someone close to the throne cracked the Heartstone. Until we know who, the core is lost. A cold wind blows from the north. Take the ship at the lake pier to Frostwhisker Peaks.',
-    need: { bones: 6 }, reward: { coins: 250, xp: { hero: 1200 } }, desc: 'Bring King Jerrold 6 bones for Fenwick\'s revealing powder.',
+    need: { bones: 6 }, reward: { coins: 250, xp: { hero: 1200 } }, desc: 'Defeat skeletons for bones (the camp south-west of the village), then bring King Jerrold 6 bones.',
   },
   // Chapter 2: a new land. Sail from the pier on the village lake to Frostwhisker Peaks.
   st_frost1: {
@@ -344,13 +344,13 @@ Object.assign(QUESTS, {
     story: true, chapter: 'Chapter 2', name: 'The Ogre of the Pass', giver: 'elder', after: ['st_frost1'], bossType: 'boss_grumble', land: 'frost',
     intro: 'The path to the Ice Palace is blocked by Grumblefrost, a snow ogre the size of a house. He rolls snowballs bigger than my cottage. When you see the long line on the ground, get out of its way! And when his axe sticks in the ice, hit him hard.',
     ready: 'Grumblefrost is snoring in a snowdrift! The pass is open.', done: 'The pass to the palace is clear, thanks to you.',
-    need: { boss: 1 }, reward: { coins: 600, xp: { hero: 6000 } }, desc: 'Defeat Grumblefrost on the path to the Ice Palace (north of Snowdrop).',
+    need: { boss: 1 }, reward: { coins: 600, xp: { hero: 6000 } }, desc: 'Defeat Grumblefrost at Ogre\'s Pass (north-west of Snowdrop).',
   },
   st_twins: {
     story: true, chapter: 'Chapter 2', name: 'The Avalanche Twins', giver: 'elder', after: ['st_grumble'], bossType: 'boss_twin_a', land: 'frost',
-    intro: 'Hail and Sleet, the Avalanche Twins, guard Snowman Hills for the Queen. They share one strength between them: hurt one and the other gets furious. Bring a friend if you can, one for each twin!',
-    ready: 'Both twins beaten at once! The snowmen are cheering. Well, they would be, if they could move.', done: 'Snowman Hills is quiet again.',
-    need: { boss: 1 }, reward: { coins: 700, xp: { hero: 7000 } }, desc: 'Defeat the Avalanche Twins in Snowman Hills (east).',
+    intro: 'Hail and Sleet, the Avalanche Twins, guard Twins\' Ridge for the Queen. They share one strength between them: hurt one and the other gets furious. Bring a friend if you can, one for each twin!',
+    ready: 'Both twins beaten at once! The snowmen are cheering. Well, they would be, if they could move.', done: 'Twins\' Ridge is quiet again.',
+    need: { boss: 1 }, reward: { coins: 700, xp: { hero: 7000 } }, desc: 'Defeat both Avalanche Twins on Twins\' Ridge (north-east).',
   },
   st_frost_boss: {
     story: true, chapter: 'Chapter 2', name: 'The Ice Queen', giver: 'elder', after: ['st_twins'], bossType: 'boss_frost', land: 'frost',
@@ -394,7 +394,7 @@ Object.assign(QUESTS, {
     story: true, chapter: 'Chapter 3', name: 'Lantern Night', giver: 'croakley', after: ['st_goon'], land: 'marsh', onStart: () => startLanternNight(),
     intro: 'The Gobbler only comes up for light. Tonight the whole village floats lanterns! Light the five lantern posts around the marsh. Mud gloops will try to snuff you out, so be quick, and bring friends!',
     ready: 'All five lanterns are glowing! Look... out in Gobbler\'s Pool. Two big yellow eyes. It is coming up.', done: 'The lanterns still float on the pool. They look lovely, actually.',
-    need: { lanterns: 5 }, reward: { coins: 2000, xp: { hero: 26000 } }, desc: 'Light the 5 lantern posts around Gobbler Marsh.',
+    need: { lanterns: 5 }, reward: { coins: 2000, xp: { hero: 26000 } }, desc: 'Walk up to each of the 5 lantern posts around Gobbler Marsh to light it (orange dots on the map).',
   },
   st_gobbler: {
     story: true, chapter: 'Chapter 3', name: 'The Gobbler', giver: 'croakley', after: ['st_lantern'], bossType: 'boss_gobbler', land: 'marsh',
@@ -452,7 +452,7 @@ const CHAPTERS = [
   { id: 'pro', tag: 'Prologue', name: 'The Crack', land: 'Jerry Valley', quests: ['st_1'] },
   { id: 'c1', tag: 'Chapter 1', name: 'The Shards', land: 'Jerry Valley', quests: ['st_dragon', 'st_crags', 'st_glimmer', 'st_hollow', 'st_socket'] },
   { id: 'c2', tag: 'Chapter 2', name: 'The Frozen North', land: 'Frostwhisker Peaks', quests: ['st_frost1', 'st_grumble', 'st_twins', 'st_frost_boss', 'st_thaw'] },
-  { id: 'c3', tag: 'Chapter 3', name: 'The Hungry Swamp', land: 'Gobbler Marsh', quests: ['st_marsh1', 'st_mire', 'st_sogg', 'st_lantern', 'st_gobbler', 'st_choice'] },
+  { id: 'c3', tag: 'Chapter 3', name: 'The Hungry Swamp', land: 'Gobbler Marsh', quests: ['st_marsh1', 'st_mire', 'st_sogg', 'st_goon', 'st_lantern', 'st_gobbler', 'st_choice'] },
   { id: 'c4', tag: 'Chapter 4', name: 'The Clockwork Ruins', land: 'Brassbolt Sands', quests: ['st_sand1', 'st_sphinx', 'st_storm', 'st_pomp', 'st_colossus', 'st_castle'] },
   { id: 'c5', tag: 'Chapter 5', name: 'The Dark King', land: 'The Floating Castle', quests: [], soon: true },
 ];
@@ -3712,10 +3712,12 @@ function questTarget(id) {
     const b = enemies.find((e) => e.type === q.bossType);
     if (b) return { x: b.home.x, z: b.home.y, inside: b.inside };
   }
-  if (q.need.kills) {
+  if (id === 'st_thaw') { const z = LANDS.frost.zones.palace; return { x: z.x, z: z.z, inside: 'frost' }; }
+  if (q.need.kills || q.need.bones) {
     let best = null, bd = 1e9;
-    const zone = q.land || 'out';
-    for (const e of enemies) if (!e.T.boss && e.hp > 0 && e.inside === zone && !e.T.town) { const d = Math.hypot(e.pos.x - P.x, e.pos.z - P.z); if (d < bd) { bd = d; best = e; } }
+    const zone = q.land || 'out', skel = q.prefer === 'skel' || q.need.bones;
+    for (const e of enemies) if (!e.T.boss && e.hp > 0 && e.inside === zone && !e.T.town && (!skel || /^skel_/.test(e.type))) { const d = Math.hypot(e.pos.x - P.x, e.pos.z - P.z); if (d < bd) { bd = d; best = e; } }
+    if (skel && zone === 'out' && (!best || bd > 60)) return { x: CAMP.x, z: CAMP.z, inside: 'out' };
     return best ? { x: best.pos.x, z: best.pos.z, inside: zone } : zone === 'out' ? { x: CAMP.x, z: CAMP.z, inside: 'out' } : { x: LANDS[zone].x, z: LANDS[zone].z, inside: zone };
   }
   if (q.need.riddles) { const c = npcAt('cogsworth'); if (c) return c; }
@@ -3804,11 +3806,17 @@ function guideTick() {
     pin(L, v);
   }
 }
+// The tracker line: what to do and where (from the quest's description), plus a counter when there is something to count.
+function trackLine(id) {
+  const q = QUESTS[id], goal = q.desc.replace(/,? then (return|bring|come back)[^.]*\./i, '.').replace(/\.$/, '');
+  const counted = Object.values(q.need).some((n) => n > 1);
+  return `<span class="trkgoal">${goal}</span>${counted ? `<br>${questProgress(id)}` : ''}`;
+}
 function questProgress(id) {
   const q = QUESTS[id], st = S.quests[id];
   return Object.entries(q.need).map(([k, n]) => {
     const have = Math.min(n, needHave(k, st));
-    return `${k === 'kills' ? 'Monsters' : k === 'boss' ? ENEMY_TYPES[q.bossType].name : k === 'lanterns' ? 'Lanterns lit' : k === 'choice' ? 'Choice made' : k === 'riddles' ? 'Riddles answered' : k === 'crates' ? 'Crates found' : k === 'castle' ? 'Lookout reached' : ITEMS[k]} ${have}/${n}`;
+    return `${k === 'kills' ? (q.prefer === 'skel' ? 'Skeletons' : 'Monsters') : k === 'boss' ? (q.bossType === 'boss_twin_a' ? 'Avalanche Twins' : ENEMY_TYPES[q.bossType].name) : k === 'lanterns' ? 'Lanterns lit' : k === 'choice' ? 'Choice made' : k === 'riddles' ? 'Riddles answered' : k === 'crates' ? 'Crates found' : k === 'castle' ? 'Lookout reached' : ITEMS[k]} ${have}/${n}`;
   }).join(', ');
 }
 
@@ -4213,13 +4221,14 @@ function refreshUI() {
   const active = Object.keys(QUESTS).filter((k) => S.quests[k].state === 'active');
   renderHotbar();
   const tracked = trackedQuest();
-  $('tracker').innerHTML = active.map((k) => `<button class="trk${k === tracked ? ' on' : ''}" data-track="${k}" title="Follow this quest"><b>${k === tracked ? '&#10148; ' : ''}${QUESTS[k].name}</b><br>${questReady(k) ? `Return to ${npcName(QUESTS[k].giver)}` : questProgress(k)}</button>`).join('');
+  $('tracker').innerHTML = active.map((k) => `<button class="trk${k === tracked ? ' on' : ''}" data-track="${k}" title="Follow this quest"><b>${k === tracked ? '&#10148; ' : ''}${QUESTS[k].name}</b><br>${questReady(k) ? `Return to ${npcName(QUESTS[k].giver)}` : trackLine(k)}</button>`).join('') + (active.length > 1 ? `<small class="trkmore">+${active.length - 1} more quest${active.length > 2 ? 's' : ''} · open ▾</small>` : '');
   // nothing on yet: point at the next story quest to pick up
   if (!active.length) { const nx = Object.keys(QUESTS).find((k) => QUESTS[k].story && storyOpen(k) && S.quests[k].state === 'todo'); if (nx) $('tracker').innerHTML = `<button class="trk on" data-track="${nx}" title="Follow this quest"><b>&#10148; Next: ${QUESTS[nx].name}</b><br>Talk to ${npcName(QUESTS[nx].giver)}</button>`; }
   $('tracker').querySelectorAll('[data-track]').forEach((b) => { b.onclick = (e) => { e.stopPropagation(); S.track = b.dataset.track; refreshUI(); save(); }; });
   for (const n of npcs) {
     if (n.shop || n.bank) { n.marker.userData.draw('$'); continue; }
-    if (n.king) { const st = storyStep(); n.marker.userData.draw(st.some(questReady) ? '?' : st.some((q) => S.quests[q].state === 'todo') ? '!' : '♛'); continue; }
+    if (n.king) { const st = storyStep().filter((k) => QUESTS[k].giver === 'king'); n.marker.userData.draw(st.some(questReady) ? '?' : st.some((q) => S.quests[q].state === 'todo') ? '!' : '♛'); continue; }
+    if (n.id === 'cogsworth' && S.quests.st_sphinx && S.quests.st_sphinx.state === 'active' && !questReady('st_sphinx')) { n.marker.userData.draw('?'); continue; }
     if (n.lines) { n.marker.userData.draw(''); continue; }
     if (n.sail) { n.marker.userData.draw('⚓'); continue; }
     let qid = Object.keys(QUESTS).find((k) => QUESTS[k].giver === n.id && !QUESTS[k].story);
@@ -4280,7 +4289,7 @@ function renderSheet() {
     const doing = all.filter(([k, q]) => !q.story && st(k) === 'active');
     const offered = all.filter(([k, q]) => !q.story && st(k) === 'todo');
     const done = all.filter(([k]) => st(k) === 'done');
-    const reward = (q) => { const r = q.reward || {}, bits = []; if (r.coins) bits.push(`<span><img src="${ICONS.coins}" alt="">${fmt(r.coins)}</span>`); if (r.hxp || r.heroXp) bits.push(`<span><img src="${ICONS.star}" alt="">${fmt(r.hxp || r.heroXp)} XP</span>`); return bits.length ? `<div class="qrew">${bits.join('')}</div>` : '<div></div>'; };
+    const reward = (q) => { const r = q.reward || {}, bits = []; if (r.coins) bits.push(`<span><img src="${ICONS.coins}" alt="">${fmt(r.coins)}</span>`); { const hx = (r.xp && r.xp.hero) || r.hxp || r.heroXp; if (hx) bits.push(`<span><img src="${ICONS.star}" alt="">${fmt(hx)} XP</span>`); } return bits.length ? `<div class="qrew">${bits.join('')}</div>` : '<div></div>'; };
     const card = ([k, q]) => {
       const s0 = st(k), ready = questReady(k), on = tracked === k;
       const tag = ready ? '<span class="tag ready">Hand in</span>' : s0 === 'active' ? '<span class="tag active">Active</span>' : '<span class="tag todo">New</span>';
@@ -4827,14 +4836,14 @@ function eatBest() {
 function openKing(npc) {
   talking = npc;
   const d = $('dialog');
-  const steps = storyStep();
+  const steps = storyStep().filter((k) => QUESTS[k].giver === 'king');
   if (steps.length) {
     // pick: something to hand in first, then something new, then progress on an active one
     const k = steps.find((q) => questReady(q)) || steps.find((q) => S.quests[q].state === 'todo') || steps[0];
     const q = QUESTS[k], st = S.quests[k];
     let text, btn;
-    if (questReady(k)) { text = q.ready; btn = ['Hand it over', () => { finishQuest(k, npc); openKing(npc); }]; }
-    else if (st.state === 'todo') { text = q.intro; btn = ['I will do it', () => { st.state = 'active'; S.track = k; toast(`${q.chapter}: ${q.name}`, ICONS.scroll, true); refreshUI(); save(); closeDialog(); }]; }
+    if (questReady(k)) { text = q.ready; btn = [Object.keys(q.need).some((n) => ITEMS[n]) ? 'Hand it over' : 'Report back', () => { finishQuest(k, npc); openKing(npc); }]; }
+    else if (st.state === 'todo') { text = q.intro; btn = ['I will do it', () => { st.state = 'active'; S.track = k; if (q.onStart) later(0.5, q.onStart); toast(`${q.chapter}: ${q.name}`, ICONS.scroll, true); refreshUI(); save(); closeDialog(); }]; }
     else { text = `${q.desc} So far: ${questProgress(k)}.`; btn = ['On my way', closeDialog]; }
     d.innerHTML = `<h3>${npc.name}</h3><div class="chapter">${q.chapter} · ${q.name}</div><p></p>${st.state === 'todo' ? `<div class="reward">Reward: ${q.reward.coins} coins and ${Object.values(q.reward.xp)[0]} XP</div>` : ''}
       <div class="row"><button class="primary" id="kq" data-e="1"></button><button id="kingbye">Farewell</button></div>`;
@@ -4843,7 +4852,10 @@ function openKing(npc) {
     showDialog(d, { talky: true }); npc.actor.face(player.pos.x, player.pos.z);
     return;
   }
-  d.innerHTML = `<h3>${npc.name}</h3><p>You have done the kingdom proud. ${DARK_KING}'s shadow still lingers, and I will call on you again soon. Until then, grow strong: the smiths in the village sell fine weapons, shields and armour.</p>
+  // the story has moved on to another land: say exactly where to go next
+  const nx = storyStep()[0], nq = nx && QUESTS[nx];
+  const next = nq && nq.land ? `Your next task is with ${npcName(nq.giver)} in ${landName(nq.land)}. Talk to Captain Barnaby Gale at the lake pier and he will sail you there.` : `${DARK_KING}'s shadow still lingers, and I will call on you again soon.`;
+  d.innerHTML = `<h3>${npc.name}</h3><p>You have done the kingdom proud. ${next} Until then, grow strong: the smiths in the village sell fine weapons, shields and armour.</p>
     <div class="row"><button id="kingbye">Farewell</button></div>`;
   $('kingbye').onclick = closeDialog;
   showDialog(d);
@@ -4967,7 +4979,7 @@ function openDialog(npc, plain = false) {
     buttons = [['Accept quest', 'primary', () => { st.state = 'active'; S.track = qid; if (q.onStart) later(0.5, q.onStart); toast(`Quest started: ${q.name}`); refreshUI(); save(); closeDialog(); }], ['Not now', '', closeDialog]];
   } else if (questReady(qid)) {
     text = q.ready;
-    buttons = [['Hand it over', 'primary', () => { finishQuest(qid, npc); closeDialog(); }]];
+    buttons = [[Object.keys(q.need).some((n) => ITEMS[n]) ? 'Hand it over' : 'Report back', 'primary', () => { finishQuest(qid, npc); closeDialog(); }]];
   } else if (st.state === 'active') { text = `${q.desc} So far: ${questProgress(qid)}.`; buttons = [['On my way', '', closeDialog]]; }
   else { text = q.done; buttons = [['Goodbye', '', closeDialog]]; }
   // a quick shout to everyone online for quests that are better with friends
@@ -5754,7 +5766,7 @@ function hurtEnemy(e, dmg, src = null, power = 1) {
   if (e.shield) { dmg = Math.max(1, Math.round(dmg * 0.25)); if (rng() < 0.4) floatText(head.clone().setY(4.6), 'Shielded! Break the glowing crystal', 'miss'); }
   else if (now < (e.dizzyUntil || 0)) dmg = Math.round(dmg * 1.5);
   if (e.coreOpen) { dmg = Math.round(dmg * 1.3); if (rng() < 0.15) floatText(head.clone().setY(5), 'Core hit!', 'gain'); }
-  e.hp = Math.max(0, e.hp - dmg);
+  const hpWas = e.hp; e.hp = Math.max(0, e.hp - dmg);
   if (!bossRemote && !wbRemote && !mobRemote) { e.myDmg = (e.myDmg || 0) + dmg; mobShare(e, dmg); }
   wbShare(e, dmg); bossShare(e, dmg);
   // the Avalanche Twins share one strength: hurt one and the other feels it (and gets angry)
@@ -5770,7 +5782,7 @@ function hurtEnemy(e, dmg, src = null, power = 1) {
   floatText(head, crit ? `${dmg}!` : String(dmg), crit ? 'crit' : e.hp <= 0 ? 'kill' : dmg >= Math.max(8, W().dmg * 1.6) ? 'big' : '');
   if (crit) burst(head.clone().setY(2.4), '#ffe07a', 10, 4, 0.8);
   impact(e, dmg, src, power, e.hp <= 0);
-  if (!crewHitting && !bossRemote && !mobRemote && !wbRemote) giveHeroXp(dmg * HIT_HERO_XP); // only your own hits earn hit XP
+  if (!crewHitting && !bossRemote && !mobRemote && !wbRemote) giveHeroXp(Math.min(dmg, hpWas) * HIT_HERO_XP); // only your own hits earn hit XP (overkill doesn't count)
   if (e.hp <= 0) {
     e.state = 'dead'; e.bar.hidden = true;
     if (e.T.boss && (!e.temp || e.T.world) && !bossRemote && !mobRemote && !wbRemote) bossAnnounce(e);
@@ -7910,7 +7922,7 @@ const BOSS_GATES = {
   boss_rattle: { quest: 'st_dragon', beat: 'boss_gagron', who: 'Gagron the Hideous', r: 19 },
   boss_colossus: { quest: 'st_pomp', beat: 'boss_pomp', who: 'Sir Percival Pompington' },
   boss_frost: { quest: 'st_twins', beat: 'boss_twin_a', who: 'the Avalanche Twins' },
-  boss_gobbler: { quest: 'st_lantern', who: 'the Lantern Night' },
+  boss_gobbler: { quest: 'st_lantern', who: 'Lantern Night', finish: true },
   boss_goon: { quest: 'st_sogg', beat: 'boss_sogg', who: 'Sir Soggington', r: 19 },
 };
 // a friend already inside the seal (so they've unlocked it) lets you in to help them
@@ -7935,7 +7947,7 @@ function bossGateTick() {
     if (d < SR + 0.8) {
       const k = (SR + 0.8) / (d || 1);
       player.pos.x = hx + (player.pos.x - hx) * k; player.pos.z = hz + (player.pos.z - hz) * k;
-      if (performance.now() - sealSaid > 4000) { sealSaid = performance.now(); toast(`A magic seal blocks the way. Beat ${BOSS_GATES[e.type].who} first.`, ICONS.star); burst(player.pos.clone().setY(1.5), '#c9a8ff', 20, 4); }
+      if (performance.now() - sealSaid > 4000) { sealSaid = performance.now(); toast(`A magic seal blocks the way. ${BOSS_GATES[e.type].finish ? 'Finish' : 'Beat'} ${BOSS_GATES[e.type].who} first.`, ICONS.star); burst(player.pos.clone().setY(1.5), '#c9a8ff', 20, 4); }
     }
   }
 }
