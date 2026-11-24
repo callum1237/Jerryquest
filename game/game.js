@@ -6229,9 +6229,6 @@ function hurtEnemy(e, dmg, src = null, power = 1) {
   if (!e.T.boss && !crewHitting && !poisonHit && !bossRemote && !mobRemote && !wbRemote && journalTier(e.type)) dmg = Math.round(dmg * (1 + 0.03 * journalTier(e.type)));
   if (e.coreOpen) { dmg = Math.round(dmg * 1.3); if (rng() < 0.15) floatText(head.clone().setY(5), 'Core hit!', 'gain'); }
   const hpWas = e.hp; e.hp = Math.max(0, e.hp - dmg);
-  // v75: finishing blow. Your hit leaves an ordinary monster nearly beaten (12% or less)? It goes down right away
-  let finish = false;
-  if (!e.T.boss && !crewHitting && !poisonHit && !bossRemote && !mobRemote && !wbRemote && e.hp > 0 && e.hp <= e.T.hp * 0.12) { dmg += e.hp; e.hp = 0; finish = true; }
   if (!bossRemote && !wbRemote && !mobRemote) { e.myDmg = (e.myDmg || 0) + dmg; mobShare(e, dmg); }
   wbShare(e, dmg); bossShare(e, dmg);
   // the Avalanche Twins share one strength: hurt one and the other feels it (and gets angry)
@@ -6245,7 +6242,6 @@ function hurtEnemy(e, dmg, src = null, power = 1) {
   phaseCheck(e);
   if (e.T.boss && !PHASE_LINES[e.type] && !e.lowSaid && e.hp > 0 && e.hp <= e.T.hp * 0.4) { e.lowSaid = true; bossShout(e); }
   if (counter) floatText(head.clone().setY(head.y + 0.9), 'Counter!', 'crit');
-  else if (finish) { floatText(head.clone().setY(head.y + 0.9), 'Finish!', 'crit'); burst(head.clone().setY(1.6), '#ffffff', 16, 5, 0.9); }
   floatText(head, crit ? `${dmg}!` : String(dmg), crit ? 'crit' : e.hp <= 0 ? 'kill' : dmg >= Math.max(8, W().dmg * 1.6) ? 'big' : '');
   if (crit) burst(head.clone().setY(2.4), '#ffe07a', 10, 4, 0.8);
   impact(e, dmg, src, power, e.hp <= 0);
