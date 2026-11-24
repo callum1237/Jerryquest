@@ -226,7 +226,7 @@ export function buildWorld(library) {
   const gGeo = new THREE.PlaneGeometry(560, 560, 240, 240);
   gGeo.rotateX(-Math.PI / 2);
   const zc = new THREE.Color(), zc2 = new THREE.Color();
-  const gc = [], cA = new THREE.Color('#5ea83e'), cB = new THREE.Color('#86bf52'), cC = new THREE.Color('#438f38'), tmpc = new THREE.Color();
+  const gc = [], cA = new THREE.Color('#58a046'), cB = new THREE.Color('#8ec25a'), cC = new THREE.Color('#3c8442'), tmpc = new THREE.Color();
   const pos = gGeo.attributes.position;
   for (let i = 0; i < pos.count; i++) {
     const x = pos.getX(i), z = pos.getZ(i);
