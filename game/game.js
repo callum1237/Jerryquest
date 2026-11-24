@@ -893,7 +893,7 @@ function peersTick(dt) {
     humanSet(pa.a, !!p.hm && !p.wf); humanTick(pa.a, dt);
     flairTick(pa.a, dt, /Running|Walking/.test(pa.anim));
     if (pa.shimAt === undefined || now > pa.shimAt) { pa.shimAt = now + 0.1; shimmerTick(pa.a, p.look && p.look.cos); }
-    const v = tmpV.set(p.x, pa.a.wolf ? 7.4 : 0.6 + 3.8 * (pa.a.shrinkK || 1), p.z).project(camera);
+    const v = tmpV.set(p.x, pa.a.wolf ? 7.4 : pa.a.human ? 6.4 : 0.6 + 3.8 * (pa.a.shrinkK || 1), p.z).project(camera);
     if (v.z > 1 || bossIntro) { setShown(pa.tag, false); continue; }
     setShown(pa.tag, true);
     pin(pa.tag, v);
@@ -1209,7 +1209,7 @@ function wolfTick(a, dt, anim) {
 // Admin-only: /human swaps the hero for Callum's realistic human (see human.js) until /unhuman. The model only
 // downloads the first time someone needs it, and everyone online sees it, animated to match what the hero is doing.
 let humanOn = false, humanG = null, humanLoad = null;
-const HUMAN_SCALE = 2.05; // a head taller than everyone else
+const HUMAN_SCALE = 2.9, HUMAN_BULK = 1.15; // about 1.5x as tall as the regular heroes, and broader too
 function loadHuman() {
   if (!humanLoad) humanLoad = loadModel('human').then((g) => { humanG = g; }).catch((e) => { console.warn(e); humanLoad = null; });
   return humanLoad;
@@ -1255,7 +1255,7 @@ function humanTick(a, dt) {
   if (now > (a.humanHideAt || 0)) { a.humanHideAt = now + 0.5; humanHide(a); }
   h.root.visible = a.root.visible;
   h.root.position.copy(a.root.position); h.root.rotation.y = a.root.rotation.y;
-  h.root.scale.setScalar(HUMAN_SCALE * a.root.scale.x / 1.3);
+  { const k = HUMAN_SCALE * a.root.scale.x / 1.3; h.root.scale.set(k * HUMAN_BULK, k, k * HUMAN_BULK); }
   const name = a.name || 'Idle', act = a.current;
   const restarted = act && (act !== h.mirrorAct || act.time + 0.02 < (h.mirrorT || 0)) && !HUMAN_LOOPS.has(HUMAN_ALIAS[name]);
   h.mirrorT = act ? act.time : 0;
@@ -9258,7 +9258,7 @@ function heroTag() {
   if (!heroTagEl) { heroTagEl = document.createElement('div'); heroTagEl.className = 'herotag'; heroTagEl.innerHTML = '<b></b><s class="tagbar"><u></u></s>'; document.body.appendChild(heroTagEl); }
   const show = player && S.started && !player.dead && !creator.open && !bossIntro && S.nameTag !== false;
   if (!show) { setShown(heroTagEl, false); return; }
-  const v = tmpV.set(player.pos.x, player.pos.y + (player.wolf ? 7.4 : 0.6 + 3.8 * (player.shrinkK || 1)), player.pos.z).project(camera);
+  const v = tmpV.set(player.pos.x, player.pos.y + (player.wolf ? 7.4 : player.human ? 6.4 : 0.6 + 3.8 * (player.shrinkK || 1)), player.pos.z).project(camera);
   if (v.z > 1) { setShown(heroTagEl, false); return; }
   setShown(heroTagEl, true);
   pin(heroTagEl, v);
