@@ -3793,7 +3793,8 @@ function guideTick() {
   const want = Math.atan2(t.x - P.x, t.z - P.z) + Math.PI;
   let diff = want - guide.pivot.rotation.y; diff = Math.atan2(Math.sin(diff), Math.cos(diff));
   guide.pivot.rotation.y += diff * 0.2;
-  guide.arrow.position.z = -(player.wolf ? 7.6 : 4.6) - Math.sin(now * 5) * 0.35;
+  const upScreen = Math.max(0, -Math.cos(guide.pivot.rotation.y - Math.PI)); // 1 when the goal is straight up the screen
+  guide.arrow.position.z = -(player.wolf ? 7.6 : 4.6) - upScreen * 2.6 - Math.sin(now * 5) * 0.35;
   guide.star.position.set(t.x, 5.2 + Math.sin(now * 3) * 0.3, t.z);
   guide.star.rotation.y = now * 2;
   if (d > 4.5 && !creator.open) {
@@ -5977,6 +5978,21 @@ function hazardTick(dt) {
     }
   }
 }
+// A stream of fire from the dragon's jaws along its breath cone, timed to the Fire_Breath animation.
+const _fp = new THREE.Vector3(), _fq = new THREE.Vector3();
+function dragonFlame(e, dir, len) {
+  let jaw = null; e.root.traverse((o) => { if (!jaw && o.isBone && o.name === 'mouth_upper') jaw = o; });
+  const cols = e.T.drake === 'elder' ? ['#7af0e0', '#c89aff'] : ['#ffd25a', '#ff7a2a'];
+  for (let i = 0; i < 16; i++) later(0.4 + i * 0.045, () => {
+    if (e.hp <= 0) return;
+    if (jaw) jaw.getWorldPosition(_fp); else _fp.set(e.pos.x, 2, e.pos.z);
+    for (let j = 0; j < 3; j++) {
+      const k = 0.12 + ((i + j * 3) % 8) * 0.11, d = len * k, wob = (rng() - 0.5) * 0.7 * k;
+      _fq.set(_fp.x + Math.sin(dir + wob) * d, Math.max(0.5, _fp.y * (1 - k * 0.8)), _fp.z + Math.cos(dir + wob) * d);
+      burst(_fq, cols[(i + j) % 2], 10, 1.5 + k * 4, 0.6);
+    }
+  });
+}
 function dragonAttack(e, toP) {
   const ep = e.pos, n = ++e.swings;
   const toward = Math.atan2(player.pos.x - ep.x, player.pos.z - ep.z);
@@ -6001,6 +6017,7 @@ function dragonAttack(e, toP) {
     e.face(player.pos.x, player.pos.z); e.state = 'slam';
     e.play('Spellcast_Shoot', { once: true, fade: 0.1 });
     hazard({ x: ep.x, z: ep.z, R: 12, dir: toward + Math.PI, half: 0.42, dur: 1.15, dmg: bossDmg(e, 1.6) });
+    if (e.T.drake) dragonFlame(e, toward, 12);
     later(1.2, () => { if (e.hp > 0) { e.state = 'chase'; e.play('Idle_Combat'); } });
   }
 }
@@ -10161,7 +10178,7 @@ function makeGagronFriend() {
   npcs.push(gagronFriend);
 }
 
-window.__jq = { toast, wolfSet, get wolfOn() { return wolfOn; }, set wolfOn(v) { wolfOn = v; }, mobNet, netHeroesTick, esNet, enemyAttackNet, hzNet, bfxNet, pickTarget, heroesNear, get hazards() { return hazards; }, get netDrive() { return netDrive; }, shrinkMe, showStoryIntro, hurtPlayer, koSitOut, wakeUp, showLook, removeThing, giveThing, COS, ITEMS, GEAR, parseGive, chargedAttack, parseAmount, hitPeers, shotHitsPeer, showKeysNote, castSpell, learnSpell, spellCd, SPELLS, goonSneeze, goonDrips, goonFlop, setSlotBox, showSlots, get slotBox() { return slotBox; }, get guide() { return guide; }, bossNet, safeSpot, get PVP_LVL() { return PVP_LVL; }, goldNode, wbInfo, wbTick, get wb() { return wb; }, WB_SPOTS, tradeOpen, tradeNet, offerKey, get trade() { return trade; }, adv(s) { for (let t = 0; t < s; t += 0.05) { for (let i = timers.length - 1; i >= 0; i--) { timers[i].t -= 0.05; if (timers[i].t <= 0) { const f = timers[i].f; timers.splice(i, 1); f(); } } bossFxTick(0.05); } }, get party() { return party; }, BOSS_AI, PHASE_SETUP, get gulped() { return gulped; }, wriggle, toggleBigMap, spawnEnemy, openPathChoice, choosePath, startLanternNight, get lanterns() { return lanterns; }, duelOffer, duelPrize, onNet, chatCommand, canFight, openUpgrade, openBoard, boardToday, queueLetter, makeGagronFriend, net, peerActors, runeTick, bossFx, renderer, scene, openMayor, darkOmen, netWorth, liberateTown, setGolden, goldenCaught, pompArrive, get goldenE() { return goldenE; }, spinWheel, dayTick, get bossIntro() { return bossIntro; }, bossSkip, startBossScene, sailTo, regions, closeSheet, renderHotbar, crew, setCrewMode, TOWNS, liberateTown, chests, openChest, stopRoulette, enemies, startBossIntro, closeDialog, advanceDialog, dash, attackPress, craft, CRAFTS, openCreator, closeCreator, creator, rebuildHero, setZoom: (z) => { zoom = zoomGoal = z; }, hurtEnemy, goThrough, get where() { return where; }, INTERIORS, equipGear, spendPoint, giveHeroXp, heroLvl, stat, maxHp, defDiv, openWeaponShop, openKing, jump, eat, eatBest, openShop, swing, swingTarget, hitNode, projectiles, timers, get S() { return S; }, get player() { return player; }, enemies, nodes, npcs, startTask, doAction, giveXp, save, openSheet, openDialog };
+window.__jq = { dragonAttack, toast, wolfSet, get wolfOn() { return wolfOn; }, set wolfOn(v) { wolfOn = v; }, mobNet, netHeroesTick, esNet, enemyAttackNet, hzNet, bfxNet, pickTarget, heroesNear, get hazards() { return hazards; }, get netDrive() { return netDrive; }, shrinkMe, showStoryIntro, hurtPlayer, koSitOut, wakeUp, showLook, removeThing, giveThing, COS, ITEMS, GEAR, parseGive, chargedAttack, parseAmount, hitPeers, shotHitsPeer, showKeysNote, castSpell, learnSpell, spellCd, SPELLS, goonSneeze, goonDrips, goonFlop, setSlotBox, showSlots, get slotBox() { return slotBox; }, get guide() { return guide; }, bossNet, safeSpot, get PVP_LVL() { return PVP_LVL; }, goldNode, wbInfo, wbTick, get wb() { return wb; }, WB_SPOTS, tradeOpen, tradeNet, offerKey, get trade() { return trade; }, adv(s) { for (let t = 0; t < s; t += 0.05) { for (let i = timers.length - 1; i >= 0; i--) { timers[i].t -= 0.05; if (timers[i].t <= 0) { const f = timers[i].f; timers.splice(i, 1); f(); } } bossFxTick(0.05); } }, get party() { return party; }, BOSS_AI, PHASE_SETUP, get gulped() { return gulped; }, wriggle, toggleBigMap, spawnEnemy, openPathChoice, choosePath, startLanternNight, get lanterns() { return lanterns; }, duelOffer, duelPrize, onNet, chatCommand, canFight, openUpgrade, openBoard, boardToday, queueLetter, makeGagronFriend, net, peerActors, runeTick, bossFx, renderer, scene, openMayor, darkOmen, netWorth, liberateTown, setGolden, goldenCaught, pompArrive, get goldenE() { return goldenE; }, spinWheel, dayTick, get bossIntro() { return bossIntro; }, bossSkip, startBossScene, sailTo, regions, closeSheet, renderHotbar, crew, setCrewMode, TOWNS, liberateTown, chests, openChest, stopRoulette, enemies, startBossIntro, closeDialog, advanceDialog, dash, attackPress, craft, CRAFTS, openCreator, closeCreator, creator, rebuildHero, setZoom: (z) => { zoom = zoomGoal = z; }, hurtEnemy, goThrough, get where() { return where; }, INTERIORS, equipGear, spendPoint, giveHeroXp, heroLvl, stat, maxHp, defDiv, openWeaponShop, openKing, jump, eat, eatBest, openShop, swing, swingTarget, hitNode, projectiles, timers, get S() { return S; }, get player() { return player; }, enemies, nodes, npcs, startTask, doAction, giveXp, save, openSheet, openDialog };
 window.addEventListener('error', (e) => { const m = $('loadmsg'); if (m) m.textContent = `Something went wrong: ${e.message}`; });
 main().catch((err) => {
   console.error(err);
