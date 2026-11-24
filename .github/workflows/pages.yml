@@ -17,4 +17,8 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git subtree split --prefix game -b pages-tmp
+          # stamp the build so index.html always loads the newest game.js (see the loader in index.html)
+          git checkout -q pages-tmp
+          echo "$GITHUB_SHA" > version.txt
+          git add version.txt && git commit -q -m "version $GITHUB_SHA"
           git push -f origin pages-tmp:gh-pages

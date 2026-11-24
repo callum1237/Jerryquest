@@ -949,7 +949,7 @@ function parseGive(words) {
   return { ...findThing(words.join(' ')), n, text: words.join(' ') };
 }
 async function adminGive(rest) {
-  if (!(await isAdmin())) { sys('Unknown command. Type /p for party commands or /who to see who is online.'); return; }
+  if (!(await isAdmin())) { sys(net.on ? 'Only admins can use that command.' : 'Admin commands need you to be signed in and online.'); return; }
   let args = rest.filter(Boolean);
   if (!args.length || args[0].toLowerCase() === 'help') { sys(ADMIN_HELP); return; }
   if (args[0].toLowerCase() === 'find' || args[0].toLowerCase() === 'list') {
@@ -982,7 +982,7 @@ async function adminGive(rest) {
   sys(r.error ? `Couldn't send that: ${r.error}` : `Sent ${what === 'coins' ? `${fmt(n)} coins` : what === 'xp' ? `${fmt(n)} XP` : `${n > 1 ? `${fmt(n)} × ` : ''}${thingLabel(what)}`} to ${target[1].name}. It arrives within a few seconds.`);
 }
 async function adminKick(rest) {
-  if (!(await isAdmin())) { sys('Unknown command. Type /p for party commands or /who to see who is online.'); return; }
+  if (!(await isAdmin())) { sys(net.on ? 'Only admins can use that command.' : 'Admin commands need you to be signed in and online.'); return; }
   const t = peerByName(rest[0]);
   if (!t) { sys(rest[0] ? `Nobody called "${rest[0]}" is online. Try /who.` : 'Kick who? /kick name'); return; }
   const r = await adminSend(t[0], 'kick', { secs: 30 });
