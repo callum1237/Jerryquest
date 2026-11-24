@@ -186,7 +186,7 @@ export async function connect(profile) {
       if (id === net.user.id || !metas[0]) continue;
       seen.add(id);
       const m = metas[0], peer = net.peers.get(id) || { x: m.x, z: m.z, gx: m.x, gz: m.z, ry: 0, a: 'Idle', where: m.w };
-      Object.assign(peer, { name: m.name, lvl: m.lvl, look: m.look, ver: m.ver, sm: m.sm, wf: m.wf });
+      Object.assign(peer, { name: m.name, lvl: m.lvl, look: m.look, ver: m.ver, sm: m.sm, wf: m.wf, hm: m.hm, dg: m.dg });
       net.peers.set(id, peer);
     }
     for (const id of [...net.peers.keys()]) if (!seen.has(id)) { if (net.onPeerGone) net.onPeerGone(id); net.peers.delete(id); }

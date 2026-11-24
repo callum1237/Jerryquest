@@ -823,7 +823,7 @@ function titleCam() {
   camera.lookAt(0, 3, -4);
 }
 let profileKey = '';
-function profile() { const C = cosState(), t = heroTitle(); return { sm: shrinkUntil > Date.now() ? 1 : 0, wf: wolfOn ? 1 : 0, hm: humanOn ? 1 : 0, name: heroName(), lvl: heroLvl(), look: { ...S.look, path: S.path || '', cos: { ...C.eq }, ti: t ? t.name : '', tc: t ? t.col : '' }, w: where, x: player ? player.pos.x : 0, z: player ? player.pos.z : 0 }; }
+function profile() { const C = cosState(), t = heroTitle(); return { sm: shrinkUntil > Date.now() ? 1 : 0, wf: wolfOn ? 1 : 0, hm: humanOn ? 1 : 0, dg: dogOn ? 1 : 0, name: heroName(), lvl: heroLvl(), look: { ...S.look, path: S.path || '', cos: { ...C.eq }, ti: t ? t.name : '', tc: t ? t.col : '' }, w: where, x: player ? player.pos.x : 0, z: player ? player.pos.z : 0 }; }
 function goOnline() {
   net.onTowns = syncTowns;
   net.onPeerGone = (id) => { dropPeer(id); partyPeerGone(id); if (trade && trade.with === id) tradeClose('Your trade partner left.'); };
@@ -863,6 +863,7 @@ function dropPeer(id) {
   if (pa.a.wolf) wolfSet(pa.a, false);
   petSet(pa.a, null);
   if (pa.a.human) humanSet(pa.a, false);
+  if (pa.a.dog) dogSet(pa.a, false);
   scene.remove(pa.a.root); pa.tag.remove(); peerActors.delete(id);
 }
 const ONE_SHOT = /Attack|Hit_|Death|Jump|Dodge|Use_Item|Interact|Cheer|Spellcast|Block/;
@@ -871,7 +872,7 @@ function peersTick(dt) {
   if (trade && !net.peers.has(trade.with)) tradeClose(`${trade.name} left, so the trade was cancelled. Nothing was swapped.`);
   sendPos(player.pos.x, player.pos.z, player.root.rotation.y, player.name || 'Idle', where, `${Math.max(0, Math.round(S.hp))}/${maxHp()}`);
   shrinkEase(player, shrinkUntil > Date.now(), dt);
-  const key = `${wolfOn ? 'w' : ''}${humanOn ? 'h' : ''}${shrinkUntil > Date.now() ? 's' : ''}|${heroName()}|${heroLvl()}|${JSON.stringify(S.look)}|${S.path || ''}|${JSON.stringify(cosState().eq)}|${S.title || ''}`;
+  const key = `${wolfOn ? 'w' : ''}${humanOn ? 'h' : ''}${dogOn ? 'd' : ''}${shrinkUntil > Date.now() ? 's' : ''}|${heroName()}|${heroLvl()}|${JSON.stringify(S.look)}|${S.path || ''}|${JSON.stringify(cosState().eq)}|${S.title || ''}`;
   if (key !== profileKey) { profileKey = key; updateProfile(profile()); }
   for (const [id, p] of net.peers) {
     let pa = peerActors.get(id);
@@ -881,6 +882,7 @@ function peersTick(dt) {
     pa.a.root.visible = here;
     if (pa.a.wolf) pa.a.wolf.visible = here;
     if (pa.a.human) pa.a.human.root.visible = here;
+    if (pa.a.dog) pa.a.dog.root.visible = here;
     if (!here) { setShown(pa.tag, false); continue; }
     // glide towards where they are now: their last update, nudged on by how fast they were moving
     const k = Math.min(1, dt * 12), still = !/Running|Walking|Dodge|Jump/.test(p.a || '');
@@ -895,10 +897,11 @@ function peersTick(dt) {
     shrinkEase(pa.a, !!p.sm, dt);
     wolfSet(pa.a, !!p.wf); wolfTick(pa.a, dt, pa.anim);
     pa.a.mixer.update(dt); headPose(pa.a); petTick(pa.a, dt);
-    humanSet(pa.a, !!p.hm && !p.wf); humanTick(pa.a, dt);
+    humanSet(pa.a, !!p.hm && !p.wf && !p.dg); humanTick(pa.a, dt);
+    dogSet(pa.a, !!p.dg); dogTick(pa.a, dt);
     flairTick(pa.a, dt, /Running|Walking/.test(pa.anim));
     if (pa.shimAt === undefined || now > pa.shimAt) { pa.shimAt = now + 0.1; shimmerTick(pa.a, p.look && p.look.cos); }
-    const v = tmpV.set(p.x, pa.a.wolf ? 7.4 : pa.a.human ? 6.4 : 0.6 + 3.8 * (pa.a.shrinkK || 1), p.z).project(camera);
+    const v = tmpV.set(p.x, pa.a.wolf ? 7.4 : pa.a.dog ? 3.0 : pa.a.human ? 6.4 : 0.6 + 3.8 * (pa.a.shrinkK || 1), p.z).project(camera);
     if (v.z > 1 || bossIntro) { setShown(pa.tag, false); continue; }
     setShown(pa.tag, true);
     pin(pa.tag, v);
@@ -939,7 +942,7 @@ function partySet(p, why) {
 // picks the action up from there, so nobody can fake one by sending a message.
 // typed amounts: "90k" = 90,000, "2.5m" = 2,500,000, "1b" = a billion; commas and spaces are ignored. NaN if it isn't a number.
 const parseAmount = (t) => { const m = String(t ?? '').replace(/[,\s_]/g, '').toLowerCase().match(/^(\d+(?:\.\d+)?|\.\d+)([kmb])?$/); return m ? Math.floor(parseFloat(m[1]) * ({ k: 1e3, m: 1e6, b: 1e9 }[m[2]] || 1)) : NaN; };
-const ADMIN_HELP = 'Admin: /give [player] thing [amount]. Things: coins, xp (or exp), any item, gear, look or spell by name (like /give prism aura or /give Bob dark blade), or an id like outfit:id, aura:id, hat:id, cape:id, trail:id, spell:id, or "all-looks" (also "all outfits"). /give find skins (or auras, hats, capes, trails, spells, gear, items) lists names; /give find word searches. /kick player (30 seconds). /remove player thing [amount]. /look player shows their hero and bag. /shrink player makes them tiny for 30 seconds. /wolf and /unwolf turn you into a giant wolf and back. /human and /unhuman turn you into your realistic human and back. /azap and /agust give you Admin Zap and Admin Gust (admin only, no cooldown).';
+const ADMIN_HELP = 'Admin: /give [player] thing [amount]. Things: coins, xp (or exp), any item, gear, look or spell by name (like /give prism aura or /give Bob dark blade), or an id like outfit:id, aura:id, hat:id, cape:id, trail:id, spell:id, or "all-looks" (also "all outfits"). /give find skins (or auras, hats, capes, trails, spells, gear, items) lists names; /give find word searches. /kick player (30 seconds). /remove player thing [amount]. /look player shows their hero and bag. /shrink player makes them tiny for 30 seconds. /wolf and /unwolf turn you into a giant wolf and back. /human and /unhuman turn you into your realistic human and back. /dog player turns someone into a realistic dog (/undog player changes them back; /dog on its own does you). /azap and /agust give you Admin Zap and Admin Gust (admin only, no cooldown).';
 function giveThing(what, n) {
   if (what === 'coins' || what === 'gold') { S.coins += n; refreshUI(); return `${fmt(n)} coins`; }
   if (what === 'xp' || what === 'exp') { giveHeroXp(n); return `${fmt(n)} hero XP`; }
@@ -1284,6 +1287,68 @@ async function adminHuman(on) {
   if (on) { toast('You are human now. Type /unhuman (or /human again) to change back.', ICONS.star, true); sys('You turned into your human. Type /unhuman to change back.'); }
   else sys('You are yourself again.');
 }
+// ---------- /dog ----------
+// Admin prank: /dog name turns that hero into a dog until /undog name (or until they reload). Everyone online sees
+// the dog, running, walking, biting and flopping over to match what the hero does. Model: Quaternius Shiba Inu (CC0),
+// welded with smooth normals when packed (tools: packdog) so it looks less blocky. It only downloads the first time someone needs it.
+let dogOn = false, dogG = null, dogLoad = null;
+const DOG_SCALE = 0.75;
+const DOG_ALIAS = { Idle: 'Idle', Idle_Combat: 'Idle', Walking_A: 'Walk', Walking_B: 'Walk', Running_A: 'Gallop', Running_B: 'Gallop', Hit_A: 'Idle_HitReact1', Hit_B: 'Idle_HitReact2', Death_A: 'Death', Jump_Full_Short: 'Gallop_Jump', Jump_Start: 'Gallop_Jump', Cheer: 'Idle_2', Interact: 'Eating', Use_Item: 'Eating' };
+const DOG_LOOPS = new Set(['Idle', 'Walk', 'Gallop', 'Idle_2', 'Eating']);
+function loadDog() {
+  if (!dogLoad) dogLoad = loadModel('dog').then((g) => {
+    dogG = g;
+  }).catch((e) => { console.warn(e); dogLoad = null; });
+  return dogLoad;
+}
+function dogSet(a, on) {
+  if (!!a.dog === on) return;
+  if (on) {
+    if (!dogG) { loadDog(); return; }
+    const d = a.dog = new Actor(dogG, { scale: DOG_SCALE });
+    d.alias = DOG_ALIAS; d.root.position.copy(a.root.position);
+    if (a === player) addSilhouette(d.root, '#ffe9a0');
+    a.dogHid = []; a.root.traverse((o) => { if (o.isMesh && o.visible) { o.visible = false; a.dogHid.push(o); } });
+    burst(a.root.position.clone().setY(1.5), '#e8c9a0', 40, 5, 1.3); sfx('special');
+  } else {
+    scene.remove(a.dog.root); a.dog.mixer.stopAllAction(); a.dog = null;
+    for (const o of a.dogHid || []) o.visible = true; a.dogHid = null;
+    burst(a.root.position.clone().setY(1.5), '#e8c9a0', 30, 5, 1.2);
+  }
+}
+function dogTick(a, dt) {
+  const d = a.dog; if (!d) return;
+  if (now > (a.dogHideAt || 0)) { a.dogHideAt = now + 0.5; a.root.traverse((o) => { if (o.isMesh && o.visible) { o.visible = false; a.dogHid.push(o); } }); }
+  d.root.visible = a.root.visible;
+  d.root.position.copy(a.root.position); d.root.rotation.y = a.root.rotation.y;
+  d.root.scale.setScalar(DOG_SCALE * a.root.scale.x / 1.3);
+  const name = a.name || 'Idle', act = a.current;
+  const clip = DOG_ALIAS[name] || (/Attack|Spellcast|Melee/.test(name) ? 'Attack' : /Running|Dodge/.test(name) ? 'Gallop' : /Walking/.test(name) ? 'Walk' : /Death/.test(name) ? 'Death' : /Hit/.test(name) ? 'Idle_HitReact1' : /Jump/.test(name) ? 'Gallop_Jump' : 'Idle');
+  const restarted = act && (act !== d.mirrorAct || act.time + 0.02 < (d.mirrorT || 0)) && !DOG_LOOPS.has(clip);
+  d.mirrorT = act ? act.time : 0;
+  if (name !== d.mirror || restarted) {
+    d.mirror = name; d.mirrorAct = act;
+    const loop = DOG_LOOPS.has(clip);
+    d.play(clip, { once: !loop, clamp: !loop, speed: clip === 'Gallop' ? 1.25 : clip === 'Attack' ? 1.4 : 1 });
+  }
+  d.mixer.update(dt);
+}
+function dogMe(on) {
+  if (on === dogOn) return;
+  if (on) { if (wolfOn) { wolfOn = false; wolfSet(player, false); } if (humanOn) { humanOn = false; humanSet(player, false); } }
+  dogOn = on; profileKey = '';
+  if (!on) dogSet(player, false); else loadDog();
+  toast(on ? 'WOOF! An admin turned you into a dog!' : 'You are yourself again.', ICONS.star, on);
+}
+async function adminDog(rest, on) {
+  if (!(await isAdmin())) { sys(net.on ? 'Only admins can use that command.' : 'Admin commands need you to be signed in and online.'); return; }
+  const nm = rest.join(' ').trim();
+  if (!nm || nm.toLowerCase() === 'me' || nm.toLowerCase() === heroName().toLowerCase()) { dogMe(on); sys(on ? 'Woof! You are a dog. Type /undog to change back.' : 'You are yourself again.'); return; }
+  const t = peerByName(nm);
+  if (!t) { sys(`Nobody called "${nm}" is online. Try /who.`); return; }
+  const r = await adminSend(t[0], 'dog', { on: on ? 1 : 0 });
+  sys(r.error ? `Couldn't do that: ${r.error}` : on ? `${t[1].name} is a dog now! /undog ${t[1].name} changes them back.` : `${t[1].name} is back to normal.`);
+}
 async function adminWolf(on) {
   if (!(await isAdmin())) { sys(net.on ? 'Only admins can use that command.' : 'Admin commands need you to be signed in and online.'); return; }
   if (on === wolfOn) { sys(on ? 'You are already a wolf! Type /unwolf to change back.' : 'You are not a wolf right now.'); return; }
@@ -1304,6 +1369,7 @@ async function adminInboxTick() {
   const rows = await adminInbox(); if (!rows || !rows.length) return;
   for (const r of rows) {
     if (r.action === 'give') { const got = giveThing(String(r.data.what || '').toLowerCase(), Math.max(1, Math.min(1e9, +r.data.n || 1))); if (got) { toast(`An admin gave you ${got}!`, ICONS.star, true); burst(player.pos.clone().setY(2), '#ffe07a', 40, 6, 1.2); } save(); }
+    if (r.action === 'dog') dogMe(!!r.data.on);
     if (r.action === 'shrink') shrinkMe(Math.max(5, Math.min(300, +r.data.secs || 30)));
     if (r.action === 'kick') kickedOut(Math.max(5, Math.min(600, +r.data.secs || 30)));
     if (r.action === 'remove') { const gone = removeThing(String(r.data.what || '').toLowerCase(), Math.max(1, Math.min(1e9, +r.data.n || 1))); if (gone) toast(`An admin took back ${gone}.`, ICONS.star); save(); }
@@ -1333,6 +1399,8 @@ function chatCommand(line) {
   if (/^wolf$/i.test(cmd)) { adminWolf(true); return; }
   if (/^human$/i.test(cmd)) { adminHuman(!humanOn); return; }
   if (/^unhuman$/i.test(cmd)) { adminHuman(false); return; }
+  if (/^dog$/i.test(cmd)) { adminDog(rest, true); return; }
+  if (/^undog$/i.test(cmd)) { adminDog(rest, false); return; }
   if (/^agust$/i.test(cmd)) { (async () => { if (!(await isAdmin())) { sys(net.on ? 'Only admins can use that command.' : 'Admin commands need you to be signed in and online.'); return; } learnSpell('agust'); sys('Admin Gust is on your hotbar. No cooldown: blow them all away.'); toast('You learned Admin Gust!', spellIcon('agust'), true); })(); return; }
   if (/^azap$/i.test(cmd)) { (async () => { if (!(await isAdmin())) { sys(net.on ? 'Only admins can use that command.' : 'Admin commands need you to be signed in and online.'); return; }
     // /azap damage 50: Admin Zap hits for that percent of its full power (saved with your hero)
@@ -8043,7 +8111,7 @@ function tick() {
   regionTick(); lightTick(); vigTick(); chipsTick();
   if (player) { goldenTick(); tinyTick(dt); pompTick(dt); }
 
-  if (player) { breathTick(); if (wolfOn && !player.wolf) wolfSet(player, true); wolfTick(player, dt, player.name); if (humanOn && !player.human) humanSet(player, true); humanTick(player, dt); gulpTick(); lanternTick(dt); wingTick(); stormTick(dt); castleTick(dt); colossusTick(dt); cosTick(); wbTick(); bossSyncTick(); if (net.on) mobFlush(); weaponSparkle(); flairTick(player, dt, player.name === 'Running_A' || player.name === 'Walking_A' || (player.name || '').startsWith('Running')); }
+  if (player) { breathTick(); if (wolfOn && !player.wolf) wolfSet(player, true); wolfTick(player, dt, player.name); if (humanOn && !player.human) humanSet(player, true); humanTick(player, dt); if (dogOn && !player.dog) dogSet(player, true); dogTick(player, dt); gulpTick(); lanternTick(dt); wingTick(); stormTick(dt); castleTick(dt); colossusTick(dt); cosTick(); wbTick(); bossSyncTick(); if (net.on) mobFlush(); weaponSparkle(); flairTick(player, dt, player.name === 'Running_A' || player.name === 'Walking_A' || (player.name || '').startsWith('Running')); }
   if (player && !player.dead && !uiLock() && !gulped) {
     const busy = now < player.busyUntil;
     let mx = 0, mz = 0;
@@ -9369,7 +9437,7 @@ function heroTag() {
   if (!heroTagEl) { heroTagEl = document.createElement('div'); heroTagEl.className = 'herotag'; heroTagEl.innerHTML = '<b></b><s class="tagbar"><u></u></s>'; document.body.appendChild(heroTagEl); }
   const show = player && S.started && !player.dead && !creator.open && !bossIntro && S.nameTag !== false;
   if (!show) { setShown(heroTagEl, false); return; }
-  const v = tmpV.set(player.pos.x, player.pos.y + (player.wolf ? 7.4 : player.human ? 6.4 : 0.6 + 3.8 * (player.shrinkK || 1)), player.pos.z).project(camera);
+  const v = tmpV.set(player.pos.x, player.pos.y + (player.wolf ? 7.4 : player.dog ? 3.0 : player.human ? 6.4 : 0.6 + 3.8 * (player.shrinkK || 1)), player.pos.z).project(camera);
   if (v.z > 1) { setShown(heroTagEl, false); return; }
   setShown(heroTagEl, true);
   pin(heroTagEl, v);
@@ -10642,7 +10710,7 @@ function makeGagronFriend() {
   npcs.push(gagronFriend);
 }
 
-window.__jq = { journalTier, petLv, bossFirstWin, SPELL_FX, adminHuman, humanSet, get humanOn() { return humanOn; }, helpedUp, dailyGift, masteryLv, reviveTick, affixFx, partySet, get streak() { return streak; }, get together() { return together; }, dragonAttack, dodgedFx, popLoot, toast, wolfSet, get wolfOn() { return wolfOn; }, set wolfOn(v) { wolfOn = v; }, mobNet, netHeroesTick, esNet, enemyAttackNet, hzNet, bfxNet, pickTarget, heroesNear, get hazards() { return hazards; }, get netDrive() { return netDrive; }, shrinkMe, showStoryIntro, hurtPlayer, koSitOut, wakeUp, showLook, removeThing, giveThing, COS, ITEMS, GEAR, parseGive, chargedAttack, parseAmount, hitPeers, shotHitsPeer, showKeysNote, castSpell, learnSpell, spellCd, SPELLS, goonSneeze, goonDrips, goonFlop, setSlotBox, showSlots, get slotBox() { return slotBox; }, get guide() { return guide; }, bossNet, safeSpot, get PVP_LVL() { return PVP_LVL; }, goldNode, wbInfo, wbTick, get wb() { return wb; }, WB_SPOTS, tradeOpen, tradeNet, offerKey, get trade() { return trade; }, adv(s) { for (let t = 0; t < s; t += 0.05) { for (let i = timers.length - 1; i >= 0; i--) { timers[i].t -= 0.05; if (timers[i].t <= 0) { const f = timers[i].f; timers.splice(i, 1); f(); } } bossFxTick(0.05); } }, get party() { return party; }, BOSS_AI, PHASE_SETUP, get gulped() { return gulped; }, wriggle, toggleBigMap, spawnEnemy, openPathChoice, choosePath, startLanternNight, get lanterns() { return lanterns; }, duelOffer, duelPrize, onNet, chatCommand, canFight, openUpgrade, openBoard, boardToday, queueLetter, makeGagronFriend, net, peerActors, runeTick, bossFx, renderer, scene, openMayor, darkOmen, netWorth, liberateTown, setGolden, goldenCaught, pompArrive, get goldenE() { return goldenE; }, spinWheel, dayTick, get bossIntro() { return bossIntro; }, bossSkip, startBossScene, sailTo, regions, closeSheet, renderHotbar, crew, setCrewMode, TOWNS, liberateTown, chests, openChest, stopRoulette, enemies, startBossIntro, closeDialog, advanceDialog, dash, attackPress, craft, CRAFTS, openCreator, closeCreator, creator, rebuildHero, setZoom: (z) => { zoom = zoomGoal = z; }, hurtEnemy, goThrough, get where() { return where; }, INTERIORS, equipGear, spendPoint, giveHeroXp, heroLvl, stat, maxHp, defDiv, openWeaponShop, openKing, jump, eat, eatBest, openShop, swing, swingTarget, hitNode, projectiles, timers, get S() { return S; }, get player() { return player; }, enemies, nodes, npcs, startTask, doAction, giveXp, save, openSheet, openDialog };
+window.__jq = { dogMe, dogSet, get dogOn() { return dogOn; }, journalTier, petLv, bossFirstWin, SPELL_FX, adminHuman, humanSet, get humanOn() { return humanOn; }, helpedUp, dailyGift, masteryLv, reviveTick, affixFx, partySet, get streak() { return streak; }, get together() { return together; }, dragonAttack, dodgedFx, popLoot, toast, wolfSet, get wolfOn() { return wolfOn; }, set wolfOn(v) { wolfOn = v; }, mobNet, netHeroesTick, esNet, enemyAttackNet, hzNet, bfxNet, pickTarget, heroesNear, get hazards() { return hazards; }, get netDrive() { return netDrive; }, shrinkMe, showStoryIntro, hurtPlayer, koSitOut, wakeUp, showLook, removeThing, giveThing, COS, ITEMS, GEAR, parseGive, chargedAttack, parseAmount, hitPeers, shotHitsPeer, showKeysNote, castSpell, learnSpell, spellCd, SPELLS, goonSneeze, goonDrips, goonFlop, setSlotBox, showSlots, get slotBox() { return slotBox; }, get guide() { return guide; }, bossNet, safeSpot, get PVP_LVL() { return PVP_LVL; }, goldNode, wbInfo, wbTick, get wb() { return wb; }, WB_SPOTS, tradeOpen, tradeNet, offerKey, get trade() { return trade; }, adv(s) { for (let t = 0; t < s; t += 0.05) { for (let i = timers.length - 1; i >= 0; i--) { timers[i].t -= 0.05; if (timers[i].t <= 0) { const f = timers[i].f; timers.splice(i, 1); f(); } } bossFxTick(0.05); } }, get party() { return party; }, BOSS_AI, PHASE_SETUP, get gulped() { return gulped; }, wriggle, toggleBigMap, spawnEnemy, openPathChoice, choosePath, startLanternNight, get lanterns() { return lanterns; }, duelOffer, duelPrize, onNet, chatCommand, canFight, openUpgrade, openBoard, boardToday, queueLetter, makeGagronFriend, net, peerActors, runeTick, bossFx, renderer, scene, openMayor, darkOmen, netWorth, liberateTown, setGolden, goldenCaught, pompArrive, get goldenE() { return goldenE; }, spinWheel, dayTick, get bossIntro() { return bossIntro; }, bossSkip, startBossScene, sailTo, regions, closeSheet, renderHotbar, crew, setCrewMode, TOWNS, liberateTown, chests, openChest, stopRoulette, enemies, startBossIntro, closeDialog, advanceDialog, dash, attackPress, craft, CRAFTS, openCreator, closeCreator, creator, rebuildHero, setZoom: (z) => { zoom = zoomGoal = z; }, hurtEnemy, goThrough, get where() { return where; }, INTERIORS, equipGear, spendPoint, giveHeroXp, heroLvl, stat, maxHp, defDiv, openWeaponShop, openKing, jump, eat, eatBest, openShop, swing, swingTarget, hitNode, projectiles, timers, get S() { return S; }, get player() { return player; }, enemies, nodes, npcs, startTask, doAction, giveXp, save, openSheet, openDialog };
 window.addEventListener('error', (e) => { const m = $('loadmsg'); if (m) m.textContent = `Something went wrong: ${e.message}`; });
 main().catch((err) => {
   console.error(err);
