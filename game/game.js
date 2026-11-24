@@ -1106,12 +1106,11 @@ function onNet(ev, m) {
 }
 // a monster your party helped with: nearby members get a share of its XP
 function partyShareXp(xp, pos) { if (party && party.members.length > 1) sendNet('px', { xp, x: pos.x, z: pos.z, w: where }); }
-// Villages, town squares, indoors and the starting area are safe. Out in the wild, heroes level 10+ can duel.
+// Heroes level 10+ can fight anywhere outdoors, villages and towns included (Callum, Nov 24).
+// Only indoors and the small square where new heroes appear in Jerry Village stay safe.
 function safeSpot(x, z, w) {
   if (w !== 'out' && !LANDS[w]) return true;
-  if (w === 'out' && Math.hypot(x, z) < 70) return true; // the Chapter 1 spawn area
-  for (const L of Object.values(LANDS)) if (L.village && Math.hypot(x - L.village.x, z - L.village.z) < 24) return true;
-  for (const T of TOWNS) if (Math.hypot(x - T.x, z - T.z) < 12) return true;
+  if (w === 'out' && Math.hypot(x, z) < 12) return true; // the spawn square
   return false;
 }
 function canFight(id, incoming = false) {
@@ -1131,7 +1130,7 @@ function pvpWhyNot(id) {
   if (inParty(id) && !party.dmg) why = `${p.name || 'They'} is in your party. The leader can turn on /p damage on.`;
   else if (heroLvl() < PVP_LVL) why = `You can fight other players from level ${PVP_LVL}.`;
   else if ((p.lvl || 1) < PVP_LVL) why = `${p.name || 'They'} is under level ${PVP_LVL}, so you can't fight them yet.`;
-  else if (safeSpot(player.pos.x, player.pos.z, where) || safeSpot(p.x, p.z, p.where)) why = 'No fighting here: villages, towns, indoors and the starting valley are safe.';
+  else if (safeSpot(player.pos.x, player.pos.z, where) || safeSpot(p.x, p.z, p.where)) why = 'No fighting here: indoors and the spawn square in Jerry Village are safe.';
   if (why) { pvpWhyAt = now + 6; toast(why, ICONS.star); }
 }
 // called from the attack code: strike any other hero inside the hit shape
