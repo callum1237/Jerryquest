@@ -2905,6 +2905,29 @@ function equipGear() {
   arcMesh.scale.setScalar(w.type === 'melee' ? (w.reach + 0.6) / (MELEE_REACH + 0.6) : 1);
   applyLook();
 }
+// ---------- hover tooltips ----------
+// Hovering anything with a title in the bag, hotbar, shops or menus shows a neat label right away
+// (instead of the browser's slow little one). Touch screens keep tap-to-see.
+const tipEl = document.createElement('div'); tipEl.id = 'hovertip'; tipEl.hidden = true; document.body.appendChild(tipEl);
+let tipFor = null;
+addEventListener('pointerover', (ev) => {
+  if (ev.pointerType === 'touch') return;
+  const t = ev.target.closest && ev.target.closest('#sheet [title], #hotbar [title], #dialog [title], .shop [title], [data-tip]');
+  if (t === tipFor) return;
+  if (tipFor && tipFor.dataset.tipT) { tipFor.title = tipFor.dataset.tipT; delete tipFor.dataset.tipT; }
+  tipFor = t; if (!t) { tipEl.hidden = true; return; }
+  const txt = t.getAttribute('title') || t.dataset.tip; if (!txt) { tipEl.hidden = true; return; }
+  if (t.hasAttribute('title')) { t.dataset.tipT = txt; t.removeAttribute('title'); }
+  const parts = txt.split(' · ');
+  tipEl.innerHTML = `<b>${esc(parts[0])}</b>${parts.slice(1).map((p) => { const r = RARITY.find((x) => x.name === p); return r ? `<i style="color:${r.col}">${esc(p)}</i>` : `<span>${esc(p)}</span>`; }).join('')}`;
+  tipEl.hidden = false;
+});
+addEventListener('pointermove', (ev) => {
+  if (tipEl.hidden) return;
+  const w = tipEl.offsetWidth, h = tipEl.offsetHeight;
+  tipEl.style.left = `${Math.min(innerWidth - w - 8, ev.clientX + 14)}px`; tipEl.style.top = `${Math.max(8, ev.clientY - h - 12)}px`;
+});
+addEventListener('pointerdown', () => { tipEl.hidden = true; });
 // ---------- hotbar ----------
 // Eight slots along the bottom. Put food or gear on it from the Bag, then press 1-8 (or tap) to eat or equip.
 const HOT_N = 8;
@@ -2962,8 +2985,9 @@ function renderHotbar() {
     const food = FOOD[k], g = GEAR[k], item = !g && ITEMS[k], n = !g ? (S.inv[k] || 0) : null;
     if (!g && !item) return `<button class="hot empty" data-hot="${i}"><kbd>${key}</kbd></button>`;
     const on = g && S.equip[g.slot] === k;
-    const tip = food ? `Eat ${ITEMS[k]} (heals ${food.heal})` : g ? `Equip ${g.name}` : `${ITEMS[k]} (${n} in your bag)`;
-    return `<button class="hot${on ? ' on' : ''}${!g && !n ? ' out' : ''}" data-hot="${i}" data-drag="${k}" title="${tip}. Drag to move, right-click to clear."><img src="${g ? gearIcon(g) : ICONS[k]}" alt=""><kbd>${key}</kbd>${!g ? `<span>${n}</span>` : ''}</button>`;
+    const [hrc, hrn] = g ? gearRarity(g) : itemRarity(k);
+    const tip = `${food ? `Eat ${ITEMS[k]} (heals ${food.heal})` : g ? `${g.name} · ${gearStats(g)}` : `${ITEMS[k]} (${n} in your bag)`} · ${hrn}`;
+    return `<button class="hot ${hrc}${on ? ' on' : ''}${!g && !n ? ' out' : ''}" data-hot="${i}" data-drag="${k}" title="${tip}. Drag to move, right-click to clear."><img src="${g ? gearIcon(g) : ICONS[k]}" alt=""><kbd>${key}</kbd>${!g ? `<span>${n}</span>` : ''}</button>`;
   }).join('');
   el.querySelectorAll('[data-hot]').forEach((b) => {
     const i = +b.dataset.hot;
@@ -9308,8 +9332,8 @@ function renderBag(el) {
     for (let i = 0; i < Math.max(20, Math.ceil((keys.length + 1) / 5) * 5); i++) {
       const k = keys[i];
       if (!k) { slots.push(`<div class="slot empty" data-bagdrop="${i}"></div>`); continue; }
-      const g = GEAR[k], [rc] = g ? gearRarity(g) : itemRarity(k), nm = g ? g.name : ITEMS[k];
-      slots.push(`<button class="slot ${rc}${bagPick === k ? ' on' : ''}${(S.hotbar || []).includes(k) ? ' pinned' : ''}" data-item="${k}" data-drag="${k}" data-bagdrop="${i}" title="${nm}"><img src="${g ? gearIcon(g) : ICONS[k]}" alt="${nm}">${g ? (plusOf(k) ? `<span>+${plusOf(k)}</span>` : '') : `<span>${S.inv[k]}</span>`}</button>`);
+      const g = GEAR[k], [rc, rn] = g ? gearRarity(g) : itemRarity(k), nm = g ? g.name : ITEMS[k], tipT = `${nm}${g && plusOf(k) ? ` +${plusOf(k)}` : ''} · ${rn}${g ? ` · ${gearStats(g)}` : ` · ${S.inv[k]} in your bag`}${!g && SELL[k] ? ` · sells for ${fmt(SELL[k])}` : ''}${FOOD[k] ? ` · heals ${FOOD[k].heal}` : ''}`;
+      slots.push(`<button class="slot ${rc}${bagPick === k ? ' on' : ''}${(S.hotbar || []).includes(k) ? ' pinned' : ''}" data-item="${k}" data-drag="${k}" data-bagdrop="${i}" title="${esc(tipT)}"><img src="${g ? gearIcon(g) : ICONS[k]}" alt="${nm}">${g ? (plusOf(k) ? `<span>+${plusOf(k)}</span>` : '') : `<span>${S.inv[k]}</span>`}</button>`);
     }
     let info = '<p class="hint">Drag items to move them or onto the hotbar. Tap one to see its worth.</p>';
     if (bagPick && GEAR[bagPick] && S.owned.includes(bagPick)) {

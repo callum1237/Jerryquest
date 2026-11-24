@@ -865,6 +865,14 @@
   .bag.five { grid-template-columns: repeat(5, 1fr); }
   button.slot { padding: 0; box-shadow: inset 0 0 0 2px var(--rc), 0 2px 0 var(--ink); }
   button.slot.legendary { animation: legend 1.8s ease-in-out infinite alternate; }
+  /* every bag and hotbar slot is tinted with its rarity colour, so good things stand out at a glance */
+  button.slot:not(.empty), #hotbar .hot:not(.empty):not(.spell) { background: #f2e2bd; background: radial-gradient(circle at 50% 38%, color-mix(in srgb, var(--rc, #c8b898) 18%, #fbf3df) 30%, color-mix(in srgb, var(--rc, #c8b898) 55%, #f2e2bd)); }
+  #hotbar .hot.fine, #hotbar .hot.rare, #hotbar .hot.epic, #hotbar .hot.legendary, #hotbar .hot.mythic { box-shadow: inset 0 0 0 2px var(--rc), 0 3px 0 var(--ink); }
+  button.slot.mythic img, #hotbar .hot.mythic img { filter: drop-shadow(0 0 3px #fff8); }
+  #hovertip { position: fixed; z-index: 90; pointer-events: none; max-width: 260px; padding: 7px 11px; border-radius: 10px; background: #2a1a10ee; color: #fff3dc; border: 1.5px solid #c9a253; box-shadow: 0 4px 14px #0006; font: 500 13px/1.35 var(--body, system-ui); display: grid; gap: 1px; }
+  #hovertip b { font: 700 15px var(--display, system-ui); color: #ffe7a8; }
+  #hovertip i { font-style: normal; font-weight: 800; filter: brightness(1.35); }
+  #hovertip span { color: #e8d8bc; }
   @keyframes legend { to { box-shadow: inset 0 0 0 2px var(--rc), 0 2px 0 var(--ink), 0 0 12px var(--rc); } }
   button.slot.on { outline: 3px solid var(--gold); outline-offset: 1px; }
   .iteminfo { display: grid; grid-template-columns: 44px 1fr; gap: 4px 10px; align-items: center; margin-top: 10px; background: #f2e2bd; border: 2px solid var(--ink); border-radius: 12px; padding: 8px; box-shadow: inset 4px 0 0 var(--rc); }
