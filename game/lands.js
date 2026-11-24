@@ -1,7 +1,7 @@
 // Continents: each story chapter takes you to a new land, reached by ship.
 // Every land is built far away from the valley (x ≈ 1000+), and sailing moves you there through a fade.
 import { THREE, scene, registerMesh, toon, rng } from './engine.js';
-import { M, instanced, place, colliders, tinted, lib, S_BUILD, S_PROP, LAKE, TOWNS, natural, naturalCopy, PAL, paintGround } from './world.js';
+import { M, instanced, place, colliders, tinted, lib, S_BUILD, S_PROP, LAKE, TOWNS, natural, naturalCopy, PAL, paintGround, crag } from './world.js';
 
 const FX = 1000, FZ = 0, MX = 2000, MZ = 0, DX = 3000, DZ = 0, KX = 4000, KZ = 0;
 // Every land is a round board: the harbour bay in the south (from z + coast), the village just above it,
@@ -265,7 +265,7 @@ function edgeBelt(L, tries, place2, nearPath, free, dens = 0.55) {
 
 export function buildLands() {
   const L = LANDS.frost, R = L.r;
-  landGround(L, ['#eef5ff', '#dbe8f7', '#ffffff'], 0.28);
+  landGround(L, ['#dde8f5', '#c4d6ec', '#eef3fa'], 0.28);
   landSea(L, '#4fb0e8', '#e9dcc0');
   makeShip(FX, FZ + coastOf(L) + 22, 0, '#fff1d6', '#4a7ac8');
   for (let i = 0; i < 10; i++) { const w = new THREE.Mesh(new THREE.PlaneGeometry(1.6 + rng(), 0.18)); w.rotation.x = -Math.PI / 2; w.position.set(FX - 28 + rng() * 56, 0.0, FZ + coastOf(L) + 16 + rng() * 40); registerMesh(w, toon('#d6f2ff')); scene.add(w); }
@@ -334,7 +334,7 @@ export function buildLands() {
   // white mountains all round
   const far = [];
   for (let i = 0; i < 30; i++) { const a = (i / 30) * Math.PI * 2 + rng() * 0.1; if (Math.abs(a - Math.PI / 2) < 0.45) continue; const rr = R + 30 + rng() * 8; far.push(M(FX + Math.cos(a) * rr, -1, FZ + Math.sin(a) * rr, 13 + rng() * 5, rng() * 6)); }
-  if (lib.mountain_C_grass) instanced(tinted(lib.mountain_C_grass, '#f2f7ff'), far, { cast: false });
+  if (lib.mountain_C_grass) instanced(crag('#dfe6f0'), far, { cast: false });
 
   // ---------- Jerry Valley harbour on the lake ----------
   const D = VALLEY_DOCK;
@@ -478,7 +478,7 @@ export function buildMarsh() {
   // far hills
   const far = [];
   for (let i = 0; i < 30; i++) { const a = (i / 30) * Math.PI * 2 + rng() * 0.1; if (Math.abs(a - Math.PI / 2) < 0.45) continue; const rr = R + 30 + rng() * 8; far.push(M(MX + Math.cos(a) * rr, -1, MZ + Math.sin(a) * rr, 11 + rng() * 4, rng() * 6)); }
-  if (lib.mountain_C_grass) instanced(tinted(lib.mountain_C_grass, '#6a8a5a'), far, { cast: false });
+  if (lib.mountain_C_grass) instanced(crag('#8a9a78'), far, { cast: false });
 }
 
 // Gentle snowfall that follows the camera while you're in a snowy land.
@@ -679,7 +679,7 @@ export function buildSands() {
   // far mesas
   const far = [];
   for (let i = 0; i < 26; i++) { const a = (i / 26) * Math.PI * 2 + rng() * 0.1; if (Math.abs(a - Math.PI / 2) < 0.55) continue; const rr = R + 30 + rng() * 8; far.push(M(DX + Math.cos(a) * rr, -1, DZ + Math.sin(a) * rr, 10 + rng() * 4, rng() * 6)); }
-  if (lib.mountain_C_grass) instanced(tinted(lib.mountain_C_grass, '#d8a060'), far, { cast: false });
+  if (lib.mountain_C_grass) instanced(crag('#f0b878'), far, { cast: false });
 }
 
 // ---------- Magma Caverns (optional land) ----------
@@ -772,7 +772,7 @@ export function buildMagma() {
   // the cavern walls: black cliffs all round
   const far = [];
   for (let i = 0; i < 30; i++) { const a = (i / 30) * Math.PI * 2 + rng() * 0.1; if (Math.abs(a - Math.PI / 2) < 0.5) continue; const rr = R + 28 + rng() * 8; far.push(M(KX + Math.cos(a) * rr, -1, KZ + Math.sin(a) * rr, 13 + rng() * 5, rng() * 6)); }
-  if (lib.mountain_C_grass) instanced(tinted(lib.mountain_C_grass, '#2e2426'), far, { cast: false });
+  if (lib.mountain_C_grass) instanced(crag('#5a4a4e'), far, { cast: false });
 }
 // rising embers for the Magma Caverns (like the snow, but warm and floating upward)
 export function makeEmbers() {

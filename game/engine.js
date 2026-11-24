@@ -409,7 +409,9 @@ const glowMat = new THREE.ShaderMaterial({
         c += texture2D(tSrc, vUv + dir * vec2(-1., -1.)).rgb; c += texture2D(tSrc, vUv + dir * vec2(1., -1.)).rgb;
         c += texture2D(tSrc, vUv + dir * vec2(-1., 1.)).rgb; c += texture2D(tSrc, vUv + dir * vec2(1., 1.)).rgb; c *= 0.25;
         float l = max(c.r, max(c.g, c.b));
-        gl_FragColor = vec4(c * smoothstep(0.8, 1.0, l), 1.); return;
+        float sat = (l - min(c.r, min(c.g, c.b))) / max(l, 0.001);
+        // v83: only coloured light glows (magic, fire, sparkles); plain white snow and pale floors don't
+        gl_FragColor = vec4(c * smoothstep(0.82, 1.0, l) * (0.12 + 0.88 * smoothstep(0.08, 0.45, sat)), 1.); return;
       }
       vec3 s = texture2D(tSrc, vUv).rgb * 0.227;
       s += (texture2D(tSrc, vUv + dir * 1.385).rgb + texture2D(tSrc, vUv - dir * 1.385).rgb) * 0.316;
