@@ -1,7 +1,7 @@
 // Rooms you can walk into. Each one is built far away from the valley (x ≈ 300+) and the
 // player is moved there through a short fade when they step on a doorway.
-import { THREE, scene, stylize, registerMesh, toon } from './engine.js';
-import { colliders } from './world.js';
+import { THREE, scene, stylize, registerMesh, toon } from './engine.js?v=a02cfd5f5a4e7ddbc1a90ede421519f7e86d3286';
+import { colliders } from './world.js?v=a02cfd5f5a4e7ddbc1a90ede421519f7e86d3286';
 
 let lib = {};
 const T = 4; // dungeon tiles are 4 × 4 units

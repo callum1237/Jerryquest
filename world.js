@@ -1,5 +1,5 @@
 // Static world: ground, lake, paths, village buildings, forest, mountains, clouds, campfire.
-import { THREE, scene, gradient, stylize, registerMesh, toon, rng, foliageMat, puffNormals } from './engine.js';
+import { THREE, scene, gradient, stylize, registerMesh, toon, rng, foliageMat, puffNormals } from './engine.js?v=a02cfd5f5a4e7ddbc1a90ede421519f7e86d3286';
 
 export const S_BUILD = 5.9, S_NATURE = 4.5, S_PROP = 2.6; // v84: houses a bit bigger to suit the taller heroes
 export const LAKE = { x: 37, z: -7, r: 12 };

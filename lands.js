@@ -1,7 +1,7 @@
 // Continents: each story chapter takes you to a new land, reached by ship.
 // Every land is built far away from the valley (x ≈ 1000+), and sailing moves you there through a fade.
-import { THREE, scene, registerMesh, toon, rng } from './engine.js';
-import { M, instanced, place, colliders, tinted, lib, S_BUILD, S_PROP, LAKE, TOWNS, natural, naturalCopy, PAL, paintGround, crag } from './world.js';
+import { THREE, scene, registerMesh, toon, rng } from './engine.js?v=a02cfd5f5a4e7ddbc1a90ede421519f7e86d3286';
+import { M, instanced, place, colliders, tinted, lib, S_BUILD, S_PROP, LAKE, TOWNS, natural, naturalCopy, PAL, paintGround, crag } from './world.js?v=a02cfd5f5a4e7ddbc1a90ede421519f7e86d3286';
 
 const FX = 1000, FZ = 0, MX = 2000, MZ = 0, DX = 3000, DZ = 0, KX = 4000, KZ = 0;
 // Every land is a round board: the harbour bay in the south (from z + coast), the village just above it,

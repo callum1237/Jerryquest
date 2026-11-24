@@ -1,7 +1,7 @@
 // JerryQuest online: accounts, cloud saves, seeing friends, shared towns and the global rich list.
 // Everything here quietly does nothing when config.js has no Supabase keys (or the page can't reach them),
 // so the game always works offline too.
-import { ONLINE } from './config.js';
+import { ONLINE } from './config.js?v=a02cfd5f5a4e7ddbc1a90ede421519f7e86d3286';
 
 export const net = {
   enabled: !!(ONLINE.url && ONLINE.key),

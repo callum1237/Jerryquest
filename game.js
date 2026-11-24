@@ -1,15 +1,15 @@
 // JerryQuest: playable single-player slice. One hero shaped by gear and stat points, skills that level by use, gathering, combat and quests.
 import { THREE, scene, camera, renderer, sun, sky, PRESETS, env, applyPreset, blendPresets, styled, setStyled, stylize, toon, registerMesh,
-  loadModel, burst, updateParticles, render, rng, setQuality } from './engine.js';
+  loadModel, burst, updateParticles, render, rng, setQuality } from './engine.js?v=a02cfd5f5a4e7ddbc1a90ede421519f7e86d3286';
 import * as SkeletonUtils from 'three/addons/utils/SkeletonUtils.js';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
-import { terrainH, buildWorld, buildFlowers, buildMeadow, place, tentAt, S_PROP, S_BUILD, colliders, clouds, dynamic, LAKE, CAMP, MINE, S_NATURE, blocked, isFree, ZONES, WORLD_R, VS, TOWNS, ROADS, townFacing, VALLEY_ARENAS } from './world.js';
-import { LANDS, landPt, VALLEY_DOCK, buildLands, makeSnow, makeEmbers, MAGMA_FX, landRoads, coastOf, SANDS_FX, palmNode, roundNode } from './lands.js';
-import { ICONS } from './icons.js';
-import { HUMAN_ALIAS, HUMAN_LOOPS, makeHumanHair } from './human.js';
-import { buildInteriors, INTERIORS, lavaPools } from './interiors.js';
-import { unlockAudio, playMusic, sfx, setVolumes, fxMute } from './audio.js';
-import { net, resume, signIn, signOut, loadCloud, cloudSave, flushSave, refreshBoard, setTown, connect, updateProfile, sendPos, sendChat, cleanChat, sendNet, isAdmin, adminSend, adminInbox, adminFindPlayer } from './online.js';
+import { terrainH, buildWorld, buildFlowers, buildMeadow, place, tentAt, S_PROP, S_BUILD, colliders, clouds, dynamic, LAKE, CAMP, MINE, S_NATURE, blocked, isFree, ZONES, WORLD_R, VS, TOWNS, ROADS, townFacing, VALLEY_ARENAS } from './world.js?v=a02cfd5f5a4e7ddbc1a90ede421519f7e86d3286';
+import { LANDS, landPt, VALLEY_DOCK, buildLands, makeSnow, makeEmbers, MAGMA_FX, landRoads, coastOf, SANDS_FX, palmNode, roundNode } from './lands.js?v=a02cfd5f5a4e7ddbc1a90ede421519f7e86d3286';
+import { ICONS } from './icons.js?v=a02cfd5f5a4e7ddbc1a90ede421519f7e86d3286';
+import { HUMAN_ALIAS, HUMAN_LOOPS, makeHumanHair } from './human.js?v=a02cfd5f5a4e7ddbc1a90ede421519f7e86d3286';
+import { buildInteriors, INTERIORS, lavaPools } from './interiors.js?v=a02cfd5f5a4e7ddbc1a90ede421519f7e86d3286';
+import { unlockAudio, playMusic, sfx, setVolumes, fxMute } from './audio.js?v=a02cfd5f5a4e7ddbc1a90ede421519f7e86d3286';
+import { net, resume, signIn, signOut, loadCloud, cloudSave, flushSave, refreshBoard, setTown, connect, updateProfile, sendPos, sendChat, cleanChat, sendNet, isAdmin, adminSend, adminInbox, adminFindPlayer } from './online.js?v=a02cfd5f5a4e7ddbc1a90ede421519f7e86d3286';
 
 const $ = (id) => document.getElementById(id);
 let resizeCount = 0; addEventListener('resize', () => { resizeCount++; });
