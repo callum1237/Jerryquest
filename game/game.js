@@ -2825,36 +2825,38 @@ function stretchBlade(m) {
 // needle point, a thin dark red glow along both edges and a fine red line down the fuller, a slim swept-down guard
 // with a small red gem, a narrow wrapped grip and a pointed pommel. Built along +Y from the pommel (0) to the tip (L).
 function darkBladeModel(L) {
+  // v67.8: simple and bold. A long, slightly curved single-edged blade in near-black steel, a glowing crimson cutting
+  // edge, a round guard ringed in red and a long black grip, so it reads clearly from the overhead camera.
   const g = new THREE.Group(), fx = [];
   const mesh = (geo, mats, glow) => { const m = new THREE.Mesh(geo, glow ? mats : mats.std); if (!glow) registerMesh(m, mats); else { m.layers.set(1); m.userData.noGlow = true; } g.add(m); return m; };
   const glowMat = (c, op) => new THREE.MeshBasicMaterial({ color: c, transparent: true, opacity: op, depthWrite: false, fog: false, side: THREE.DoubleSide });
-  const b0 = 0.24 * L, w = 0.034 * L, th = 0.009 * L, tipY = L;
-  // blade outline: straight and slim, a gentle taper, then a long clean point
-  const outline = (k) => { const sh = new THREE.Shape(); sh.moveTo(-w * k, b0); sh.lineTo(-w * 0.92 * k, b0 + 0.5 * (L - b0)); sh.lineTo(-w * 0.62 * k, b0 + 0.82 * (L - b0)); sh.lineTo(0, tipY + (k - 1) * 0.04 * L); sh.lineTo(w * 0.62 * k, b0 + 0.82 * (L - b0)); sh.lineTo(w * 0.92 * k, b0 + 0.5 * (L - b0)); sh.lineTo(w * k, b0); sh.lineTo(-w * k, b0); return sh; };
-  const bg = new THREE.ExtrudeGeometry(outline(1), { depth: th, bevelEnabled: true, bevelThickness: th * 1.1, bevelSize: w * 0.34, bevelSegments: 1, curveSegments: 1 });
-  bg.translate(0, 0, -th / 2);
-  mesh(bg, toon('#232127'));
-  // a thin dark red edge glow: a slightly bigger outline inside the blade, so only a fine rim shows round it
-  const eg = new THREE.ShapeGeometry(outline(1.95));
-  const edge = mesh(eg, glowMat('#9c1222', 0.85), true); edge.renderOrder = -1; fx.push({ m: edge, base: 0.65, amp: 0.3, sp: 1.8, ph: 0 });
-  // the fuller: a fine red line down both faces that fades out before the point
-  const fl = new THREE.PlaneGeometry(w * 0.16, 0.6 * (L - b0)); fl.translate(0, b0 + 0.04 * L + 0.3 * (L - b0), 0);
-  for (const z of [th * 1.75, -th * 1.75]) { const f = mesh(fl, glowMat('#b0182a', 0.8), true); f.position.z = z; fx.push({ m: f, base: 0.5, amp: 0.35, sp: 1.8, ph: 0.6 }); }
-  // guard: a slim crescent sweeping down towards the blade at both ends, with a small red gem in the middle
-  const gs = new THREE.Shape(), gw = w * 3.4, gh = 0.018 * L;
-  gs.moveTo(-gw, b0 + gh * 1.6); gs.quadraticCurveTo(-gw * 0.5, b0 - gh * 0.2, 0, b0 - gh * 0.6); gs.quadraticCurveTo(gw * 0.5, b0 - gh * 0.2, gw, b0 + gh * 1.6);
-  gs.quadraticCurveTo(gw * 0.5, b0 + gh * 0.5, 0, b0 + gh * 0.45); gs.quadraticCurveTo(-gw * 0.5, b0 + gh * 0.5, -gw, b0 + gh * 1.6);
-  const gg = new THREE.ExtrudeGeometry(gs, { depth: th * 3, bevelEnabled: true, bevelThickness: th * 0.6, bevelSize: th * 0.6, bevelSegments: 1, curveSegments: 6 });
-  gg.translate(0, 0, -th * 1.5); mesh(gg, toon('#18171b'));
-  const gem = mesh(new THREE.OctahedronGeometry(w * 0.42), glowMat('#c41c30', 1), true); gem.position.y = b0 + gh * 0.05; gem.scale.set(0.8, 1.2, 1.8); fx.push({ m: gem, base: 0.8, amp: 0.2, sp: 2.4, ph: 1 });
-  // grip: narrow and wrapped, with a thin collar under the guard and a pointed pommel
-  const grip = mesh(new THREE.CylinderGeometry(w * 0.3, w * 0.34, 0.17 * L, 8), toon('#121114')); grip.position.y = 0.125 * L;
-  for (let i = 0; i < 6; i++) { const ring = mesh(new THREE.TorusGeometry(w * 0.33, w * 0.05, 4, 10), toon('#3a0c14')); ring.rotation.x = Math.PI / 2; ring.position.y = (0.055 + i * 0.027) * L; }
-  const collar = mesh(new THREE.CylinderGeometry(w * 0.44, w * 0.36, 0.02 * L, 8), toon('#2a282e')); collar.position.y = b0 - 0.022 * L;
-  const pom = mesh(new THREE.ConeGeometry(w * 0.42, 0.05 * L, 6), toon('#2a282e')); pom.position.y = 0.02 * L; pom.rotation.x = Math.PI;
-  const pgem = mesh(new THREE.OctahedronGeometry(w * 0.22), glowMat('#c41c30', 1), true); pgem.position.y = 0.045 * L;
-  // a slow breathing glow along the edges, driven from the render itself so it needs no game tick
-  edge.onBeforeRender = () => { const t = performance.now() / 1000; for (const f of fx) f.m.material.opacity = f.base + f.amp * (0.5 + 0.5 * Math.sin(t * f.sp + f.ph)); };
+  const b0 = 0.25 * L, BL = L - b0, w = 0.05 * L, th = 0.011 * L, curv = 0.07 * L, N = 14;
+  // along the blade (t from 0 at the guard to 1 at the tip): it bows gently back and narrows a little
+  const cx = (t) => -curv * t * t, hw = (t) => w * (1 - 0.22 * t);
+  const blade = (grow, edgeOnly) => {
+    const sh = new THREE.Shape(), y = (t) => b0 + t * BL;
+    sh.moveTo(cx(0) - hw(0) * grow * (edgeOnly ? -0.68 : 1), y(0));
+    for (let i = 1; i <= N; i++) { const t = (i / N) * 0.86; sh.lineTo(cx(t) - hw(t) * grow * (edgeOnly ? -0.68 : 1), y(t)); }
+    sh.lineTo(cx(1) + hw(1) * 0.35, y(1) + (grow - 1) * 0.03 * L); // the point sweeps to the cutting edge, like a katana tip
+    for (let i = N; i >= 0; i--) { const t = (i / N) * 0.86; sh.lineTo(cx(t) + hw(t) * grow, y(t)); }
+    return sh;
+  };
+  const bg = new THREE.ExtrudeGeometry(blade(1), { depth: th, bevelEnabled: true, bevelThickness: th * 0.9, bevelSize: w * 0.18, bevelSegments: 1, curveSegments: 1 });
+  bg.translate(0, 0, -th / 2); mesh(bg, toon('#1d1c21'));
+  // a faint dark red rim round the whole blade (a slightly bigger copy tucked inside it)
+  const rim = mesh(new THREE.ShapeGeometry(blade(1.32)), glowMat('#7a0c18', 0.6), true); rim.renderOrder = -1; fx.push({ m: rim, base: 0.45, amp: 0.2, sp: 1.6, ph: 0 });
+  // the glowing cutting edge on both faces
+  const eg = new THREE.ShapeGeometry(blade(1.0, true));
+  for (const z of [th * 1.45, -th * 1.45]) { const e = mesh(eg, glowMat('#d0202e', 0.9), true); e.position.z = z; fx.push({ m: e, base: 0.7, amp: 0.3, sp: 2.2, ph: 0.5 }); }
+  // round guard with a red ring
+  const tsuba = mesh(new THREE.CylinderGeometry(w * 1.45, w * 1.45, th * 3.2, 20), toon('#141317')); tsuba.rotation.x = Math.PI / 2; tsuba.position.y = b0 - th;
+  const ring = mesh(new THREE.TorusGeometry(w * 1.45, th * 0.55, 6, 24), glowMat('#b81828', 0.95), true); ring.position.y = b0 - th; fx.push({ m: ring, base: 0.75, amp: 0.25, sp: 2.2, ph: 1.2 });
+  const collar = mesh(new THREE.BoxGeometry(w * 1.3, 0.025 * L, th * 3.6), toon('#2a282e')); collar.position.y = b0 + 0.01 * L;
+  // long black grip with crimson wraps and a plain end cap
+  const grip = mesh(new THREE.CylinderGeometry(w * 0.36, w * 0.4, 0.21 * L, 8), toon('#0f0e12')); grip.position.y = 0.125 * L;
+  for (let i = 0; i < 5; i++) { const r = mesh(new THREE.BoxGeometry(w * 0.85, 0.012 * L, w * 0.85), toon('#5a0c16')); r.position.y = (0.05 + i * 0.038) * L; r.rotation.y = Math.PI / 4; }
+  const cap = mesh(new THREE.CylinderGeometry(w * 0.46, w * 0.4, 0.028 * L, 8), toon('#2a282e')); cap.position.y = 0.014 * L;
+  rim.onBeforeRender = () => { const t = performance.now() / 1000; for (const f of fx) f.m.material.opacity = f.base + f.amp * (0.5 + 0.5 * Math.sin(t * f.sp + f.ph)); };
   return g;
 }
 // put the custom model where the stock sword was: same length, same axis, pommel at the hand end
