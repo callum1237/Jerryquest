@@ -3813,6 +3813,24 @@ function buildEnemies() {
   fring({ x: DV.x, z: DV.z - 18 }, ['sand_gloop', 'dust_bat', 'sand_gloop'], 7);
   spawnEnemy('boss_pomp', DZs.workshop.x, DZs.workshop.z);
   spawnEnemy('boss_colossus', DZs.colossus.x, DZs.colossus.z - 2);
+  // v76: the bigger maps' outskirts have their own roaming packs (they come out Fierce, being so far from home)
+  const pack = (land, x, z, list) => { const L = land ? LANDS[land] : { x: 0, z: 0 }; fring({ x: L.x + x, z: L.z + z }, list, 5); };
+  pack(null, 120, -130, ['skel_warrior', 'skel_mage', 'skel_minion', 'skel_warrior']);
+  pack(null, -176, -20, ['skel_warrior', 'skel_minion', 'skel_warrior']);
+  pack(null, 135, 122, ['honey_slime', 'mint_slime', 'jelly_slime', 'honey_slime']);
+  pack(null, -122, 148, ['skel_minion', 'hollow_bat', 'skel_mage', 'hollow_bat']);
+  pack(null, 30, -182, ['hollow_bat', 'skel_warrior', 'hollow_bat', 'skel_mage']);
+  pack('frost', -100, 40, ['frost_minion', 'frost_warrior', 'frost_mage', 'frost_minion']);
+  pack('frost', 100, 40, ['frost_warrior', 'frost_minion', 'frost_mage']);
+  pack('frost', 0, -108, ['frost_warrior', 'frost_mage', 'frost_warrior']);
+  pack('marsh', 100, 20, ['bog_knight', 'bog_slime', 'mire_bat', 'bog_knight']);
+  pack('marsh', -100, -50, ['bog_witchling', 'mire_bat', 'bog_slime']);
+  pack('marsh', 60, -100, ['bog_knight', 'bog_witchling', 'mire_bat']);
+  pack('sands', -70, -60, ['clock_soldier', 'dust_bat', 'sand_gloop', 'clock_conjurer']);
+  pack('sands', 70, -62, ['clock_soldier', 'clock_conjurer', 'clock_soldier']);
+  pack('sands', 0, -86, ['sand_gloop', 'dust_bat', 'clock_soldier']);
+  pack('magma', -72, -30, ['flame_warrior', 'flame_mage', 'flame_minion']);
+  pack('magma', 72, -40, ['flame_knight', 'flame_minion', 'flame_mage']);
 }
 
 // ---------- inventory, xp, quests ----------
@@ -7676,7 +7694,7 @@ function shopBoard(d) {
   scene.add(g); colliders.push({ x, z, r: 0.35 });
 }
 // ---------- minimap ----------
-const MAP_R = 165, MAP_PX = 1024;
+const MAP_R = WORLD_R + 15, MAP_PX = 1024;
 const mapBg = document.createElement('canvas'); mapBg.width = mapBg.height = MAP_PX;
 const PLACES = [['Village', 0, -4], ['Skeleton camp', CAMP.x, CAMP.z + 9], ['Old Quarry', MINE.x, MINE.z - MINE.r - 3], ['Shop', 7 * VS, 15.5 * VS - 7], ['Castle', 4, -54], ['Ship', VALLEY_DOCK.x + 8, VALLEY_DOCK.z - 9], ...Object.values(ZONES).map((Z) => [Z.name, Z.x, Z.z - Z.r * 0.55]), ...TOWNS.map((T) => [T.name, T.x, T.z - 9])];
 // Photograph the world from straight above once, and use it as the map picture.
@@ -9038,6 +9056,17 @@ const TOWN_BOSS = {
   reedwhistle: { name: 'The Reed Hag', model: 'skel_mage', weapon: 'Skeleton_Staff', ranged: true, spread: true, drop: 'golden_crown' },
   dunecrest: { name: 'Baron Rivet', model: 'skel_warrior', weapon: 'axe_2handed', drop: 'ruby' },
   copperspring: { name: 'The Copper Countess', model: 'skel_mage', weapon: 'Skeleton_Staff', ranged: true, spread: true, drop: 'golden_crown' },
+  // v76 outskirt towns
+  fernhallow: { name: 'Bramble Jack', model: 'skel_warrior', weapon: 'axe_1handed', drop: 'ruby' },
+  willowmere: { name: 'The Weeping Widow', model: 'skel_mage', weapon: 'Skeleton_Staff', ranged: true, spread: true, drop: 'silver_ring' },
+  brackenford: { name: 'Sir Rotcastle', model: 'skel_warrior', weapon: 'axe_2handed', drop: 'golden_crown' },
+  crowsnest: { name: 'Old Mother Crow', model: 'skel_mage', weapon: 'Skeleton_Staff', ranged: true, spread: true, drop: 'golden_crown' },
+  frostmere: { name: 'Count Hoarfrost', model: 'skel_mage', weapon: 'Skeleton_Staff', ranged: true, spread: true, drop: 'frost_gem' },
+  hailstone: { name: 'The Hail King', model: 'skel_warrior', weapon: 'axe_2handed', drop: 'golden_crown' },
+  mudwallow: { name: 'Big Squelch', model: 'skel_warrior', weapon: 'axe_2handed', drop: 'ruby' },
+  toadstool: { name: 'The Toadstool Witch', model: 'skel_mage', weapon: 'Skeleton_Staff', ranged: true, spread: true, drop: 'golden_crown' },
+  rustwater: { name: 'Captain Corrode', model: 'skel_warrior', weapon: 'Skeleton_Blade', drop: 'ruby' },
+  gearhaven: { name: 'The Gear Duke', model: 'skel_warrior', weapon: 'axe_2handed', drop: 'golden_crown' },
 };
 // which monsters guard each town: tougher towns have more of the nasty ones
 const TOWN_MIX = {
@@ -9066,6 +9095,26 @@ const TOWN_FOLK = {
     { name: 'Grandpa Gasket', model: 'barbarian', look: { skin: 'tan', eyes: 'grey', eyeStyle: 'sleepy', mouth: 'calm', hair: 'none', beard: 'long', hairCol: 'snow', head: 'chibi' }, tint: '#d8a850' }],
   copperspring: [{ name: 'Rosie Rivets', model: 'heroine', look: { sex: 'f', skin: 'peach', eyes: 'green', eyeStyle: 'sharp', mouth: 'grin', hair: 'twin', hairLen: 'shoulder', hairCol: 'ginger', mark: 'paint' }, tint: '#e0885a' },
     { name: 'Mr Sprocket', model: 'knight', look: { skin: 'ebony', eyes: 'sky', eyeStyle: 'round', mouth: 'smile', hair: 'short', hairCol: 'snow' }, tint: '#c8984a' }],
+  fernhallow: [{ name: 'Hazel Thimble', model: 'heroine', look: { sex: 'f', skin: 'peach', eyes: 'green', eyeStyle: 'happy', mouth: 'smile', hair: 'braid', hairLen: 'long', hairCol: 'chestnut', mark: 'freckles' }, tint: '#b8e0a0' },
+    { name: 'Farmer Oakes', model: 'barbarian', look: { skin: 'tan', eyes: 'brown', eyeStyle: 'sleepy', mouth: 'grin', hair: 'none', beard: 'full', hairCol: 'ginger', head: 'chibi' }, tint: '#e0c890' }],
+  willowmere: [{ name: 'Lady Lilac', model: 'mage', look: { sex: 'f', skin: 'porcelain', eyes: 'violet', eyeStyle: 'round', mouth: 'calm', hair: 'hime', hairLen: 'long', hairCol: 'lilac', mark: 'rosy' }, tint: '#d8c8ff' },
+    { name: 'Fisher Tam', model: 'knight', look: { skin: 'bronze', eyes: 'sky', eyeStyle: 'happy', mouth: 'smile', hair: 'short', hairCol: 'black' }, tint: '#a8d0f0' }],
+  brackenford: [{ name: 'Old Gorse', model: 'barbarian', look: { skin: 'honey', eyes: 'grey', eyeStyle: 'sleepy', mouth: 'calm', hair: 'none', beard: 'long', hairCol: 'snow', head: 'chibi' }, tint: '#c8b080' },
+    { name: 'Wren Bracken', model: 'heroine', look: { sex: 'f', skin: 'ebony', eyes: 'gold', eyeStyle: 'sharp', mouth: 'grin', hair: 'pony', hairLen: 'long', hairCol: 'black' }, tint: '#e0a870' }],
+  crowsnest: [{ name: 'Magpie Molly', model: 'heroine', look: { sex: 'f', skin: 'tan', eyes: 'blue', eyeStyle: 'round', mouth: 'cat', hair: 'bob', hairCol: 'black', mark: 'star' }, tint: '#b0b8d8' },
+    { name: 'Brother Rook', model: 'mage', look: { skin: 'peach', eyes: 'brown', eyeStyle: 'sleepy', mouth: 'calm', hair: 'none', beard: 'stache', hairCol: 'chestnut' }, tint: '#8a8aa8' }],
+  frostmere: [{ name: 'Snowy Pip', model: 'heroine', look: { sex: 'f', skin: 'porcelain', eyes: 'sky', eyeStyle: 'happy', mouth: 'smile', hair: 'twin', hairLen: 'shoulder', hairCol: 'snow', mark: 'rosy' }, tint: '#d8f0ff' },
+    { name: 'Grimble Frost', model: 'barbarian', look: { skin: 'peach', eyes: 'blue', eyeStyle: 'sleepy', mouth: 'calm', hair: 'none', beard: 'full', hairCol: 'snow', head: 'chibi' }, tint: '#b8d8f0' }],
+  hailstone: [{ name: 'Captain Sleet', model: 'knight', look: { skin: 'bronze', eyes: 'grey', eyeStyle: 'sharp', mouth: 'calm', hair: 'short', hairCol: 'black' }, tint: '#c0d8f0' },
+    { name: 'Nanny Flurry', model: 'mage', look: { sex: 'f', skin: 'tan', eyes: 'green', eyeStyle: 'round', mouth: 'smile', hair: 'bun', hairCol: 'snow' }, tint: '#e0f0ff' }],
+  mudwallow: [{ name: 'Muddy Maud', model: 'heroine', look: { sex: 'f', skin: 'honey', eyes: 'brown', eyeStyle: 'happy', mouth: 'grin', hair: 'twin', hairLen: 'shoulder', hairCol: 'chestnut', mark: 'freckles' }, tint: '#c0a878' },
+    { name: 'Gaffer Splodge', model: 'barbarian', look: { skin: 'green', eyes: 'gold', eyeStyle: 'sleepy', mouth: 'calm', hair: 'none', beard: 'curly', hairCol: 'snow', head: 'chibi' }, tint: '#98b878' }],
+  toadstool: [{ name: 'Fungella', model: 'mage', look: { sex: 'f', skin: 'porcelain', eyes: 'red', eyeStyle: 'round', mouth: 'cat', hair: 'hime', hairLen: 'long', hairCol: 'pink', mark: 'star' }, tint: '#f0a0a0' },
+    { name: 'Spore', model: 'knight', look: { skin: 'tan', eyes: 'green', eyeStyle: 'happy', mouth: 'smile', hair: 'spiky', hairCol: 'ginger' }, tint: '#d8c098' }],
+  rustwater: [{ name: 'Tilly Tinpot', model: 'heroine', look: { sex: 'f', skin: 'bronze', eyes: 'sky', eyeStyle: 'sharp', mouth: 'grin', hair: 'bob', hairCol: 'ginger', mark: 'paint' }, tint: '#e0a060' },
+    { name: 'Old Bolts', model: 'barbarian', look: { skin: 'tan', eyes: 'grey', eyeStyle: 'sleepy', mouth: 'calm', hair: 'none', beard: 'long', hairCol: 'snow', head: 'chibi' }, tint: '#c89850' }],
+  gearhaven: [{ name: 'Duchess Cogsworth', model: 'mage', look: { sex: 'f', skin: 'ebony', eyes: 'gold', eyeStyle: 'round', mouth: 'smile', hair: 'braid', hairLen: 'long', hairCol: 'black' }, tint: '#e8b860' },
+    { name: 'Tinker Ned', model: 'knight', look: { skin: 'peach', eyes: 'green', eyeStyle: 'happy', mouth: 'grin', hair: 'short', hairCol: 'chestnut' }, tint: '#d0a050' }],
 };
 // frost towns are a chapter harder: they use the frost monsters, and pay (and cost) more
 const LAND_TOWN = { frost: { mobs: { skel_minion: 'frost_minion', skel_warrior: 'frost_warrior', skel_mage: 'frost_mage' }, mult: 2.5, hp: 1.8, hit: 1.7, xp: 3 },
@@ -9078,12 +9127,12 @@ for (const T of TOWNS) {
   for (const k of ['skel_minion', 'skel_warrior', 'skel_mage']) {
     const b = ENEMY_TYPES[T.land ? LAND_TOWN[T.land].mobs[k] : k];
     ENEMY_TYPES[`${T.id}_${k}`] = { ...b, model: k, name: `${tier.tag} ${b.name}`, tint: tier.tint, town: T.id, inside, coins: [Math.round(5 * T.stars * m), Math.round(12 * T.stars * m)] };
-    setLevel(ENEMY_TYPES[`${T.id}_${k}`], b.lv + 2 * T.stars, MOB_SHAPE[k]); // town guards are a few levels above the wild ones
+    setLevel(ENEMY_TYPES[`${T.id}_${k}`], b.lv + 2 * T.stars + (T.outer ? 4 : 0), MOB_SHAPE[k]); // outskirt towns are 4 levels tougher // town guards are a few levels above the wild ones
   }
   ENEMY_TYPES[`${T.id}_boss`] = { ...TOWN_BOSS[T.id], title: `Tyrant of ${T.name}`, hp: Math.round((110 + 90 * T.stars) * (T.land ? LAND_TOWN[T.land].hp : 1)), maxHit: Math.round((5 + 2 * T.stars) * (T.land ? LAND_TOWN[T.land].hit : 1)), xp: Math.round((500 + 400 * T.stars) * (T.land ? LAND_TOWN[T.land].xp : 1)), boss: true,
     scale: 2 + 0.15 * T.stars, coins: [Math.round(80 * T.stars * m), Math.round(140 * T.stars * m)], slam: 4.5 + T.stars * 0.5, town: T.id, tint: tier.tint, inside };
   // town tyrants: Chapter 1 levels 11-15, then about a chapter higher in each land
-  ENEMY_TYPES[`${T.id}_boss`].lv = ({ out: 9, frost: 22, marsh: 32, sands: 46 }[inside] || 9) + 2 * T.stars;
+  ENEMY_TYPES[`${T.id}_boss`].lv = ({ out: 9, frost: 22, marsh: 32, sands: 46 }[inside] || 9) + 2 * T.stars + (T.outer ? 4 : 0);
   ENEMY_TYPES[`${T.id}_boss`].shape = [0.8, 0.9];
   toughen(ENEMY_TYPES[`${T.id}_boss`]);
 }

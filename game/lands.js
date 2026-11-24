@@ -10,7 +10,7 @@ export const LANDS = {
   // Chapter 2. Towns sit either side of the village; Icicle Woods (west) and Snowman Hills (east) are hunting
   // grounds; the Ogre's Pass (north-west), the Twins' Ridge (north-east) and the Ice Palace (north) are boss stages.
   frost: {
-    id: 'frost', name: 'Frostwhisker Peaks', x: FX, z: FZ, r: 92, coast: 66,
+    id: 'frost', name: 'Frostwhisker Peaks', x: FX, z: FZ, r: 125, coast: 66,
     arrive: { x: FX, z: FZ + 71 }, captain: { x: FX + 4, z: FZ + 73 },
     village: { x: FX, z: FZ + 50 }, elder: { x: FX - 4, z: FZ + 48 },
     pond: { x: FX - 26, z: FZ - 14, r: 8 },
@@ -24,7 +24,7 @@ export const LANDS = {
   // Chapter 3. Mire Hollow (west), the Sunken Ruins (east) and Gobbler's Pool (north) are each a boss's own
   // big stage, far apart; the bog's monsters roam the ground between them, off the boardwalks.
   marsh: {
-    id: 'marsh', name: 'Gobbler Marsh', x: MX, z: MZ, r: 92, coast: 66, villageName: 'Lilypad Landing',
+    id: 'marsh', name: 'Gobbler Marsh', x: MX, z: MZ, r: 125, coast: 66, villageName: 'Lilypad Landing',
     arrive: { x: MX, z: MZ + 71 }, captain: { x: MX + 4, z: MZ + 73 },
     village: { x: MX, z: MZ + 50 }, elder: { x: MX - 4, z: MZ + 47 },
     pond: { x: MX + 24, z: MZ + 16, r: 8, name: 'Deep Pool' },
@@ -41,7 +41,7 @@ export const LANDS = {
   },
 };
 LANDS.sands = {
-  id: 'sands', name: 'Brassbolt Sands', x: DX, z: DZ, r: 70, villageName: 'Oasis Rest',
+  id: 'sands', name: 'Brassbolt Sands', x: DX, z: DZ, r: 100, villageName: 'Oasis Rest',
   arrive: { x: DX, z: DZ + 49 }, captain: { x: DX + 4, z: DZ + 51 },
   village: { x: DX, z: DZ + 30 }, elder: { x: DX - 4, z: DZ + 27 },
   pond: { x: DX + 9, z: DZ + 22, r: 5, name: 'The Oasis' },
@@ -68,7 +68,7 @@ LANDS.marsh.boss = 'gobbler';
 // v68: Magma Caverns, an optional land (not part of the story) full of flaming skeletons and dragons.
 // Its monsters are far above Chapter 4, so it is the place to go once you are strong.
 LANDS.magma = {
-  id: 'magma', name: 'Magma Caverns', x: KX, z: KZ, r: 72, villageName: 'Cinder Camp', optional: true,
+  id: 'magma', name: 'Magma Caverns', x: KX, z: KZ, r: 96, villageName: 'Cinder Camp', optional: true,
   arrive: { x: KX, z: KZ + 49 }, captain: { x: KX + 4, z: KZ + 51 },
   village: { x: KX, z: KZ + 30 }, elder: { x: KX - 4, z: KZ + 27 },
   pond: { x: KX + 2, z: KZ - 8, r: 7, name: 'Lava Lake' },
@@ -239,10 +239,11 @@ function landKit(L, pathCol) {
 // The forest belt round a land's edge, leaving the bay and every road open.
 function edgeBelt(L, tries, place2, nearPath, free, dens = 0.55) {
   const R = L.r, C = coastOf(L);
-  for (let i = 0; i < tries; i++) {
-    const a = rng() * Math.PI * 2, rr = R - 14 + rng() * 34, x = L.x + Math.cos(a) * rr, z = L.z + Math.sin(a) * rr;
+  // v76: the lands grew, so the belt also thins out inwards across the new outskirts (sparser groves there)
+  for (let i = 0; i < tries * 1.8; i++) {
+    const a = rng() * Math.PI * 2, rr = R - 44 + rng() * 64, x = L.x + Math.cos(a) * rr, z = L.z + Math.sin(a) * rr;
     if (z - L.z > C - 6 && Math.abs(x - L.x) < 40) continue;
-    if (rng() > dens || nearPath(x, z) || !free(x, z, 1.4)) continue;
+    if (rng() > (rr < R - 14 ? dens * 0.3 : dens) || nearPath(x, z) || !free(x, z, 1.4)) continue;
     place2(x, z);
   }
 }

@@ -6,21 +6,32 @@ export const LAKE = { x: 37, z: -7, r: 12 };
 export const CAMP = { x: -22, z: 31 };
 // the Old Quarry: a big open pit out east past the dragon's cave, with copper, iron, silver and gold
 export const MINE = { x: 96, z: -48, r: 19 };
-export const WORLD_R = 150;
+export const WORLD_R = 205; // v76: was 150; the outer ring holds the outskirt towns
 // Little towns out in the woods that monsters have taken over. Free them to fly your flag there.
 // stars = how tough the monsters are (they range from a bit tougher than the camp to really nasty).
 export const TOWNS = [
   { id: 'thornbury', name: 'Thornbury', x: 64, z: 62, r: 15, stars: 1 },
   { id: 'mossbrook', name: 'Mossbrook', x: -66, z: 62, r: 15, stars: 2 },
   { id: 'cinderholt', name: 'Cinderholt', x: -62, z: -70, r: 15, stars: 3 },
+  // v76 outskirts: four more towns out past the old forest edge
+  { id: 'fernhallow', name: 'Fernhallow', x: 168, z: 52, r: 15, stars: 2, outer: true },
+  { id: 'willowmere', name: 'Willowmere', x: 72, z: 160, r: 15, stars: 2, outer: true },
+  { id: 'brackenford', name: 'Brackenford', x: -166, z: 60, r: 15, stars: 3, outer: true },
+  { id: 'crowsnest', name: "Crow's Nest", x: -84, z: -160, r: 15, stars: 3, outer: true },
   // Chapter 2: Frostwhisker Peaks (the land sits at x = 1000). Each faces the road it's reached by.
   { id: 'iciclehollow', name: 'Icicle Hollow', x: 1050, z: 46, r: 14, stars: 1, land: 'frost', home: [1000, 50] },
   { id: 'pinecrest', name: 'Pinecrest', x: 950, z: 46, r: 14, stars: 2, land: 'frost', home: [1000, 50] },
   { id: 'glaciergate', name: 'Glacier Gate', x: 1036, z: -14, r: 14, stars: 3, land: 'frost', home: [1000, 8] },
+  { id: 'frostmere', name: 'Frostmere', x: 906, z: -34, r: 14, stars: 2, land: 'frost', home: [1000, 8], outer: true },
+  { id: 'hailstone', name: 'Hailstone Hold', x: 1094, z: -34, r: 14, stars: 3, land: 'frost', home: [1000, 8], outer: true },
   { id: 'bogbottom', name: 'Bogbottom', x: 1950, z: 44, r: 14, stars: 2, land: 'marsh', home: [2000, 50] },
   { id: 'reedwhistle', name: 'Reedwhistle', x: 2052, z: 40, r: 14, stars: 3, land: 'marsh', home: [2000, 50] },
+  { id: 'mudwallow', name: 'Mudwallow', x: 1902, z: 10, r: 14, stars: 2, land: 'marsh', home: [2000, 10], outer: true },
+  { id: 'toadstool', name: 'Toadstool Hollow', x: 1936, z: -86, r: 14, stars: 3, land: 'marsh', home: [2000, 10], outer: true },
   { id: 'dunecrest', name: 'Dunecrest', x: 2954, z: 30, r: 14, stars: 2, land: 'sands', home: [3000, 30] },
   { id: 'copperspring', name: 'Copperspring', x: 3046, z: 32, r: 14, stars: 3, land: 'sands', home: [3000, 30] },
+  { id: 'rustwater', name: 'Rustwater', x: 2916, z: -4, r: 14, stars: 2, land: 'sands', home: [3000, 30], outer: true },
+  { id: 'gearhaven', name: 'Gearhaven', x: 3086, z: -6, r: 14, stars: 3, land: 'sands', home: [3000, 30], outer: true },
 ];
 // which way a town's open side faces: towards its land's main village
 export const townFacing = (T) => Math.atan2((T.home ? T.home[1] : 0) - T.z, (T.home ? T.home[0] : 0) - T.x);
@@ -40,7 +51,9 @@ export const VALLEY_ARENAS = [
   { boss: 'boss_rattle', x: ZONES.hollow.x, z: ZONES.hollow.z + 2, r: 18, col: '#6a7a6a', rim: '#a7a3ad' },
 ];
 // Roads out of the valley: [toX, toZ, fromX, fromZ]
-export const ROADS = [[MINE.x - MINE.r + 1, MINE.z + 3, 44, -38], [58, 58, 2, 46], [-60, 58, 1, 40], [-56, -66, -16, -58], [62, -55, 25, -21], [ZONES.glimmer.x - 20, 6, 22, 10], [-86, -4, -28, -4], [4, 86, 0, 30], [-16, -58, 0, -40], [-10, -92, -16, -58]];
+export const ROADS = [[MINE.x - MINE.r + 1, MINE.z + 3, 44, -38], [58, 58, 2, 46], [-60, 58, 1, 40], [-56, -66, -16, -58], [62, -55, 25, -21], [ZONES.glimmer.x - 20, 6, 22, 10], [-86, -4, -28, -4], [4, 86, 0, 30], [-16, -58, 0, -40], [-10, -92, -16, -58],
+  // v76 outskirt towns, each reached from its nearest old town (or Honeymeadow)
+  [154, 54, 78, 62], [62, 150, 26, 128], [-152, 60, -80, 62], [-79, -146, -64, -84]];
 const nearRoad = (x, z, pad) => ROADS.some(([tx, tz, fx, fz]) => {
   const dx = tx - fx, dz = tz - fz, L2 = dx * dx + dz * dz;
   const t = Math.max(0, Math.min(1, ((x - fx) * dx + (z - fz) * dz) / L2));
@@ -104,7 +117,7 @@ export const isFree = (x, z, pad = 0) => !colliders.some((c) => Math.hypot(c.x -
 export function buildWorld(library) {
   lib = library;
   // painted ground
-  const gGeo = new THREE.PlaneGeometry(440, 440, 200, 200);
+  const gGeo = new THREE.PlaneGeometry(560, 560, 240, 240);
   gGeo.rotateX(-Math.PI / 2);
   const zc = new THREE.Color(), zc2 = new THREE.Color();
   const gc = [], cA = new THREE.Color('#5ea83e'), cB = new THREE.Color('#86bf52'), cC = new THREE.Color('#438f38'), tmpc = new THREE.Color();
@@ -218,7 +231,7 @@ export function buildWorld(library) {
     rounds['ABC'[Math.floor(rng() * 3)]].push(M(x, 0, z, S_NATURE * (big ? 1.15 : 0.95) * (0.85 + rng() * 0.35), rng() * 6));
     colliders.push({ x, z, r: big ? 1.35 : 1.0 });
   };
-  for (let i = 0; i < 1250; i++) {
+  for (let i = 0; i < 2100; i++) {
     const a = rng() * Math.PI * 2, rr = 56 + rng() * (WORLD_R - 44);
     const x = Math.cos(a) * rr, z = Math.sin(a) * rr;
     if (blocked(x, z) || (Math.abs(x) < 4 && z > 0 && z < 40) || Math.hypot(x - 4, z + 48) < 14 || Math.hypot(x - 4, z + 66) < 22 || Math.hypot(x - 62, z + 63) < 13 || (Math.abs(x - 2) < 5 && z < 0 && z > -50)) continue;
@@ -364,15 +377,15 @@ export function buildWorld(library) {
 
   // mountains around the edge of the world
   const far = { mountain_A_grass_trees: [], mountain_B_grass_trees: [], mountain_C_grass: [] };
-  for (let i = 0; i < 44; i++) {
-    const a = (i / 44) * Math.PI * 2 + rng() * 0.08, rr = WORLD_R + 14 + rng() * 10;
+  for (let i = 0; i < 60; i++) {
+    const a = (i / 60) * Math.PI * 2 + rng() * 0.08, rr = WORLD_R + 14 + rng() * 10;
     far[['mountain_A_grass_trees', 'mountain_B_grass_trees', 'mountain_C_grass'][i % 3]].push(M(Math.cos(a) * rr, -1, Math.sin(a) * rr, 14 + rng() * 5, rng() * 6));
   }
   // soften the mountain tops from acid yellow to a calm sage green
   for (const [k, list] of Object.entries(far)) instanced(tinted(lib[k], '#c4dcbc'), list, { cast: false });
 
   for (let i = 0; i < 20; i++) {
-    const c = place(i % 2 ? 'cloud_big' : 'cloud_small', -150 + rng() * 300, -150 + rng() * 300, 4 + rng() * 2, rng() * 6, { collide: false, y: 26 + rng() * 6 });
+    const c = place(i % 2 ? 'cloud_big' : 'cloud_small', -200 + rng() * 400, -200 + rng() * 400, 4 + rng() * 2, rng() * 6, { collide: false, y: 26 + rng() * 6 });
     c.traverse((o) => { if (o.isMesh) o.receiveShadow = false; });
     clouds.push(c);
   }
