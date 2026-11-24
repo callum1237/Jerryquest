@@ -3367,7 +3367,7 @@ const MON_LV = {
   boss_pomp: 52, boss_colossus: 60,
 };
 // boss-specific shape: [health, damage]
-const BOSS_SHAPE = { boss_gagron: [0.75, 0.75], boss_twin_a: [0.75, 1], boss_twin_b: [0.75, 1], boss_colossus: [1.25, 1.05], boss_gobbler: [0.95, 0.95] };
+const BOSS_SHAPE = { boss_pyrrhax: [0.8, 0.9], boss_gagron: [0.75, 0.75], boss_twin_a: [0.75, 1], boss_twin_b: [0.75, 1], boss_colossus: [1.25, 1.05], boss_gobbler: [0.95, 0.95] };
 // body shape for ordinary monsters: [health, damage]
 const MOB_SHAPE = { skel_minion: [0.85, 0.9], skel_warrior: [1.15, 1.1], skel_mage: [0.9, 1], slime: [1.05, 0.95], bat: [0.75, 1], dragon: [3, 1.35] };
 const lvHp = (L, boss) => (boss ? 1300 * Math.pow(L / 12, 2.15) : 28 + 7 * L + 0.62 * L * L);
@@ -3415,9 +3415,11 @@ Object.assign(ENEMY_TYPES, {
   flame_warrior: { name: 'Blazebone Warrior', model: 'skel_warrior', hp: 1, maxHit: 1, xp: 1, weapon: 'Skeleton_Blade', tint: '#4a3634', inside: 'magma', coins: [150, 260], flame: true, noBones: true, scale: 1.45 },
   flame_knight: { name: 'Inferno Knight', model: 'skel_warrior', hp: 1, maxHit: 1, xp: 1, weapon: 'axe_2handed', tint: '#2e2424', inside: 'magma', coins: [200, 340], flame: true, noBones: true, scale: 1.7, mass: 2.5 },
   magma_drake: { name: 'Magma Drake', model: 'dragon', hp: 1, maxHit: 1, xp: 1, dragon: true, scale: 1.25, inside: 'magma', coins: [700, 1100], noBones: true, tintAll: '#d8502a', mass: 10 },
+  // the lord of the caverns: an ancient ash-black dragon sleeping in the Molten Heart. Optional, and brutal.
+  boss_pyrrhax: { name: 'Pyrrhax the Ashen', title: 'Lord of the Magma Caverns', model: 'dragon', hp: 1, maxHit: 1, xp: 1, boss: true, dragon: true, scale: 3.1, inside: 'magma', coins: [6000, 9000], drop: 'dragon_heart', noBones: true, tintAll: '#3a3034', mass: 40 },
   elder_dragon: { name: 'Elder Flame Dragon', model: 'dragon', hp: 1, maxHit: 1, xp: 1, dragon: true, scale: 1.8, inside: 'magma', coins: [1600, 2600], noBones: true, tintAll: '#4a3a52', mass: 16, shape: [4.2, 1.5, 1.6] },
 });
-Object.assign(MON_LV, { flame_minion: 56, flame_mage: 58, flame_warrior: 61, flame_knight: 66, magma_drake: 76, elder_dragon: 86 });
+Object.assign(MON_LV, { boss_pyrrhax: 92, flame_minion: 56, flame_mage: 58, flame_warrior: 61, flame_knight: 66, magma_drake: 76, elder_dragon: 86 });
 MOB_SHAPE.dragon = [3, 1.35, 1.3];
 for (const [k, T] of Object.entries(ENEMY_TYPES)) toughen(T, k);
 const nidHash = (s) => { let h = 7; for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) >>> 0; return h; };
@@ -3583,8 +3585,9 @@ function buildEnemies() {
   fring(KZs.ash, ['flame_warrior', 'flame_mage', 'flame_knight', 'flame_minion', 'flame_warrior'], 8);
   fring({ x: LANDS.magma.x - 18, z: LANDS.magma.z - 22 }, ['flame_minion', 'flame_mage', 'flame_minion'], 4);
   fring({ x: LANDS.magma.x + 16, z: LANDS.magma.z - 22 }, ['flame_warrior', 'flame_minion', 'flame_knight'], 4);
-  fring(KZs.roost, ['magma_drake', 'magma_drake'], 7);
-  fring(KZs.heart, ['elder_dragon', 'flame_knight', 'elder_dragon'], 8);
+  fring(KZs.roost, ['magma_drake', 'elder_dragon', 'magma_drake'], 8);
+  fring(KZs.heart, ['flame_knight', 'flame_knight'], 13);
+  spawnEnemy('boss_pyrrhax', KZs.heart.x, KZs.heart.z - 2);
   fring({ x: DV.x, z: DV.z - 18 }, ['sand_gloop', 'dust_bat', 'sand_gloop'], 7);
   spawnEnemy('boss_pomp', DZs.workshop.x, DZs.workshop.z);
   spawnEnemy('boss_colossus', DZs.colossus.x, DZs.colossus.z - 2);
@@ -3932,7 +3935,7 @@ function rollLoot(e) {
     if (rng() < 0.12) { give('golden_crown'); toast('A tiny golden crown! Marta will pay a fortune for that.', ICONS.golden_crown, true); }
     // mythic: about one in a hundred Chapter 4 boss kills, one in two hundred world bosses
     const myth = Object.keys(WEAPONS).filter((k) => WEAPONS[k].mythic && !WEAPONS[k].price && !S.owned.includes(k)); // shop mythics (Dark Blade) never drop
-    const mChance = e.T.world ? 0.005 : e.inside === 'sands' ? 0.01 : 0;
+    const mChance = e.T.world ? 0.005 : e.inside === 'magma' ? 0.06 : e.inside === 'sands' ? 0.01 : 0;
     if (myth.length && rng() < mChance) { const mk = myth[Math.floor(rng() * myth.length)]; S.owned.push(mk); popLoot(at, 'chest', 0.8); toast(`MYTHIC DROP!!! ${WEAPONS[mk].name}! Almost nobody has one of these.`, gearIcon(WEAPONS[mk]), true); burst(at.clone().setY(2), '#b0182a', 80, 9, 1.8); if (net.on) sendChat(`I just found a MYTHIC ${WEAPONS[mk].name}!`); }
     cosDrop(e, at, true);
     const wk = BOSS_WEAPON[e.type];
@@ -7863,7 +7866,7 @@ let musicAt = 0;
 // ---------- boss intros ----------
 // The first time a boss notices you (and again after a while), the action pauses: black bars slide in,
 // the camera swoops to the boss, it roars, and its name slams onto the screen.
-const BOSS_TITLES = { boss_pomp: 'In a Stolen Battle-Suit', boss_colossus: 'Guardian of the Old Kingdom', boss_mire: 'Bog Witch of Mire Hollow', boss_sogg: 'The Sunken Knight', boss_gobbler: 'Terror of Gobbler Marsh', boss_goon: 'Giant of the Stuffy Bog', boss_frost: 'Ice Queen of Frostwhisker Peaks', boss_crusher: 'Brute of the Grumble Crags', boss_gloom: 'Giant of Glimmerwood', boss_rattle: 'Terror of Haunted Hollow', boss_gagron: 'Fire Dragon of the Ember Cave' };
+const BOSS_TITLES = { boss_pyrrhax: 'Lord of the Magma Caverns', boss_pomp: 'In a Stolen Battle-Suit', boss_colossus: 'Guardian of the Old Kingdom', boss_mire: 'Bog Witch of Mire Hollow', boss_sogg: 'The Sunken Knight', boss_gobbler: 'Terror of Gobbler Marsh', boss_goon: 'Giant of the Stuffy Bog', boss_frost: 'Ice Queen of Frostwhisker Peaks', boss_crusher: 'Brute of the Grumble Crags', boss_gloom: 'Giant of Glimmerwood', boss_rattle: 'Terror of Haunted Hollow', boss_gagron: 'Fire Dragon of the Ember Cave' };
 let bossIntro = null;
 // ---------- sealed final bosses ----------
 // A chapter's last boss stays behind a shimmering seal until you've beaten the one before it.
@@ -7931,6 +7934,8 @@ function bossIntroTick(dt = 0) {
 // ['h', text] lines are your hero talking back.
 const POMP_BOSSES = ['boss_gagron', 'boss_crusher', 'boss_gloom', 'boss_rattle', 'boss_frost', 'boss_gobbler'];
 const BOSS_LINES = {
+  boss_pyrrhax: { intro: ['Mmm. Another little snack climbs all the way down into my Heart.', ['h', 'Are you... in charge of the dragons?'], 'I am Pyrrhax the Ashen. I was old when your king was an egg. Now hold still.'],
+    low: 'You sting like an ember, little one. But embers go OUT.', defeat: ['*the great dragon sinks into the lava with a long, tired sigh*', ['h', 'I... actually did it.'], 'Hmph. Not bad. Not bad at all. Take my heart. I have a spare.'] },
   boss_pomp: { intro: ['Ah, the little helper! Admire my new suit. Rockets! Lasers! A cup holder!', ['h', 'That is Professor Tinkerwell\'s suit. And you work for the Dark King?!'], 'He promised me GLORY. Statues! Songs! My face on every coin! You would not understand.', 'Now hold still while I become a legend!'],
     low: 'Not the paint! Do you know how much this gold leaf costs?!', defeat: ['*sniff* The suit is ruined. My hair is ruined. EVERYTHING is ruined.', ['h', 'Why did you do it?'], 'Nobody ever cheered for me. Not once. The Dark King said they would...', 'He has a castle, you know. It FLIES. I was going to have the room with the balcony.'] },
   boss_colossus: { intro: ['*CLANK* *WHIRR* ...INTRUDER. DETECTED.', ['h', 'That is the biggest robot I have ever seen.'], 'I. AM. THE. BRASSBOLT. COLOSSUS. THE WARDSTONE. IS. MINE.'],
@@ -9167,7 +9172,7 @@ function cosDrop(e, at, boss) {
 }
 const cosLabel = (c) => (c.how === 'drop' ? 'Drops from monsters (better lands, rarer looks)' : c.how);
 const COS_SLOTS = { hat: 'Hat', outfit: 'Outfit', cape: 'Cape', aura: 'Aura', trail: 'Trail' };
-const COS_BOSS = { boss_gagron: ['cape:ember', 'trail:ember'], boss_crusher: ['hat:horns'], boss_gloom: ['hat:wizard'], boss_rattle: ['hat:tricorn'], boss_frost: ['hat:tiara', 'aura:frost'], boss_grumble: ['trail:frost'], boss_mire: ['trail:bubbles'], boss_sogg: ['cape:midnight'], boss_gobbler: ['hat:frog'], boss_pomp: ['hat:tophat'], boss_colossus: ['hat:goggles', 'aura:sun'] };
+const COS_BOSS = { boss_pyrrhax: ['outfit:molten', 'aura:inferno'], boss_gagron: ['cape:ember', 'trail:ember'], boss_crusher: ['hat:horns'], boss_gloom: ['hat:wizard'], boss_rattle: ['hat:tricorn'], boss_frost: ['hat:tiara', 'aura:frost'], boss_grumble: ['trail:frost'], boss_mire: ['trail:bubbles'], boss_sogg: ['cape:midnight'], boss_gobbler: ['hat:frog'], boss_pomp: ['hat:tophat'], boss_colossus: ['hat:goggles', 'aura:sun'] };
 const beaten = (t) => !!((S.beat || {})[t] || (S.letters || {})[t]);
 function cosEarned() {
   const out = new Set(), l = heroLvl();
