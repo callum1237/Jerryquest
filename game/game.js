@@ -960,7 +960,14 @@ function findThing(text) {
   for (const f of [([n]) => n === q, ([n]) => n.startsWith(q), ([n]) => n.split(' ').some((w, i, a) => a.slice(i).join(' ').startsWith(q)), ([n]) => n.includes(q)]) {
     const hit = ids(f); if (hit.length === 1) return { id: hit[0] }; if (hit.length > 1) return { many: hit };
   }
-  return {};
+  // forgiving: every word you typed (or a word that means the same, like dark for shadow) starts a word of the name
+  const SYN = { dark: ['dark', 'shadow', 'void', 'night'], shadow: ['shadow', 'dark'], blade: ['blade', 'sword'], sword: ['sword', 'blade'], skin: ['skin', 'outfit'], outfit: ['outfit', 'skin'], heal: ['heal'], big: ['big', 'great'], fire: ['fire', 'flame', 'scorch'], ice: ['ice', 'frost'], frost: ['frost', 'ice'] };
+  const qw = q.split(' '), fits = (n) => { const nw = n.split(' '); return qw.every((w) => (SYN[w] || [w]).some((a) => nw.some((x) => x.startsWith(a)))); };
+  const loose = ids(([n]) => fits(n)); if (loose.length === 1) return { id: loose[0], guess: true }; if (loose.length > 1) return { many: loose };
+  // still nothing: suggest the closest names (most typed words in common)
+  const score = new Map(); for (const [n, id] of all) { const nw = n.split(' '); const sc = qw.filter((w) => w.length > 2 && nw.some((x) => x.startsWith(w.slice(0, 3)))).length; if (sc > (score.get(id) || 0)) score.set(id, sc); }
+  const near = [...score.entries()].filter(([, v]) => v > 0).sort((a, b) => b[1] - a[1]).slice(0, 5).map(([id]) => id);
+  return near.length ? { near } : {};
 }
 const thingLabel = (id) => { if (GEAR[id]) return GEAR[id].name; if (ITEMS[id]) return ITEMS[id]; if (id.includes(':')) { const [a, k] = id.split(':'); return a === 'spell' ? `${SPELLS[k].name} spell` : (COS[a] && COS[a][k] && COS[a][k].name) || id; } return id; };
 // "/give [player] thing words [amount]": a trailing number (90k works) is the amount
@@ -992,13 +999,18 @@ async function adminGive(rest) {
   const first = args[0].toLowerCase();
   if (first === 'me' || first === heroName().toLowerCase()) g = parseGive(args.slice(1));
   else {
-    const peer = args.length > 1 ? peerByName(args[0]) : null, forPeer = peer ? parseGive(args.slice(1)) : null;
-    if (forPeer && (forPeer.id || forPeer.many)) { target = peer; g = forPeer; } else g = parseGive(args);
-    // not a thing and not online: maybe an offline player, who gets it next time they play
-    if (!target && !g.id && args.length > 1) { const rest2 = parseGive(args.slice(1)); if (rest2.id || rest2.many) { const t = await adminTarget(args[0]); if (t && !t.error) { target = [t.id, { name: t.name }]; g = rest2; } } }
+    // "/give Bob dark wave": if the first word is a player (online, or anyone with a save), the rest is the thing
+    const whole = parseGive(args);
+    if (args.length > 1 && !(whole.id && !whole.guess)) {
+      const peer = peerByName(args[0]);
+      const t = peer ? { id: peer[0], name: peer[1].name } : await adminTarget(args[0]);
+      if (t && !t.error) { target = [t.id, { name: t.name }]; g = parseGive(args.slice(1)); }
+    }
+    if (!g) g = whole;
   }
   if (g.many) { sys(`"${g.text}" could be: ${g.many.slice(0, 8).map(thingLabel).join(', ')}${g.many.length > 8 ? '...' : ''}. Type more of the name.`); return; }
-  if (!g.id) { sys(`I don't know "${g.text}". Try /give find word${!target && args.length > 1 ? `, or check ${args[0]} is online with /who` : ''}.`); return; }
+  if (!g.id) { sys(`I don't know "${g.text}".${g.near ? ` Did you mean: ${g.near.map(thingLabel).join(', ')}?` : ' Try /give find word.'}`); return; }
+  if (g.guess) sys(`Giving ${thingLabel(g.id)} (closest match to "${g.text}").`);
   const what = g.id, n = g.n;
   if (!target) { const got = giveThing(what, n); save(); sys(`Gave yourself ${got}.`); return; }
   const r = await adminSend(target[0], 'give', { what, n });
@@ -1020,7 +1032,7 @@ async function adminRemove(rest) {
   if (!t || t.error) { sys(t ? `Couldn't look them up: ${t.error}` : `Nobody called "${args[0]}" has played yet. Try /who.`); return; }
   const g = parseGive(args.slice(1));
   if (g.many) { sys(`"${g.text}" could be: ${g.many.slice(0, 8).map(thingLabel).join(', ')}. Type more of the name.`); return; }
-  if (!g.id) { sys(`I don't know "${g.text}". Try /give find word.`); return; }
+  if (!g.id) { sys(`I don't know "${g.text}".${g.near ? ` Did you mean: ${g.near.map(thingLabel).join(', ')}?` : ' Try /give find word.'}`); return; }
   const r = await adminSend(t.id, 'remove', { what: g.id, n: g.n });
   sys(r.error ? `Couldn't send that: ${r.error}` : `Removing ${g.n > 1 ? `${fmt(g.n)} × ` : ''}${thingLabel(g.id)} from ${t.name}${t.online ? '. It happens within a few seconds.' : ". They're offline, so it happens next time they play."}`);
 }
@@ -1332,10 +1344,11 @@ function duelPrize(from, name, offer) {
   if (items.length) opts.push(['items', items.map(([k, n]) => `<img src="${ICONS[k]}" alt="">${n} × ${esc(ITEMS[k])}`).join(' ')]);
   sfx('win');
   if (!opts.length) { toast(`You won the duel against ${name}! They had nothing worth taking.`, ICONS.star, true); return; }
-  el.innerHTML = `<p>You beat <b></b>! Pick one prize:</p><div class="prizes">${opts.map(([k, h]) => `<button type="button" data-pz="${k}">${h}</button>`).join('')}</div>`;
+  el.innerHTML = `<p>You beat <b></b>! Pick one prize:</p><div class="prizes">${opts.map(([k, h]) => `<button type="button" data-pz="${k}">${h}</button>`).join('')}<button type="button" class="mercy" data-pz="none">Take nothing (show mercy)</button></div>`;
   el.querySelector('b').textContent = name;
   el.querySelectorAll('[data-pz]').forEach((b) => { b.onclick = () => {
     const k = b.dataset.pz; el.remove();
+    if (k === 'none') { sendNet('loot', { to: from, pick: 'none' }); toast(`You let ${name} keep everything. How kind!`, ICONS.star, true); giveHeroXp(60 + heroLvl() * 10); refreshUI(); save(); return; }
     if (k === 'coins') S.coins += c;
     else if (k === 'items') for (const [id, n] of items) addItem(id, Math.max(1, Math.min(2, n | 0)));
     else {
@@ -1353,7 +1366,8 @@ function takeDuelLoss(from, pick) {
   if (!duelLoss || duelLoss.from !== from || now > duelLoss.until) return;
   const o = duelLoss.offer; duelLoss = null;
   const who = (net.peers.get(from) || {}).name || 'The winner';
-  if (pick === 'coins') { const c = Math.min(S.coins, o.coins || 0); S.coins -= c; toast(`${who} took ${fmt(c)} of your coins.`, ICONS.coins, true); }
+  if (pick === 'none') toast(`${who} showed mercy and took nothing!`, ICONS.star, true);
+  else if (pick === 'coins') { const c = Math.min(S.coins, o.coins || 0); S.coins -= c; toast(`${who} took ${fmt(c)} of your coins.`, ICONS.coins, true); }
   else if (pick === 'items' && o.items) { for (const [k, n] of o.items) if (S.inv[k]) takeItem(k, Math.min(S.inv[k], n)); toast(`${who} took ${o.items.map(([k, n]) => `${n} ${ITEMS[k]}`).join(' and ')} from your bag.`, ICONS.bag, true); }
   else if ((pick === 'weapon' || pick === 'armour') && o[pick]) {
     const k = o[pick][0];
@@ -2432,58 +2446,40 @@ function stretchBlade(m) {
   for (const k of ['x', 'y', 'z']) m.scale[k] *= k === ax ? 1.28 : 1.08;
 }
 // ---------- the Dark Blade's own model ----------
-// Built here rather than tinting a stock sword: a long jagged obsidian blade with a hooked spur, a dark core
-// and dark red runes that pulse up the blade, swept-back guard wings around a red eye gem, a wrapped grip and a gem pommel.
-// Built along +Y from the pommel (0) to the tip (L).
+// Sleek rather than bulky (Callum, Nov 24): a long, slim, double-edged blade of near-black steel that tapers to a
+// needle point, a thin dark red glow along both edges and a fine red line down the fuller, a slim swept-down guard
+// with a small red gem, a narrow wrapped grip and a pointed pommel. Built along +Y from the pommel (0) to the tip (L).
 function darkBladeModel(L) {
   const g = new THREE.Group(), fx = [];
-  const metal = (c) => toon(c);
   const mesh = (geo, mats, glow) => { const m = new THREE.Mesh(geo, glow ? mats : mats.std); if (!glow) registerMesh(m, mats); else { m.layers.set(1); m.userData.noGlow = true; } g.add(m); return m; };
-  const glowMat = (c, op, add) => new THREE.MeshBasicMaterial({ color: c, transparent: true, opacity: op, depthWrite: false, fog: false, blending: add ? THREE.AdditiveBlending : THREE.NormalBlending, side: THREE.DoubleSide });
-  const b0 = 0.25 * L, w = 0.06 * L, th = 0.016 * L;
-  // the blade: wide at the guard, a slight flare, a hooked spur on one side, then a long sharp point
-  const sh = new THREE.Shape();
-  sh.moveTo(-w * 0.8, b0); sh.lineTo(-w * 1.15, b0 + 0.08 * L); sh.lineTo(-w * 0.75, b0 + 0.13 * L); sh.lineTo(-w * 1.0, b0 + 0.45 * L);
-  sh.lineTo(-w * 0.55, b0 + 0.66 * L); sh.lineTo(0, L); sh.lineTo(w * 0.6, b0 + 0.62 * L); sh.lineTo(w * 1.05, b0 + 0.38 * L);
-  sh.lineTo(w * 1.55, b0 + 0.2 * L); sh.lineTo(w * 0.85, b0 + 0.21 * L); sh.lineTo(w * 0.95, b0 + 0.06 * L); sh.lineTo(w * 0.8, b0);
-  const bg = new THREE.ExtrudeGeometry(sh, { depth: th, bevelEnabled: true, bevelThickness: th * 0.9, bevelSize: w * 0.22, bevelSegments: 1, curveSegments: 1 });
+  const glowMat = (c, op) => new THREE.MeshBasicMaterial({ color: c, transparent: true, opacity: op, depthWrite: false, fog: false, side: THREE.DoubleSide });
+  const b0 = 0.24 * L, w = 0.034 * L, th = 0.009 * L, tipY = L;
+  // blade outline: straight and slim, a gentle taper, then a long clean point
+  const outline = (k) => { const sh = new THREE.Shape(); sh.moveTo(-w * k, b0); sh.lineTo(-w * 0.92 * k, b0 + 0.5 * (L - b0)); sh.lineTo(-w * 0.62 * k, b0 + 0.82 * (L - b0)); sh.lineTo(0, tipY + (k - 1) * 0.04 * L); sh.lineTo(w * 0.62 * k, b0 + 0.82 * (L - b0)); sh.lineTo(w * 0.92 * k, b0 + 0.5 * (L - b0)); sh.lineTo(w * k, b0); sh.lineTo(-w * k, b0); return sh; };
+  const bg = new THREE.ExtrudeGeometry(outline(1), { depth: th, bevelEnabled: true, bevelThickness: th * 1.1, bevelSize: w * 0.34, bevelSegments: 1, curveSegments: 1 });
   bg.translate(0, 0, -th / 2);
-  mesh(bg, metal('#26242a'));
-  // a thin dark red outline: a slightly bigger copy of the blade's outline sitting inside it, so only its rim shows
-  const eg = new THREE.ShapeGeometry(sh); eg.translate(0, -(b0 + 0.5 * (L - b0)), 0); eg.scale(1.32, 1.03, 1); eg.translate(0, b0 + 0.5 * (L - b0), 0);
-  const edge = mesh(eg, glowMat('#7a0c18', 0.9), true); edge.renderOrder = -1; fx.push({ m: edge, base: 0.75, amp: 0.2, sp: 2.2, ph: 0.5 });
-  // the glowing core down the middle of the blade, on both faces
-  const core = new THREE.Shape(); core.moveTo(-w * 0.26, b0 + 0.03 * L); core.lineTo(0, b0 + 0.72 * L); core.lineTo(w * 0.26, b0 + 0.03 * L);
-  const cg = new THREE.ShapeGeometry(core);
-  for (const z of [th * 1.45, -th * 1.45]) { const c = mesh(cg, glowMat('#3a3640', 0.9), true); c.position.z = z; fx.push({ m: c, base: 0.85, amp: 0.1, sp: 2.2, ph: 0 }); }
-  // runes: small diamonds that light up one after another, climbing the blade
-  const rg = new THREE.PlaneGeometry(w * 0.34, w * 0.34); rg.rotateZ(Math.PI / 4);
-  for (let i = 0; i < 6; i++) for (const z of [th * 1.6, -th * 1.6]) { const r = mesh(rg, glowMat('#b01828', 0.8), true); r.position.set(0, b0 + (0.08 + i * 0.1) * L, z); fx.push({ m: r, base: 0.15, amp: 0.85, sp: 3, ph: -i * 0.9, rune: true }); }
-  // guard: a heavy centre block with two swept-back wings and a dark red eye gem
-  const gd = mesh(new THREE.BoxGeometry(w * 2.4, 0.035 * L, th * 4.5), metal('#151418')); gd.position.y = b0 - 0.012 * L;
-  for (const sd of [-1, 1]) {
-    const wg = new THREE.ConeGeometry(w * 0.32, w * 2.6, 4); const m = mesh(wg, metal('#2c2a30'));
-    m.position.set(sd * w * 2.1, b0 + 0.02 * L, 0); m.rotation.z = -sd * 1.05;
-    const tip = mesh(new THREE.OctahedronGeometry(w * 0.2), glowMat('#a0141f', 0.95), true); tip.position.set(sd * w * 3.05, b0 + 0.07 * L, 0); fx.push({ m: tip, base: 0.6, amp: 0.4, sp: 2.2, ph: sd });
-  }
-  const eye = mesh(new THREE.OctahedronGeometry(w * 0.42), glowMat('#c01c2c', 1), true); eye.position.y = b0 - 0.01 * L; eye.scale.z = 1.5; fx.push({ m: eye, base: 0.75, amp: 0.25, sp: 3.4, ph: 0, spin: true });
-  // grip with wrap rings, and a gem pommel
-  const grip = mesh(new THREE.CylinderGeometry(w * 0.36, w * 0.42, 0.19 * L, 8), metal('#111013')); grip.position.y = 0.135 * L;
-  for (let i = 0; i < 4; i++) { const ring = mesh(new THREE.TorusGeometry(w * 0.42, w * 0.08, 4, 10), metal('#4a0e16')); ring.rotation.x = Math.PI / 2; ring.position.y = (0.06 + i * 0.05) * L; }
-  const cap = mesh(new THREE.CylinderGeometry(w * 0.55, w * 0.4, 0.025 * L, 8), metal('#2c2a30')); cap.position.y = 0.035 * L;
-  const pom = mesh(new THREE.OctahedronGeometry(w * 0.5), glowMat('#a0141f', 0.95), true); pom.position.y = 0.005 * L; pom.scale.y = 1.4; fx.push({ m: pom, base: 0.7, amp: 0.3, sp: 2.2, ph: 1 });
-  // the light breathes and the runes climb; driven from the render itself, so it needs no game tick
-  {
-    const drive = fx[0].m;
-    drive.onBeforeRender = () => {
-      const t = performance.now() / 1000;
-      for (const f of fx) {
-        const v = f.rune ? Math.max(0, Math.sin(t * f.sp + f.ph)) ** 3 : 0.5 + 0.5 * Math.sin(t * f.sp + f.ph);
-        f.m.material.opacity = f.base + f.amp * v;
-        if (f.spin) f.m.rotation.y = t * 1.5;
-      }
-    };
-  }
+  mesh(bg, toon('#232127'));
+  // a thin dark red edge glow: a slightly bigger outline inside the blade, so only a fine rim shows round it
+  const eg = new THREE.ShapeGeometry(outline(1.95));
+  const edge = mesh(eg, glowMat('#9c1222', 0.85), true); edge.renderOrder = -1; fx.push({ m: edge, base: 0.65, amp: 0.3, sp: 1.8, ph: 0 });
+  // the fuller: a fine red line down both faces that fades out before the point
+  const fl = new THREE.PlaneGeometry(w * 0.16, 0.6 * (L - b0)); fl.translate(0, b0 + 0.04 * L + 0.3 * (L - b0), 0);
+  for (const z of [th * 1.75, -th * 1.75]) { const f = mesh(fl, glowMat('#b0182a', 0.8), true); f.position.z = z; fx.push({ m: f, base: 0.5, amp: 0.35, sp: 1.8, ph: 0.6 }); }
+  // guard: a slim crescent sweeping down towards the blade at both ends, with a small red gem in the middle
+  const gs = new THREE.Shape(), gw = w * 3.4, gh = 0.018 * L;
+  gs.moveTo(-gw, b0 + gh * 1.6); gs.quadraticCurveTo(-gw * 0.5, b0 - gh * 0.2, 0, b0 - gh * 0.6); gs.quadraticCurveTo(gw * 0.5, b0 - gh * 0.2, gw, b0 + gh * 1.6);
+  gs.quadraticCurveTo(gw * 0.5, b0 + gh * 0.5, 0, b0 + gh * 0.45); gs.quadraticCurveTo(-gw * 0.5, b0 + gh * 0.5, -gw, b0 + gh * 1.6);
+  const gg = new THREE.ExtrudeGeometry(gs, { depth: th * 3, bevelEnabled: true, bevelThickness: th * 0.6, bevelSize: th * 0.6, bevelSegments: 1, curveSegments: 6 });
+  gg.translate(0, 0, -th * 1.5); mesh(gg, toon('#18171b'));
+  const gem = mesh(new THREE.OctahedronGeometry(w * 0.42), glowMat('#c41c30', 1), true); gem.position.y = b0 + gh * 0.05; gem.scale.set(0.8, 1.2, 1.8); fx.push({ m: gem, base: 0.8, amp: 0.2, sp: 2.4, ph: 1 });
+  // grip: narrow and wrapped, with a thin collar under the guard and a pointed pommel
+  const grip = mesh(new THREE.CylinderGeometry(w * 0.3, w * 0.34, 0.17 * L, 8), toon('#121114')); grip.position.y = 0.125 * L;
+  for (let i = 0; i < 6; i++) { const ring = mesh(new THREE.TorusGeometry(w * 0.33, w * 0.05, 4, 10), toon('#3a0c14')); ring.rotation.x = Math.PI / 2; ring.position.y = (0.055 + i * 0.027) * L; }
+  const collar = mesh(new THREE.CylinderGeometry(w * 0.44, w * 0.36, 0.02 * L, 8), toon('#2a282e')); collar.position.y = b0 - 0.022 * L;
+  const pom = mesh(new THREE.ConeGeometry(w * 0.42, 0.05 * L, 6), toon('#2a282e')); pom.position.y = 0.02 * L; pom.rotation.x = Math.PI;
+  const pgem = mesh(new THREE.OctahedronGeometry(w * 0.22), glowMat('#c41c30', 1), true); pgem.position.y = 0.045 * L;
+  // a slow breathing glow along the edges, driven from the render itself so it needs no game tick
+  edge.onBeforeRender = () => { const t = performance.now() / 1000; for (const f of fx) f.m.material.opacity = f.base + f.amp * (0.5 + 0.5 * Math.sin(t * f.sp + f.ph)); };
   return g;
 }
 // put the custom model where the stock sword was: same length, same axis, pommel at the hand end
