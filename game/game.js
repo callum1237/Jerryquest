@@ -223,7 +223,7 @@ const ENEMY_TYPES = {
   boss_gloom: { name: 'Harold the Grotesque', title: 'Giant of Glimmerwood', model: 'barbarian', hp: 340, maxHit: 8, weapon: 'Skeleton_Staff', xp: 1300, boss: true, scale: 3.1, coins: [150, 240], drop: 'gloom_hat', ranged: true, spread: true, slam: 5.5, tint: '#ffffff', suit: '#7a7090', hide: ['Barbarian_Hat', 'Mug'],
     look: { skin: 'porcelain', eyes: 'grey', eyeStyle: 'sharp', mouth: 'fang', hair: 'afro', hairLen: 'short', hairCol: 'black', hairShade: -0.6, mark: 'freckles', head: 'big', skinShade: -0.42 } },
   // the first story boss: a fire dragon in a cave north-east of the castle. Breathes fire and rains fireballs.
-  boss_gagron: { name: 'Gagron the Hideous', model: 'dragon', hp: 400, maxHit: 7, xp: 900, boss: true, dragon: true, scale: 2.1, coins: [120, 200], drop: 'dragon_scale', inside: 'cave', noBones: true },
+  boss_gagron: { name: 'Gagron the Hideous', model: 'drake', hp: 400, maxHit: 7, xp: 900, boss: true, dragon: true, scale: 2.1, drake: 'gagron', coins: [120, 200], drop: 'dragon_scale', inside: 'cave', noBones: true },
   boss_rattle: { name: 'Captain Rattlebones', model: 'skel_minion', hp: 250, maxHit: 7, weapon: 'Skeleton_Blade', xp: 800, boss: true, scale: 2.3, coins: [90, 150], drop: 'rattle_tooth', slam: 6 },
   gloom_shadow: { name: 'Shadow copy', model: 'skel_mage', hp: 14, maxHit: 5, weapon: 'Skeleton_Staff', xp: 20, ranged: true, scale: 2.1, tint: '#4a2a6a', coins: [0, 2] },
   // Chapter 2, Frostwhisker Peaks: icy skeletons that hit harder and give much more XP
@@ -629,7 +629,7 @@ const nodes = [];
 let tool = null, rod = null, pick = null;
 
 // ---------- boot ----------
-const FILES = ['world', 'gear', 'interior', 'dragon', 'slime', 'bat', 'knight', 'heroine', 'mage', 'archer', 'barbarian', 'skel_warrior', 'skel_minion', 'skel_mage'];
+const FILES = ['world', 'gear', 'interior', 'dragon', 'drake', 'slime', 'bat', 'knight', 'heroine', 'mage', 'archer', 'barbarian', 'skel_warrior', 'skel_minion', 'skel_mage'];
 async function main() {
   let n = 0;
   const loaded = await Promise.all(FILES.map((f) => loadModel(f).then((g) => { $('loadmsg').textContent = `${++n} of ${FILES.length} models`; $('ldfill').style.width = `${8 + 80 * n / FILES.length}%`; return g; })));
@@ -3431,22 +3431,38 @@ Object.assign(ENEMY_TYPES, {
   flame_mage: { name: 'Cinder Caster', model: 'skel_mage', hp: 1, maxHit: 1, xp: 1, weapon: 'Skeleton_Staff', ranged: true, tint: '#6a3a30', inside: 'magma', coins: [130, 230], flame: true, noBones: true },
   flame_warrior: { name: 'Blazebone Warrior', model: 'skel_warrior', hp: 1, maxHit: 1, xp: 1, weapon: 'Skeleton_Blade', tint: '#4a3634', inside: 'magma', coins: [150, 260], flame: true, noBones: true, scale: 1.45 },
   flame_knight: { name: 'Inferno Knight', model: 'skel_warrior', hp: 1, maxHit: 1, xp: 1, weapon: 'axe_2handed', tint: '#2e2424', inside: 'magma', coins: [200, 340], flame: true, noBones: true, scale: 1.7, mass: 2.5 },
-  magma_drake: { name: 'Magma Drake', model: 'dragon', hp: 1, maxHit: 1, xp: 1, dragon: true, scale: 1.25, inside: 'magma', coins: [700, 1100], noBones: true, tintAll: '#d8502a', mass: 10 },
+  magma_drake: { name: 'Magma Drake', model: 'drake', hp: 1, maxHit: 1, xp: 1, dragon: true, scale: 1.5, drake: 'magma', inside: 'magma', coins: [700, 1100], noBones: true, mass: 10 },
   // the lord of the caverns: an ancient ash-black dragon sleeping in the Molten Heart. Optional, and brutal.
-  boss_pyrrhax: { name: 'Pyrrhax the Ashen', title: 'Lord of the Magma Caverns', model: 'dragon', hp: 1, maxHit: 1, xp: 1, boss: true, dragon: true, scale: 3.1, inside: 'magma', coins: [6000, 9000], drop: 'dragon_heart', noBones: true, tintAll: '#3a3034', mass: 40 },
-  elder_dragon: { name: 'Elder Flame Dragon', model: 'dragon', hp: 1, maxHit: 1, xp: 1, dragon: true, scale: 1.8, inside: 'magma', coins: [1600, 2600], noBones: true, tintAll: '#4a3a52', mass: 16, shape: [4.2, 1.5, 1.6] },
+  boss_pyrrhax: { name: 'Pyrrhax the Ashen', title: 'Lord of the Magma Caverns', model: 'drake', hp: 1, maxHit: 1, xp: 1, boss: true, dragon: true, scale: 3.0, drake: 'pyrrhax', inside: 'magma', coins: [6000, 9000], drop: 'dragon_heart', noBones: true, mass: 40 },
+  elder_dragon: { name: 'Elder Flame Dragon', model: 'drake', hp: 1, maxHit: 1, xp: 1, dragon: true, scale: 2.0, drake: 'elder', inside: 'magma', coins: [1600, 2600], noBones: true, mass: 16, shape: [4.2, 1.5, 1.6] },
 });
 Object.assign(MON_LV, { boss_pyrrhax: 92, flame_minion: 56, flame_mage: 58, flame_warrior: 61, flame_knight: 66, magma_drake: 76, elder_dragon: 86 });
 MOB_SHAPE.dragon = [3, 1.35, 1.3];
 for (const [k, T] of Object.entries(ENEMY_TYPES)) toughen(T, k);
+// v69: the big dragons use a proper four-legged, winged dragon (Mesh2Motion, CC0) with walk, roar and fire-breath animations
+const DRAKE_ALIAS = { Idle: 'Idle', Idle_Combat: 'Idle', Running_A: 'Walk', Walking_A: 'Walk', Hit_A: 'Hurt', Death_A: 'Death', '1H_Melee_Attack_Chop': 'Attack', '2H_Melee_Attack_Chop': 'Attack', '2H_Melee_Attack_Spin': 'Attack', Spellcast_Shoot: 'Fire_Breath', Spellcasting: 'Roar', Cheer: 'Roar' };
+// Each big dragon gets its own painted skin, and chibi proportions: a bigger head and shorter wings and tail.
+const drakeTex = {};
+function drakeLook(e, skin) {
+  if (!drakeTex[skin]) { const t = new THREE.TextureLoader().load(`tex/drake_${skin}.png`); t.flipY = false; t.colorSpace = THREE.SRGBColorSpace; drakeTex[skin] = t; }
+  e.root.traverse((o) => {
+    if (o.isMesh && o.userData.mats) { const m = { std: o.userData.mats.std.clone(), toon: o.userData.mats.toon.clone() }; m.toon.onBeforeCompile = o.userData.mats.toon.onBeforeCompile; m.std.map = m.toon.map = drakeTex[skin]; registerMesh(o, m); }
+    if (!o.isBone) return;
+    if (o.name === 'head') o.scale.setScalar(1.65);
+    else if (o.name === 'wing_1_l' || o.name === 'wing_1_r') o.scale.setScalar(0.78);
+    else if (o.name === 'tail_1') o.scale.setScalar(0.8);
+    else if (o.name === 'horn_base_l' || o.name === 'horn_base_r') o.scale.setScalar(1.35);
+  });
+}
 const nidHash = (s) => { let h = 7; for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) >>> 0; return h; };
 function spawnEnemy(k, x, z) {
   const T = ENEMY_TYPES[k];
   const e = new Actor(G[T.model || k], { scale: T.scale || 1.3, hide: T.hide || [] });
   if (T.weapon) { const w = lib[T.weapon].clone(true); stylize(w); e.attach(w); }
   if (T.alias) e.alias = T.alias;
+  if (T.drake) drakeLook(e, T.drake);
   if (T.tintAll) e.root.traverse((o) => { if (o.isMesh && !/Eye/i.test((o.userData.mats && o.userData.mats.std.name) || (o.material && o.material.name) || '')) tinted(o, T.tintAll); });
-  if (T.dragon) e.alias = { Idle: 'Flying_Idle', Idle_Combat: 'Flying_Idle', Running_A: 'Fast_Flying', Walking_A: 'Flying_Idle', Hit_A: 'HitReact', Death_A: 'Death', '1H_Melee_Attack_Chop': 'Headbutt', Spellcast_Shoot: 'Punch', Spellcasting: 'Yes', '2H_Melee_Attack_Chop': 'Punch' };
+  if (T.dragon) e.alias = T.model === 'drake' ? DRAKE_ALIAS : { Idle: 'Flying_Idle', Idle_Combat: 'Flying_Idle', Running_A: 'Fast_Flying', Walking_A: 'Flying_Idle', Hit_A: 'HitReact', Death_A: 'Death', '1H_Melee_Attack_Chop': 'Headbutt', Spellcast_Shoot: 'Punch', Spellcasting: 'Yes', '2H_Melee_Attack_Chop': 'Punch' };
   e.inside = T.inside || 'out';
   e.type = k; e.T = T; e.home = new THREE.Vector2(x, z);
   e.nid = `${k}@${x.toFixed(1)},${z.toFixed(1)}`; // the same on every player's screen, so hits can be shared

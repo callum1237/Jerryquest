@@ -34,6 +34,8 @@ then open http://localhost:8000.
 All 3D models are by Kay Lousberg ([KayKit](https://kaylousberg.com)), released under CC0 (free for any use, no credit required, credited here anyway):
 KayKit Adventurers, KayKit Skeletons, KayKit Medieval Hexagon Pack.
 
+Monsters also use Quaternius models ([quaternius.com](https://quaternius.com), CC0). The big dragons (Gagron, Magma Drake, Elder Flame Dragon, Pyrrhax) use the dragon model and animations from [Mesh2Motion](https://github.com/Mesh2Motion/mesh2motion-app) (CC0), repainted per dragon in `game/tex/drake_*.png`.
+
 Models are stored as base64-encoded, quantized GLB files in `game/models/*.txt` with textures in `game/tex/`. `tools/` has the scripts that build them from the KayKit packs (`strip.mjs` trims animations, `merge.mjs` combines world props, `pack.mjs` quantizes and encodes). They need `npm i @gltf-transform/core @gltf-transform/functions @gltf-transform/extensions`.
 
 ## Roadmap
