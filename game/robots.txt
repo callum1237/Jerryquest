@@ -1,0 +1,3 @@
+User-agent: *
+Allow: /
+Sitemap: https://callum1237.github.io/Jerryquest/sitemap.xml
