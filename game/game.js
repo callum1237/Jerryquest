@@ -256,7 +256,7 @@ const ENEMY_TYPES = {
   boss_colossus: { name: 'The Brassbolt Colossus', title: 'Guardian of the Old Kingdom', model: 'skel_warrior', hp: 5200, maxHit: 28, weapon: 'axe_2handed', xp: 32000, boss: true, scale: 5.2, coins: [1200, 1600], drop: 'colossus_core', slam: 7, inside: 'sands', tintAll: '#d8a850', noBones: true, mass: 30 },
   // Goonshoe the Bogdweller: a stuffy-nosed giant who cannot breathe through his nose (so he cannot smell the bog)
   boss_goon: { name: 'Goonshoe the Bogdweller', title: 'Giant of the Stuffy Bog', model: 'barbarian', hp: 2200, maxHit: 20, weapon: 'axe_2handed', xp: 12000, boss: true, scale: 3.2, coins: [500, 750], drop: 'goon_hanky', slam: 6.5, inside: 'marsh', tint: '#ffffff', suit: '#f08a30', hide: ['Barbarian_Hat', 'Mug'],
-    look: { skin: 'tan', eyes: 'brown', eyeStyle: 'sleepy', mouth: 'calm', hair: 'afro', hairLen: 'short', hairCol: 'black', head: 'big', mark: 'rosy' } },
+    look: { sex: 'm', skin: 'peach', eyes: 'blue', eyeStyle: 'sleepy', mouth: 'calm', hair: 'bigafro', hairLen: 'short', hairCol: 'black', head: 'big', mark: 'rosy', beard: 'full', nose: 'big' } },
   boss_gobbler: { name: 'The Gobbler', title: 'Terror of Gobbler Marsh', model: 'slime', hp: 2600, maxHit: 21, xp: 15000, boss: true, scale: 3.4, coins: [600, 900], drop: 'gobbler_tooth', slam: 7, inside: 'marsh', noBones: true, tintAll: '#7ab05a', mass: 20 },
   boss_frost: { name: 'Queen Frostwhisker', model: 'mage', hp: 1400, maxHit: 13, weapon: 'Skeleton_Staff', xp: 3000, boss: true, scale: 2.4, coins: [300, 450], drop: 'frost_crown', ranged: true, spread: true, slam: 5.5, inside: 'frost', tint: '#cfeaff',
     look: { sex: 'f', skin: 'porcelain', eyes: 'sky', eyeStyle: 'sharp', mouth: 'cat', hair: 'hime', hairLen: 'long', hairCol: 'snow', mark: 'star', ears: 'elf' } },
@@ -2051,7 +2051,7 @@ const HAIR_COLOURS = {
   snow: ['Snow', '#f1ece4'], pink: ['Pink', '#ff8fc8'], blue: ['Blue', '#5f9ef0'], green: ['Green', '#66c46a'],
   auburn: ['Auburn', '#a8322a'], silver: ['Silver', '#b8bcc8'], purple: ['Purple', '#9a5fd8'], teal: ['Teal', '#2fb0a8'], honey: ['Honey', '#d8a04a'], mint: ['Mint', '#9fe8c8'],
 };
-const HAIR_STYLES = { short: 'Neat', hero: 'Hero spikes', spiky: 'Spiky', swept: 'Swept fringe', shag: 'Messy layers', wavy: 'Soft waves', bob: 'Bob', hime: 'Straight bangs', long: 'Ponytail', sidepony: 'Side ponytail', braid: 'Braid', twin: 'Pigtails', bun: 'Top bun', curls: 'Curls', afro: 'Afro', mohawk: 'Mohawk', none: 'Bald' };
+const HAIR_STYLES = { short: 'Neat', hero: 'Hero spikes', spiky: 'Spiky', swept: 'Swept fringe', shag: 'Messy layers', wavy: 'Soft waves', bob: 'Bob', hime: 'Straight bangs', long: 'Ponytail', sidepony: 'Side ponytail', braid: 'Braid', twin: 'Pigtails', bun: 'Top bun', curls: 'Curls', afro: 'Afro', bigafro: 'Huge afro', mohawk: 'Mohawk', none: 'Bald' };
 const HAIR_LENGTHS = { short: 'Short', chin: 'Chin', shoulder: 'Shoulder', long: 'Long', vlong: 'Very long' };
 const SKIN_TONES = {
   porcelain: ['Porcelain', '#ffe9dc'], peach: ['Peach', '#f9cfb0'], honey: ['Honey', '#e7b085'], tan: ['Tan', '#c98d5e'],
@@ -2158,9 +2158,20 @@ function hairGroup(style, len = 'short', hairMats = HERO_HAIR) {
     shell(0.45, -0.05, -0.72); bangs('centre');
     for (const s of [-1, 1]) { add(new THREE.SphereGeometry(0.09, 10, 8), HC.x + s * HR.x * 0.82, HC.y + HR.y * 0.55, HC.z - HR.z * 0.45); const t = lock(s * 2.0, 0.55, 0.7 + LEN * 0.5, 0.18, 0.7, 0, 0.75, 1.15); t.rotation.z = s * 0.25; }
   }
-  if (style === 'afro') {
-    // a big round puff of curls sitting up and back, leaving the whole face clear
+  if (style === 'afro' || style === 'bigafro') {
+    // a big round puff of curls sitting up and back, leaving the whole face clear ('bigafro' is a huge one)
     shell(0.55, 0.05, -0.5);
+    if (style === 'bigafro') {
+      // one huge round puff up and behind the head, covered in curls so it reads as hair
+      const px = HC.x, py = HC.y + HR.y * 0.9, pz = HC.z - HR.z * 0.55, R = Math.max(HR.x, HR.y) * 1.45;
+      add(new THREE.SphereGeometry(1, 24, 18), px, py, pz, 0, 0, 0, R * 1.05, R * 0.92, R);
+      for (let i = 0; i < 90; i++) {
+        const y = 1 - (i + 0.5) / 90 * 2, r = Math.sqrt(1 - y * y), az = i * 2.399;
+        const dx = Math.sin(az) * r, dz = Math.cos(az) * r;
+        if (py + y * R * 0.92 < HC.y - HR.y * 0.2 || (dz > 0.1 && py + y * R * 0.92 < HC.y + HR.y * 0.95)) continue; // keep the face clear
+        add(curlGeo, px + dx * R * 1.03, py + y * R * 0.95, pz + dz * R * 1.0, 0, 0, 0, 1.5, 1.5, 1.5);
+      }
+    } else
     for (let i = 0; i < 46; i++) {
       const az = (i * 2.399) % (Math.PI * 2), el = 0.25 + (i % 6) * 0.22;
       if (Math.cos(az) > 0.15 && el < 1.05) continue;
@@ -2383,8 +2394,8 @@ function paintFace(g, L, state) {
     g.fillStyle = rg; g.fillRect(cx - 44, cy - 44, 88, 88);
     if (L.mark === 'rosy') { g.strokeStyle = 'rgba(220,70,90,0.6)'; g.lineWidth = 3; g.lineCap = 'round'; for (let i = -1; i <= 1; i++) { g.beginPath(); g.moveTo(cx + i * 11 - 4, cy + 5); g.lineTo(cx + i * 11 + 4, cy - 5); g.stroke(); } }
   }
-  // little nose
-  g.fillStyle = shade(skin, 0.78); g.beginPath(); g.ellipse(FX + 2, EY + 46, 5, 3.5, 0, 0, Math.PI * 2); g.fill();
+  // little nose (a big 3D nose is added on the head instead)
+  if (L.nose !== 'big') { g.fillStyle = shade(skin, 0.78); g.beginPath(); g.ellipse(FX + 2, EY + 46, 5, 3.5, 0, 0, Math.PI * 2); g.fill(); }
   for (const s of [-1, 1]) { drawEye(g, FX + s * ESEP, EY, s, L, state); drawBrow(g, FX + s * (ESEP - 4), EY - 78, s, L); }
   drawMouth(g, FX, EY + 82, L, state);
   if (L.mark === 'freckles') { g.fillStyle = shade(skin, 0.58); for (const [dx, dy] of [[-120, 44], [-104, 56], [-92, 42], [-112, 66], [92, 42], [104, 56], [120, 44], [112, 66], [-12, 40], [14, 40], [-128, 60], [128, 60], [-98, 72], [98, 72]]) { g.beginPath(); g.arc(FX + dx, EY + dy, 4.6, 0, Math.PI * 2); g.fill(); } }
@@ -2394,7 +2405,7 @@ function paintFace(g, L, state) {
 }
 const faceTexCache = new Map();
 function faceTexture(L, state) {
-  const key = [L.sex, L.skin, L.eyes, L.eyeStyle, L.mouth, L.mark, L.hairCol, shadeKey(L), state].join('|');
+  const key = [L.sex, L.skin, L.eyes, L.eyeStyle, L.mouth, L.mark, L.hairCol, shadeKey(L), L.nose, state].join('|');
   if (faceTexCache.has(key)) return faceTexCache.get(key);
   if (faceTexCache.size > 90) { for (const t of faceTexCache.values()) t.dispose(); faceTexCache.clear(); }
   const cv = document.createElement('canvas'); cv.width = FW; cv.height = FH;
@@ -2459,7 +2470,7 @@ function portrait(L) {
   // hair on top, with a zig-zag fringe
   if (H !== 'none') {
     g.fillStyle = hair; g.beginPath();
-    const top = cy - ry - (H === 'afro' ? 34 : H === 'curls' || H === 'bun' ? 18 : 10);
+    const top = cy - ry - (H === 'bigafro' ? 50 : H === 'afro' ? 34 : H === 'curls' || H === 'bun' ? 18 : 10);
     if (H === 'mohawk') { g.moveTo(cx - 22, cy - ry + 18); g.lineTo(cx - 16, top - 30); g.lineTo(cx, top - 44); g.lineTo(cx + 16, top - 30); g.lineTo(cx + 22, cy - ry + 18); g.closePath(); }
     else {
       g.moveTo(cx - rx - 8, cy + (long ? 30 : 0));
@@ -2537,6 +2548,10 @@ function buildFace(a = player, L = S.look) {
   });
   const hc = new THREE.Color(hairOf(L)).multiplyScalar(0.78);
   addBeard(fg, L.beard, c, rx, ry, rz, toon(`#${hc.getHexString()}`));
+  if (L.nose === 'big') { // a big round cartoon nose (Goonshoe)
+    const n = new THREE.Mesh(beardGeo); registerMesh(n, toon(`#${new THREE.Color(skinOf(L)).lerp(new THREE.Color('#e86a6a'), 0.3).getHexString()}`)); n.castShadow = true;
+    n.position.set(c.x, c.y - ry * 0.16, c.z + rz * 1.02); n.scale.set(rx * 0.33, ry * 0.27, rz * 0.3); fg.add(n);
+  }
   a.headScale = HEAD_SIZES[L.head] ? HEAD_SIZES[L.head][1] : 1.17;
   markStencil(fg);
   addInk(fg);
