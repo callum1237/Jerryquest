@@ -3,7 +3,7 @@
 import { THREE, scene, registerMesh, toon, rng } from './engine.js';
 import { M, instanced, place, colliders, tinted, lib, S_BUILD, S_PROP, LAKE, TOWNS } from './world.js';
 
-const FX = 1000, FZ = 0, MX = 2000, MZ = 0, DX = 3000, DZ = 0;
+const FX = 1000, FZ = 0, MX = 2000, MZ = 0, DX = 3000, DZ = 0, KX = 4000, KZ = 0;
 // Every land is a round board: the harbour bay in the south (from z + coast), the village just above it,
 // a main road north to a crossroads, and side roads out to towns, hunting grounds and big boss stages.
 export const LANDS = {
@@ -65,6 +65,23 @@ LANDS.frost.arenas = {
   twins: { name: "Twins' Ridge", x: FX + 46, z: FZ - 48, r: 18 },
 };
 LANDS.marsh.boss = 'gobbler';
+// v68: Magma Caverns, an optional land (not part of the story) full of flaming skeletons and dragons.
+// Its monsters are far above Chapter 4, so it is the place to go once you are strong.
+LANDS.magma = {
+  id: 'magma', name: 'Magma Caverns', x: KX, z: KZ, r: 72, villageName: 'Cinder Camp', optional: true,
+  arrive: { x: KX, z: KZ + 49 }, captain: { x: KX + 4, z: KZ + 51 },
+  village: { x: KX, z: KZ + 30 }, elder: { x: KX - 4, z: KZ + 27 },
+  pond: { x: KX + 2, z: KZ - 8, r: 7, name: 'Lava Lake' },
+  zones: {
+    bones: { name: 'Burning Bonefield', x: KX - 40, z: KZ + 2, r: 16 },
+    ash: { name: 'Ashen Hollow', x: KX + 40, z: KZ, r: 15 },
+    roost: { name: "Dragon's Roost", x: KX - 30, z: KZ - 44, r: 16 },
+    heart: { name: 'The Molten Heart', x: KX + 28, z: KZ - 46, r: 17 },
+  },
+  boss: 'heart',
+  map: { bg: '#3a2622', sea: '#2a4250', ground: '#5a463e', zone: '#6a4e42', boss: '#8a4a30', pond: '#ff7a2a', tree: '#2a1e1e', treeHi: '#ff9a4a', town: '#7a5a4a' },
+  lava: [],
+};
 const coastOf = (L) => L.coast ?? 44;
 export { coastOf };
 // roads, shared by the land builder and the map. The two big lands have a hand-laid network;
@@ -304,6 +321,7 @@ export function buildLands() {
   makeShip(D.ship.x, D.ship.z, Math.PI / 4);
   buildMarsh();
   buildSands();
+  buildMagma();
 }
 
 // ---------- Gobbler Marsh props ----------
@@ -643,4 +661,118 @@ export function buildSands() {
   const far = [];
   for (let i = 0; i < 26; i++) { const a = (i / 26) * Math.PI * 2 + rng() * 0.1; if (Math.abs(a - Math.PI / 2) < 0.55) continue; const rr = R + 30 + rng() * 8; far.push(M(DX + Math.cos(a) * rr, -1, DZ + Math.sin(a) * rr, 10 + rng() * 4, rng() * 6)); }
   if (lib.mountain_C_grass) instanced(tinted(lib.mountain_C_grass, '#d8a060'), far, { cast: false });
+}
+
+// ---------- Magma Caverns (optional land) ----------
+// A dark basalt cave floor with glowing lava pools, stalagmites, obsidian and ember crystals,
+// ringed by black cliffs. Lava pools are listed in LANDS.magma.lava so the game can make them burn.
+export const MAGMA_FX = { lava: null, glow: [] };
+function stalagmite() {
+  const g = new THREE.Group(), m = new THREE.MeshStandardMaterial({ color: '#3a2e2e' }), tip = new THREE.MeshStandardMaterial({ color: '#5a4440' });
+  for (const [x, z, h, r] of [[0, 0, 1.8, 0.42], [0.42, 0.18, 1.1, 0.28], [-0.32, 0.26, 0.8, 0.22]]) {
+    const c = new THREE.Mesh(new THREE.ConeGeometry(r, h, 6), x === 0 ? m : tip); c.position.set(x, h / 2, z); g.add(c);
+  }
+  return g;
+}
+function basalt() {
+  const g = new THREE.Group(), m = new THREE.MeshStandardMaterial({ color: '#2e2628' }), top = new THREE.MeshStandardMaterial({ color: '#4a3c3a' });
+  for (const [x, z, h] of [[0, 0, 1.4], [0.46, 0.1, 1.0], [-0.4, 0.22, 0.7], [0.1, -0.44, 0.9]]) {
+    const c = new THREE.Mesh(new THREE.CylinderGeometry(0.26, 0.26, h, 6), m); c.position.set(x, h / 2, z); g.add(c);
+    const t = new THREE.Mesh(new THREE.CylinderGeometry(0.25, 0.25, 0.04, 6), top); t.position.set(x, h + 0.01, z); g.add(t);
+  }
+  return g;
+}
+export function buildMagma() {
+  const L = LANDS.magma, R = L.r, P = L.pond, Z = L.zones;
+  const lavaAt = [{ x: P.x, z: P.z, r: P.r }];
+  landGround(L, ['#4c464c', '#3c373d', '#585056'], 0.34, (x, z, t) => {
+    // the floor warms to a deep ember red near the lava lake
+    const d = Math.hypot(x - (P.x - L.x), z - (P.z - L.z));
+    if (d < P.r + 9) t.lerp(new THREE.Color('#6a3428'), Math.max(0, 1 - (d - P.r) / 9) * 0.6);
+  });
+  landSea(L, '#2a4250', '#3e3230');
+  makeShip(KX, KZ + coastOf(L) + 22, 0, '#3a2a2a', '#ff6a2a');
+  const { disc, nearPath, free, open, rnd } = landKit(L, '#6a544a');
+  const V = L.village;
+  // the lava material glows and slowly pulses (the game nudges its strength each frame)
+  const lavaM = toon('#ff7a1a', { emissive: new THREE.Color('#ff4a0a'), polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -4 });
+  MAGMA_FX.lava = lavaM;
+  const crustM = toon('#2a2020', { polygonOffset: true, polygonOffsetFactor: -3, polygonOffsetUnits: -3 });
+  const pool = (x, z, r) => {
+    const rim = new THREE.Mesh(new THREE.CircleGeometry(r + 0.9, 28)); rim.rotation.x = -Math.PI / 2; rim.position.set(x, 0.04, z); registerMesh(rim, crustM); scene.add(rim);
+    const lv = new THREE.Mesh(new THREE.CircleGeometry(r, 28)); lv.rotation.x = -Math.PI / 2; lv.position.set(x, 0.06, z); registerMesh(lv, lavaM); scene.add(lv);
+    const glow = new THREE.PointLight('#ff6a2a', 1.3, r * 2 + 6, 1.5); glow.position.set(x, 2.5, z); scene.add(glow); MAGMA_FX.glow.push(glow);
+  };
+  pool(P.x, P.z, P.r);
+  // Cinder Camp: two dark tents round a fire pit, a barrel and a crate
+  for (const [dx, dz, c] of [[-10, -2, '#5a2a2a'], [10, -3, '#3a2a3a']]) tent(V.x + dx, V.z + dz, Math.atan2(-dx, -dz), c, '#8a6a5a');
+  const pit = new THREE.Mesh(new THREE.CylinderGeometry(1.2, 1.3, 0.4, 10)); pit.position.set(V.x, 0.2, V.z - 1); scene.add(add(pit, '#3a3030'));
+  const coals = new THREE.Mesh(new THREE.CircleGeometry(0.95, 16)); coals.rotation.x = -Math.PI / 2; coals.position.set(V.x, 0.42, V.z - 1); registerMesh(coals, lavaM); scene.add(coals);
+  colliders.push({ x: V.x, z: V.z - 1, r: 1.3 });
+  for (const [n, dx, dz] of [['barrel', 6, 4], ['resource_stone', -6, 5]]) place(n, V.x + dx, V.z + dz, S_PROP, rng() * 6, { shrink: 0.6 });
+  // more small lava pools out in the open, never on a road
+  for (let i = 0, n = 0; i < 60 && n < 6; i++) { const [x, z] = rnd(14, R - 12); if (!open(x, z, 5, 4)) continue; const r = 2 + rng() * 1.6; pool(x, z, r); lavaAt.push({ x, z, r }); colliders.push({ x, z, r: 0.01 }); n++; }
+  // glowing cracks running out from the lava lake
+  for (let i = 0; i < 6; i++) {
+    const a = (i / 6) * Math.PI * 2 + 0.3, len = 5 + rng() * 6, cx = P.x + Math.cos(a) * (P.r + len / 2), cz = P.z + Math.sin(a) * (P.r + len / 2);
+    if (nearPath(cx, cz, 2)) continue;
+    const c = new THREE.Mesh(new THREE.PlaneGeometry(0.22, len)); c.rotation.set(-Math.PI / 2, 0, -a + Math.PI / 2); c.position.set(cx, 0.05, cz); registerMesh(c, lavaM); scene.add(c);
+  }
+  L.lava = lavaAt;
+  // Burning Bonefield and Ashen Hollow: scorched floors with scattered bone piles
+  const boneM = toon('#d8ccb8');
+  for (const key of ['bones', 'ash']) {
+    const Q = Z[key]; disc(Q.x, Q.z, Q.r, key === 'bones' ? '#4a3a34' : '#5a5250');
+    for (let i = 0; i < 7; i++) {
+      const a = rng() * 6.28, rr = 4 + rng() * (Q.r - 5), x = Q.x + Math.cos(a) * rr, z = Q.z + Math.sin(a) * rr;
+      for (let b = 0; b < 3; b++) { const bone = new THREE.Mesh(new THREE.CapsuleGeometry(0.08, 0.6, 3, 6)); bone.rotation.set(Math.PI / 2, 0, rng() * 3); bone.position.set(x + rng() - 0.5, 0.1, z + rng() - 0.5); registerMesh(bone, boneM); scene.add(bone); }
+      const skull = new THREE.Mesh(new THREE.SphereGeometry(0.22, 8, 6)); skull.position.set(x, 0.18, z); registerMesh(skull, boneM); scene.add(skull);
+    }
+  }
+  // Dragon's Roost: a ring of dark boulders round a nest of glowing eggs
+  const RO = Z.roost; disc(RO.x, RO.z, RO.r, '#3e302c');
+  const nest = new THREE.Mesh(new THREE.TorusGeometry(2.2, 0.6, 8, 20)); nest.rotation.x = -Math.PI / 2; nest.position.set(RO.x, 0.3, RO.z - 6); scene.add(add(nest, '#4a3a30'));
+  for (const [dx, dz, c] of [[-0.6, 0.2, '#ffcf5a'], [0.7, -0.3, '#ff8a3a'], [0.1, 0.8, '#ffb04a']]) { const egg = new THREE.Mesh(new THREE.SphereGeometry(0.55, 12, 10)); egg.scale.y = 1.3; egg.position.set(RO.x + dx, 0.6, RO.z - 6 + dz); registerMesh(egg, toon(c, { emissive: new THREE.Color(c).multiplyScalar(0.35) })); scene.add(egg); }
+  colliders.push({ x: RO.x, z: RO.z - 6, r: 2.6 });
+  // The Molten Heart: an obsidian floor inside a ring of lava (gaps to walk in), home of the elder dragons
+  const HT = Z.heart; disc(HT.x, HT.z, HT.r + 2.6, '#2a2020', 0.033); disc(HT.x, HT.z, HT.r, '#3a2c2c', 0.036);
+  for (let i = 0; i < 16; i++) {
+    if (i % 4 === 1) continue;
+    const a0 = (i / 16) * Math.PI * 2, seg = new THREE.Mesh(new THREE.RingGeometry(HT.r + 0.5, HT.r + 2, 6, 1, a0, (Math.PI * 2) / 16));
+    seg.rotation.x = -Math.PI / 2; seg.position.set(HT.x, 0.05, HT.z); registerMesh(seg, lavaM); scene.add(seg);
+  }
+  const hglow = new THREE.PointLight('#ff6a2a', 1.4, 26, 1.5); hglow.position.set(HT.x, 4, HT.z); scene.add(hglow); MAGMA_FX.glow.push(hglow);
+  // stalagmites, basalt columns, obsidian and ember crystals, well apart
+  const tall = [], cols = [], obs = [], emb = [];
+  edgeBelt(L, 300, (x, z) => { if (rng() < 0.5) { tall.push(M(x, 0, z, 3.2 + rng() * 2.4, rng() * 6)); colliders.push({ x, z, r: 1.1 }); } else { cols.push(M(x, 0, z, 2.6 + rng() * 1.6, rng() * 6)); colliders.push({ x, z, r: 1.1 }); } }, nearPath, free, 0.5);
+  for (let i = 0; i < 40 && tall.length < 160; i++) { const [x, z] = rnd(18, R - 14); if (!open(x, z, 4, 3)) continue; tall.push(M(x, 0, z, 2.4 + rng() * 1.4, rng() * 6)); colliders.push({ x, z, r: 0.9 }); }
+  for (let i = 0; i < 30 && obs.length < 7; i++) { const [x, z] = rnd(16, R - 14); if (!open(x, z, 5, 3)) continue; obs.push(M(x, 0, z, 1.4 + rng() * 0.8, rng() * 6)); colliders.push({ x, z, r: 0.5 }); }
+  for (let i = 0; i < 30 && emb.length < 6; i++) { const [x, z] = rnd(16, R - 14); if (!open(x, z, 5, 3)) continue; emb.push(M(x, 0, z, 1.2 + rng() * 0.6, rng() * 6)); colliders.push({ x, z, r: 0.5 }); }
+  instanced(stalagmite(), tall); instanced(basalt(), cols); instanced(crystal('#3a2a4a'), obs);
+  instanced(crystal('#ffa040'), emb);
+  // the cavern walls: black cliffs all round
+  const far = [];
+  for (let i = 0; i < 30; i++) { const a = (i / 30) * Math.PI * 2 + rng() * 0.1; if (Math.abs(a - Math.PI / 2) < 0.5) continue; const rr = R + 28 + rng() * 8; far.push(M(KX + Math.cos(a) * rr, -1, KZ + Math.sin(a) * rr, 13 + rng() * 5, rng() * 6)); }
+  if (lib.mountain_C_grass) instanced(tinted(lib.mountain_C_grass, '#2e2426'), far, { cast: false });
+}
+// rising embers for the Magma Caverns (like the snow, but warm and floating upward)
+export function makeEmbers() {
+  const N = 160, geo = new THREE.BufferGeometry(), p = new Float32Array(N * 3);
+  for (let i = 0; i < N; i++) { p[i * 3] = (Math.random() - 0.5) * 70; p[i * 3 + 1] = Math.random() * 18; p[i * 3 + 2] = (Math.random() - 0.5) * 70; }
+  geo.setAttribute('position', new THREE.BufferAttribute(p, 3));
+  const dot = document.createElement('canvas'); dot.width = dot.height = 32; const dg = dot.getContext('2d');
+  const grd = dg.createRadialGradient(16, 16, 0, 16, 16, 16); grd.addColorStop(0, 'rgba(255,230,160,1)'); grd.addColorStop(0.4, 'rgba(255,140,40,.8)'); grd.addColorStop(1, 'rgba(255,80,0,0)');
+  dg.fillStyle = grd; dg.fillRect(0, 0, 32, 32);
+  const pts = new THREE.Points(geo, new THREE.PointsMaterial({ color: '#ffffff', size: 0.32, map: new THREE.CanvasTexture(dot), transparent: true, opacity: 0.9, depthWrite: false, blending: THREE.AdditiveBlending, fog: false }));
+  pts.frustumCulled = false; pts.layers.set(1); pts.visible = false; scene.add(pts);
+  pts.userData.tick = (dt, cx, cz) => {
+    const a = geo.attributes.position;
+    for (let i = 0; i < N; i++) {
+      let y = a.getY(i) + dt * (0.8 + (i % 5) * 0.25);
+      if (y > 18) y -= 18;
+      a.setY(i, y); a.setX(i, a.getX(i) + Math.sin(y * 0.7 + i) * dt * 0.5);
+    }
+    a.needsUpdate = true; pts.position.set(cx, 0, cz);
+  };
+  return pts;
 }

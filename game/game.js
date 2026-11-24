@@ -4,7 +4,7 @@ import { THREE, scene, camera, renderer, sun, sky, PRESETS, env, applyPreset, bl
 import * as SkeletonUtils from 'three/addons/utils/SkeletonUtils.js';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { buildWorld, buildFlowers, place, tentAt, S_PROP, S_BUILD, colliders, clouds, dynamic, LAKE, CAMP, MINE, S_NATURE, blocked, isFree, ZONES, WORLD_R, VS, TOWNS, ROADS, townFacing, VALLEY_ARENAS } from './world.js';
-import { LANDS, VALLEY_DOCK, buildLands, makeSnow, landRoads, coastOf, SANDS_FX, palmNode, roundNode } from './lands.js';
+import { LANDS, VALLEY_DOCK, buildLands, makeSnow, makeEmbers, MAGMA_FX, landRoads, coastOf, SANDS_FX, palmNode, roundNode } from './lands.js';
 import { ICONS } from './icons.js';
 import { buildInteriors, INTERIORS, lavaPools } from './interiors.js';
 import { unlockAudio, playMusic, sfx, setVolumes, fxMute } from './audio.js';
@@ -77,6 +77,7 @@ const ITEMS = {
   dark_omen: 'Dark Omen',
   bogwood_logs: 'Bogwood logs', mireiron_ore: 'Mireiron ore', mire_charm: "Mother Mire's charm", rusty_helm: "Sir Soggington's rusty helm", gobbler_tooth: "The Gobbler's tooth", goon_hanky: "Goonshoe's giant hanky",
   palm_logs: 'Palm logs', sunstone_ore: 'Sunstone', sphinx_coin: 'Sphinx coin', pomp_monocle: "Pompington's golden monocle", colossus_core: 'Colossus core',
+  magma_shard: 'Magma shard', obsidian_skull: 'Obsidian skull', dragon_heart: 'Dragon heart',
 };
 // Food heals; bought from Marta's stall in the market.
 const FOOD = { bread: { heal: 8, price: 8 }, pie: { heal: 20, price: 20 }, stew: { heal: 40, price: 40 }, grilled_shrimp: { heal: 6 }, grilled_trout: { heal: 14 }, fish_pie: { heal: 32 } };
@@ -191,7 +192,7 @@ const gadgetMult = (k) => 1 + (((ARMOUR[S.equip.gadget] || {}).bonus || {})[k] |
 const BOSS_WEAPON = { boss_gagron: 'k_flame', boss_crusher: 'k_cleaver', boss_gloom: 'm_gloom', boss_rattle: 'a_rattle', boss_twin_a: 'a_twin', boss_gobbler: 'k_tongue', boss_colossus: 'k_colossus', boss_pomp: 'a_pomp' };
 const DARK_KING = 'Morgoth the Menacing'; // working name, change it here
 // Everything can be sold. Treasures (rings, rubies, crowns) are rare drops worth a lot.
-const SELL = { goon_hanky: 650, palm_logs: 22, sunstone_ore: 70, sphinx_coin: 600, pomp_monocle: 900, colossus_core: 1500, bogwood_logs: 14, mireiron_ore: 40, mire_charm: 500, rusty_helm: 500, gobbler_tooth: 800, grilled_shrimp: 5, grilled_trout: 12, fish_pie: 26, dragon_scale: 90, bread: 4, pie: 10, stew: 20, silver_ring: 40, ruby: 120, golden_crown: 400, frost_gem: 260, bone_dust: 3, dark_essence: 15, lucky_sock: 60, frost_crown: 300, gloom_hat: 60, rattle_tooth: 60, dark_omen: 500, logs: 3, oak_logs: 6, copper_ore: 4, iron_ore: 8, silver_ore: 15, gold_ore: 30, frostsilver_ore: 22, shrimp: 3, trout: 8, bones: 2 };
+const SELL = { magma_shard: 220, obsidian_skull: 1200, dragon_heart: 6500, goon_hanky: 650, palm_logs: 22, sunstone_ore: 70, sphinx_coin: 600, pomp_monocle: 900, colossus_core: 1500, bogwood_logs: 14, mireiron_ore: 40, mire_charm: 500, rusty_helm: 500, gobbler_tooth: 800, grilled_shrimp: 5, grilled_trout: 12, fish_pie: 26, dragon_scale: 90, bread: 4, pie: 10, stew: 20, silver_ring: 40, ruby: 120, golden_crown: 400, frost_gem: 260, bone_dust: 3, dark_essence: 15, lucky_sock: 60, frost_crown: 300, gloom_hat: 60, rattle_tooth: 60, dark_omen: 500, logs: 3, oak_logs: 6, copper_ore: 4, iron_ore: 8, silver_ore: 15, gold_ore: 30, frostsilver_ore: 22, shrimp: 3, trout: 8, bones: 2 };
 const NODES = {
   tree: { skill: 'woodcutting', req: 1, xp: 25, item: 'logs', name: 'Tree', verb: 'Chop', doing: 'Chopping', deplete: 0.3, respawn: 14 },
   oak: { skill: 'woodcutting', req: 5, xp: 40, item: 'oak_logs', name: 'Oak tree', verb: 'Chop', doing: 'Chopping', deplete: 0.22, respawn: 20 },
@@ -618,7 +619,7 @@ class Actor {
 }
 
 const G = {}, lib = {};
-let player = null, snowFx = null;
+let player = null, snowFx = null, emberFx = null;
 const npcs = [];
 const enemies = [];
 const nodes = [];
@@ -640,7 +641,7 @@ async function main() {
   // the tavern door sits in front of the tavern, which moved out with the rest of the village
   buildInteriors(lib, { tavern: { outside: { x: -4.0 * VS, z: -17 * VS + 4.7 }, exitTo: { x: -4.0 * VS + 0.6, z: -17 * VS + 7.6 } } });
   groupRegions(scene.children.filter((o) => !before.has(o)));
-  snowFx = makeSnow();
+  snowFx = makeSnow(); emberFx = makeEmbers();
   buildDoors();
   buildOccluders();
   buildChests();
@@ -1531,8 +1532,8 @@ ITEMS.royal_jelly = 'Royal jelly'; SELL.royal_jelly = 400;
 ITEMS.golden_acorn = 'Golden acorn'; SELL.golden_acorn = 250;
 let wb = null, wbSlot = -1, wbWarned = -1, wbDmg = 0, wbAt = 0, wbRemote = false;
 const wbInfo = (t = Date.now()) => { const slot = Math.floor(t / WB_EVERY), into = t - slot * WB_EVERY; return { slot, spot: WB_SPOTS[slot % WB_SPOTS.length], live: into < WB_LIVE, left: WB_LIVE - into, next: (slot + 1) * WB_EVERY - t }; };
-const landName = (w) => (w === 'out' ? 'the Valley' : w === 'frost' ? 'Frostwhisker Peaks' : w === 'marsh' ? 'Gobbler Marsh' : 'Brassbolt Sands');
-const landOpen = (w) => w === 'out' || where === w || Object.keys(QUESTS).some((k) => QUESTS[k].land === w && S.quests[k] && S.quests[k].state !== 'todo');
+const landName = (w) => (w === 'out' ? 'the Valley' : w === 'frost' ? 'Frostwhisker Peaks' : w === 'marsh' ? 'Gobbler Marsh' : w === 'magma' ? 'Magma Caverns' : 'Brassbolt Sands');
+const landOpen = (w) => w === 'out' || where === w || (LANDS[w] && LANDS[w].optional) || Object.keys(QUESTS).some((k) => QUESTS[k].land === w && S.quests[k] && S.quests[k].state !== 'todo');
 const WB_ON = false; // Callum asked to take the golden jelly world boss out
 function wbTick() {
   if (!WB_ON || !player || now < wbAt) return;
@@ -3235,6 +3236,14 @@ function buildNpcs() {
     // Brassbolt Sands
     { id: 'captain4', name: 'Captain Barnaby Gale', model: 'barbarian', x: LANDS.sands.captain.x, z: LANDS.sands.captain.z, hide: [], tint: '#5a8ad8', sail: 'out', inside: 'sands',
       look: { skin: 'tan', eyes: 'blue', eyeStyle: 'happy', mouth: 'grin', hair: 'short', beard: 'full', hairCol: 'ginger' } },
+    // Magma Caverns (optional): a captain and a trader at Cinder Camp
+    { id: 'captain5', name: 'Captain Barnaby Gale', model: 'barbarian', x: LANDS.magma.captain.x, z: LANDS.magma.captain.z, hide: [], tint: '#5a8ad8', sail: 'out', inside: 'magma',
+      look: { skin: 'tan', eyes: 'blue', eyeStyle: 'happy', mouth: 'grin', hair: 'short', beard: 'full', hairCol: 'ginger' } },
+    { id: 'trader_magma', name: 'Ash the Ember Trader', model: 'barbarian', x: LANDS.magma.village.x + 5, z: LANDS.magma.village.z - 7, hide: [], shop: 'food', tint: '#ff9a6a', inside: 'magma',
+      look: { skin: 'bronze', eyes: 'gold', eyeStyle: 'sharp', mouth: 'grin', hair: 'mohawk', hairCol: 'ginger', beard: 'stache' } },
+    { id: 'cinder', name: 'Old Cinder', model: 'mage', x: LANDS.magma.village.x - 6, z: LANDS.magma.village.z + 5, hide: [], tint: '#c86a4a', inside: 'magma',
+      look: { skin: 'tan', eyes: 'red', eyeStyle: 'sleepy', mouth: 'calm', hair: 'none', beard: 'long', hairCol: 'snow', hat: true },
+      lines: ['These caverns are not on any quest map, hero. Folk only come here to get rich... or get roasted.', 'The skeletons here burn forever. Their bones are hot enough to cook an egg on. Do not ask how I know.', 'Dragons nest in the Roost to the north-west. The really old ones sleep in the Molten Heart. Level 80 and up. Do not poke them.', 'Mind the lava pools. They will not kill you on the spot, but they will make you dance.'] },
     { id: 'tinkerwell', name: 'Professor Tinkerwell', model: 'mage', x: LANDS.sands.elder.x, z: LANDS.sands.elder.z, hide: [], tint: '#d8a850', inside: 'sands',
       look: { skin: 'bronze', eyes: 'sky', eyeStyle: 'round', mouth: 'grin', hair: 'none', beard: 'long', hairCol: 'snow', head: 'chibi' } },
     { id: 'gizmo', name: 'Gizmo the Gearsmith', model: 'heroine', x: LANDS.sands.village.x - 7, z: LANDS.sands.village.z + 6, hide: [], shop: 'sands', tint: '#e0a050', inside: 'sands',
@@ -3394,6 +3403,17 @@ Object.assign(ENEMY_TYPES, {
   mint_slime: { name: 'Mint Slime', model: 'slime', hp: 22, maxHit: 4, xp: 26, scale: 0.7, noBones: true, poof: true, tintAll: '#7fe8c8', mass: 1, coins: [4, 12], alias: ENEMY_TYPES.bog_slime.alias },
   hollow_bat: { name: 'Hollow Bat', model: 'bat', hp: 16, maxHit: 4, xp: 24, scale: 0.6, noBones: true, poof: true, fly: 1.5, mass: 0.6, tintAll: '#8a6ac8', coins: [4, 12], alias: ENEMY_TYPES.mire_bat.alias },
 });
+// v68: Magma Caverns. Flaming skeletons everywhere, and dragons: high-level, very hard, very rewarding.
+Object.assign(ENEMY_TYPES, {
+  flame_minion: { name: 'Flaming Skeleton', model: 'skel_minion', hp: 1, maxHit: 1, xp: 1, weapon: 'Skeleton_Blade', tint: '#5a4440', inside: 'magma', coins: [110, 200], flame: true, noBones: true },
+  flame_mage: { name: 'Cinder Caster', model: 'skel_mage', hp: 1, maxHit: 1, xp: 1, weapon: 'Skeleton_Staff', ranged: true, tint: '#6a3a30', inside: 'magma', coins: [130, 230], flame: true, noBones: true },
+  flame_warrior: { name: 'Blazebone Warrior', model: 'skel_warrior', hp: 1, maxHit: 1, xp: 1, weapon: 'Skeleton_Blade', tint: '#4a3634', inside: 'magma', coins: [150, 260], flame: true, noBones: true, scale: 1.45 },
+  flame_knight: { name: 'Inferno Knight', model: 'skel_warrior', hp: 1, maxHit: 1, xp: 1, weapon: 'axe_2handed', tint: '#2e2424', inside: 'magma', coins: [200, 340], flame: true, noBones: true, scale: 1.7, mass: 2.5 },
+  magma_drake: { name: 'Magma Drake', model: 'dragon', hp: 1, maxHit: 1, xp: 1, dragon: true, scale: 1.25, inside: 'magma', coins: [700, 1100], noBones: true, tintAll: '#d8502a', mass: 10 },
+  elder_dragon: { name: 'Elder Flame Dragon', model: 'dragon', hp: 1, maxHit: 1, xp: 1, dragon: true, scale: 1.8, inside: 'magma', coins: [1600, 2600], noBones: true, tintAll: '#4a3a52', mass: 16, shape: [4.2, 1.5, 1.6] },
+});
+Object.assign(MON_LV, { flame_minion: 56, flame_mage: 58, flame_warrior: 61, flame_knight: 66, magma_drake: 76, elder_dragon: 86 });
+MOB_SHAPE.dragon = [3, 1.35, 1.3];
 for (const [k, T] of Object.entries(ENEMY_TYPES)) toughen(T, k);
 function spawnEnemy(k, x, z) {
   const T = ENEMY_TYPES[k];
@@ -3418,6 +3438,7 @@ function spawnEnemy(k, x, z) {
   if ((T.boss || T.tint) && !T.tintAll) e.root.traverse((o) => { if (o.isMesh && (T.town && !T.boss ? /Body/ : T.look ? (T.hide ? /Body|Arm|Leg|Cape/ : /Body/) : /Body|Head/).test(o.name)) tinted(o, T.tint || (k === 'boss_gloom' ? '#c8a8ff' : k === 'boss_crusher' ? '#ffd0a0' : '#c0ffc8')); });
   if (T.boss) addSilhouette(e.root, '#ff8a9a');
   if ((T.model || k).startsWith('skel')) skeletonize(e, T);
+  if (T.flame) flameUp(e);
   if (T.look) { const hat = e.root.getObjectByName('Mage_Hat'); if (hat) hat.visible = false; const helm = !T.look.hat && e.root.getObjectByName('Knight_Helmet'); if (helm) helm.visible = false; dressNpc(e, { ...NPC_BASE, ...T.look }); if (k === 'boss_frost') e.root.traverse((o) => { if (o.isBone && o.name === 'head') { const c = makeCrown(); c.traverse((m) => { if (m.isMesh) registerMesh(m, toon('#bfefff')); }); o.add(c); } }); }
   if (!T.boss) { const bar = document.createElement('div'); bar.className = 'hpbar'; bar.hidden = true; bar.innerHTML = '<i></i>'; document.body.appendChild(bar); e.bar = bar; }
   if (!T.boss && e.T.lv) { const t = document.createElement('div'); t.className = 'lvtag'; t.hidden = true; document.body.appendChild(t); e.lvTag = t; }
@@ -3438,17 +3459,58 @@ function spawnEnemy(k, x, z) {
   return e;
 }
 
+// v68: flaming skeletons wear a crown of fire on their skulls that flickers as they move
+// a teardrop of fire (lathe-turned), drawn in three soft additive layers that flicker out of step
+const flameGeo = (() => { const pts = []; for (let i = 0; i <= 10; i++) { const t = i / 10; pts.push(new THREE.Vector2(Math.sin(Math.PI * Math.pow(t, 0.7)) * 0.55 * (1 - t * 0.35), t * 1.8)); } return new THREE.LatheGeometry(pts, 10); })();
+const flameMat = (c, o) => new THREE.MeshBasicMaterial({ color: c, transparent: true, opacity: o, blending: THREE.AdditiveBlending, depthWrite: false, fog: false });
+const flameMats = [flameMat('#ff3a0a', 0.55), flameMat('#ff8a1a', 0.6), flameMat('#ffe07a', 0.75)];
+function flameUp(e) {
+  let head = null; e.root.traverse((o) => { if (!head && o.isBone && o.name === 'head') head = o; });
+  if (!head) return;
+  const box = skullBoxes[e.T.model || e.type], sz = box ? box.getSize(new THREE.Vector3()) : new THREE.Vector3(0.8, 0.8, 0.8);
+  const g = new THREE.Group(); g.position.set(0, (box ? box.max.y : 0.8) - sz.y * 0.35, (box ? (box.min.z + box.max.z) / 2 : 0) - sz.z * 0.05);
+  const W = sz.x, parts = [];
+  for (const [i, sc, h, ox] of [[0, 1.0, 0.6, 0], [1, 0.72, 0.5, 0.12], [2, 0.42, 0.34, -0.06]]) {
+    const m = new THREE.Mesh(flameGeo, flameMats[i]); m.layers.set(1); m.renderOrder = 5 + i;
+    m.scale.set(W * sc, W * h, W * sc); m.position.x = W * ox; g.add(m); parts.push([m, h, i * 1.7]);
+  }
+  // a little tongue of flame that flicks off to one side
+  const tongue = new THREE.Mesh(flameGeo, flameMats[1]); tongue.layers.set(1); tongue.scale.set(W * 0.3, W * 0.4, W * 0.3); tongue.position.set(-W * 0.28, W * 0.15, 0); tongue.rotation.z = 0.5; g.add(tongue);
+  const ph = rng() * 6;
+  parts[0][0].onBeforeRender = () => {
+    for (const [m, h, o] of parts) m.scale.y = W * h * (1 + Math.sin(now * 11 + ph + o) * 0.14 + Math.sin(now * 6.3 + ph + o * 2) * 0.1);
+    tongue.scale.y = W * 0.4 * (0.6 + 0.4 * Math.abs(Math.sin(now * 5 + ph)));
+    g.rotation.y = now * 2 + ph; g.rotation.z = Math.sin(now * 3 + ph) * 0.08;
+  };
+  head.add(g); e.flame = g;
+}
+// lava pools burn (a little, often); the lava itself slowly pulses
+let lavaHurtAt = 0;
+function magmaTick(dt) {
+  if (MAGMA_FX.lava) for (const m of [MAGMA_FX.lava.std, MAGMA_FX.lava.toon]) m.emissiveIntensity = 0.85 + Math.sin(now * 1.6) * 0.15;
+  if (!player || player.dead || fading || player.pos.y > 0.4) return;
+  const pool = (LANDS.magma.lava || []).find((p) => Math.hypot(player.pos.x - p.x, player.pos.z - p.z) < p.r);
+  if (pool && now > lavaHurtAt) {
+    lavaHurtAt = now + 0.6;
+    hurtPlayer(Math.max(1, Math.round(maxHp() * 0.06 * defDiv())));
+    burst(player.pos.clone().setY(0.4), '#ff7a2a', 10, 3);
+    if (rng() < 0.35) floatText(player.pos.clone().setY(3.4), 'HOT! Lava!', 'miss');
+  }
+  // the flaming skeletons shed a few embers
+  if (rng() < 0.3) { const e = enemies[Math.floor(rng() * enemies.length)]; if (e && e.flame && e.hp > 0 && e.inside === 'magma' && e.root.visible && Math.hypot(e.pos.x - player.pos.x, e.pos.z - player.pos.z) < 30) burst(e.pos.clone().setY(2.6 * (e.T.scale || 1.3) / 1.3), '#ff8a3a', 2, 1.2); }
+}
 // Skeletons get cool bone-white skulls and glowing eyes, so they never read as bald villagers.
 const skullBoxes = {}, eyeGeo = new THREE.SphereGeometry(1, 10, 8);
 function skeletonize(e, T) {
   const model = T.model || e.type;
   if (!T.boss && !T.tint) e.root.traverse((o) => { if (o.isMesh && /Head|Body/.test(o.name)) tinted(o, '#d4e0ff'); });
+  else if (T.flame) e.root.traverse((o) => { if (o.isMesh && /Head/.test(o.name)) tinted(o, '#4a3a38'); }); // charred skulls
   else if (!T.boss) e.root.traverse((o) => { if (o.isMesh && /Head/.test(o.name)) tinted(o, '#d4e0ff'); });
   if (!(model in skullBoxes)) { const tmp = SkeletonUtils.clone(G[model].scene); skullBoxes[model] = measureHead(tmp); }
   const box = skullBoxes[model];
   let bone = null; e.root.traverse((o) => { if (!bone && o.isBone && o.name === 'head') bone = o; });
   if (!box || !bone) return;
-  const sz = box.getSize(new THREE.Vector3()), col = T.boss || T.town ? '#ff5a3a' : '#7ff6ff';
+  const sz = box.getSize(new THREE.Vector3()), col = T.flame ? '#ffb83a' : T.boss || T.town ? '#ff5a3a' : '#7ff6ff';
   const mat = new THREE.MeshBasicMaterial({ color: col, fog: false });
   for (const sx of [-1, 1]) {
     const m = new THREE.Mesh(eyeGeo, mat); m.layers.set(1);
@@ -3497,6 +3559,14 @@ function buildEnemies() {
   fring({ x: DZs.sphinx.x + 4, z: DZs.sphinx.z + 18 }, ['sand_gloop', 'clock_conjurer', 'dust_bat', 'sand_gloop'], 8);
   fring({ x: DZs.workshop.x - 8, z: DZs.workshop.z + 24 }, ['clock_soldier', 'dust_bat', 'clock_soldier', 'clock_conjurer'], 6);
   fring({ x: DZs.colossus.x + 16, z: DZs.colossus.z + 26 }, ['clock_soldier', 'dust_bat', 'sand_gloop'], 5);
+  // Magma Caverns: skeleton packs in the Bonefield and Ashen Hollow, drakes in the Roost, elder dragons in the Molten Heart
+  const KZs = LANDS.magma.zones;
+  fring(KZs.bones, ['flame_minion', 'flame_mage', 'flame_minion', 'flame_warrior', 'flame_minion', 'flame_mage'], 9);
+  fring(KZs.ash, ['flame_warrior', 'flame_mage', 'flame_knight', 'flame_minion', 'flame_warrior'], 8);
+  fring({ x: LANDS.magma.x - 18, z: LANDS.magma.z - 22 }, ['flame_minion', 'flame_mage', 'flame_minion'], 4);
+  fring({ x: LANDS.magma.x + 16, z: LANDS.magma.z - 22 }, ['flame_warrior', 'flame_minion', 'flame_knight'], 4);
+  fring(KZs.roost, ['magma_drake', 'magma_drake'], 7);
+  fring(KZs.heart, ['elder_dragon', 'flame_knight', 'elder_dragon'], 8);
   fring({ x: DV.x, z: DV.z - 18 }, ['sand_gloop', 'dust_bat', 'sand_gloop'], 7);
   spawnEnemy('boss_pomp', DZs.workshop.x, DZs.workshop.z);
   spawnEnemy('boss_colossus', DZs.colossus.x, DZs.colossus.z - 2);
@@ -3607,7 +3677,7 @@ function questTarget(id) {
   const missing = Object.keys(q.need).find((k) => (S.inv[k] || 0) < q.need[k]);
   let best = null, bd = 1e9;
   // nodes in the land you're standing in come first; ones in other lands mean a trip on the ship
-  const landOf = (x) => (x > 2500 ? 'sands' : x > 1500 ? 'marsh' : x > 500 ? 'frost' : 'out');
+  const landOf = (x) => (x > 3500 ? 'magma' : x > 2500 ? 'sands' : x > 1500 ? 'marsh' : x > 500 ? 'frost' : 'out');
   for (const n of nodes) if (n.def.item === missing) { const d = Math.hypot(n.x - P.x, n.z - P.z) + (landOf(n.x) === where ? 0 : 5000) + (n.alive === false ? 60 : 0); if (d < bd) { bd = d; best = n; } }
   return best ? { x: best.x, z: best.z, inside: landOf(best.x) } : npcAt(q.giver);
 }
@@ -3858,6 +3928,14 @@ function rollLoot(e) {
     if (rng() < (e.type === 'skel_minion' ? 0.015 : 0.03)) give('silver_ring');
     if (rng() < (e.type === 'skel_minion' ? 0.003 : 0.0075)) { give('ruby'); toast('A ruby! That will sell for a lot.', ICONS.ruby, true); }
     cosDrop(e, at, false);
+    // v68: Magma Caverns treasures. Shards often, obsidian skulls now and then, and dragons carry their hearts
+    if (e.inside === 'magma') {
+      if (rng() < (e.T.dragon ? 1 : 0.45)) give('magma_shard', e.T.dragon ? 3 + Math.floor(rng() * 4) : 1);
+      if (!e.T.dragon && rng() < 0.04) { give('obsidian_skull'); toast('An obsidian skull! Traders pay well for those.', ICONS.obsidian_skull, true); }
+      if (e.T.dragon && rng() < (e.T.lv >= 80 ? 0.35 : 0.2)) { give('dragon_heart'); toast('A DRAGON HEART! It is still warm... and worth a fortune.', ICONS.dragon_heart, true); }
+      const myth = Object.keys(WEAPONS).filter((k) => WEAPONS[k].mythic && !WEAPONS[k].price && !S.owned.includes(k));
+      if (e.T.dragon && myth.length && rng() < (e.T.lv >= 80 ? 0.012 : 0.006)) { const mk = myth[Math.floor(rng() * myth.length)]; S.owned.push(mk); popLoot(at, 'chest', 0.8); toast(`MYTHIC DROP!!! ${WEAPONS[mk].name}! Almost nobody has one of these.`, gearIcon(WEAPONS[mk]), true); burst(at.clone().setY(2), '#b0182a', 80, 9, 1.8); if (net.on) sendChat(`I just found a MYTHIC ${WEAPONS[mk].name}!`); }
+    }
     // very rare: a shop weapon you don't own yet
     if (rng() < 0.012) {
       const pool = Object.keys(GEAR).filter((k) => !GEAR[k].unique && GEAR[k].price > 0 && GEAR[k].price <= 160 && !S.owned.includes(k));
@@ -3997,7 +4075,7 @@ function openSail(npc) {
   d.innerHTML = '<h3></h3><p></p><div class="row"></div>';
   d.querySelector('h3').textContent = npc.name; d.querySelector('p').textContent = text;
   const row = d.querySelector('.row');
-  for (const to of dests) { const go = document.createElement('button'); go.className = 'primary'; go.textContent = to === 'out' ? 'Sail home' : `Sail to ${LANDS[to].name}`; go.onclick = () => { closeDialog(); sailTo(to); }; row.appendChild(go); }
+  for (const to of dests) { const go = document.createElement('button'); go.className = 'primary'; go.textContent = to === 'out' ? 'Sail home' : LANDS[to].optional ? `Sail to ${LANDS[to].name} (Lv 55+ monsters!)` : `Sail to ${LANDS[to].name}`; go.onclick = () => { closeDialog(); sailTo(to); }; row.appendChild(go); }
   const no = document.createElement('button'); no.textContent = 'Not yet'; no.onclick = closeDialog; row.appendChild(no);
   showDialog(d, { talky: true });
   npc.actor.face(player.pos.x, player.pos.z);
@@ -4270,7 +4348,7 @@ const SPELLS = {
   tidal: { name: 'Tidal Wave', r: 3, cd: 20, price: 30000, sold: 'marsh', col: '#3ab0ff', desc: 'Summons a huge wave that rolls forward, smashing and knocking back everything in its path.', dmg: 22 },
   shadow: { name: 'Shadow Wave', r: 4, cd: 28, price: 150000, sold: 'sands', col: '#8a3aff', desc: 'Two rings of living shadow burst out around you, hurting and dazing every foe they touch.', dmg: 36 },
 };
-const SPELL_LAND = { out: ['zap', 'heal', 'scorch'], frost: ['gust', 'bigheal'], marsh: ['tidal', 'breath'], sands: ['shadow'] };
+const SPELL_LAND = { out: ['zap', 'heal', 'scorch'], frost: ['gust', 'bigheal'], marsh: ['tidal', 'breath'], sands: ['shadow'], magma: ['breath', 'shadow', 'tidal'] };
 const spellCd = {};
 const spellsOwned = () => (S.spells = S.spells || {});
 const spellIcon = (k) => ICONS[`spell_${k}`] || (SPELLS[k] && ICONS[`spell_${SPELLS[k].icon}`]) || ICONS.star;
@@ -4500,7 +4578,7 @@ const SPELL_FX = {
 };
 // spells now and then fall from bosses: the land decides which
 function spellDrop(e) {
-  const land = ['frost', 'marsh', 'sands'].includes(e.inside) ? e.inside : 'out';
+  const land = ['frost', 'marsh', 'sands', 'magma'].includes(e.inside) ? e.inside : 'out';
   const pool = SPELL_LAND[land].filter((k) => !spellsOwned()[k]);
   if (!pool.length || rng() > 0.08) return;
   const k = pool[Math.floor(rng() * pool.length)];
@@ -6995,7 +7073,9 @@ function bakeMap() {
   rt.texture.colorSpace = THREE.SRGBColorSpace;
   const fog = scene.fog; scene.fog = null;
   const hidden = [...clouds, ...enemies.map((e) => e.root), ...npcs.map((n) => n.actor.root)];
-  hidden.forEach((o) => { o.userData.wasVis = o.visible; o.visible = false; });
+  // v68 fix: remember the game's own show/hide (_vis), not the far-away culling, or every monster in another
+  // land came back from the map photo permanently invisible
+  hidden.forEach((o) => { o.userData.wasVis = '_vis' in o ? o._vis : o.visible; o.visible = false; });
   renderer.setRenderTarget(rt); renderer.render(scene, cam); renderer.setRenderTarget(null);
   hidden.forEach((o) => { o.visible = o.userData.wasVis; });
   scene.fog = fog; sky.visible = oldSky;
@@ -7218,6 +7298,7 @@ function dayTick(dt, force) {
   const indoors = where !== 'out' && !LANDS[where];
   let a = 'day', b = 'day', k = 0;
   if (indoors) { a = b = 'day'; }
+  else if (where === 'magma') { a = b = 'magma'; } // the caverns are always lit by lava, never by the sun
   else if (mode !== 'cycle') { a = b = mode; }
   else {
     const t = S.dayT || 0;
@@ -7244,10 +7325,10 @@ function dayTick(dt, force) {
 // The valley, the frost land and the rooms are far apart, so only the one the hero is in
 // gets drawn or updated at all. The others are skipped wholesale each frame.
 const regions = {};
-const regionOfX = (x) => (x > 2500 ? 'sands' : x > 1600 ? 'marsh' : x > 700 ? 'frost' : x > 230 ? 'rooms' : 'valley');
+const regionOfX = (x) => (x > 3500 ? 'magma' : x > 2500 ? 'sands' : x > 1600 ? 'marsh' : x > 700 ? 'frost' : x > 230 ? 'rooms' : 'valley');
 function groupRegions(objs) {
   const box = new THREE.Box3(), c = new THREE.Vector3();
-  for (const k of ['valley', 'rooms', 'frost', 'marsh', 'sands']) { regions[k] = new THREE.Group(); regions[k].name = 'region_' + k; scene.add(regions[k]); }
+  for (const k of ['valley', 'rooms', 'frost', 'marsh', 'sands', 'magma']) { regions[k] = new THREE.Group(); regions[k].name = 'region_' + k; scene.add(regions[k]); }
   for (const o of objs) {
     box.setFromObject(o); if (box.isEmpty()) c.copy(o.position); else box.getCenter(c);
     regions[regionOfX(c.x)].attach(o);
@@ -7524,7 +7605,7 @@ function tick() {
   for (const [i, c] of dynamic.crystals.entries()) { c.position.y = 2.4 + Math.sin(now * 1.6 + i) * 0.4; c.rotation.y = now * 0.8 + i; }
   if (player) { player.mixer.update(dt); headPose(player); faceTick(player); }
   for (const n of npcs) npcLife(n, dt);
-  crewTick(dt); crewTags(); heroTag(); peersTick(dt); partyTick(); emoteTick(); bossShoutTick(); townTick(); letterTick(); if (snowFx) { snowFx.visible = where === 'frost'; if (snowFx.visible && player) snowFx.userData.tick(dt, player.pos.x, player.pos.z); } if (now > 45 && !document.body.classList.contains('nohint')) document.body.classList.add('nohint'); occluderTick(dt);
+  crewTick(dt); crewTags(); heroTag(); peersTick(dt); partyTick(); emoteTick(); bossShoutTick(); townTick(); letterTick(); if (snowFx) { snowFx.visible = where === 'frost'; if (snowFx.visible && player) snowFx.userData.tick(dt, player.pos.x, player.pos.z); } if (emberFx) { emberFx.visible = where === 'magma'; if (emberFx.visible && player) { emberFx.userData.tick(dt, player.pos.x, player.pos.z); magmaTick(dt); } } if (now > 45 && !document.body.classList.contains('nohint')) document.body.classList.add('nohint'); occluderTick(dt);
   guideTick(); chargeTick(); musicTick();
   if (now > shimAt) { shimAt = now + 0.1; shimmerTick(player, cosState().eq); }
 
@@ -7911,7 +7992,7 @@ function musicTick() {
   const boss = player && enemies.some((e) => e.T.boss && e.inside === where && e.hp > 0 && (e.state === 'chase' || e.state === 'slam') && Math.hypot(e.pos.x - player.pos.x, e.pos.z - player.pos.z) < 32);
   if (boss) playMusic('boss');
   else if (where === 'cave') playMusic('cave');
-  else if (LANDS[where]) playMusic(where === 'marsh' || where === 'sands' ? where : 'frost');
+  else if (LANDS[where]) playMusic(where === 'magma' ? 'cave' : where === 'marsh' || where === 'sands' ? where : 'frost');
   else if (where !== 'out' || (player && Math.hypot(player.pos.x, player.pos.z) < 50) || (player && Math.hypot(player.pos.x - 4, player.pos.z + 64) < 28)) playMusic('village');
   else playMusic('field');
 }
@@ -8996,10 +9077,10 @@ const COS = {
 };
 for (const [id, c] of Object.entries(COS.outfit)) c.id = id;
 // how cosmetics drop: monsters rarely, bosses often. Better lands roll better rarities.
-const COS_ODDS = { out: [70, 24, 5, 1, 0, 0], frost: [50, 32, 13, 4.5, 0.5, 0], marsh: [35, 33, 20, 10, 1.8, 0.2], sands: [22, 30, 25, 17, 5.2, 0.8] };
+const COS_ODDS = { magma: [8, 20, 30, 27, 12, 3], out: [70, 24, 5, 1, 0, 0], frost: [50, 32, 13, 4.5, 0.5, 0], marsh: [35, 33, 20, 10, 1.8, 0.2], sands: [22, 30, 25, 17, 5.2, 0.8] };
 function cosDrop(e, at, boss) {
-  const land = ['frost', 'marsh', 'sands'].includes(e.inside) ? e.inside : 'out';
-  if (rng() > (boss ? 0.3 : e.temp ? 0.001 : 0.006)) return;
+  const land = ['frost', 'marsh', 'sands', 'magma'].includes(e.inside) ? e.inside : 'out';
+  if (rng() > (boss ? 0.3 : e.temp ? 0.001 : land === 'magma' ? (e.T.dragon ? 0.12 : 0.02) : 0.006)) return;
   const odds = COS_ODDS[land].slice(); if (boss) { odds[0] *= 0.4; odds[3] *= 1.6; odds[4] *= 2; odds[5] *= 2; }
   let roll = rng() * odds.reduce((a, b) => a + b, 0), r = 0;
   while (r < 5 && roll > odds[r]) { roll -= odds[r]; r++; }

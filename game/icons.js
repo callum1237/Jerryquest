@@ -182,6 +182,22 @@ export const ICONS = {
     g.save(); g.lineWidth = 3; g.beginPath(); g.moveTo(-32, -6); g.lineTo(32, -6); g.moveTo(-8, -22); g.lineTo(-12, -6); g.lineTo(0, 30); g.lineTo(12, -6); g.lineTo(8, -22); g.stroke(); g.restore();
     shine(g, -14, -14, 5);
   }),
+  magma_shard: make((g) => {
+    shape(g, '#ff7a2a', () => { g.moveTo(0, -32); g.lineTo(16, -6); g.lineTo(8, 30); g.lineTo(-10, 28); g.lineTo(-18, -4); g.closePath(); });
+    shape(g, '#ffd05a', () => { g.moveTo(0, -18); g.lineTo(7, -2); g.lineTo(2, 16); g.lineTo(-6, 0); g.closePath(); });
+    shine(g, -6, -12, 3);
+  }),
+  obsidian_skull: make((g) => {
+    shape(g, '#3a2e44', () => { g.moveTo(-26, -2); g.quadraticCurveTo(-26, -32, 0, -32); g.quadraticCurveTo(26, -32, 26, -2); g.lineTo(18, 12); g.lineTo(18, 26); g.lineTo(-18, 26); g.lineTo(-18, 12); g.closePath(); });
+    for (const x of [-10, 10]) shape(g, '#ff7a2a', () => g.ellipse(x, -4, 7, 8, 0, 0, 7));
+    shape(g, '#1e1826', () => { g.moveTo(-3, 8); g.lineTo(3, 8); g.lineTo(0, 14); g.closePath(); });
+    shine(g, -14, -20, 4);
+  }),
+  dragon_heart: make((g) => {
+    shape(g, '#d8203a', () => { g.moveTo(0, 30); g.bezierCurveTo(-40, 4, -26, -30, 0, -14); g.bezierCurveTo(26, -30, 40, 4, 0, 30); g.closePath(); });
+    shape(g, '#ffb03a', () => { g.moveTo(0, 18); g.quadraticCurveTo(-12, 4, -2, -10); g.quadraticCurveTo(0, 0, 6, -6); g.quadraticCurveTo(12, 6, 0, 18); g.closePath(); });
+    shine(g, -14, -12, 4);
+  }),
   golden_crown: make((g) => {
     shape(g, '#ffd84a', () => { g.moveTo(-30, 22); g.lineTo(-32, -18); g.lineTo(-16, 0); g.lineTo(0, -26); g.lineTo(16, 0); g.lineTo(32, -18); g.lineTo(30, 22); g.closePath(); });
     for (const [x, c] of [[-16, '#ff5a6a'], [0, '#5fb3e6'], [16, '#66c46a']]) shape(g, c, () => g.arc(x, 12, 5, 0, 7));

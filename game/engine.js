@@ -41,6 +41,13 @@ export const PRESETS = {
     hemiSky: '#9aaaf0', hemiGround: '#46506e', hemiI: 1.15,
     rim: '#a8c4ff', rimI: 0.7, motes: 1.4, fire: 1.3, night: 1,
   },
+  // v68: Magma Caverns. A smoky red cave lit from below by lava: warm and moody, but never murky
+  magma: {
+    top: '#1e1418', horizon: '#6a2a20', fog: '#3a2224',
+    sun: '#ffe2cc', sunI: 2.1, sunDir: [18, 52, 14],
+    hemiSky: '#d8c4c8', hemiGround: '#3a2a2a', hemiI: 1.1,
+    rim: '#ff9a5a', rimI: 0.55, motes: 0, fire: 1.4,
+  },
 };
 const rimUniform = { value: new THREE.Color(PRESETS.day.rim) };
 const rimStrength = { value: PRESETS.day.rimI };
